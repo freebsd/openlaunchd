@@ -77,14 +77,14 @@ static void do_shutdown(void);
 
 static void listen_callback(void *, struct kevent *);
 static void signal_callback(void *, struct kevent *);
-static void fs_callback(void *, struct kevent *);
+static void fs_callback(void);
 static void simple_zombie_reaper(void *, struct kevent *);
 static void mach_callback(void *, struct kevent *);
 static void readcfg_callback(void *, struct kevent *);
 
 static kq_callback kqlisten_callback = listen_callback;
 static kq_callback kqsignal_callback = signal_callback;
-static kq_callback kqfs_callback = fs_callback;
+static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqmach_callback = mach_callback;
 static kq_callback kqreadcfg_callback = readcfg_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
@@ -205,28 +205,11 @@ int main(int argc, char *argv[])
 	reload_launchd_config();
 
 	for (;;) {
-		if (pending_stdout) {
-			int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
-			if (fd != -1) {
-				dup2(fd, STDOUT_FILENO);
-				close(fd);
-				free(pending_stdout);
-				pending_stdout = NULL;
-			}
-		}
-		if (pending_stderr) {
-			int fd = open(pending_stderr, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
-			if (fd != -1) {
-				dup2(fd, STDERR_FILENO);
-				close(fd);
-				free(pending_stderr);
-				pending_stderr = NULL;
-			}
-		}
+		/* <rdar://problem/3946331> "mount -uw /" doesn't cause kqueue EVFILT_FS to fire */
+		fs_callback();
+
 		if (getpid() == 1 && readcfg_pid == 0)
 			init_pre_kevent();
-		if (thesocket == -1)
-			launchd_server_init();
 
 		switch (kevent(mainkq, NULL, 0, &kev, 1, (TAILQ_EMPTY(&jobs) && getpid() != 1) ? &timeout : NULL)) {
 		case -1:
@@ -1348,8 +1331,29 @@ static void update_lm(void)
 		syslog(LOG_NOTICE, "%s logging %s", lstr, e_vs_d);
 }
 
-static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
+static void fs_callback(void)
 {
+	if (pending_stdout) {
+		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
+		if (fd != -1) {
+			dup2(fd, STDOUT_FILENO);
+			close(fd);
+			free(pending_stdout);
+			pending_stdout = NULL;
+		}
+	}
+	if (pending_stderr) {
+		int fd = open(pending_stderr, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
+		if (fd != -1) {
+			dup2(fd, STDERR_FILENO);
+			close(fd);
+			free(pending_stderr);
+			pending_stderr = NULL;
+		}
+	}
+
+	if (thesocket == -1)
+		launchd_server_init();
 }
 
 static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
