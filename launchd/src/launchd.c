@@ -70,7 +70,7 @@ struct jobcb {
 	size_t qdirs_cnt;
 	unsigned int start_interval;
 	struct tm *start_cal_interval;
-	unsigned int checkedin:1, firstborn:1, debug:1, futureflags:29;
+	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, futureflags:28;
 	char label[0];
 };
 
@@ -1314,6 +1314,8 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 
 static void job_reap(struct jobcb *j)
 {
+	bool od = job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
+	time_t td = time(NULL) - j->start_time;
 	bool bad_exit = false;
 	int status;
 
@@ -1341,27 +1343,69 @@ static void job_reap(struct jobcb *j)
 
 	if (WIFSIGNALED(status)) {
 		int s = WTERMSIG(status);
-		if (s != SIGKILL && s != SIGTERM) {
-			job_log(j, LOG_WARNING, "exited abnormally: %s", strsignal(WTERMSIG(status)));
+		if (SIGKILL == s || SIGTERM == s) {
+			job_log(j, LOG_NOTICE, "exited: %s", strsignal(s));
+		} else {
+			job_log(j, LOG_WARNING, "exited abnormally: %s", strsignal(s));
 			bad_exit = true;
+		}
+	}
+
+	if (!od) {
+		if (td < LAUNCHD_MIN_JOB_RUN_TIME) {
+			job_log(j, LOG_WARNING, "respawning too quickly! throttling");
+			bad_exit = true;
+			j->throttle = true;
+		} else if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
+			job_log(j, LOG_INFO, "lived long enough, forgiving past exit failures");
+			j->failed_exits = 0;
 		}
 	}
 
 	if (bad_exit)
 		j->failed_exits++;
-	else
-		j->failed_exits = 0;
+
+	if (j->failed_exits > 0) {
+		int failures_left = LAUNCHD_FAILED_EXITS_THRESHOLD - j->failed_exits;
+		if (failures_left)
+			job_log(j, LOG_WARNING, "%d more failure%s without living at least %d seconds will cause job removal",
+					failures_left, failures_left > 1 ? "s" : "", LAUNCHD_REWARD_JOB_RUN_TIME);
+	}
 
 	total_children--;
 	j->p = 0;
 	j->checkedin = false;
 }
 
+static bool job_restart_fitness_test(struct jobcb *j)
+{
+	bool od = job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
+
+	if (j->firstborn) {
+		job_log(j, LOG_DEBUG, "first born died, begin shutdown");
+		do_shutdown();
+		return false;
+	} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !j->checkedin) {
+		job_log(j, LOG_WARNING, "failed to checkin");
+		job_remove(j);
+		return false;
+	} else if (od || shutdown_in_progress) {
+		if (!od && shutdown_in_progress)
+			job_log(j, LOG_NOTICE, "exited while shutdown is in progress, will not restart unless demand requires it");
+		job_watch(j);
+		return false;
+	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
+		job_log(j, LOG_WARNING, "too many failures in a row for a job that should be alive all the time");
+		job_remove(j);
+		return false;
+	}
+
+	return true;
+}
+
 static void job_callback(void *obj, struct kevent *kev)
 {
 	struct jobcb *j = obj;
-	time_t td, now;
-	bool checkin_check = j->checkedin;
 	bool d = j->debug;
 	bool startnow = true;
 	int oldmask = 0;
@@ -1374,38 +1418,13 @@ static void job_callback(void *obj, struct kevent *kev)
 	if (kev->filter == EVFILT_PROC) {
 		job_reap(j);
 
-		now = time(NULL);
-		td = now - j->start_time;
+		startnow = job_restart_fitness_test(j);
 
-		if (j->firstborn) {
-			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
-			do_shutdown();
-			startnow = false;
-		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
-			job_log(j, LOG_WARNING, "failed to checkin");
-			job_remove(j);
-			j = NULL;
-			startnow = false;
-		} else if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
-			job_log(j, LOG_WARNING, "too many failures in a row");
-			job_remove(j);
-			j = NULL;
-			startnow = false;
-		} else if (shutdown_in_progress || job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
-			job_watch(j);
-			startnow = false;
-		} else if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
-			/* If the job lived long enough, let's reward it.
-			 * This lets infrequent bugs not cause the job to be removed. */
-			job_log(j, LOG_DEBUG, "lived longer than %d seconds, rewarding", LAUNCHD_REWARD_JOB_RUN_TIME);
-			j->failed_exits = 0;
-		} else if (j->failed_exits > 0) {
-			/* Only punish short daemon life if the last exit was "bad." */
-			job_log(j, LOG_WARNING, "respawning too quickly! will restart in %ld seconds",
-					LAUNCHD_MIN_JOB_RUN_TIME - td);
+		if (startnow && j->throttle) {
+			j->throttle = false;
+			job_log(j, LOG_WARNING, "will restart in %d seconds", LAUNCHD_MIN_JOB_RUN_TIME);
 			if (-1 == kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
-						NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME - td,
-						&j->kqjob_callback)) {
+						NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME, &j->kqjob_callback)) {
 				job_log_error(j, LOG_WARNING, "failed to setup timer callback!, starting now!");
 			} else {
 				startnow = false;
@@ -1465,15 +1484,15 @@ static void job_callback(void *obj, struct kevent *kev)
 			close(j->execfd);
 			j->execfd = 0;
 		}
+		startnow = false;
 	}
 
 	if (startnow)
 		job_start(j);
 
 	if (d) {
-		/* the job might have been removed */
-		if (j)
-			job_log(j, LOG_DEBUG, "restoring original log mask");
+		/* the job might have been removed, must not call job_log() */
+		syslog(LOG_DEBUG, "restoring original log mask");
 		setlogmask(oldmask);
 	}
 }
@@ -1486,7 +1505,7 @@ static void job_start(struct jobcb *j)
 	char nbuf[64];
 	pid_t c;
 
-	job_log(j, LOG_DEBUG, "starting");
+	job_log(j, LOG_DEBUG, "Starting");
 
 	if (j->p) {
 		job_log(j, LOG_DEBUG, "already running");
