@@ -29,17 +29,24 @@ for option; do
     esac;
 done;
 
-function fsck_slash {
-	if [ "${NetBoot}" = "-N" ] ; then
-		echo "Initializing NetBoot"
-		if ! sh /etc/rc.netboot start ; then
-			echo NetBoot initialization failed, shut down in 10 seconds...
-			sleep 10
-			echo Shutting down.
-			halt
-		fi
-	fi
+if [ -d /System/Installation -a -f /etc/rc.cdrom ]; then
+	/etc/rc.cdrom multiuser
+	# We shouldn't get here; CDIS should reboot the machine when done
+	echo "CD-ROM boot procedure complete"
+	halt
+fi
 
+if [ "${NetBoot}" = "-N" ] ; then
+	echo "Initializing NetBoot"
+	if ! sh /etc/rc.netboot start ; then
+		echo NetBoot initialization failed, shut down in 10 seconds...
+		sleep 10
+		halt
+	fi
+fi
+
+
+if [ "${FsckSlash}" = "-F" ]; then
 	# Benignly clean up ("preen") any dirty filesystems. 
 	# fsck -p will skip disks which were properly unmounted during
 	# a normal shutdown.
@@ -49,22 +56,9 @@ function fsck_slash {
 	else
 		fsck -p || fsck -fy || halt
 	fi
-}
-
-if [ -d /System/Installation -a -f /etc/rc.cdrom ]; then
-	/etc/rc.cdrom multiuser
-	# We shouldn't get here; CDIS should reboot the machine when done
-	echo "CD-ROM boot procedure complete"
-	halt
 fi
 
-if [ "${FsckSlash}" = "-F" ]; then
-	fsck_slash
-fi
-
-# Mount essential local filesystems (according to /etc/fstab).
 echo "Mounting local filesystems"
-
 mount -uw /
 mount_fdesc -o union fdesc /dev
 mkdir -p -m 0555 /.vol
@@ -315,6 +309,16 @@ if [ "${RPCSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
 	[ "${NFSLOCKS:=-AUTOMATIC-}" = "-YES-" ] && RPCSERVER=-YES-
 	[ "${NETINFOSERVER:=-NO-}" = "-YES-" ] && RPCSERVER=-YES-
 	[ "${NISDOMAIN:=-NO-}" != "-NO-" ] && RPCSERVER=-YES-
+
+	# nibindd is required if there are NetInfo domains other than "local", or
+	# if the local domain has any non-loopback values for "trusted_networks".
+	if [ "${NETINFOSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
+		NETINFOSERVER=-YES-
+		total=$(($ni_not_local + $ni_local_export))
+		if [ "${total}" -eq 0 ]; then
+			NETINFOSERVER=-NO-
+		fi
+	fi
 fi
 
 if [ "${RPCSERVER}" = "-YES-" ]; then
@@ -330,18 +334,6 @@ if [ ! -d /var/db/netinfo/local.nidb ]; then
 	mkdir -p /var/db/netinfo
 	/usr/libexec/create_nidb
 	rm -f /var/db/.AppleSetupDone
-fi
-
-# nibindd is required if there are NetInfo domains other than "local", or
-# if the local domain has any non-loopback values for "trusted_networks".
-if [ "${NETINFOSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
-	NETINFOSERVER=-YES-
-	ni_not_local=$(/bin/ls -1d /var/db/netinfo/*.nidb | sed 's:/var/db/netinfo/local.nidb::' | wc -w)
-	ni_local_export=$(nicl -raw /var/db/netinfo/local.nidb -read / trusted_networks 2>&1 | sed 's/trusted_networks://' | sed 's/127[^ ]*//g' | wc -w)
-	total=$(($ni_not_local + $ni_local_export))
-	if [ "${total}" -eq 0 ]; then
-		NETINFOSERVER=-NO-
-	fi
 fi
 
 # If nibindd is not required, we just start the local NetInfo daemon.
