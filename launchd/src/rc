@@ -73,7 +73,7 @@ fi
 
 echo "Resetting files and devices"
 
-RMRF_ITEMS="/mach.sym /var/tmp/folders"
+RMRF_ITEMS="/mach.sym /var/tmp/folders.*"
 ##
 # Attempt to recover the passwd file, if needed.  This procedure is
 # primarily historical and makes sense only when the passwd file is edited
