@@ -31,8 +31,6 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 
 wait4path_SOURCES = wait4path.c
 
-liblaunch_a_CFLAGS = -arch ppc64
-
 liblaunch_a_SOURCES = liblaunch.c
 
 launchdebugd_SOURCES = launchdebugd.c

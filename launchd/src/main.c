@@ -132,7 +132,7 @@ int main (int argc, char *argv[])
         if (argc >= 2)
 	  aService = CFStringCreateWithCString(kCFAllocatorDefault, argv[1], kCFStringEncodingUTF8);
 
-	if (aService == NULL)
+	if (aService == NULL && !gDebugFlag)
 		daemon(0, 0);
 
 	aStatus = system_starter(anAction, aService);
