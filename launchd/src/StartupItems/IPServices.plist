@@ -1,0 +1,6 @@
+{
+  Description     = "Internet services";
+  Provides        = ("Super Server", "Config Server");
+  Uses            = ("mDNSResponder", "Portmap", "NetworkExtensions");
+  OrderPreference = "None";
+}

@@ -1,0 +1,6 @@
+{
+  Description     = "Network extensions";
+  Provides        = ("NetworkExtensions");
+  Requires        = ("Network");
+  OrderPreference = "None";
+}

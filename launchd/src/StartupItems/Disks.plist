@@ -1,0 +1,7 @@
+{
+  Description     = "local disks";
+  Provides        = ("Disks");
+  Uses            = ("System Tuning");
+  Requires        = ("SecurityServer");
+  OrderPreference = "Early";
+}

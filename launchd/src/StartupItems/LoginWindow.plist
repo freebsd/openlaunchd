@@ -1,0 +1,6 @@
+{
+  Description     = "login window";
+  Provides        = ("Multiuser Login Prompt");
+  Requires        = ("Disks", "Core Graphics", "SecurityServer");
+  OrderPreference = "Early";
+}

@@ -1,0 +1,37 @@
+#!/bin/sh
+
+##
+# cron
+##
+
+. /etc/rc.common
+
+StartService ()
+{
+    if ! pid=$(GetPID cron); then
+        ConsoleMessage "Starting timed execution services"
+        cron
+    fi
+}
+
+StopService ()
+{
+    if pid=$(GetPID cron); then
+        ConsoleMessage "Stopping timed execution services"
+        kill -TERM "${pid}"
+    else
+        echo "cron is not running."
+    fi
+}
+
+RestartService ()
+{
+    if pid=$(GetPID cron); then
+        ConsoleMessage "Restarting timed execution services"
+        kill -HUP "${pid}"
+    else
+        StartService
+    fi
+}
+
+RunService "$1"

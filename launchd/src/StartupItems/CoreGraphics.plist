@@ -1,0 +1,6 @@
+{
+  Description     = "Core Graphics Display Server";
+  Requires        = ("System Tuning");
+  Provides        = ("Display Server", "Core Graphics", "Apple Type Services");
+  OrderPreference = "First";
+}

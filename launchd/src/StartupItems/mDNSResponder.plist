@@ -1,0 +1,6 @@
+{
+  Description     = "Multi-cast DNS Responder";
+  Provides        = ("mDNSResponder");
+  Requires        = ("Network");
+  OrderPreference = "None";
+}

@@ -1,0 +1,6 @@
+{
+  Description     = "network configuration";
+  Provides        = ("Network Configuration");
+  Uses            = ("System Tuning");
+  OrderPreference = "First";
+}

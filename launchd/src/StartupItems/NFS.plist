@@ -1,0 +1,7 @@
+{
+  Description     = "network file system";
+  Provides        = ("NFS");
+  Requires        = ("Portmap", "DirectoryServices");
+  Uses            = ("Disks");
+  OrderPreference = "None";
+}

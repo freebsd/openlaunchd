@@ -1,0 +1,6 @@
+{
+  Description     = "Directory Services";
+  Provides        = ("DirectoryServices", "Resolver");
+  Requires        = ("NetInfo", "NIS");
+  OrderPreference = "None";
+}

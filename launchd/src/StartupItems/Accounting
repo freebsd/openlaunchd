@@ -1,0 +1,25 @@
+#!/bin/sh
+
+##
+# System accounting
+##
+
+. /etc/rc.common
+
+StartService ()
+{
+    if [ -f /var/account/acct ]; then
+	ConsoleMessage "Starting accounting"
+	accton /var/account/acct
+    fi
+}
+
+StopService ()
+{
+    ConsoleMessage "Stopping accounting"
+    accton
+}
+
+RestartService () { StopService; StartService; }
+
+RunService "$1"

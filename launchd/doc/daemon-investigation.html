@@ -1,0 +1,201 @@
+<html>
+<body>
+	<h1>Dave Zarzycki's incomplete brain dump on system startup, mobility and merging similar daemons in to "the anti-kernel"</h1>
+	<p>Mobility and performance are hot topic at Apple. Both mean many things to many people. Both ideas can be related at some level. I believe the important undercurrent of ideas is as follows:
+	<ul>
+		<li>Detect and cope with the world changing around you. (Mobility)</li>
+		<li>Be lazy. "Why do today what you can put off till tomorrow." (Mobility and Performance)</li>
+		<li>Use less resources (a side effect of being lazy) (Performance)</li>
+		<li>...???...</li>
+	</ul>
+	The master tracking bug I filed for these issues is 3190635.
+	</p>
+	<hr>
+	<p>So as the owner of SystemStarter and as a natural consequence, responsibility for the care and feeding of our boot up proceedure, what do I see the problems and solutions as?</p>
+	<p><b>First and foremost,</b> we must switch from a boot-up model where loginwindow launches "as soon as everybody should be able to login" to where loginwindow launches "as soon as anybody can login." Ideally, this is as soon as the boot volume becomes mounted read/write. This requires changes between loginwindow and it's dependencies.
+	<ol>
+		<li>loginwindow needs to register for a call back for when "directory" infrastructure changes, comes or goes. This will partially decouple loginwindow from needing "the network" to be up before launching. See 3101359.</li>
+		<li>The other half will involve cooperation from the file system team and loginwindow. Before logging in a user, loginwindow will need to verify that the user's home directory is mounted/mountable, and if not, let the user know that they cannot finish logging in until a disk is done being fscked or an NFS server/export comes online.</li>
+	</ol>
+	</p>
+	<p>So the user-land boot-up model that we should be moving towards looks something like this:
+	<ol>
+		<li>Run the anti-kernel</li>
+		<li>get the disk fscked and mounted read/write</li>
+		<li>Register all services (lazy or not) with the anti-kernel</li>
+		<li>Launch the WindowServer and loginwindow</li>
+		<li>Launch non servicy startup-items and other "at boot" items (if any) in the background</li>
+	</ol>
+	</p>
+	<hr>
+	<p><b>So what is this anti-kernel?</b> At the end of this web page is a huge table of nearly all of the daemons on our system. I tried to summarize their mobility/lazy launch situation. What you'll see if you look closely at many of the daemons is that they support or could easily support launching lazily/on-demand. Each does it different daemons due to the different mechanisms that they use.
+	<ul>
+		<li>Mach based services use mach_init.</li>
+		<li>gettys use init(8).</li>
+		<li>TCP/UDP based services use [x]inetd.</li>
+		<li>Some services launch out of cron.</li>
+		<li>A mach_init/xinetd for IOKit devices is sorely needed after looking at many daemons at Apple.</li>
+		<li>AF_UNIX domain socket based services currently lack something like mach_init/xinetd for lazy launching of them.</li>
+	</ul>
+	What has become really obvious to me is that init, mach_init, xinetd, cron, atd, configd, kextd, SystemStarter, watchdog and friends are very similar. They are top level daemons that take specific kinds of events and then schedule code or commands to run based on limted events/rules. I think a unifed tool/daemon is begging to be born. The anti-kernel I envision will be expected to source just about every event possible coming out of the kernel and provide a language for scheduling/triggering commands/jobs to run when a condition is satisfied. So for example, cron functionality could be used in combination with changing my configuration with configd style functionality. Or tools that listen on multiple event sources like mDNSResponder (mach and TCP/IP) can finally be launched lazily from what daemon. If this daemon is well written it could be used by users to lazily launch programs like the ssh-agent, SecurityAgent or iChatAgent.app. It could also schedule iCal to launch at certain times while the user is logged in. There are plenty of other examples where this could be useful to the user in addition to the system itself.</p>
+	<p>At the very least, I think Apple should experiment with what this kind of daemon might allow for us to do.</p>
+	<hr>
+	<p>Interesting mobility/laziness support bugs are as follows:
+	<ul>
+		<li>3101359 notify automounter that search policy changed</li>
+		<li>3173430 systemstarter support for bootstrap_create_server</li>
+		<li>3190357 Loginwindow should run a tool to register mach bootstrap services in the sub namespace</li>
+		<li>...more to come...</li>
+	</ul>
+	</p>
+	<p>Interesting "be lazy" bugs are as follows:
+	<ul>
+		<li>2573924 The afp server should run out of xinetd (at least on Mac OS X client)</li>
+		<li>3186400 The cupsd server should run out of xinetd</li>
+		<li>3186570 slapd should run out of xinetd</li>
+		<li>3187905 coreservicesd should install this mach_init related plist file to launch at boot lazily</li>
+		<li>3187906 distnoted should install this mach_init related plist file to launch at boot lazily</li>
+		<li>3187912 fix_prebinding should install this mach_init related plist file to launch at boot lazily</li>
+		<li>3189625 DirectoryService should install this mach_init related plist file to launch at boot lazily</li>
+		<li>3190281 lookupd should install this mach_init related plist file to launch at boot lazily</li>
+		<li>3190356 URLMount should install this mach_init related plist file to launch at login lazily</li>
+		<li>3190596 ATSServer should install this mach_init related plist file to launch at boot lazily</li>
+		<li>...more to come...</li>
+	</ul>
+	</p>
+
+<h1>The anti-kernel per daemon investigation:</h1>
+<p>(We should start tracking mobility bugs against specific daemons and tools too.)</p>
+
+<table width='100%' border=1>
+<tr><td colspan=3><h2>System Wide Services</h2></td></tr>
+<tr><td><b>Daemon:</b></td><td><b>Short summary:</b></td><td><b>The big picture summary:</b></td></tr>
+<tr><td>ATSServer</td><td>The font server (xfs for Unix heads)</td><td>This could be launched lazily via mach_init.</td></tr>
+<tr><td>DirectoryService</td><td>lookupd rewritten</td><td>This could be launched lazily via mach_init.</td></tr>
+<tr><td>SecurityServer</td><td>Trusted half of the security framework</td><td>This could be launched lazily via mach_init, but currently today, they manage /dev/random entropy, which is a layering violation.</td></tr>
+<tr><td>AppleFileServer</td><td>AFP server</td><td>This could be launched lazily via xinetd, some changes to xinetd would be needed, but nothing major.</td></tr>
+<tr><td>SharedIP</td><td>kext to share an IP with Classic</td><td>This is loaded at boot today. The kernel should request this get loaded on demand when somebody (Classic) requests an PF_NDRV socket.</td></tr>
+<tr><td>IPFirewall</td><td>ipfw support code</td><td>If we're always going to load it, why not compile it in? (it was more work to take it out of the kernel...)</td></tr>
+<tr><td>OpenAFS</td><td>AFS Servers</td><td>This needs more investigation, but in the short to mid term, this is probably best left as a startup item. There is little to be gained by making this lauch lazily.</td></tr>
+<tr><td>OpenLDAP</td><td>LDAP servers</td><td>This could run out of xinetd.</td></tr>
+<tr><td>SystemStarter</td><td>runs startup items</td><td>SystemStarter does too much today. Once loginwindow gets mobility aware, SystemStarter can get out of the GUI business. Once more services lauch themselves lazily via various mechanisms like mach_init or xinetd, SystemStarter will slowly get off the critical path for boot-up. This kind of functionality should be merged in to the anti-kernel.</td></tr>
+<tr><td>amd</td><td>am-utils automounter</td><td>This needs more investigation, but in the short to mid term, this is probably best left as a startup item. There is little to be gained by making this lauch lazily.</td></tr>
+<tr><td>atd</td><td>batch job scheduler</td><td>This should be merged with cron, init, mach_init and friends to form the super-job schedular.</td></tr>
+<tr><td>cron</td><td>periodic job scheduler</td><td>This should be merged with atd, init, mach_init and friends to form the super-job schedular.</td></tr>
+<tr><td>init</td><td>reaps processes and launches ttys</td><td>This should be merged with cron, atd, mach_init and friends to form the super-job schedular.</td></tr>
+<tr><td>mach_init</td><td>mananges the Mach bootstrap namespace</td><td>In addition to managing the Mach bootstrap name space, it launches mach based services lazily like [x]inetd. This should be merged with cron, atd, init and friends to form the super-job schedular.</td></tr>
+<tr><td>autodiskmount</td><td>Finds, fscks and mounts disks</td><td>This could be launched via mach_init (not lazily until we have a device based trigger mechanism that should evolve in the anti-kernel).</rd></tr>
+<tr><td>automount</td><td>Apple's NFS automounter</td><td>This needs more investigation, but in the short to mid term, this is probably best left as a startup item. There is little to be gained by making this lauch lazily.</td></tr>
+<tr><td>configd</td><td>All things config</td><td>Historically called ipconfigd, these days it manages other configuration details than just networking. This is arguably one of the more modern daemons in the system, and the closest thing we have to the "anti-kernel" in the system. But I believe it is fair to say that configd wasn't designed with becoming the anti-kernel goal in mind.</td></tr>
+<tr><td>blued</td><td>Bluetooth</td><td>The bluetooth daemon wants is just the start of various to come that want to be launched on demand when hardware shows up. Today, blued launches on demand, but never exits after the hardware goes away. Anecdotal evidence suggests that the daemon is automatically launched after a reboot if a bluetooth device was ever attached.</td></tr>
+<tr><td>bootparamd</td><td>boot paramater server</td><td>This should run out of xinetd.</td></tr>
+<tr><td>bootpd</td><td>bootpd</td><td>This should run out of xinetd.</td></tr>
+<tr><td>coreservicesd</td><td>Remote AppleEvent server</td><td>Launches via xinetd in Panther.</td></tr>
+<tr><td>coreservicesd</td><td>Shared Carbon app state</td><td>This will launch lazily via mach_init in Panther.</td></tr>
+<tr><td>cupsd</td><td>The CUPS Printing daemon</td><td>This could run out of xinetd, but some extra work to cupsd needs to run, and some extra support needs to be added to xinetd so that individual printers can advertised via Rendezvous rather than just the CUPS daemon. This problem is much like the Apache (httpd) problem.</td></tr>
+<tr><td>fix_prebinding</td><td>Prebinding fix-ups</td><td>Listens to dyld requests for prebinding fix-ups. This will/should be switching to launching lazily via mach_init in Panther.</td></tr>
+<tr><td>distnoted</td><td>Carbon/AppKit notification server</td><td>This will launch lazily via mach_init in Panther.</td></tr>
+<tr><td>dhcpd</td><td>DHCP server</td><td>Launches lazily via xinetd today.</td></tr>
+<tr><td>fingerd</td><td>finger server</td><td>Launches lazily via xinetd today.</td></tr>
+<tr><td>ftpd</td><td>FTP server</td><td>Launches lazily via xinetd today.</td></tr>
+<tr><td>httpd</td><td>HTTP server</td><td>The Apache web server. This is probably the complicated daemon to make launch via [x]inetd. It is complicated by the fact that many of the Apache developers do not want to support running out of an inetd. This problem is much like the cupsd problem.</td></tr>
+<tr><td>dynamic_pager</td><td>manages swap files</td><td>this could be merged in to the anti-kernel, but after talking with some of the Mach kernel engineers, it would add some restrictions to the anti-kernel design.</td></tr>
+<tr><td>crashreporterd</td><td>listens for mach exceptions and logs crashes</td><td>This could be merged with the anti-kernel. Processing mach exceptions can be thought of like init(8) reaping processes via the wait family of system calls.</td></tr>
+<tr><td>getty</td><td>login tty helper</td><td>launched via init(8) today, it isn't worth being launched lazily.</td></tr>
+<tr><td>identd</td><td>ident server</td><td>Launches lazily via xinetd today.</td></tr>
+<tr><td>imapd</td><td>IMAP server</td><td>Launches lazily via xinetd today.</td></tr>
+<tr><td>kadmind</td><td>Kerberos admin server</td><td>This could launch lazily via xinetd.</td></tr>
+<tr><td>kdcd</td><td>Kerberos Domain Controller server</td><td></td></tr>
+<tr><td>kpropd</td><td>Kerberos ??? server</td><td>This could probably launch lazily via xinetd.</td></tr>
+<tr><td>kextd</td><td>Kernel extension daemon</td><td>This should be launched via mach_init, but since it cares about device event, it cannot be launched lazily at this time.</td></tr>
+<tr><td>lookupd</td><td>Pre DirectoryService lookup cache server</td><td>This should launch lazily via mach_init.</td></tr>
+<tr><td>lsregister -load</td><td>LaunchServices db helper</td><td>This should ideally be done lazily at login time and with the help of modern software package management, at install time.</td></tr>
+<tr><td>irpd (bind)</td><td>lookupd by the people who brought you DNS</td><td>Not much to say here, we don't have any interest in this at the moment.</td></tr>
+<tr><td>lwresd (bind)</td><td>lookupd for DNS by the people you brought you DNS</td><td>This could be handled by a xinetd/mach_init equivlent for AF_UNIX domain sockets.</td></tr>
+<tr><td>mDNSResponder</td><td>Rendezvous support</td><td>This could be launched lazily vi the anti-kernel, but it would require work, and given that it would need to run almost all the time, there would be little value in lazily launching it.</td></tr>
+<tr><td>named</td><td>DNS server</td><td>This could be launched lazily via xinetd.</td></tr>
+<tr><td>hwmond</td><td>hardware monitoring daemon</td><td>More investigation is needed, but one would hope the anti-kernel's trigger hooks would be flexable enough to launch this on demand.</td></tr>
+<tr><td>hlfsd</td><td>am-utils home-link file system daemon</td><td>This needs more investigation, but in the short to mid term, this is probably best left as a startup item. We don't know of anybody who uses this daemon.</td></tr>
+<tr><td>loginwindow</td><td>GUI login daemon</td><td>loginwindow in theory is fine. It launches on demand from init(8). The only problem is that random groups at Apple have used loginwindow as a home for random hunks of code that have nothing to do with logging users in.</td></tr>
+<tr><td>natd</td><td>BSD NAT daemon</td><td>"...it comes into play when a user turns on the Internet Sharing feature in the Sharing pref pane.  Clicking "Start" launches a process called InternetSharing (built by the InternetSharingSupport project in cvs) and this is the policy program that starts natd, enables ip forwarding, starts the dhcp server, etc etc.  The InternetSharing process actually continues to run as long as Internet Sharing is enabled so that it may listen for config change notifications from configd and take action if necessary." -- Matt Scopp</td></tr>
+<tr><td>netinfod -s local</td><td>The local NetInfo domain</td><td>This could be launched on demand via xinetd.</td></tr>
+<tr><td>mountd, nfsd, nfsiod, rpc.lockd, rpc.statd</td><td>NFS servers</td><td>These are conditionally launched today if we export NFS volumes, but it would be nice if the NFS startup-item code was unified with some existing or new lazy launch mechanism.</td></tr>
+<tr><td>portmap</td><td>Sun RPC name to port mapper</td><td>This, like mDNSResponder maps names to addresses/ports. xinetd can also map names to ports via the historic tcpmux port. It would be nice to unify these.</td></tr>
+<tr><td>nibindd</td><td>The portmap for netinfod</td><td>NetInfo is going away. I'm not sure how much we care about this in the long run.</td></tr>
+<tr><td>nmbd (samba)</td><td>Rendezvous/DynDNS for NetBIOS</td><td>This, like mDNSResponder maps names to addresses/ports. This is owned by the samba world. Not likely that we can make it launch lazily or be merged with some other daemon.</td></tr>
+<tr><td>smbd (samba)</td><td>SMB file server</td><td>This should switch to launching lazily via xinetd.</td></tr>
+<tr><td>ntpd</td><td>NTP client/server</td><td>This needs to be running all of the time to detect and fix clock drift in the machine that you're on. If we just care about fixing the time and we don't care about fixing drift, we can run the ntpdate command out of cron.</td></tr>
+<tr><td>panicdump</td><td>Records a panic dump to disk</td><td>This is not really a daemon, but something launched at boot. This information wants to be extracted as soon as possible and logged, but I'm not sure where a good home for it is.</td></tr>
+<tr><td>pcscd</td><td>PC/SC Smartcard daemon</td><td>This could be launched lazily, but it needs an AF_UNIX equivlent for xinetd or mach_init.</td></tr>
+<tr><td>pop3d</td><td>POP3 server</td><td>This launches lazily via xinetd today.</td></tr>
+<tr><td>pppd</td><td>PPP client/server</td><td>This launches lazily today via a variety of mechanisms.</td></tr>
+<tr><td>routed</td><td>RIP routing daemon</td><td>This should probably be launched lazily via configd given the right networking configuration.</td></tr>
+<tr><td>rpc.yppasswdd, ypbind, ypserv</td><td>NIS daemons</td><td>I'm not sure what to do about these and I'm not sure how much we care. NIS is dead. Long live LDAP. The servers can be launched out of xinetd. We'd need to figure out a way to trigger the client daemon to launch lazily.</td></tr>
+<tr><td>rsyncd</td><td>rsync daemon</td><td>This can lauch lazily via xinetd today.</td></tr>
+<tr><td>rtadvd</td><td>Router advertisement daemon</td><td>This could be launched lazily via xinetd.</td></tr>
+<tr><td>rtsold</td><td>Router solicitation daemon</td><td>This should probably be a configd plug-in or launched lazily via configd.</td></tr>
+<tr><td>saslauthd</td><td>SASL daemon ("password server")</td><td>This could be launched lazily, but it needs an AF_UNIX equivlent for xinetd or mach_init.</td></tr>
+<tr><td>sendmail</td><td>Apple's MTA for today</td><td>Launching this lazily will require some work due to the mail queue on disk might need flushing at boot.</td></tr>
+<tr><td>syslogd</td><td>syslog server</td><td>Launching this lazily will require some small amount of work do the the kernel's syslog interface.</td></tr>
+<tr><td>sshd</td><td>ssh server</td><td>Launched lazily via xinetd today.</td></tr>
+<tr><td>talk</td><td>talk server</td><td>Launched lazily via xinetd today.</td></tr>
+<tr><td>tftpd</td><td>tftp server</td><td>Launched lazily via xinetd today.</td></tr>
+<tr><td>tim</td><td>legacy cleartext password server</td><td>This could be launched lazily via xinetd.</td></tr>
+<tr><td>timed</td><td>time server daemon</td><td>already runs via xinetd today</td></tr>
+<tr><td>update</td><td>while (1) {sync(); sleep(30);}</td><td>This should just be absorbed in to the anti-kernel.</td></tr>
+<tr><td>vsdbutil</td><td>Manages db of known disks</td><td>Conditionally run at startup. It would be nice to find a better home for this.</tr>
+<tr><td>watchdog</td><td>Mac OS X Server SysV style init(8)</td><td>This functionality should be merged with the anti-kernel.</tr>
+<tr><td>xfs</td><td>X11 font server</td><td>This could be launched lazily via the anti-kernel (needs both TCP and AF_UNIX domain for lazily launching).</td></tr>
+<tr><td>xinetd</td><td>Internet super server</td><td>This is our laziness enabling daemon for network servers.</td></tr>
+<tr><td>servermgrd</td><td>Mac OS X Server Manager daemon</td><td>This could probably be launched lazily. More investigation is needed.</td></tr>
+<tr><td>serversettingsd</td><td>Mac OS X Server ??? daemon</td><td>This could probably be launched lazily. More investigation is needed.</td></tr>
+<tr><td>sambadmind</td><td>Mac OS X Server Samba admin daemon</td><td>This could probably be launched lazily. More investigation is needed.</td></tr>
+
+<tr><td colspan=3><h2>Per User Services</h2></td></tr>
+<tr><td>CCacheServer</td><td>The Kerberos Credentials Cache Server.</td><td>This could be launched lazily via mach_init (since the Kerberos team decided to use mach for the implementation), but it is currently launched lazily today when somebody first calls in to the Kerberos library</td></tr>
+<tr><td>Dock</td><td>half-daemon/half-app</td><td>It is worth considering launching it via a standardized FBE management daemon.</td></tr>
+<tr><td>InternetReminder.app</td><td>from Setup Assistant.app</td><td>This really wants to be launched on demand from the per user form of the anti-kernel.</td></tr>
+<tr><td>SecurityAgent</td><td>trusted per-user program of the Security framework</td><td>Could probably be lazily launched via mach_init. 3190357 will probably help.</td></tr>
+<tr><td>SystemUIServer</td><td>another misc daemon as far as I can tell</td><td>More research is needed.</td></tr>
+<tr><td>Xquartz</td><td>X11 server</td><td>This could be launched lazily from the per user anti-kernel.</td></tr>
+<tr><td>fetchmail</td><td>Unix e-mail download agent</td><td>This should be launched lazily/managed via the anti-kernel in it's per user form.</td></tr>
+<tr><td>gnuserv</td><td>emacs agent</td><td>Could be launched lazily via the anti-kernel in it's per-user form.</td></tr>
+<tr><td>hdi_agent</td><td>hard disk image agent</td><td>This is launched on demand today when somebody requests that a disk image is to be mounted.</td></tr>
+<tr><td>iChatAgent.app</td><td>iChat agent</td><td>This should be launched lazily at login. 3190357 should help.</td></tr>
+<tr><td>pbs</td><td>Paste Board server</td><td>Could probably be lazily launched via mach_init. 3190357 will probably help.</td></tr>
+<tr><td>ssh-agent</td><td>ssh "key chain"</td><td>Listens on a AF_UNIX domain socket. Could be lazily launched.</td></tr>
+<tr><td>screen</td><td>tty mux and session manager</td><td>Listens on a AF_UNIX domain socket. Could be lazily launched.</td></tr>
+<tr><td>quartswm</td><td>Quartz X11 window manager</td><td>Could be launched via the anti-kernel in it's per-user form. It needs to be relaunched if it dies.</td></tr>
+
+<tr><td colspan=3><h2>LoginWindow plug-ins</h2></td></tr>
+<tr><td>BezelServices</td><td>F1-F5 keys</td><td>This probably shouldn't live in loginwindow. More research needs to be done.</td></tr>
+<tr><td>BootCache</td><td>Final BootCache code</td><td>This tells the BootCache to stop recording disk block access and lets the BootCache begin to clean up. This code really shouldn't live in loginwindow. With the right rules/triggers this could be run from the anti-kernel.</td></tr>
+<tr><td>DisplayServices</td><td></td><td>Similar to BezelServices. This probably shouldn't live in loginwindow. More research needs to be done. (talk to Chester Devine?)</td></tr>
+<tr><td>KextHelper</td><td></td><td>This probably shouldn't live in loginwindow. More research needs to be done. (talk to nik gervae probably)</td></tr>
+<tr><td>MCX</td><td></td><td>This for managed servers. If so it writes out certain prefercences. This probably shouldn't live in loginwindow. More research needs to be done. (talk to Rob Neville)</td></tr>
+<tr><td>SystemSoundServer</td><td></td><td>Like the window server but for simple sound clients. This probably shouldn't live in loginwindow. More research needs to be done.</td></tr>
+<tr><td>URLMountUIProxy</td><td></td><td>This exists only so that it can get registered in the per-user mach sub bootstrap port. This shouldn't live in loginwindow. See 3190356.</td></tr>
+
+<tr><td colspan=3><h2>configd plug-ins</h2></td></tr>
+<tr><td>ATconfig</td><td>AppleTalk config mgmt</td><td>AppleTalk config mgmt (appropriate use of configd)</td></tr>
+<tr><td>Apple80211Monitor</td><td>AirPort support</td><td>AirPort config mgmt (appropriate use of configd)</td></tr>
+<tr><td>Bluetooth</td><td>Bluetooth support</td><td>starts blued once a bluetooth dongle is attached and keep it alive forever (inappropriate use of configd)</td></tr>
+<tr><td>DynamicPowerStep</td><td>CPU clock down support</td><td>This will probably move to the kernel in the future from what I hear.</td></tr>
+<tr><td>IPConfiguration</td><td>DHCP and IP config mgmt</td><td>appropriate use of configd</td></tr>
+<tr><td>IPv6Configuration</td><td>DHCPv6 and IPv6 config mgmt</td><td>appropriate use of configd</td></tr>
+<tr><td>IPMonitor</td><td>companion to IPConfiguration</td><td>manages default route and resolver configuration, proxies etc. (appropriate use of configd)</td></tr>
+<tr><td>InterfaceNamer</td><td>maps Unix to IOKit devices</td><td>This maps the Unix device names to IOKit devices (appropriate use of configd)</td></tr>
+<tr><td>EAPOL</td><td>802.1x support</td><td>Authenticantion at the Ethernet layer (appropriate use of configd)</td></tr>
+<tr><td>KernelEventMonitor</td><td>Watches NKE event socket</td><td>(appropriate use of configd)</td></tr>
+<tr><td>KernelNotifications</td><td>KUNC support</td><td>Kernel User Notification Center (half should move to kextd, half should move to SystemUIServer)</td></tr>
+<tr><td>Kicker</td><td>configd helper</td><td>Helper for kicking components who are not SystemConfiguration aware.</td></tr>
+<tr><td>LinkConfiguration</td><td>network device configuration</td><td>Manages "layer 2" device configuration (appropriate use of configd)</td></tr>
+<tr><td>PPPController</td><td>PPP</td><td>Manages running pppd with the right parameters (appropriate use of configd)</td></tr>
+<tr><td>PowerManagement</td><td>Some Power Management code</td><td>This code could really live in about any daemon.</td></tr>
+<tr><td>PreferencesMonitor</td><td>watches for pref file changes</td><td>This brings networking config files in to effect (appropriate use of configd)</td></tr>
+<tr><td>PrinterNotifications</td><td>USB printer support</td><td>Like blued (inappropriate use of configd)</td></tr>
+<tr><td>USBUPSSupport</td><td>Watches for USB UPS devices</td><td>Like blued (inappropriate use of configd)</td></tr>
+</table>
+<pre>$Id: daemon-investigation.html,v 1.1 2003/11/13 19:18:00 zarzycki Exp $</pre>
+</body>
+</html>

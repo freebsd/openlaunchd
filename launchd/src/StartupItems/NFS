@@ -1,0 +1,113 @@
+#!/bin/sh
+
+##
+# Network File System
+##
+
+. /etc/rc.common
+
+StartService ()
+{
+    CheckForNetwork 
+    if [ -f /var/run/NFS.StartupItem -o "${NETWORKUP}" = "-NO-" ]; then exit; fi
+    touch /var/run/NFS.StartupItem
+
+    ##
+    # Set up NFS client.
+    ##
+    ConsoleMessage "Starting network file system"
+
+    # nsfiod is the NFS asynchronous block I/O daemon, which implements
+    # NFS read-ahead and write-behind caching on NFS clients.
+    nfsiod -n 4 
+
+    ##
+    # The rpc.lockd/rpc.statd daemons are needed on both the client and
+    # the server in order to support file locking over NFS.
+    #
+    # If NFSLOCKS = -AUTOMATIC-, we start the daemons if we are a server
+    # but if we are only a client, we start the daemons once we know we
+    # need them.
+    ##
+
+    ##
+    # gather list of NFS exports
+    ##
+    exports_ni=$(niutil -list . /exports 2> /dev/null | wc -w)
+    # Look for exports in /etc/exports, ignoring comments and blank lines.
+    exports_etc=$(grep -v '^[[:space:]]*\(#\|$\)' /etc/exports 2> /dev/null | wc -l)
+    exports=$(($exports_ni + $exports_etc))
+
+    # if we are an NFS server, turn on NFS locking by default:
+    if [ "${exports}" -gt 0 ]; then
+	if [ "${NFSLOCKS:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
+	    NFSLOCKS=-YES-;
+	fi
+    fi
+
+    if [ "${NFSLOCKS:=-AUTOMATIC-}" = "-YES-" ]; then
+	# we definitely want locks on, so turn them on now
+	rpc.statd
+	rpc.lockd
+    fi
+    if [ "${NFSLOCKS:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
+	# delay starting daemons until we know we need them
+
+	# invoke rpc.statd to send any SM_NOTIFY messages and quit.
+	rpc.statd -n
+
+	# -w says to wait for signal from kernel, then start daemons
+	rpc.lockd -w
+    fi
+
+    ##
+    # Set up NFS server.
+    ##
+
+    # If exportfs finds something to export (either using /etc/exports or the
+    # exports NetInfo directory), then start the NFS daemons (which service
+    # NFS requests) and the mount server (which services NFS mount requests).
+
+    # Clear the table of exported filesystems.
+    rm -f /var/db/mountdtab
+
+    if [ "${exports}" -gt 0 ]; then
+	ConsoleMessage "Starting Network File System server"
+	mountd
+
+	# If the NetInfo config/nfsd directory contains startup args for nfsd, use those.
+	arguments=`niutil -readprop . /config/nfsd arguments`
+	if [ "${arguments}" = "" ]; then
+		arguments="-t -u -n 6"
+	fi
+	nfsd ${arguments}
+    fi
+
+    ##
+    # Start the automounter
+    ##
+
+    if [ "${AUTOMOUNT:=-YES-}" = "-YES-" ]; then
+	automount -m /Network -nsl
+	automount -m /automount/Servers -fstab -mnt /private/var/automount/Network/Servers \
+              -m /automount/static -static -mnt /private/var/automount
+	ln -s /automount/Servers /Network/Servers
+	
+	#
+	# Hint that the name /Network should be localized:
+	#
+	ln -s . /Network/.localized
+    fi
+}
+
+StopService ()
+{
+    return 0
+}
+
+RestartService ()
+{
+    return 0
+}
+
+RunService "$1"

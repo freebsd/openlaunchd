@@ -1,0 +1,37 @@
+#!/bin/sh
+
+##
+# IP Services
+##
+
+. /etc/rc.common
+
+StartService ()
+{
+    ##
+    # Internet super-server.
+    ##
+    ConsoleMessage "Starting internet services"
+    xinetd -inetd_compat -pidfile /var/run/xinetd.pid 
+
+    ##
+    # Internet Address Sharing.
+    ##
+    if [ -a /etc/com.apple.named.conf.proxy ]
+    then
+		ConsoleMessage "Starting Internet address sharing"
+		/usr/libexec/InternetSharing
+	fi
+}
+
+StopService ()
+{
+    return 0
+}
+
+RestartService ()
+{
+    return 0
+}
+
+RunService "$1"

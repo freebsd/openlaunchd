@@ -1,0 +1,278 @@
+#!/bin/sh
+
+##
+# Multi-user startup script.
+#
+# Copyright 1997-2002 Apple Computer, Inc.
+#
+# Customize system startup by adding scripts to the startup 
+# directory, rather than editing this file.
+##
+
+stty intr  undef
+stty kill  undef
+stty quit  undef
+stty susp  undef
+stty start undef
+stty stop  undef
+stty dsusp undef
+
+. /etc/rc.common
+
+stty status '^T'
+
+##
+# Handle arguments passed from init.
+##
+
+BootType=$1; shift;
+
+if [ -z "${BootType}" ]; then
+	BootType="multiuser"
+fi
+
+VerboseFlag=""
+   SafeBoot=""
+
+args=$(/usr/bin/getopt vx $*)
+set -- ${args};
+for option; do
+    case "${option}" in
+      -v)
+        VerboseFlag="-v"
+	;;
+      -x)
+        SafeBoot="-x"
+	;;
+    esac;
+done;
+
+if [ -d /System/Installation -a -f /etc/rc.cdrom ]; then
+	/etc/rc.cdrom ${BootType}
+	# We shouldn't get here; CDIS should reboot the machine when done
+	echo "CD-ROM boot procedure complete"
+	halt
+	exit 0
+fi
+
+netboot=$(/usr/sbin/sysctl -n kern.netboot)
+
+# Mount essential local filesystems (according to /etc/fstab).
+echo "Mounting local filesystems"
+
+mount -vat hfs
+mount -vat ufs
+mount -t fdesc -o union stdin /dev
+mkdir -p -m 0555 /.vol && chmod 0555 /.vol && mount_volfs /.vol
+
+# 3281054 Cannot start up if /private/var/tmp is missing (system should recreate it)
+mkdir -p -m 01777 /private/var/tmp
+
+if [ -f /etc/rc.installer_cleanup ]; then
+	/etc/rc.installer_cleanup ${BootType}
+fi
+
+. /etc/rc.cleanup
+
+BootCacheControl=/System/Library/Extensions/BootCache.kext/Contents/Resources/BootCacheControl
+if [ ! -f $BootCacheControl ]; then
+	BootCacheControl=/usr/sbin/BootCacheControl
+fi
+if [ "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
+	${BootCacheControl} start
+fi
+
+# System tuning
+sysctl -w kern.maxvnodes=$(echo $(sysctl -n hw.physmem) '33554432 / 512 * 1024 +p'|dc)
+sysctl -w kern.sysv.shmmax=4194304
+sysctl -w kern.sysv.shmmin=1
+sysctl -w kern.sysv.shmmni=32
+sysctl -w kern.sysv.shmseg=8
+sysctl -w kern.sysv.shmall=1024
+if [ -f /etc/sysctl-macosxserver.conf ]; then
+	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/sysctl-macosxserver.conf | while read
+	do
+		sysctl -w ${REPLY}
+	done
+fi
+
+if [ -f /etc/sysctl.conf ]; then
+	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/sysctl.conf | while read
+	do
+		sysctl -w ${REPLY}
+	done
+fi
+
+# Logs are important. Start syslogd after the boot disk becomes r/w but before
+# everything else starts. In the future, we should launch this lazily when it
+# is first needed.
+ifconfig lo0 127.0.0.1 up
+/usr/sbin/syslogd -s -m 0
+
+# Create mach symbol file
+rm -f /mach.sym
+sysctl -n kern.symfile
+if [ -f /mach.sym ]; then
+  rm -f /mach
+  ln -s /mach.sym /mach
+else
+  rm -f /mach
+  ln -s /mach_kernel /mach
+fi
+
+if [ "${SafeBoot}" = "-x" ]; then
+    echo "Configuring kernel extensions for safe boot"
+    touch /private/tmp/.SafeBoot
+    kextd -x
+else
+    echo "Configuring kernel extensions"
+    kextd
+fi
+
+# Load [ideally on demand] Mach bootstrap based services
+/usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
+
+# We hope to launch portmap on demand in the next major release of Mac OS X,
+# but until then, we need to inline in here for reasons not worth going into in
+# this file. Static reasons to run portmap today include:
+#
+# - if there are NFS exports, or
+# - if NFS locking is on (NFSLOCKS=-YES-), or
+# - if there are NetInfo domains other than "local", or
+# - if the local domain has any non-loopback values for "trusted_networks".
+# - if xinetd has a portmap based service
+#
+# Explicitly setting NETINFOSERVER=-YES- forces portmap to run.
+#
+# If portmap is not started now, it will be started later if
+# NFSLOCKS=-AUTOMATIC- and an NFS locking request is made.
+##
+if [ "${RPCSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
+	RPCSERVER=-YES-
+	nfs_exports_ni=$(nicl -raw /var/db/netinfo/local.nidb -list /exports 2> /dev/null | wc -w)
+	nfs_exports_etc=$(grep -v '^[[:space:]]*\(#\|$\)' /etc/exports 2> /dev/null | wc -l)
+	nfs_exports=$(($nfs_exports_ni + $nfs_exports_etc))
+	ni_not_local=$(/bin/ls -1d /var/db/netinfo/*.nidb | sed 's:/var/db/netinfo/local.nidb::' | wc -w)
+	ni_local_export=$(nicl -raw /var/db/netinfo/local.nidb -read / trusted_networks 2>&1 | sed 's/trusted_networks://' | sed 's/127[^ ]*//g' | wc -w)
+	total=$(($nfs_exports + $ni_not_local + $ni_local_export))
+	[ "${total}" -eq 0 ] && RPCSERVER=-NO-
+	[ "${NFSLOCKS:=-AUTOMATIC-}" = "-YES-" ] && RPCSERVER=-YES-
+	[ "${NETINFOSERVER:=-NO-}" = "-YES-" ] && RPCSERVER=-YES-
+	[ "${NISDOMAIN:=-NO-}" != "-NO-" ] && RPCSERVER=-YES-
+	grep -ri rpc /etc/xinetd.d >/dev/null 2>&1 && RPCSERVER=-YES-
+fi
+
+if [ "${RPCSERVER}" = "-YES-" ]; then
+	portmap
+fi
+
+# We would also like to start "netinfo" on demand too, but we can't for various
+# reasons at the moment. Start it here for now:
+#
+# Create local NetInfo database if it doesn't exist
+if [ ! -d /var/db/netinfo/local.nidb ]; then
+	echo "Creating local NetInfo database"
+	mkdir -p /var/db/netinfo
+	/usr/libexec/create_nidb
+	rm -f /var/db/.AppleSetupDone
+fi
+
+# nibindd is required if there are NetInfo domains other than "local", or
+# if the local domain has any non-loopback values for "trusted_networks".
+if [ "${NETINFOSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
+	NETINFOSERVER=-YES-
+	ni_not_local=$(/bin/ls -1d /var/db/netinfo/*.nidb | sed 's:/var/db/netinfo/local.nidb::' | wc -w)
+	ni_local_export=$(nicl -raw /var/db/netinfo/local.nidb -read / trusted_networks 2>&1 | sed 's/trusted_networks://' | sed 's/127[^ ]*//g' | wc -w)
+	total=$(($ni_not_local + $ni_local_export))
+	if [ "${total}" -eq 0 ]; then
+		NETINFOSERVER=-NO-
+	fi
+fi
+
+# If nibindd is not required, we just start the local NetInfo daemon.
+if [ "${NETINFOSERVER}" = "-YES-" ]; then
+	nibindd
+else
+	cd /var/db/netinfo
+	netinfod -s local
+	cd /
+fi
+
+if [ ! "${netboot}" = "1" ] ; then
+    if [ ! -f /System/Library/Extensions.mkext -o \
+     /System/Library/Extensions.mkext -ot /System/Library/Extensions ]; then
+
+	if [ "${SafeBoot}" != "-x" ]; then
+	    echo "Updating kernel extensions cache"
+	    rm -f /System/Library/Extensions.mkext
+	    /usr/sbin/kextcache -elF -a `arch`
+	fi
+    fi
+fi
+
+update
+
+echo "Starting virtual memory"
+
+swapdir=/private/var/vm
+if [ "${netboot}" = "1" ]; then
+    sh /etc/rc.netboot setup_vm ${swapdir}
+fi
+
+# Make sure the swapfile exists
+if [ ! -d ${swapdir} ]; then
+    echo "Creating default swap directory"
+    mount -uw /
+    mkdir -p -m 755 ${swapdir}
+    chown root:wheel ${swapdir}
+else
+    rm -rf ${swapdir}/swap*
+fi
+		    
+dynamic_pager -F ${swapdir}/swapfile
+
+appprofiledir=/private/var/vm/app_profile
+
+if [ ! -d ${appprofiledir} ]; then
+	if [ -f  ${appprofiledir} ]; then
+		mv -f ${appprofiledir} "${appprofiledir}_" 
+	fi
+	mkdir -p -m 711 ${appprofiledir}
+	chown root:wheel ${appprofiledir}
+fi
+
+
+if [  "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
+    ${BootCacheControl} tag
+fi
+
+# Set language from CDIS.custom - assumes this is parse-able by sh
+if [ -f /var/log/CDIS.custom ]; then
+	. /var/log/CDIS.custom 
+fi
+
+# Start the Language Chooser. This code should be able to go away as far as I
+# know once loginwindow becomes dynamic and SystemStarter exits the GUI
+# business.
+STARTPBS="/System/Library/CoreServices/pbs"            # apps stall w/o
+BUDDYCOOKIE="/var/db/.AppleSetupDone"
+LCACOOKIE="/var/db/.RunLanguageChooserToo"
+STARTLCA="/System/Library/CoreServices/Language Chooser.app/Contents/MacOS/Language Chooser"
+
+if [ -x "$STARTLCA" -a -x "$STARTPBS" -a ! -f "$BUDDYCOOKIE" -a -f "$LCACOOKIE" ]; then
+	"$STARTPBS" &
+	pbspid=$!
+	"$STARTLCA"
+	kill $pbspid    # XSelect does this independently
+fi
+
+if [ ! -s "/var/log/CDIS.custom" ]; then
+	echo "Language Chooser seems to have failed; defaulting to English"
+	echo "LANGUAGE=English" > "/var/log/CDIS.custom"
+fi
+
+export LANGUAGE
+
+SystemStarter -gr ${VerboseFlag} ${SafeBoot}
+
+exit 0
