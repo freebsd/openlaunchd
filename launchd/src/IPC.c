@@ -325,7 +325,7 @@ static void loadDisplayBundle (StartupContext aStartupContext, CFDictionaryRef a
  * A no-op if SystemStarter is not starting in graphical mode,
  * or if no display bundle is loaded.
  **/
-static void unloadDisplayBundle (StartupContext aStartupContext, CFDictionaryRef anIPCMessage)
+static void unloadDisplayBundle (StartupContext aStartupContext, CFDictionaryRef anIPCMessage __attribute__((unused)))
 {
     aStartupContext->aQuitOnNotification = 0;
     if (!gVerboseFlag && aStartupContext)
@@ -344,7 +344,7 @@ static void unloadDisplayBundle (StartupContext aStartupContext, CFDictionaryRef
       }
 }
 
-static void* handleIPCMessage (void* aMsgParam, CFIndex aMessageSize, CFAllocatorRef anAllocator, void* aMachPort)
+static void* handleIPCMessage (void* aMsgParam, CFIndex aMessageSize __attribute__((unused)), CFAllocatorRef anAllocator __attribute__((unused)), void* aMachPort)
 {
     SystemStarterIPCMessage*     aMessage = (SystemStarterIPCMessage*) aMsgParam;
     SystemStarterIPCMessage*     aReplyMessage = NULL;

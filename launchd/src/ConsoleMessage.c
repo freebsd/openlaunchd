@@ -254,12 +254,11 @@ int main (int argc, char *argv[])
 }
 
 
-static void dummyCallback(CFMachPortRef port, void *aPtr, CFIndex aSize, void *aReply)
+static void dummyCallback(void)
 {
-	/* Does nothing. */
 }
 
-static void replyCallback(CFMachPortRef port, void *aPtr, CFIndex aSize, CFDataRef *aReply)
+static void replyCallback(CFMachPortRef port __attribute__((unused)), void *aPtr, CFIndex aSize __attribute__((unused)), CFDataRef *aReply)
 {
     SystemStarterIPCMessage* aMessage = (SystemStarterIPCMessage*)aPtr;
     
@@ -303,7 +302,7 @@ static CFDataRef sendIPCMessage(CFStringRef aPortName, CFDataRef aData, CFString
         CFStringGetCString(aPortName, aPortNameUTF8String, aStrLen, kCFStringEncodingUTF8);
         task_get_bootstrap_port(mach_task_self(), &aBootstrapPort);
         aKernReturn = bootstrap_look_up(aBootstrapPort, aPortNameUTF8String, &aNativePort);
-        aMachPort = (KERN_SUCCESS == aKernReturn) ? CFMachPortCreateWithPort(NULL, aNativePort, dummyCallback, &aContext, NULL) : NULL;
+        aMachPort = (KERN_SUCCESS == aKernReturn) ? CFMachPortCreateWithPort(NULL, aNativePort, (CFMachPortCallBack)dummyCallback, &aContext, NULL) : NULL;
         free(aPortNameUTF8String);
       }
 

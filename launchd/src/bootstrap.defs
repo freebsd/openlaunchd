@@ -98,11 +98,11 @@ serverprefix x_;
 
 /*
  * kern_return_t
- * bootstrap_create_server(mach_port_t bootstrap_port,
- *		      	cmd_t server_command,
- *			integer_t server_uid,
- *			boolean_t on_demand,
- *			mach_port_t *server_port)
+ * bootstrap_create_server(mach_port_t __bs_port,
+ *		      	cmd_t __server_command,
+ *			natural_t __server_uid,
+ *			boolean_t __on_demand,
+ *			mach_port_t *__server_port)
  *
  * Declares a server that mach_init will re-spawn within the specified
  * bootstrap context.  The server is considered already "active"
@@ -136,17 +136,17 @@ serverprefix x_;
  *		Returns BOOTSTRAP_NOT_PRIVILEGED, bootstrap or uid invalid.
  */
 routine bootstrap_create_server(
-		bootstrap_port	: mach_port_t;
-		server_cmd	: cmd_t;
-		server_uid	: integer_t;
-		on_demand	: boolean_t;
- ServerSecToken	token		: security_token_t;
-	out	server_port	: mach_port_make_send_t);
+		__bs_port	: mach_port_t;
+		__server_cmd	: cmd_t;
+		__server_uid	: natural_t;
+		__on_demand	: boolean_t;
+ ServerSecToken	__token		: security_token_t;
+	out	__server_port	: mach_port_make_send_t);
 
 /*
  * kern_return_t
- * bootstrap_unprivileged(mach_port_t bootstrap_port,
- *			  mach_port_t *unpriv_port)
+ * bootstrap_unprivileged(mach_port_t __bs_port,
+ *			  mach_port_t *__unpriv_port)
  *
  * Given a bootstrap port, return its unprivileged equivalent.  If
  * the port is already unprivileged, another reference to the same
@@ -159,14 +159,14 @@ routine bootstrap_create_server(
  * of the "server" for mach_init registration and re-launch purposes).
  */
 routine bootstrap_unprivileged(
-		bootstrap_port	: mach_port_t;
-	out	unpriv_port	: mach_port_t);
+		__bs_port	: mach_port_t;
+	out	__unpriv_port	: mach_port_t);
 
 /*
  * kern_return_t
- * bootstrap_check_in(mach_port_t bootstrap_port,
- *		     name_t service_name,
- *		     mach_port_t *service_port)
+ * bootstrap_check_in(mach_port_t __bs_port,
+ *		     name_t __service_name,
+ *		     mach_port_t *__service_port)
  *
  * Returns the receive right for the service named by service_name. The
  * service must have previously been declared in this bootstrap context via
@@ -184,15 +184,15 @@ routine bootstrap_unprivileged(
  *			registered or checked-in.
  */
 routine bootstrap_check_in(
-			bootstrap_port	: mach_port_t;
-			service_name	: name_t;
-		out	service_port	: mach_port_move_receive_t);
+			__bs_port	: mach_port_t;
+			__service_name	: name_t;
+		out	__service_port	: mach_port_move_receive_t);
 
 /*
  * kern_return_t
- * bootstrap_register(mach_port_t bootstrap_port,
- *		      name_t service_name,
- *		      mach_port_t service_port)
+ * bootstrap_register(mach_port_t __bs_port,
+ *		      name_t __service_name,
+ *		      mach_port_t __service_port)
  *
  * Registers a send right for service_port with the service identified by
  * service_name.  Attempts to register a service where an active binding
@@ -211,15 +211,15 @@ routine bootstrap_check_in(
  *			register or checked-in.
  */
 routine bootstrap_register(
-		bootstrap_port	: mach_port_t;
-		service_name	: name_t;
-		service_port	: mach_port_t);
+		__bs_port	: mach_port_t;
+		__service_name	: name_t;
+		__service_port	: mach_port_t);
 
 /*
  * kern_return_t
- * bootstrap_look_up(mach_port_t bootstrap_port,
- *		    name_t service_name,
- *		    mach_port_t *service_port)
+ * bootstrap_look_up(mach_port_t __bs_port,
+ *		    name_t __service_name,
+ *		    mach_port_t *__service_port)
  *
  * Returns a send right for the service port declared/registered under the
  * name service_name. The service is not guaranteed to be active.  Use the
@@ -229,18 +229,18 @@ routine bootstrap_register(
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
 routine bootstrap_look_up(
-		bootstrap_port	: mach_port_t;
-		service_name	: name_t;
-	out	service_port	: mach_port_t);
+		__bs_port	: mach_port_t;
+		__service_name	: name_t;
+	out	__service_port	: mach_port_t);
 
 /*
  * kern_return_t
- * bootstrap_look_up_array(mach_port_t bootstrap_port,
- *			  name_array_t service_names,
- *			  int service_names_cnt,
- *			  port_array_t *service_port,
- *			  int *service_ports_cnt,
- *			  boolean_t *all_services_known)
+ * bootstrap_look_up_array(mach_port_t __bs_port,
+ *			  name_array_t __service_names,
+ *			  int __service_names_cnt,
+ *			  port_array_t *__service_port,
+ *			  int *__service_ports_cnt,
+ *			  boolean_t *__all_services_known)
  *
  * Returns port send rights in corresponding entries of the array service_ports
  * for all services named in the array service_names.  Service_ports_cnt is
@@ -256,15 +256,15 @@ routine bootstrap_look_up(
  *			return, if any service is unknown, it's false.
  */
 routine bootstrap_look_up_array(
-		bootstrap_port	: mach_port_t;
-		service_names	: name_array_t;
-	out	service_ports	: mach_port_array_t;
-	out	all_services_known: boolean_t);
+		__bs_port	: mach_port_t;
+		__service_names	: name_array_t;
+	out	__service_ports	: mach_port_array_t;
+	out	__all_services_known: boolean_t);
 
 /*
  * kern_return_t
- * bootstrap_parent(mach_port_t bootstrap_port,
- *		    mach_port_t *parent_port);
+ * bootstrap_parent(mach_port_t __bs_port,
+ *		    mach_port_t *__parent_port);
  *
  * Given a bootstrap subset port, return the parent bootstrap port.
  * If the specified bootstrap port is already the root subset,
@@ -276,15 +276,15 @@ routine bootstrap_look_up_array(
  *	token in the message trailer).
  */
 routine bootstrap_parent(
-		bootstrap_port	: mach_port_t;
- ServerSecToken	token		: security_token_t;
-	out	parent_port	: mach_port_make_send_t);
+		__bs_port	: mach_port_t;
+ ServerSecToken	__token		: security_token_t;
+	out	__parent_port	: mach_port_make_send_t);
 
 /*
  * kern_return_t
- * bootstrap_status(mach_port_t bootstrap_port,
- *		    name_t service_name,
- *		    bootstrap_status_t *service_active);
+ * bootstrap_status(mach_port_t __bs_port,
+ *		    name_t __service_name,
+ *		    bootstrap_status_t *__service_active);
  *
  * Returns: service_active indicates if service is active, inactive, or
  *	    associated with a launch-on-demand server.
@@ -293,33 +293,33 @@ routine bootstrap_parent(
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
 routine bootstrap_status(
-		bootstrap_port	:	mach_port_t;
-		service_name	:	name_t;
-	out	service_active	:	bootstrap_status_t);
+		__bs_port	:	mach_port_t;
+		__service_name	:	name_t;
+	out	__service_active:	bootstrap_status_t);
 
 /*
  * kern_return_t
- * bootstrap_info(port_t bootstrap_port,
- *		  name_array_t *service_names,
- *		  int *service_names_cnt,
- *		  name_array_t *server_names,
- *		  int *server_names_cnt,
- *		  bool_array_t *service_active,
- *		  int *service_active_cnt);
+ * bootstrap_info(port_t __bs_port,
+ *		  name_array_t *__service_names,
+ *		  int *__service_names_cnt,
+ *		  name_array_t *__server_names,
+ *		  int *__server_names_cnt,
+ *		  bool_array_t *__service_active,
+ *		  int *__service_active_cnt);
  *			
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
 routine bootstrap_info(
-		bootstrap_port	: mach_port_t;
-	out	service_names	: name_array_t, dealloc;
-	out server_names	: name_array_t, dealloc;
-	out service_active	: bootstrap_status_array_t, dealloc);
+		__bs_port	: mach_port_t;
+	out	__service_names	: name_array_t, dealloc;
+	out __server_names	: name_array_t, dealloc;
+	out __service_active	: bootstrap_status_array_t, dealloc);
 
 /*
  * kern_return_t
- * bootstrap_subset(mach_port_t bootstrap_port,
- *		    mach_port_t requestor_port,
- *		    mach_port_t *subset_port);
+ * bootstrap_subset(mach_port_t __bs_port,
+ *		    mach_port_t __requestor_port,
+ *		    mach_port_t *__subset_port);
  *
  * Returns a new port to use as a bootstrap port.  This port behaves
  * exactly like the previous bootstrap_port, except that ports dynamically
@@ -336,15 +336,15 @@ routine bootstrap_info(
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
 routine bootstrap_subset(
-		bootstrap_port	: mach_port_t;
-		requestor_port	: mach_port_t;
-	out	subset_port	: mach_port_t);
+		__bs_port	: mach_port_t;
+		__requestor_port: mach_port_t;
+	out	__subset_port	: mach_port_t);
 
 /*
  * kern_return_t
- * bootstrap_create_service(mach_port_t bootstrap_port,
- *		      name_t service_name,
- *		      mach_port_t *service_port)
+ * bootstrap_create_service(mach_port_t __bs_port,
+ *		      name_t __service_name,
+ *		      mach_port_t *__service_port)
  *
  * Creates a service named "service_name" and returns send rights to that
  * port in "service_port."  The port may later be checked in as if this
@@ -354,7 +354,7 @@ routine bootstrap_subset(
  *		Returns BOOTSTRAP_SERVICE_ACTIVE, if service already exists.
  */
 routine bootstrap_create_service(
-		bootstrap_port	: mach_port_t;
-		service_name	: name_t;
-	out	service_port	: mach_port_t);
+		__bs_port	: mach_port_t;
+		__service_name	: name_t;
+	out	__service_port	: mach_port_t);
 

@@ -155,7 +155,7 @@ int main (int argc, char *argv[])
 		warning(CFSTR("couldn't create: %s\n"), LOGINWINDOW_HINT_FILE);
 	}
 					
-	if (aService == NULL);	
+	if (aService == NULL)
 		daemon(0, 0);
 
 	aStatus = system_starter(anAction, aService);

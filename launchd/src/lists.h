@@ -88,7 +88,7 @@ struct server {
 	server_t	*prev;
 	servertype_t	servertype;
 	cmd_t		cmd;		/* server command to exec */
-	int			uid;		/* uid to exec server with */
+	uid_t		uid;		/* uid to exec server with */
 	mach_port_t	port;		/* server's priv bootstrap port */
 	mach_port_t	task_port;	/* server's task port */
 	pid_t		pid;		/* server's pid */
@@ -104,21 +104,21 @@ extern void init_lists(void);
 extern server_t *new_server(
 	bootstrap_info_t 	*bootstrap,
 	const char			*cmd,
-	int					uid,
+	uid_t					uid,
 	servertype_t		servertype);
 
 extern service_t 		*new_service(
 	bootstrap_info_t	*bootstrap,
 	const char			*name,
-	mach_port_t			service_port,
+	mach_port_t			serviceport,
 	boolean_t			isActive,
 	servicetype_t		servicetype,
 	server_t			*serverp);
 
 extern bootstrap_info_t *new_bootstrap(
 	bootstrap_info_t	*parent,
-	mach_port_name_t	bootstrap_port,
-	mach_port_name_t	requestor_port);
+	mach_port_name_t	bootstrapport,
+	mach_port_name_t	requestorport);
 
 extern server_t *lookup_server_by_port(mach_port_t port);
 extern server_t *lookup_server_by_task_port(mach_port_t port);

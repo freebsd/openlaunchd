@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2003 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1999-2004 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -33,6 +33,7 @@
  * Imports
  */
 #import	<mach/mach.h>
+#import <mach/mach_error.h>
 #import	<mach/boolean.h>
 #import	<mach/message.h>
 #import <mach/notify.h>
@@ -108,9 +109,9 @@ static void *demand_loop(void *arg);
 static void server_loop(void);
 extern kern_return_t bootstrap_register
 (
-	mach_port_t bootstrap_port,
-	name_t service_name,
-	mach_port_t service_port
+	mach_port_t bootstrapport,
+	name_t servicename,
+	mach_port_t serviceport
 );
 
 /*
@@ -137,7 +138,7 @@ enablecoredumps(boolean_t enabled)
 }
 
 static void
-toggle_debug(int signal)
+toggle_debug(__unused int signalnum)
 {
 
 	debugging = (debugging) ? FALSE : TRUE;
@@ -175,7 +176,7 @@ notify_server_loop(mach_port_name_t about)
 		kern_error(result, "notify_server_loop: mach_msg()");
 }
 
-void start_shutdown(int signal)
+void start_shutdown(__unused int signalnum)
 {
 	shutdown_in_progress = TRUE;
 	(void) inform_server_loop(MACH_PORT_NULL, MACH_SEND_TIMEOUT);
@@ -202,16 +203,6 @@ main(int argc, char * argv[])
 	pid = getpid();
 	if (pid == 1)
 	{
-		close(0);
-		freopen("/dev/console", "r", stdin);
-		setbuf(stdin, NULL);
-		close(1);
-		freopen("/dev/console", "w", stdout);
-		setbuf(stdout, NULL);
-		close(2);
-		freopen("/dev/console", "w", stderr);
-		setbuf(stderr, NULL);
-
 		result = mach_port_allocate(
 						mach_task_self(),
 						MACH_PORT_RIGHT_RECEIVE,
@@ -274,6 +265,14 @@ main(int argc, char * argv[])
 							bootstrap_port);
 		if (result != KERN_SUCCESS)
 			kern_fatal(result, "task_get_bootstrap_port");
+
+		close(0);
+		open("/dev/null", O_RDONLY, 0);
+		close(1);
+		open("/dev/null", O_WRONLY, 0);
+		close(2);
+		open("/dev/null", O_WRONLY, 0);
+
 	} else
 		init_notify_port = MACH_PORT_NULL;
 
@@ -585,18 +584,61 @@ reap_server(server_t *serverp)
 	 * Reap our children.
 	 */
 	presult = waitpid(serverp->pid, &wstatus, WNOHANG);
-	if (presult != serverp->pid) {
+	switch (presult) {
+	case -1:
 		unix_error("waitpid: cmd = %s", serverp->cmd);
-	} else if (wstatus) {
-		notice("Server %x in bootstrap %x uid %d: \"%s\": %s %d [pid %d]",
-			serverp->port, serverp->bootstrap->bootstrap_port,
-			serverp->uid, serverp->cmd, 
-			((WIFEXITED(wstatus)) ? 
-			 "exited with non-zero status" :
-			 "exited as a result of signal"),
-			((WIFEXITED(wstatus)) ? WEXITSTATUS(wstatus) : WTERMSIG(wstatus)),
-			serverp->pid);
+		break;
+
+	case 0:
+	{
+		/* process must have switched mach tasks */
+		mach_port_t old_port;
+
+		old_port = serverp->task_port;
+		mach_port_deallocate(mach_task_self(), old_port);
+		serverp->task_port = MACH_PORT_NULL;
+
+		result = task_for_pid(	mach_task_self(),
+					serverp->pid,
+					&serverp->task_port);
+		if (result != KERN_SUCCESS) {
+			info("race getting new server task port for pid[%d]: %s",
+			     serverp->pid, mach_error_string(result));
+			break;
+		}
+
+		/* Request dead name notification to tell when new task dies */
+		result = mach_port_request_notification(
+					mach_task_self(),
+					serverp->task_port,
+					MACH_NOTIFY_DEAD_NAME,
+					0,
+					notify_port,
+					MACH_MSG_TYPE_MAKE_SEND_ONCE,
+					&old_port);
+		if (result != KERN_SUCCESS) {
+			info("race setting up notification for new server task port for pid[%d]: %s",
+			     serverp->pid, mach_error_string(result));
+			break;
+		}
+		return;
 	}
+
+	default:
+		if (wstatus) {
+			notice("Server %x in bootstrap %x uid %d: \"%s\": %s %d [pid %d]",
+			       serverp->port, serverp->bootstrap->bootstrap_port,
+			       serverp->uid, serverp->cmd, 
+			       ((WIFEXITED(wstatus)) ? 
+				"exited with non-zero status" :
+				"exited as a result of signal"),
+			       ((WIFEXITED(wstatus)) ? WEXITSTATUS(wstatus) : WTERMSIG(wstatus)),
+			       serverp->pid);
+		}
+		break;
+	}
+		
+
 	serverp->pid = 0;
 
 	/*
@@ -826,7 +868,7 @@ argvize(const char *string)
 	static char *argv[100], args[1000];
 	const char *cp;
 	char *argp, term;
-	int nargs;
+	unsigned int nargs;
 	
 	/*
 	 * Convert a command line into an argv for execv
@@ -866,7 +908,7 @@ demand_loop(void *arg)
 		mach_msg_type_number_t membersCnt;
 		mach_port_status_t status;
 		mach_msg_type_number_t statusCnt;
-		int i;
+		unsigned int i;
 
 		/*
 		 * Receive indication of message on demand service
@@ -1003,7 +1045,7 @@ server_demux(
 			/*
 			 * Check to see if a subset requestor port was deleted.
 			 */
-			while (bootstrap = lookup_bootstrap_by_req_port(np)) {
+			while ((bootstrap = lookup_bootstrap_by_req_port(np)) != NULL) {
 				debug("Received dead name notification for bootstrap subset %x requestor port %x",
 					 bootstrap->bootstrap_port, bootstrap->requestor_port);
 				mach_port_deallocate(
@@ -1017,7 +1059,7 @@ server_demux(
 			 * Check to see if a defined service has gone
 			 * away.
 			 */
-			while (servicep = lookup_service_by_port(np)) {
+			while ((servicep = lookup_service_by_port(np)) != NULL) {
 				/*
 				 * Port gone, registered service died.
 				 */
@@ -1032,9 +1074,9 @@ server_demux(
 			 * Check to see if a launched server task has gone
 			 * away.
 			 */
-			if (serverp = lookup_server_by_task_port(np)) {
+			if ((serverp = lookup_server_by_task_port(np)) != NULL) {
 				/*
-				 * Port gone, server died.
+				 * Port gone, server died or picked up new task.
 				 */
 				debug("Received task death notification for server %s ",
 					  serverp->cmd);
@@ -1072,7 +1114,7 @@ server_demux(
 		np = ((mach_port_destroyed_notification_t *)Request)->not_port.name; 
 		servicep = lookup_service_by_port(np);
 		if (servicep != NULL) {
-			server_t *serverp = servicep->server;
+			serverp = servicep->server;
 
 			switch (Request->msgh_id) {
 
@@ -1123,7 +1165,7 @@ server_demux(
 			debug("server %s dropped server port", serverp->cmd);
 			serverp->port = MACH_PORT_NULL;
 			dispatch_server(serverp);
-		} else if (bootstrap = lookup_bootstrap_by_port(ns)) {
+		} else if ((bootstrap = lookup_bootstrap_by_port(ns)) != NULL) {
 			/*
 			 * The last direct user of a deactivated bootstrap went away.
 			 * We can finally free it.

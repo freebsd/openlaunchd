@@ -46,7 +46,7 @@
  * checkForActivity checks to see if any items have completed since the last invokation.
  * If not, a message is displayed showing what item(s) are being waited on.
  **/
-static void checkForActivity(CFRunLoopTimerRef aTimer, void* anInfo)
+static void checkForActivity(__unused CFRunLoopTimerRef aTimer, void* anInfo)
 {
     static CFIndex aLastStatusDictionaryCount = -1;
     static CFStringRef aWaitingForString = NULL;

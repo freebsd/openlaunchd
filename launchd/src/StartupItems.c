@@ -836,7 +836,7 @@ CFStringRef StartupItemGetDescription(CFMutableDictionaryRef anItem)
           }
         else
           {
-            CFStringRef aString = CFDictionaryGetValue(anItem, kDescriptionKey);
+            aString = CFDictionaryGetValue(anItem, kDescriptionKey);
             if (aString)
               {
                 CFStringRef aLocalizedString = StartupItemCreateLocalizedString(anItem, aString);

@@ -70,9 +70,9 @@
  */
 kern_return_t
 x_bootstrap_create_server(
-	mach_port_t bootstrap_port,
+	mach_port_t bootstrapport,
 	cmd_t server_cmd,
-	int server_uid,
+	uid_t server_uid,
 	boolean_t on_demand,
 	security_token_t sectoken,
 	mach_port_t *server_portp)
@@ -80,14 +80,14 @@ x_bootstrap_create_server(
 	server_t *serverp;
 	bootstrap_info_t *bootstrap;
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	debug("Server create attempt: \"%s\" bootstrap %x",
-	      server_cmd, bootstrap_port);
+	      server_cmd, bootstrapport);
 
 	/* No forwarding allowed for this call - security risk (we run as root) */
 	if (!bootstrap || !active_bootstrap(bootstrap)) {
 		debug("Server create: \"%s\": invalid bootstrap %x",
-			server_cmd, bootstrap_port);
+			server_cmd, bootstrapport);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -105,15 +105,15 @@ x_bootstrap_create_server(
 	setup_server(serverp);
 
 	info("New server %x in bootstrap %x: \"%s\"",
-					serverp->port, bootstrap_port, server_cmd);
+					serverp->port, bootstrapport, server_cmd);
 	*server_portp = serverp->port;
 	return BOOTSTRAP_SUCCESS;
 }
 
 /*
  * kern_return_t
- * bootstrap_unprivileged(mach_port_t bootstrap_port,
- *			  mach_port_t *unpriv_port)
+ * bootstrap_unprivileged(mach_port_t bootstrapport,
+ *			  mach_port_t *unprivportp)
  *
  * Given a bootstrap port, return its unprivileged equivalent.  If
  * the port is already unprivileged, another reference to the same
@@ -127,32 +127,32 @@ x_bootstrap_create_server(
  */
 kern_return_t
 x_bootstrap_unprivileged(
-	mach_port_t bootstrap_port,
-	mach_port_t *unpriv_portp)
+	mach_port_t bootstrapport,
+	mach_port_t *unprivportp)
 {
 	bootstrap_info_t *bootstrap;
 
-	debug("Get unprivileged attempt for bootstrap %x", bootstrap_port);
+	debug("Get unprivileged attempt for bootstrap %x", bootstrapport);
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	if (!bootstrap) {
-		debug("Get unprivileged: invalid bootstrap %x", bootstrap_port);
+		debug("Get unprivileged: invalid bootstrap %x", bootstrapport);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	*unpriv_portp = bootstrap->bootstrap_port;
+	*unprivportp = bootstrap->bootstrap_port;
 
 	debug ("Get unpriv bootstrap %x returned for bootstrap %x",
-	       bootstrap->bootstrap_port, bootstrap_port);
+	       bootstrap->bootstrap_port, bootstrapport);
 	return BOOTSTRAP_SUCCESS;
 }
 
   
 /*
  * kern_return_t
- * bootstrap_check_in(mach_port_t bootstrap_port,
- *	 name_t service_name,
- *	 mach_port_t *service_portp)
+ * bootstrap_check_in(mach_port_t bootstrapport,
+ *	 name_t servicename,
+ *	 mach_port_t *serviceportp)
  *
  * Returns receive rights to service_port of service named by service_name.
  *
@@ -165,9 +165,9 @@ x_bootstrap_unprivileged(
  */
 kern_return_t
 x_bootstrap_check_in(
-	mach_port_t	bootstrap_port,
-	name_t		service_name,
-	mach_port_t	*service_portp)
+	mach_port_t	bootstrapport,
+	name_t		servicename,
+	mach_port_t	*serviceportp)
 {
 	kern_return_t result;
 	mach_port_t previous;
@@ -175,34 +175,34 @@ x_bootstrap_check_in(
 	server_t *serverp;
 	bootstrap_info_t *bootstrap;
 
-	serverp = lookup_server_by_port(bootstrap_port);
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	serverp = lookup_server_by_port(bootstrapport);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	debug("Service checkin attempt for service %s bootstrap %x",
-	      service_name, bootstrap_port);
+	      servicename, bootstrapport);
 
-	servicep = lookup_service_by_name(bootstrap, service_name);
+	servicep = lookup_service_by_name(bootstrap, servicename);
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
-		debug("bootstrap_check_in service %s unknown%s", service_name,
+		debug("bootstrap_check_in service %s unknown%s", servicename,
 			forward_ok ? " forwarding" : "");
 		return  forward_ok ?
 			bootstrap_check_in(
 					inherited_bootstrap_port,
-					service_name,
-					service_portp) :
+					servicename,
+					serviceportp) :
 			BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 	if (servicep->server != NULL && servicep->server != serverp) {
 		debug("bootstrap_check_in service %s not privileged",
-			service_name);
+			servicename);
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (!canReceive(servicep->port)) {
 		ASSERT(servicep->isActive);
 		debug("bootstrap_check_in service %s already active",
-			service_name);
+			servicename);
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
-	debug("Checkin service %s for bootstrap %x", service_name,
+	debug("Checkin service %s for bootstrap %x", servicename,
 	      bootstrap->bootstrap_port);
 	ASSERT(servicep->isActive == FALSE);
 	servicep->isActive = TRUE;
@@ -248,15 +248,15 @@ x_bootstrap_check_in(
 	info("Check-in service %x in bootstrap %x: %s",
 	      servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 
-	*service_portp = servicep->port;
+	*serviceportp = servicep->port;
 	return BOOTSTRAP_SUCCESS;
 }
 
 /*
  * kern_return_t
- * bootstrap_register(mach_port_t bootstrap_port,
- *	name_t service_name,
- *	mach_port_t service_port)
+ * bootstrap_register(mach_port_t bootstrapport,
+ *	name_t servicename,
+ *	mach_port_t serviceport)
  *
  * Registers send rights for the port service_port for the service named by
  * service_name.  Registering a declared service or registering a service for
@@ -274,9 +274,9 @@ x_bootstrap_check_in(
  */
 kern_return_t
 x_bootstrap_register(
-	mach_port_t	bootstrap_port,
-	name_t	service_name,
-	mach_port_t	service_port)
+	mach_port_t	bootstrapport,
+	name_t	servicename,
+	mach_port_t	serviceport)
 {
 	kern_return_t result;
 	service_t *servicep;
@@ -285,12 +285,12 @@ x_bootstrap_register(
 	mach_port_t old_port;
 
 	debug("Register attempt for service %s port %x",
-	      service_name, service_port);
+	      servicename, serviceport);
 
 	/*
 	 * Validate the bootstrap.
 	 */
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	if (!bootstrap || !active_bootstrap(bootstrap))
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	  
@@ -298,19 +298,19 @@ x_bootstrap_register(
 	 * If this bootstrap port is for a server, or it's an unprivileged
 	 * bootstrap can't register the port.
 	 */
-	serverp = lookup_server_by_port(bootstrap_port);
-	servicep = lookup_service_by_name(bootstrap, service_name);
+	serverp = lookup_server_by_port(bootstrapport);
+	servicep = lookup_service_by_name(bootstrap, servicename);
 	if (servicep && servicep->server && servicep->server != serverp)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	if (servicep == NULL || servicep->bootstrap != bootstrap) {
 		servicep = new_service(bootstrap,
-				       service_name,
-				       service_port,
+				       servicename,
+				       serviceport,
 				       ACTIVE,
 				       REGISTERED,
 				       NULL_SERVER);
-		debug("Registered new service %s", service_name);
+		debug("Registered new service %s", servicename);
 	} else {
 		if (servicep->isActive) {
 			debug("Register: service %s already active, port %x",
@@ -343,16 +343,16 @@ x_bootstrap_register(
 		if (result != KERN_SUCCESS)
 			kern_fatal(result, "mach_port_mod_refs");
 		
-		servicep->port = service_port;
+		servicep->port = serviceport;
 		servicep->isActive = TRUE;
 		debug("Re-registered inactive service %x bootstrap %x: %s",
-			servicep->port, servicep->bootstrap->bootstrap_port, service_name);
+			servicep->port, servicep->bootstrap->bootstrap_port, servicename);
 	}
 
 	/* detect the new service port going dead */
 	result = mach_port_request_notification(
 			mach_task_self(),
-			service_port,
+			serviceport,
 			MACH_NOTIFY_DEAD_NAME,
 			0,
 			notify_port,
@@ -365,7 +365,7 @@ x_bootstrap_register(
 		return BOOTSTRAP_SUCCESS;
 	} else if (old_port != MACH_PORT_NULL) {
 		debug("deallocating old notification port (%x) for service %x",
-		      old_port, service_port);
+		      old_port, serviceport);
 		result = mach_port_deallocate(
 				mach_task_self(),
 				old_port);
@@ -379,9 +379,9 @@ x_bootstrap_register(
 
 /*
  * kern_return_t
- * bootstrap_look_up(mach_port_t bootstrap_port,
- *	name_t service_name,
- *	mach_port_t *service_portp)
+ * bootstrap_look_up(mach_port_t bootstrapport,
+ *	name_t servicename,
+ *	mach_port_t *serviceportp)
  *
  * Returns send rights for the service port of the service named by
  * service_name in *service_portp.  Service is not guaranteed to be active.
@@ -391,29 +391,29 @@ x_bootstrap_register(
  */
 kern_return_t
 x_bootstrap_look_up(
-	mach_port_t	bootstrap_port,
-	name_t	service_name,
-	mach_port_t	*service_portp)
+	mach_port_t	bootstrapport,
+	name_t	servicename,
+	mach_port_t	*serviceportp)
 {
 	service_t *servicep;
 	bootstrap_info_t *bootstrap;
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
-	servicep = lookup_service_by_name(bootstrap, service_name);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
+	servicep = lookup_service_by_name(bootstrap, servicename);
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
 		if (forward_ok) {
 			debug("bootstrap_look_up service %s forwarding",
-				service_name);
+				servicename);
 			return bootstrap_look_up(inherited_bootstrap_port,
-						service_name,
-						service_portp);
+						servicename,
+						serviceportp);
 		} else {
 			debug("bootstrap_look_up service %s unknown",
-				service_name);
+				servicename);
 			return BOOTSTRAP_UNKNOWN_SERVICE;
 		}
 	}
-	*service_portp = servicep->port;
+	*serviceportp = servicep->port;
 	debug("Lookup returns port %x for service %s",
 	      servicep->port,
 	      servicep->name);
@@ -422,12 +422,12 @@ x_bootstrap_look_up(
 
 /*
  * kern_return_t
- * bootstrap_look_up_array(mach_port_t bootstrap_port,
- *	name_array_t	service_names,
- *	int		service_names_cnt,
- *	mach_port_array_t	*service_ports,
- *	int		*service_ports_cnt,
- *	boolean_t	*all_services_known)
+ * bootstrap_look_up_array(mach_port_t bootstrapport,
+ *	name_array_t	servicenames,
+ *	int		servicenames_cnt,
+ *	mach_port_array_t	*serviceports,
+ *	int		*serviceports_cnt,
+ *	boolean_t	*allservices_known)
  *
  * Returns port send rights in corresponding entries of the array service_ports
  * for all services named in the array service_names.  Service_ports_cnt is
@@ -445,39 +445,39 @@ x_bootstrap_look_up(
  */
 kern_return_t
 x_bootstrap_look_up_array(
-	mach_port_t	bootstrap_port,
-	name_array_t	service_names,
-	unsigned int	service_names_cnt,
-	mach_port_array_t	*service_portsp,
-	unsigned int	*service_ports_cnt,
-	boolean_t	*all_services_known)
+	mach_port_t	bootstrapport,
+	name_array_t	servicenames,
+	unsigned int	servicenames_cnt,
+	mach_port_array_t	*serviceportsp,
+	unsigned int	*serviceports_cnt,
+	boolean_t	*allservices_known)
 {
 	unsigned int i;
 	static mach_port_t service_ports[BOOTSTRAP_MAX_LOOKUP_COUNT];
 	
-	if (service_names_cnt > BOOTSTRAP_MAX_LOOKUP_COUNT)
+	if (servicenames_cnt > BOOTSTRAP_MAX_LOOKUP_COUNT)
 		return BOOTSTRAP_BAD_COUNT;
-	*service_ports_cnt = service_names_cnt;
-	*all_services_known = TRUE;
-	for (i = 0; i < service_names_cnt; i++) {
-		if (   x_bootstrap_look_up(bootstrap_port,
-					  service_names[i],
+	*serviceports_cnt = servicenames_cnt;
+	*allservices_known = TRUE;
+	for (i = 0; i < servicenames_cnt; i++) {
+		if (   x_bootstrap_look_up(bootstrapport,
+					  servicenames[i],
 					  &service_ports[i])
 		    != BOOTSTRAP_SUCCESS)
 		{
-			*all_services_known = FALSE;
+			*allservices_known = FALSE;
 			service_ports[i] = MACH_PORT_NULL;
 		}
 	}
-	debug("bootstrap_look_up_array returns %d ports", service_names_cnt);
-	*service_portsp = service_ports;
+	debug("bootstrap_look_up_array returns %d ports", servicenames_cnt);
+	*serviceportsp = service_ports;
 	return BOOTSTRAP_SUCCESS;
 }
 
 /*
  * kern_return_t
- * bootstrap_parent(mach_port_t bootstrap_port,
- *		    mach_port_t *parent_port);
+ * bootstrap_parent(mach_port_t bootstrapport,
+ *		    mach_port_t *parentport);
  *
  * Given a bootstrap subset port, return the parent bootstrap port.
  * If the specified bootstrap port is already the root subset,
@@ -490,36 +490,36 @@ x_bootstrap_look_up_array(
  */
 kern_return_t
 x_bootstrap_parent(
-	mach_port_t bootstrap_port,
+	mach_port_t bootstrapport,
 	security_token_t sectoken,
-	mach_port_t *parent_port)
+	mach_port_t *parentport)
 {
 	bootstrap_info_t *bootstrap;
 
-	debug("Parent attempt for bootstrap %x", bootstrap_port);
+	debug("Parent attempt for bootstrap %x", bootstrapport);
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	if (!bootstrap) { 
 		debug("Parent attempt for bootstrap %x: invalid bootstrap",
-		      bootstrap_port);
+		      bootstrapport);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (sectoken.val[0]) {
 		notice("Bootstrap parent for bootstrap %x: invalid security token (%d)",
-		       bootstrap_port, sectoken.val[0]);
+		       bootstrapport, sectoken.val[0]);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	debug("Returning bootstrap parent %x for bootstrap %x",
-	      bootstrap->parent->bootstrap_port, bootstrap_port);
-	*parent_port = bootstrap->parent->bootstrap_port;
+	      bootstrap->parent->bootstrap_port, bootstrapport);
+	*parentport = bootstrap->parent->bootstrap_port;
 	return BOOTSTRAP_SUCCESS;
 }
 
 /*
  * kern_return_t
- * bootstrap_status(mach_port_t bootstrap_port,
- *	name_t service_name,
- *	bootstrap_status_t *service_active);
+ * bootstrap_status(mach_port_t bootstrapport,
+ *	name_t servicename,
+ *	bootstrap_status_t *serviceactive);
  *
  * Returns: service_active indicates if service is available.
  *			
@@ -528,44 +528,44 @@ x_bootstrap_parent(
  */
 kern_return_t
 x_bootstrap_status(
-	mach_port_t		bootstrap_port,
-	name_t			service_name,
-	bootstrap_status_t	*service_active)
+	mach_port_t		bootstrapport,
+	name_t			servicename,
+	bootstrap_status_t	*serviceactivep)
 {
 	service_t *servicep;
 	bootstrap_info_t *bootstrap;
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
-	servicep = lookup_service_by_name(bootstrap, service_name);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
+	servicep = lookup_service_by_name(bootstrap, servicename);
 	if (servicep == NULL) {
 		if (forward_ok) {
 			debug("bootstrap_status forwarding status, server %s",
-				service_name);
+				servicename);
 			return bootstrap_status(inherited_bootstrap_port,
-						service_name,
-						service_active);
+						servicename,
+						serviceactivep);
 		} else {
 			debug("bootstrap_status service %s unknown",
-				service_name);
+				servicename);
 			return BOOTSTRAP_UNKNOWN_SERVICE;
 		}
 	}
-	*service_active = bsstatus(servicep);
+	*serviceactivep = bsstatus(servicep);
 
-	debug("bootstrap_status server %s %sactive", service_name,
+	debug("bootstrap_status server %s %sactive", servicename,
 		servicep->isActive ? "" : "in");
 	return BOOTSTRAP_SUCCESS;
 }
 
 /*
  * kern_return_t
- * bootstrap_info(mach_port_t bootstrap_port,
- *	name_array_t *service_names,
- *	int *service_names_cnt,
- *	name_array_t *server_names,
- *	int *server_names_cnt,
- *	bootstrap_status_array_t *service_actives,
- *	int *service_active_cnt);
+ * bootstrap_info(mach_port_t bootstrapport,
+ *	name_array_t *servicenamesp,
+ *	int *servicenames_cnt,
+ *	name_array_t *servernamesp,
+ *	int *servernames_cnt,
+ *	bootstrap_status_array_t *serviceactivesp,
+ *	int *serviceactive_cnt);
  *
  * Returns bootstrap status for all known services.
  *			
@@ -573,13 +573,13 @@ x_bootstrap_status(
  */
 kern_return_t
 x_bootstrap_info(
-	mach_port_t			bootstrap_port,
-	name_array_t			*service_namesp,
-	unsigned int			*service_names_cnt,
-	name_array_t			*server_namesp,
-	unsigned int			*server_names_cnt,
-	bootstrap_status_array_t	*service_activesp,
-	unsigned int			*service_actives_cnt)
+	mach_port_t			bootstrapport,
+	name_array_t			*servicenamesp,
+	unsigned int			*servicenames_cnt,
+	name_array_t			*servernamesp,
+	unsigned int			*servernames_cnt,
+	bootstrap_status_array_t	*serviceactivesp,
+	unsigned int			*serviceactives_cnt)
 {
 	kern_return_t result;
 	unsigned int i, cnt;
@@ -590,7 +590,7 @@ x_bootstrap_info(
 	name_array_t server_names;
 	bootstrap_status_array_t service_actives;
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 
 	for (   cnt = i = 0, servicep = services.next
 	     ; i < nservices
@@ -660,20 +660,19 @@ x_bootstrap_info(
 	    service_actives[i] = bsstatus(servicep);
 	    i++;
 	}
-	*service_namesp = service_names;
-	*server_namesp = server_names;
-	*service_activesp = service_actives;
-	*service_names_cnt = *server_names_cnt =
-		*service_actives_cnt = cnt;
+	*servicenamesp = service_names;
+	*servernamesp = server_names;
+	*serviceactivesp = service_actives;
+	*servicenames_cnt = *servernames_cnt = *serviceactives_cnt = cnt;
 
 	return BOOTSTRAP_SUCCESS;
 }
 
 /*
  * kern_return_t
- * bootstrap_subset(mach_port_t bootstrap_port,
- *		    mach_port_t requestor_port,
- *		    mach_port_t *subset_port);
+ * bootstrap_subset(mach_port_t bootstrapport,
+ *		    mach_port_t requestorport,
+ *		    mach_port_t *subsetport);
  *
  * Returns a new port to use as a bootstrap port.  This port behaves
  * exactly like the previous bootstrap_port, except that ports dynamically
@@ -691,50 +690,50 @@ x_bootstrap_info(
  */
 kern_return_t
 x_bootstrap_subset(
-	mach_port_t	bootstrap_port,
-	mach_port_t	requestor_port,
-	mach_port_t	*subset_port)
+	mach_port_t	bootstrapport,
+	mach_port_t	requestorport,
+	mach_port_t	*subsetportp)
 {
 	kern_return_t result;
 	bootstrap_info_t *bootstrap;
 	bootstrap_info_t *subset;
-	mach_port_t new_bootstrap_port;
+	mach_port_t new_bootstrapport;
 	mach_port_t previous;
 
 	debug("Subset create attempt: bootstrap %x, requestor: %x",
-	      bootstrap_port, requestor_port);
+	      bootstrapport, requestorport);
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	if (!bootstrap || !active_bootstrap(bootstrap))
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	result = mach_port_allocate(
 				mach_task_self(), 
 				MACH_PORT_RIGHT_RECEIVE,
-				&new_bootstrap_port);
+				&new_bootstrapport);
 	if (result != KERN_SUCCESS)
 		kern_fatal(result, "mach_port_allocate");
 
 	result = mach_port_insert_right(
 				mach_task_self(),
-				new_bootstrap_port,
-				new_bootstrap_port,
+				new_bootstrapport,
+				new_bootstrapport,
 				MACH_MSG_TYPE_MAKE_SEND);
 	if (result != KERN_SUCCESS)
 		kern_fatal(result, "failed to insert send right");
 
 	result = mach_port_insert_member(
 				mach_task_self(),
-				new_bootstrap_port,
+				new_bootstrapport,
 				bootstrap_port_set);
 	if (result != KERN_SUCCESS)
 		kern_fatal(result, "port_set_add");
 
-	subset = new_bootstrap(bootstrap, new_bootstrap_port, requestor_port);
+	subset = new_bootstrap(bootstrap, new_bootstrapport, requestorport);
 
 	result = mach_port_request_notification(
 				mach_task_self(),
-				requestor_port,
+				requestorport,
 				MACH_NOTIFY_DEAD_NAME,
 				0,
 				notify_port,
@@ -742,12 +741,12 @@ x_bootstrap_subset(
 				&previous); 
 	if (result != KERN_SUCCESS) {
 		kern_error(result, "mach_port_request_notification");
-		mach_port_deallocate(mach_task_self(), requestor_port);
+		mach_port_deallocate(mach_task_self(), requestorport);
 		subset->requestor_port = MACH_PORT_NULL;
 		deactivate_bootstrap(subset);
 	} else if (previous != MACH_PORT_NULL) {
 		debug("deallocating old notification port (%x) for requestor %x",
-			  previous, requestor_port);
+			  previous, requestorport);
 		result = mach_port_deallocate(
 				mach_task_self(),
 				previous);
@@ -756,16 +755,16 @@ x_bootstrap_subset(
 	}
 
 	info("Created bootstrap subset %x parent %x requestor %x", 
-		new_bootstrap_port, bootstrap_port, requestor_port);
-	*subset_port = new_bootstrap_port;
+		new_bootstrapport, bootstrapport, requestorport);
+	*subsetportp = new_bootstrapport;
 	return BOOTSTRAP_SUCCESS;
 }
 
 /*
  * kern_return_t
- * bootstrap_create_service(mach_port_t bootstrap_port,
- *		      name_t service_name,
- *		      mach_port_t *service_port)
+ * bootstrap_create_service(mach_port_t bootstrapport,
+ *		      name_t servicename,
+ *		      mach_port_t *serviceportp)
  *
  * Creates a service named "service_name" and returns send rights to that
  * port in "service_port."  The port may later be checked in as if this
@@ -776,35 +775,40 @@ x_bootstrap_subset(
  */
 kern_return_t
 x_bootstrap_create_service(
-	mach_port_t bootstrap_port,
-	name_t	service_name,
-	mach_port_t *service_port)
+	mach_port_t bootstrapport,
+	name_t	servicename,
+	mach_port_t *serviceportp)
 {
 	server_t *serverp;
 	service_t *servicep;
 	bootstrap_info_t *bootstrap;
 	kern_return_t result;
 
-	bootstrap = lookup_bootstrap_by_port(bootstrap_port);
+	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	if (!bootstrap || !active_bootstrap(bootstrap))
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	debug("Service creation attempt for service %s bootstrap %x",
-	      service_name, bootstrap_port);
+	      servicename, bootstrapport);
 
-	servicep = lookup_service_by_name(bootstrap, service_name);
+	servicep = lookup_service_by_name(bootstrap, servicename);
 	if (servicep) {
 		debug("Service creation attempt for service %s failed, "
-			"service already exists", service_name);
+			"service already exists", servicename);
 		return BOOTSTRAP_NAME_IN_USE;
 	}
 
-	serverp = lookup_server_by_port(bootstrap_port);
+	serverp = lookup_server_by_port(bootstrapport);
 
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE,  service_port);
+	result = mach_port_allocate(mach_task_self(),
+				    MACH_PORT_RIGHT_RECEIVE,
+				    serviceportp);
 	if (result != KERN_SUCCESS)
 		kern_fatal(result, "port_allocate");
-	result = mach_port_insert_right(mach_task_self(), *service_port, *service_port, MACH_MSG_TYPE_MAKE_SEND);
+	result = mach_port_insert_right(mach_task_self(),
+					*serviceportp, 
+					*serviceportp,
+					MACH_MSG_TYPE_MAKE_SEND);
 	if (result != KERN_SUCCESS)
 		kern_fatal(result, "failed to insert send right");
 
@@ -812,14 +816,14 @@ x_bootstrap_create_service(
 		serverp->activity++;
 
 	servicep = new_service(bootstrap,
-				service_name,
-				*service_port,
+				servicename,
+				*serviceportp,
 				!ACTIVE,
 				DECLARED,
 				serverp);
 
 	info("Created new service %x in bootstrap %x: %s", 
-	    servicep->port, bootstrap->bootstrap_port, service_name);
+	    servicep->port, bootstrap->bootstrap_port, servicename);
 
 	return BOOTSTRAP_SUCCESS;
 }

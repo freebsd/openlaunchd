@@ -74,7 +74,7 @@ server_t *
 new_server(
 	bootstrap_info_t	*bootstrap,
 	const char		*cmd,
-	int			uid,
+	uid_t			uid,
 	servertype_t		servertype)
 {
 	server_t *serverp;
@@ -109,7 +109,7 @@ service_t *
 new_service(
 	bootstrap_info_t	*bootstrap,
 	const char	*name,
-	mach_port_t		service_port,
+	mach_port_t		serviceport,
 	boolean_t	isActive,
 	servicetype_t	servicetype,
 	server_t	*serverp)
@@ -130,7 +130,7 @@ new_service(
 		LAST_ELEMENT(servicep->name) = '\0';
 		servicep->servicetype = servicetype;
 		servicep->bootstrap = bootstrap;
-		servicep->port = service_port;
+		servicep->port = serviceport;
 		servicep->server = serverp;
 		servicep->isActive = isActive;
 	}
@@ -140,8 +140,8 @@ new_service(
 bootstrap_info_t *
 new_bootstrap(
 	bootstrap_info_t	*parent,
-	mach_port_t	bootstrap_port,
-	mach_port_t	requestor_port)
+	mach_port_t	bootstrapport,
+	mach_port_t	requestorport)
 {
 	bootstrap_info_t *bootstrap;
 
@@ -153,8 +153,8 @@ new_bootstrap(
 		bootstrap->next = &bootstraps;
 		bootstraps.prev = bootstrap;
 		
-		bootstrap->bootstrap_port = bootstrap_port;
-		bootstrap->requestor_port = requestor_port;
+		bootstrap->bootstrap_port = bootstrapport;
+		bootstrap->requestor_port = requestorport;
 
 		bootstrap->ref_count = 1;
 		bootstrap->parent = parent;

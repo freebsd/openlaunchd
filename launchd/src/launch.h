@@ -98,7 +98,7 @@ bool		launch_data_set_integer(launch_data_t, long long);
 bool		launch_data_set_bool(launch_data_t, bool);
 bool		launch_data_set_real(launch_data_t, double);
 bool		launch_data_set_string(launch_data_t, const char *);
-bool		launch_data_set_opaque(launch_data_t, void *, size_t);
+bool		launch_data_set_opaque(launch_data_t, const void *, size_t);
 
 int		launch_data_get_fd(launch_data_t);
 long long	launch_data_get_integer(launch_data_t);

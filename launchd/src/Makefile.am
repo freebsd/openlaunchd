@@ -51,7 +51,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.1.dylib
 
 bootstrap.c:: bootstrap.h
 
-bootstrap.h bootstrapServer.c bootstrapUser.c:
+bootstrap.h bootstrapServer.c bootstrapUser.c: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
 liblaunch.1.dylib:

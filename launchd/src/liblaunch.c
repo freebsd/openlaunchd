@@ -297,7 +297,7 @@ bool launch_data_set_string(launch_data_t d, const char *s)
 	return false;
 }
 
-bool launch_data_set_opaque(launch_data_t d, void *o, size_t os)
+bool launch_data_set_opaque(launch_data_t d, const void *o, size_t os)
 {
 	d->opaque_size = os;
 	if (d->opaque)
@@ -503,7 +503,7 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 	struct msghdr mh;
 	struct iovec iov;
 	int r;
-	size_t sentctrllen = 0;
+	ssize_t sentctrllen = 0;
 
 	memset(&mh, 0, sizeof(mh));
 

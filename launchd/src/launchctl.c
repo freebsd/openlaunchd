@@ -27,9 +27,9 @@ static void usage(FILE *) __attribute__((noreturn));
 static void loadcfg(const char *);
 static void unloadcfg(const char *);
 static void get_launchd_env(void);
-static void set_launchd_env(const char *);
-static void unset_launchd_env(const char *);
-static void set_launchd_envkv(const char *key, const char *val);
+static void set_launchd_env(char *);
+static void unset_launchd_env(char *);
+static void set_launchd_envkv(char *, char *);
 
 int main(int argc, char *argv[])
 {
@@ -75,7 +75,7 @@ static void print_launchd_env(launch_data_t obj, const char *key, void *context)
 		fprintf(stdout, "%s=%s; export %s;\n", key, launch_data_get_string(obj), key);
 }
 
-static void unset_launchd_env(const char *arg)
+static void unset_launchd_env(char *arg)
 {
 	launch_data_t resp, tmp, req = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
@@ -94,9 +94,9 @@ static void unset_launchd_env(const char *arg)
 	}
 }
 
-static void set_launchd_env(const char *arg)
+static void set_launchd_env(char *arg)
 {
-	const char *key = arg, *val = strchr(arg, '=');
+	char *key = arg, *val = strchr(arg, '=');
 
 	if (val) {
 		*val = '\0';
@@ -107,7 +107,7 @@ static void set_launchd_env(const char *arg)
 	set_launchd_envkv(key, val);
 }
 
-static void set_launchd_envkv(const char *key, const char *val)
+static void set_launchd_envkv(char *key, char *val)
 {
 	launch_data_t resp, tmp, tmpv, req = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
@@ -191,7 +191,7 @@ static void loadcfg(const char *what)
 		id_plist = CF2launch_data(plist);
 		if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED))) {
 			if (launch_data_get_bool(tmp)) {
-				if (tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL)) {
+				if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL))) {
 					tmpa = launch_data_alloc(LAUNCH_DATA_STRING);
 					launch_data_set_string(tmpa, launch_data_get_string(tmp));
 					launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_REMOVEJOB);
@@ -364,7 +364,7 @@ static launch_data_t create_launch_data_addrinfo_fd(struct addrinfo *ai, int fd)
 	return d;
 }
 
-static void sock_dict_cb(launch_data_t what, const char *key, void *context)
+static void sock_dict_cb(launch_data_t what, const char *key, void *context __attribute__((unused)))
 {
 	launch_data_t a, tmp, val;
 	size_t i;

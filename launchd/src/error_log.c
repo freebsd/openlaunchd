@@ -47,11 +47,11 @@ static boolean_t stderr_open = FALSE;
 static boolean_t log_stopped = FALSE;
 
 void
-init_errlog(boolean_t daemon)
+init_errlog(boolean_t start_as_daemon)
 {
 	int nfds, fd;
 
-	if (!daemon) {
+	if (!start_as_daemon) {
 		stderr_open = TRUE; 
 		nfds = getdtablesize();
 		for (fd = 3; fd < nfds; fd++)

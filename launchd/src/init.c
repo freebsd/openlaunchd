@@ -350,7 +350,7 @@ handle(sig_t handler, ...)
 	sa.sa_handler = handler;
 	sigfillset(&mask_everything);
 
-	while (sig = va_arg(ap, int)) {
+	while ((sig = va_arg(ap, int)) != 0) {
 		sa.sa_mask = mask_everything;
 		/* XXX SA_RESTART? */
 		sa.sa_flags = sig == SIGCHLD ? SA_NOCLDSTOP : 0;
@@ -369,7 +369,7 @@ delset(sigset_t *maskp, ...)
 	va_list ap;
 	va_start(ap, maskp);
 
-	while (sig = va_arg(ap, int))
+	while ((sig = va_arg(ap, int)) != 0)
 		sigdelset(maskp, sig);
 	va_end(ap);
 }
@@ -444,7 +444,7 @@ disaster(sig)
 	int sig;
 {
 	emergency("fatal signal: %s",
-		sig < (unsigned) NSIG ? sys_siglist[sig] : "unknown signal");
+		sig < NSIG ? sys_siglist[sig] : "unknown signal");
 
 	sleep(STALL_TIMEOUT);
 	_exit(sig);		/* reboot */
@@ -1075,7 +1075,7 @@ construct_argv(command)
 
 	if ((argv[argc++] = strtok(command, separators)) == 0)
 		return 0;
-	while (argv[argc++] = strtok((char *) 0, separators))
+	while ((argv[argc++] = strtok((char *) 0, separators)))
 		continue;
 	return argv;
 }
@@ -1242,8 +1242,8 @@ read_ttys()
 	 * Allocate a session entry for each active port.
 	 * Note that sp starts at 0.
 	 */
-	while (typ = getttyent())
-		if (snext = new_session(sp, ++session_index, typ))
+	while ((typ = getttyent()))
+		if ((snext = new_session(sp, ++session_index, typ)))
 			sp = snext;
 
 	endttyent();
@@ -1378,11 +1378,11 @@ collect_child(pid_t pid)
 	sp->se_process = 0;
 
 	if (sp->se_flags & SE_SHUTDOWN) {
-		if (sprev = sp->se_prev)
+		if ((sprev = sp->se_prev))
 			sprev->se_next = sp->se_next;
 		else
 			sessions = sp->se_next;
-		if (snext = sp->se_next)
+		if ((snext = sp->se_next))
 			snext->se_prev = sp->se_prev;
 		free_session(sp);
 		return;
@@ -1460,7 +1460,6 @@ multi_user()
 	while (!requested_transition)
 	{
 		int status;
-		session_t *sp;
 
 		pid = waitpid(-1, &status, 0);
 		if (!sessions || !(sp = find_session(pid)))
@@ -1497,7 +1496,7 @@ clean_ttys()
 		return (state_func_t) multi_user;
 
 	devlen = sizeof(_PATH_DEV) - 1;
-	while (typ = getttyent()) {
+	while ((typ = getttyent())) {
 		++session_index;
 
 		for (sprev = 0, sp = sessions; sp; sprev = sp, sp = sp->se_next)
@@ -1554,7 +1553,7 @@ catatonia()
  */
 void
 alrm_handler(sig)
-	int sig;
+	int sig __attribute__((unused));
 {
 	clang = 1;
 }
