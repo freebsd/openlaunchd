@@ -444,4 +444,8 @@ export LANGUAGE
 
 touch /var/run/.systemStarterRunning
 
+if [ -f /etc/rc.local ]; then
+	sh /etc/rc.local
+fi
+
 exit 0
