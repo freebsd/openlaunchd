@@ -105,12 +105,12 @@ RMRF_ITEMS="$RMRF_ITEMS /etc/nologin"
 if [ -d /private/tmp ]; then
 	# blow away any _tmp_ in case it exists as well
 	if [ -e /private/_tmp_ ]; then
-		chflags -R nouchg /private/_tmp_
+		chflags -R -P 0 /private/_tmp_
 		rm -rf /private/_tmp_
 	fi
 	echo -n " /private/tmp"
 	mv /private/tmp /private/_tmp_
-	chflags -R nouchg /private/_tmp_
+	chflags -R -P 0 /private/_tmp_
 	RMRF_ITEMS="$RMRF_ITEMS /private/_tmp_"
 fi
 mkdir -p -m 01777 /private/var/tmp /private/tmp
@@ -119,7 +119,7 @@ mkdir -p -m 01777 /private/var/tmp /private/tmp
 if [ -d /var/run ]; then
 	# blow away any _run_ in case it exists as well
 	if [ -e /var/_run_ ]; then
-		chflags -R nouchg /var/_run_
+		chflags -R -P 0 /var/_run_
 		rm -rf /var/_run_
 	fi
 	mv /var/run /var/_run_
@@ -143,7 +143,7 @@ touch /var/run/utmp /var/run/utmpx
 
 # purge the _run_ directory if it exists
 if [ -d /var/_run_ ]; then
-	chflags -R nouchg /var/_run_
+	chflags -R -P 0 /var/_run_
 	RMRF_ITEMS="$RMRF_ITEMS /var/_run_"
 fi
 
