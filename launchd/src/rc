@@ -67,10 +67,6 @@ if [ -f /var/account/acct ]; then
 	accton /var/account/acct
 fi
 
-if [ -f /Library/Preferences/com.apple.sharing.firewall.plist ]; then
-	/usr/libexec/FirewallTool
-fi
-
 if [ -f /etc/rc.installer_cleanup ]; then
 	/etc/rc.installer_cleanup multiuser
 fi
@@ -250,6 +246,10 @@ fi
 
 if [ -f /etc/security/rc.audit ]; then
 	. /etc/security/rc.audit
+fi
+
+if [ -f /Library/Preferences/com.apple.sharing.firewall.plist ]; then
+	/usr/libexec/FirewallTool
 fi
 
 # Load [ideally on demand] daemons
