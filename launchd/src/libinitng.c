@@ -169,11 +169,11 @@ initng_err_t initng_recvmsg(int fd, initng_msg_cb cb, void *cookie)
         mh.msg_iov = &iov;
         mh.msg_iovlen = 1;
 
-	thisconn->recvbuf = realloc(thisconn->recvbuf, thisconn->recvlen + 16*1024);
+	thisconn->recvbuf = realloc(thisconn->recvbuf, thisconn->recvlen + 8*1024);
 	thisconn->recvctrlbuf = realloc(thisconn->recvctrlbuf, thisconn->recvlen + 4*1024);
 
 	iov.iov_base = thisconn->recvbuf + thisconn->recvlen;
-	iov.iov_len = 16*1024;
+	iov.iov_len = 8*1024;
 	mh.msg_control = thisconn->recvctrlbuf + thisconn->recvctrllen;
 	mh.msg_controllen = 4*1024;
 
@@ -441,8 +441,6 @@ initng_err_t initng_sendmsga(int fd, char *command, char *data[])
 		 * joblabel, socklabel, socknodename, sockservname, sockfamily,
 		 * socktype, sockprotocol, sockpassive, NULL
 		 */
-		                
-		/* XXX - sort out arguments */
 		memset(&hints, 0, sizeof(hints));
 		if (strlen(data[2]) > 0)	/* nodename */
 			n = data[2];
@@ -491,7 +489,10 @@ initng_err_t initng_sendmsga(int fd, char *command, char *data[])
 			}
 			asprintf(&fdstr, "%d", sfd);
 			realmsgdata[2] = fdstr;
-			r = initng_sendmsga(fd, "addFD", realmsgdata);
+			if (res->ai_next)
+				r = initng_msga(fd, "addFD", realmsgdata);
+			else
+				r = initng_sendmsga(fd, "addFD", realmsgdata);
 			close(sfd);
 			free(fdstr);
 			if (r != INITNG_ERR_SUCCESS)
@@ -653,8 +654,6 @@ const char *initng_strerror(initng_err_t error)
 	if (error >= (sizeof(errs) / sizeof(char *)) || errs[error] == NULL) {
 		return "Unknown initng error";
 	}
-	if (error == INITNG_ERR_SYSCALL)
-		fprintf(stderr, "INITNG_ERR_SYSCALL: %s\n", strerror(errno));
 	return errs[error];
 }
 
