@@ -17,6 +17,7 @@
 
 #define LAUNCH_JOBKEY_LABEL			"Label"
 #define LAUNCH_JOBKEY_DISABLED			"Disabled"
+#define LAUNCH_JOBKEY_ENABLED			"Enabled"
 #define LAUNCH_JOBKEY_USERNAME			"UserName"
 #define LAUNCH_JOBKEY_UID			"UID"
 #define LAUNCH_JOBKEY_GROUPNAME			"GroupName"

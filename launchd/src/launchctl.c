@@ -176,7 +176,8 @@ static void loadcfg(const char *what)
 	struct dirent *de;
 	struct stat sb;
 	char *foo;
-	launch_data_t resp, msg, tmp, tmpa, id_plist;
+	bool job_disabled;
+	launch_data_t resp, msg, tmp, tmpe, tmpd, tmpa, id_plist;
 
 	if (stat(what, &sb) == -1)
 		return;
@@ -189,30 +190,37 @@ static void loadcfg(const char *what)
 			return;
 		}
 		id_plist = CF2launch_data(plist);
-		if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED))) {
-			if (launch_data_get_bool(tmp)) {
-				if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL))) {
-					tmpa = launch_data_alloc(LAUNCH_DATA_STRING);
-					launch_data_set_string(tmpa, launch_data_get_string(tmp));
-					launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_REMOVEJOB);
-					resp = launch_msg(msg);
-					if (resp) {
-						if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
-							if (strcasecmp(launch_data_get_string(resp),
-										LAUNCH_RESPONSE_SUCCESS) &&
-									strcasecmp(launch_data_get_string(resp),
-										LAUNCH_RESPONSE_JOBNOTFOUND)) {
-								fprintf(stderr, "%s\n", launch_data_get_string(resp));
-							}
 
-						}
-						launch_data_free(resp);
+		tmpe = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_ENABLED);
+		tmpd = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED);
+		if (tmpd)
+			job_disabled = launch_data_get_bool(tmpd);
+		else if (tmpe)
+			job_disabled = !launch_data_get_bool(tmpe);
+		else
+			job_disabled = false;
+
+		if (job_disabled) {
+			if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL))) {
+				tmpa = launch_data_alloc(LAUNCH_DATA_STRING);
+				launch_data_set_string(tmpa, launch_data_get_string(tmp));
+				launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_REMOVEJOB);
+				resp = launch_msg(msg);
+				if (resp && launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+					if (strcasecmp(launch_data_get_string(resp),
+								LAUNCH_RESPONSE_SUCCESS) &&
+							strcasecmp(launch_data_get_string(resp),
+								LAUNCH_RESPONSE_JOBNOTFOUND)) {
+						fprintf(stderr, "%s\n",
+								launch_data_get_string(resp));
 					}
+				} else if (resp) {
+					launch_data_free(resp);
 				}
-				launch_data_free(msg);
-				launch_data_free(id_plist);
-				return;
 			}
+			launch_data_free(msg);
+			launch_data_free(id_plist);
+			return;
 		}
 		distill_config_file(id_plist);
 		launch_data_dict_insert(msg, id_plist, LAUNCH_KEY_SUBMITJOB);
