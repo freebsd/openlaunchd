@@ -89,8 +89,8 @@ StartService ()
 
     if [ "${AUTOMOUNT:=-YES-}" = "-YES-" ]; then
 	automount -m /Network -nsl -mnt /private/var/automount
-	automount -m /automount/Servers -fstab -mnt /private/var/automount/Network/Servers \
-              -m /automount/static -static -mnt /private/var/automount
+	automount -m /automount/Servers -fstab -mnt /private/Network/Servers \
+		-m /automount/static -static -mnt /private/var/automount
 	ln -s /automount/Servers /Network/Servers
 	
 	#
