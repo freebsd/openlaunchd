@@ -252,29 +252,6 @@ if [  "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
 	${BootCacheControl} tag
 fi
 
-if [ -f /etc/security/rc.audit ]; then
-	. /etc/security/rc.audit
-fi
-
-# Load [ideally on demand] daemons
-/usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
-launchctl -l /System/Library/LaunchDaemons
-
-# nibindd is required if there are NetInfo domains other than "local", or
-# if the local domain has any non-loopback values for "trusted_networks".
-if [ "${NETINFOSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
-	NETINFOSERVER=-YES-
-	ni_not_local=$(/bin/ls -1d /var/db/netinfo/*.nidb | sed 's:/var/db/netinfo/local.nidb::' | wc -w)
-	ni_local_export=$(nicl -raw /var/db/netinfo/local.nidb -read / trusted_networks 2>&1 | sed 's/trusted_networks://' | sed 's/127[^ ]*//g' | wc -w)
-	total=$(($ni_not_local + $ni_local_export))
-	if [ "${total}" -eq 0 ]; then
-		NETINFOSERVER=-NO-
-	fi
-fi
-
-# We would also like to start "netinfo" on demand too, but we can't for various
-# reasons at the moment. Start it here for now:
-#
 # Create local NetInfo database if it doesn't exist
 if [ ! -d /var/db/netinfo/local.nidb ]; then
 	echo "Creating local NetInfo database"
@@ -283,14 +260,13 @@ if [ ! -d /var/db/netinfo/local.nidb ]; then
 	rm -f /var/db/.AppleSetupDone
 fi
 
-# If nibindd is not required, we just start the local NetInfo daemon.
-if [ "${NETINFOSERVER}" = "-YES-" ]; then
-	nibindd
-else
-	cd /var/db/netinfo
-	netinfod -s local
-	cd /
+if [ -f /etc/security/rc.audit ]; then
+	. /etc/security/rc.audit
 fi
+
+# Load [ideally on demand] daemons
+/usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
+launchctl -l /System/Library/LaunchDaemons
 
 if [ "${SafeBoot}" != "-x" ]; then
 	SystemStarter ${VerboseFlag}
