@@ -909,11 +909,12 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 	int             anError = -1;
 	CFArrayRef      aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
 	const CFStringRef stubitems[] = {
-		CFSTR("BootROMUpdater"),
-		CFSTR("FCUUpdater"),
-		CFSTR("AutoProtect Daemon"),
-		CFSTR("Check For Missed Tasks"),
-		CFSTR("Privacy"),
+		CFSTR("BootROMUpdater"),		/* 3893064 */
+		CFSTR("FCUUpdater"),			/* 3893064 */
+		CFSTR("AutoProtect Daemon"),		/* 3965785 */
+		CFSTR("Check For Missed Tasks"),	/* 3965785 */
+		CFSTR("Privacy"),			/* 3933484 */
+		CFSTR("Firmware Update Checking"),	/* 4001504 */
 		NULL
 	};
 	const CFStringRef *c;
