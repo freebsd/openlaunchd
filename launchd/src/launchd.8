@@ -20,25 +20,27 @@ is invoked by the kernel to run as the first process on the system and to furthe
 .Sh OPTIONS
 .Bl -tag -width -indent
 .It Fl d
+Enable debugging mode and output.
 .El
-enable debugging mode and output
 .Sh EXTRA OPTIONS WHEN RUN AS PID 1
 .Bl -tag -width -indent
 .It Fl s
-single user mode
+Single user mode. Instructs
+.Nm launchd
+to give a shell prompt before booting the system.
 .It Fl v
-verbose boot
+Verbose boot (presently ignored).
 .It Fl x
-safe mode boot (only do the minimum necessary to boot)
+Safe mode boot. Instructs the system to boot conservatively.
 .El
 .Sh NOTES
-In Darwin it is preferable to have your daemon launch via launchd insteaad of modifying
+In Darwin it is preferable to have your daemon launch via launchd instead of modifying
 .Nm rc
 or creating a
 .Nm SystemStarter
 Startup Item.
 .Pp
-At some point in the future, we hope to complete phase out the use of
+At some point in the future, we hope to completely phase out the use of
 .Nm rc .
 .Pp
 .Bl -tag -width "SIGUSR1" -compact
@@ -47,11 +49,11 @@ Toggles the debug mode as if the -d option was passed or not.
 .El
 .Sh FILES
 .Bl -tag -width "/System/Library/LaunchDaemons" -compact
-.It Pa ~/Library/LaunchAgents/
+.It Pa ~/Library/LaunchAgents
 Per-user agents provided by the user.
-.It Pa /System/Library/LaunchAgents/
+.It Pa /System/Library/LaunchAgents
 Per-user agents provided by the system.
-.It Pa /System/Library/LaunchDaemons/
+.It Pa /System/Library/LaunchDaemons
 Mac OS X System wide daemons.
 .El
 .Sh SEE ALSO 

@@ -56,6 +56,8 @@ Setup resource limits with
 .It
 Setup priority with
 .Xr setpriority 2 .
+.It
+Ignore the SIGTERM signal.
 .El
 .Pp
 A daemon or agent launched by
@@ -67,6 +69,8 @@ SHOULD:
 Launch on demand given criteria specified in the XML property list.
 More information can be found in
 .Xr launch 3 .
+.It
+Catch the SIGTERM signal.
 .El
 .Sh XML PROPERTY LIST KEYS
 The follow keys can be used to describe the configuration details of your daemon or agent.
@@ -91,10 +95,14 @@ This optional key specifies the user to run the job as. The default is the group
 .It Sy GID <integer>
 This optional key specifies the group ID to run the job as. The default is the group ID of the user who submitted the job to
 .Nm launchd .
-.It Sy inetdCompatWait <boolean>
+.It Sy inetdCompatibility <dictionary>
 The presense of this key specifies that the daemon expects to be run as if it were launched from
 .Xr inetd 8 .
-If the value is true, then the daemon will be run in "wait" mode, otherwise "nowait" mode.
+.Bl -ohang -offset indent
+.It Sy Wait <boolean>
+This flag corresponds to the "wait" or "nowait" option of
+.Xr inetd 8 .
+.El
 .It Sy ProgramArguments <array of strings>
 This required key maps to the second argument of
 .Xr execvp 3 .
@@ -126,6 +134,10 @@ before running the job.
 This optional key specifies whether the job participates in advanced communication with
 .Nm launchd .
 The default is true.
+.It Sy Nice <integer>
+This optional key specifies what
+.Xr nice 3
+value should be applied to the daemon.
 .It Sy Sockets <dictionary of dictionaries...>
 This optional key is used to specify launch on demand sockets that can be used to let
 .Nm launchd
@@ -197,12 +209,12 @@ that exampled doesn't wish to participate in advanced IPC with
 .Dl </plist>
 .Pp
 .Sh FILES
-.Bl -tag -width -/System/Library/LaunchDaemons -compact
-.It Pa ~/Library/LaunchAgents/
+.Bl -tag -width "/System/Library/LaunchDaemons" -compact
+.It Pa ~/Library/LaunchAgents
 Per-user agents provided by the user.
-.It Pa /System/Library/LaunchAgents/
+.It Pa /System/Library/LaunchAgents
 Per-user agents provided by the system.
-.It Pa /System/Library/LaunchDaemons/
+.It Pa /System/Library/LaunchDaemons
 Mac OS X System wide daemons.
 .El
 .Sh SEE ALSO 

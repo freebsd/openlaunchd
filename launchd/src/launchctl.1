@@ -3,7 +3,7 @@
 .Os Darwin
 .Sh NAME
 .Nm launchctl
-.Nd Used to interface with launchd
+.Nd Interfaces with launchd
 .Sh SYNOPSIS
 .Nm
 .Op Fl l Ar xmlfile
@@ -23,12 +23,12 @@ Unload the daemon/agent described in the XML property list from
 .Nm launchd .
 .El
 .Sh FILES
-.Bl -tag -width -/System/Library/LaunchDaemons -compact
-.It Pa ~/Library/LaunchAgents/
+.Bl -tag -width "/System/Library/LaunchDaemons" -compact
+.It Pa ~/Library/LaunchAgents
 Per-user agents provided by the user.
-.It Pa /System/Library/LaunchAgents/
+.It Pa /System/Library/LaunchAgents
 Per-User agents provided by the system.
-.It Pa /System/Library/LaunchDaemons/
+.It Pa /System/Library/LaunchDaemons
 Mac OS X System wide daemons.
 .El
 .Sh SEE ALSO 
