@@ -1211,10 +1211,10 @@ static void loopback_setup(void)
 	strcpy(ifra.ifra_name, "lo0");
 
 	((struct sockaddr_in *)&ifra.ifra_addr)->sin_family = AF_INET;
-	((struct sockaddr_in *)&ifra.ifra_addr)->sin_addr.s_addr = INADDR_LOOPBACK;
+	((struct sockaddr_in *)&ifra.ifra_addr)->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	((struct sockaddr_in *)&ifra.ifra_addr)->sin_len = sizeof(struct sockaddr_in);
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_family = AF_INET;
-	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = IN_CLASSA_NET;
+	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = htonl(IN_CLASSA_NET);
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
 
 	if (ioctl(s, SIOCAIFADDR, &ifra) == -1)
