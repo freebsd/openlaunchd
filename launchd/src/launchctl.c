@@ -4,9 +4,11 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/fcntl.h>
+#include <sys/event.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <libgen.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +34,7 @@ static void readcfg(const char *, bool load, bool editondisk);
 static void update_plist(CFPropertyListRef, const char *, bool);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
+static void wait4path(const char *path);
 
 static int lctl_tcl_cmd(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 
@@ -630,7 +633,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 					if (error == kDNSServiceErr_NoError) {
 						rvs_fd = DNSServiceRefSockFD(service);
 					} else {
-						fprintf(stderr, "DNSServiceRegister(): %d\n", error);
+						fprintf(stderr, "DNSServiceRegister(\"%s\"): %d\n", serv, error);
 					}
 
 				}
@@ -818,6 +821,9 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 
 	for (i = 0; i < argc; i++) {
 		readcfg(argv[i], lflag, wflag);
+		/* <rdar://problem/3956518> mDNSResponder needs to go native with launchd */
+		if (!strcmp(argv[i], "/System/Library/LaunchDaemons/com.apple.mDNSResponder.plist") && lflag)
+			wait4path("/var/run/mDNSResponder");
 	}
 
 	return 0;
@@ -1179,4 +1185,42 @@ static int umask_cmd(int argc, char *const argv[])
 	launch_data_free(resp);
 
 	return r;
+}
+
+/* <rdar://problem/3956518> mDNSResponder needs to go native with launchd */
+static void wait4path(const char *path)
+{
+	struct timespec timeout = { 1, 0 };
+	int r, kq = kqueue();
+	int thedir = open(dirname(path), O_EVTONLY);
+	struct kevent kev;
+	struct stat sb;
+
+	if (thedir == -1)
+		goto out;
+
+	EV_SET(&kev, thedir, EVFILT_VNODE, EV_ADD, NOTE_WRITE, 0, 0);
+
+	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
+		fprintf(stderr, "adding EVFILT_VNODE to kqueue failed: %s\n", strerror(errno));
+		goto out;
+	}
+
+	for (;;) {
+		if (stat(path, &sb) == 0)
+			goto out;
+		r = kevent(kq, NULL, 0, &kev, 1, &timeout);
+		if (r == -1) {
+			fprintf(stderr, "kevent(): %s\n", strerror(errno));
+			goto out;
+		} else if (r == 0) {
+			fprintf(stderr, "Gave up waiting for %s to show up!\n", path);
+			goto out;
+		}
+	}
+out:
+	if (thedir != -1)
+		close(thedir);
+	if (kq != -1)
+		close(kq);
 }
