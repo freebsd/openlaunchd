@@ -224,6 +224,38 @@ fi
 echo Removing $RMRF_ITEMS
 rm -rf $RMRF_ITEMS
 
+echo "Starting virtual memory"
+
+swapdir=/private/var/vm
+if [ "${NetBoot}" = "-N" ]; then
+    sh /etc/rc.netboot setup_vm ${swapdir}
+fi
+
+if [ ! -d ${swapdir} ]; then
+    echo "Creating default swap directory"
+    mkdir -p -m 755 ${swapdir}
+    chown root:wheel ${swapdir}
+else
+    rm -rf ${swapdir}/swap*
+fi
+		    
+if [ ${ENCRYPTSWAP:=-NO-} = "-YES-" ]; then
+    encryptswap="-E"
+else
+    encryptswap=""
+fi
+/sbin/dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
+
+appprofiledir=/private/var/vm/app_profile
+
+if [ ! -d ${appprofiledir} ]; then
+	if [ -f  ${appprofiledir} ]; then
+		mv -f ${appprofiledir} "${appprofiledir}_" 
+	fi
+	mkdir -p -m 711 ${appprofiledir}
+	chown root:wheel ${appprofiledir}
+fi
+
 # Create mach symbol file
 rm -f /mach.sym
 sysctl -n kern.symfile
@@ -283,7 +315,6 @@ if [ "${RPCSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
 	[ "${NFSLOCKS:=-AUTOMATIC-}" = "-YES-" ] && RPCSERVER=-YES-
 	[ "${NETINFOSERVER:=-NO-}" = "-YES-" ] && RPCSERVER=-YES-
 	[ "${NISDOMAIN:=-NO-}" != "-NO-" ] && RPCSERVER=-YES-
-	grep -ri rpc /etc/xinetd.d >/dev/null 2>&1 && RPCSERVER=-YES-
 fi
 
 if [ "${RPCSERVER}" = "-YES-" ]; then
@@ -320,39 +351,6 @@ else
 	cd /var/db/netinfo
 	netinfod -s local
 	cd /
-fi
-
-echo "Starting virtual memory"
-
-swapdir=/private/var/vm
-if [ "${NetBoot}" = "-N" ]; then
-    sh /etc/rc.netboot setup_vm ${swapdir}
-fi
-
-# Make sure the swapfile exists
-if [ ! -d ${swapdir} ]; then
-    echo "Creating default swap directory"
-    mkdir -p -m 755 ${swapdir}
-    chown root:wheel ${swapdir}
-else
-    rm -rf ${swapdir}/swap*
-fi
-		    
-if [ ${ENCRYPTSWAP:=-NO-} = "-YES-" ]; then
-    encryptswap="-E"
-else
-    encryptswap=""
-fi
-dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
-
-appprofiledir=/private/var/vm/app_profile
-
-if [ ! -d ${appprofiledir} ]; then
-	if [ -f  ${appprofiledir} ]; then
-		mv -f ${appprofiledir} "${appprofiledir}_" 
-	fi
-	mkdir -p -m 711 ${appprofiledir}
-	chown root:wheel ${appprofiledir}
 fi
 
 if [ "${SafeBoot}" != "-x" ]; then
