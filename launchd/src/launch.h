@@ -94,6 +94,7 @@ bool		launch_data_dict_insert(launch_data_t, launch_data_t, const char *);
 launch_data_t	launch_data_dict_lookup(launch_data_t, const char *);
 bool		launch_data_dict_remove(launch_data_t, const char *);
 void		launch_data_dict_iterate(launch_data_t, void (*)(launch_data_t, const char *, void *), void *);
+size_t		launch_data_dict_get_count(launch_data_t);
 
 /* kLaunchDataArray */
 bool		launch_data_array_set_index(launch_data_t, launch_data_t, size_t);

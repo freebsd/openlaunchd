@@ -174,6 +174,12 @@ void launch_data_free(launch_data_t d)
 	free(d);
 }
 
+size_t launch_data_dict_get_count(launch_data_t dict)
+{
+	return dict->_array_cnt / 2;
+}
+
+
 bool launch_data_dict_insert(launch_data_t dict, launch_data_t what, const char *key)
 {
 	size_t i;
