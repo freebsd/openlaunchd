@@ -910,6 +910,8 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 	const CFStringRef stubitems[] = {
 		CFSTR("BootROMUpdater"),
 		CFSTR("FCUUpdater"),
+		CFSTR("AutoProtect Daemon"),
+		CFSTR("Check For Missed Tasks"),
 		NULL
 	};
 	const CFStringRef *c;
