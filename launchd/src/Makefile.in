@@ -84,7 +84,7 @@ sbin_PROGRAMS = initctl initngd wait4path SystemStarter init mach_init
 
 noinst_PROGRAMS = helloworldd
 
-libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
+libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext initproxy
 
 sysconf_DATA = hostconfig rc rc.boot rc.cleanup rc.common rc.netboot
 
@@ -110,6 +110,8 @@ initctl_SOURCES = libinitng.c initctl.c
 
 initngd_SOURCES = libinitng.c initngd.c
 
+initproxy_SOURCES = libinitng.c initproxy.c
+
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
@@ -125,7 +127,7 @@ CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES =
 libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
 	register_mach_bootstrap_servers$(EXEEXT) \
-	StartupItemContext$(EXEEXT)
+	StartupItemContext$(EXEEXT) initproxy$(EXEEXT)
 noinst_PROGRAMS = helloworldd$(EXEEXT)
 sbin_PROGRAMS = initctl$(EXEEXT) initngd$(EXEEXT) wait4path$(EXEEXT) \
 	SystemStarter$(EXEEXT) init$(EXEEXT) mach_init$(EXEEXT)
@@ -165,6 +167,11 @@ initngd_OBJECTS = $(am_initngd_OBJECTS)
 initngd_LDADD = $(LDADD)
 initngd_DEPENDENCIES =
 initngd_LDFLAGS =
+am_initproxy_OBJECTS = libinitng.$(OBJEXT) initproxy.$(OBJEXT)
+initproxy_OBJECTS = $(am_initproxy_OBJECTS)
+initproxy_LDADD = $(LDADD)
+initproxy_DEPENDENCIES =
+initproxy_LDFLAGS =
 am_mach_init_OBJECTS = bootstrap.$(OBJEXT) lists.$(OBJEXT) \
 	error_log.$(OBJEXT) rpc_services.$(OBJEXT) \
 	bootstrapServer.$(OBJEXT)
@@ -202,8 +209,9 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/bootstrapServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/error_log.Po ./$(DEPDIR)/helloworldd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/init.Po ./$(DEPDIR)/initctl.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/initngd.Po ./$(DEPDIR)/libinitng.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/lists.Po ./$(DEPDIR)/main.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/initngd.Po ./$(DEPDIR)/initproxy.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/libinitng.Po ./$(DEPDIR)/lists.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/main.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/rpc_services.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/wait4path.Po
@@ -214,8 +222,9 @@ LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
 DIST_SOURCES = ConsoleMessage.c StartupItemContext.c \
 	$(SystemStarter_SOURCES) $(helloworldd_SOURCES) $(init_SOURCES) \
-	$(initctl_SOURCES) $(initngd_SOURCES) $(mach_init_SOURCES) \
-	register_mach_bootstrap_servers.c $(wait4path_SOURCES)
+	$(initctl_SOURCES) $(initngd_SOURCES) $(initproxy_SOURCES) \
+	$(mach_init_SOURCES) register_mach_bootstrap_servers.c \
+	$(wait4path_SOURCES)
 
 NROFF = nroff
 MANS = $(man1_MANS) $(man8_MANS)
@@ -228,7 +237,7 @@ RECURSIVE_TARGETS = info-recursive dvi-recursive install-info-recursive \
 	uninstall-recursive check-recursive installcheck-recursive
 DIST_COMMON = Makefile.am Makefile.in config.h.in
 DIST_SUBDIRS = $(SUBDIRS)
-SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(helloworldd_SOURCES) $(init_SOURCES) $(initctl_SOURCES) $(initngd_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
+SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(helloworldd_SOURCES) $(init_SOURCES) $(initctl_SOURCES) $(initngd_SOURCES) $(initproxy_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
@@ -329,6 +338,9 @@ initctl$(EXEEXT): $(initctl_OBJECTS) $(initctl_DEPENDENCIES)
 initngd$(EXEEXT): $(initngd_OBJECTS) $(initngd_DEPENDENCIES) 
 	@rm -f initngd$(EXEEXT)
 	$(LINK) $(initngd_LDFLAGS) $(initngd_OBJECTS) $(initngd_LDADD) $(LIBS)
+initproxy$(EXEEXT): $(initproxy_OBJECTS) $(initproxy_DEPENDENCIES) 
+	@rm -f initproxy$(EXEEXT)
+	$(LINK) $(initproxy_LDFLAGS) $(initproxy_OBJECTS) $(initproxy_LDADD) $(LIBS)
 mach_init$(EXEEXT): $(mach_init_OBJECTS) $(mach_init_DEPENDENCIES) 
 	@rm -f mach_init$(EXEEXT)
 	$(LINK) $(mach_init_LDFLAGS) $(mach_init_OBJECTS) $(mach_init_LDADD) $(LIBS)
@@ -380,6 +392,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/initctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/initngd.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/initproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libinitng.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lists.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@

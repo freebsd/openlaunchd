@@ -8,7 +8,7 @@ sbin_PROGRAMS = initctl initngd wait4path SystemStarter init mach_init
 
 noinst_PROGRAMS = helloworldd
 
-libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
+libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext initproxy
 
 sysconf_DATA = hostconfig rc rc.boot rc.cleanup rc.common rc.netboot
 
@@ -33,6 +33,8 @@ init_SOURCES = init.c
 initctl_SOURCES = libinitng.c initctl.c
 
 initngd_SOURCES = libinitng.c initngd.c
+
+initproxy_SOURCES = libinitng.c initproxy.c
 
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 

@@ -30,12 +30,9 @@ struct initngd_jobfd {
 	char *label;
 };
 
-
 struct initngd_job {
 	TAILQ_ENTRY(initngd_job) tqe;
-	unsigned int enabled:1, on_demand:1, batch:1, launch_once:1,
-		supports_mgmt:1, running:1, compat_inetd_wait:1,
-		compat_inetd_nowait:1, is_initngd:1;
+	unsigned int enabled:1, on_demand:1, batch:1, launch_once:1, running:1, is_initngd:1;
 	int setup_conn;
 	pid_t p;
 	uid_t u;
@@ -47,7 +44,6 @@ struct initngd_job {
 	char **argv;
 	char **env;
 	char **msn;
-	unsigned int periodic;
 	void (*wn)(struct initngd_job *j, struct kevent *kev);
 	struct timeval lastrun;
 	TAILQ_HEAD(initngd_jobfds, initngd_jobfd) fds;
@@ -99,7 +95,6 @@ int main(int argc, char *argv[])
 	thejob = calloc(1, sizeof(struct initngd_job));
 	thejob->label = "__initngd__";
 	thejob->enabled = 1;
-	thejob->supports_mgmt = 1;
 	thejob->running = 1;
 	thejob->is_initngd = 1;
 	thejob->u = getuid();
@@ -241,48 +236,6 @@ static void initngd_internal_wn(struct initngd_job *j, struct kevent *kev)
 	}
 }
 
-static void launch_job_st(struct initngd_job *j)
-{
-	struct sockaddr_storage sas;
-	socklen_t sl = sizeof(sas);
-	char **tmp, *tmps;
-	int fd;
-	pid_t c;
-
-	fd = accept((TAILQ_FIRST(&j->fds))->fd, (struct sockaddr *)&sas, &sl);
-
-	if ((c = fork()) == -1) {
-		initngd_debug(LOG_DEBUG, "fork(): %m");
-		close(fd);
-		return;
-	} else if (c) {
-		close(fd);
-		return;
-	} else {
-		for (tmp = j->env; *tmp; tmp++) {
-			tmps = strchr(*tmp, '=');
-			if (tmps) {
-				*tmps = '\0';
-				tmps++;
-				setenv(*tmp, tmps, 1);
-			}
-		}
-		if (dup2(fd, STDIN_FILENO) == -1)
-			initngd_debug(LOG_DEBUG, "child dup2(fd, 0): %m");
-		if (dup2(fd, STDOUT_FILENO) == -1)
-			initngd_debug(LOG_DEBUG, "child dup2(fd, 1): %m");
-		if (dup2(fd, STDERR_FILENO) == -1)
-			initngd_debug(LOG_DEBUG, "child dup2(fd, 2): %m");
-		close(fd);
-		setgid(j->g);
-		setuid(j->u);
-		setsid();
-		if (execve(j->program, j->argv, environ) == -1)
-			initngd_debug(LOG_DEBUG, "child execve(): %m");
-		_exit(EXIT_FAILURE);
-	}
-}
-
 static void job_launch(struct initngd_job *j, struct kevent *kev)
 {
 	struct initngd_jobfd *jfd;
@@ -294,9 +247,6 @@ static void job_launch(struct initngd_job *j, struct kevent *kev)
 	size_t fdindex = 0;
 
 	initngd_assert(kev->filter == EVFILT_READ);
-
-	if (j->compat_inetd_nowait)
-		return launch_job_st(j);
 
 	if ((c = fork()) == -1) {
 		initngd_debug(LOG_DEBUG, "fork(): %m");
@@ -492,22 +442,6 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 			j->enabled = 0;
 			job_ignore(j);
 		}
-	} else if (check_args("setInetdSingleThreaded", 2)) {
-		if (!strcmp(data[1], "true"))
-			j->compat_inetd_nowait = 1;
-		else
-			j->compat_inetd_nowait = 0;
-	} else if (check_args("setInetdMultiThreaded", 2)) {
-		/* can't set this flag if multiple FDs are a part of the job */
-		if (TAILQ_FIRST(&j->fds) && TAILQ_NEXT(TAILQ_FIRST(&j->fds), tqe)) {
-			r = -1;
-			e = EINVAL;
-			goto out;
-		}
-		if (!strcmp(data[1], "true"))
-			j->compat_inetd_wait = 1;
-		else
-			j->compat_inetd_wait = 0;
 	} else if (check_args("setUID", 2)) {
 		j->u = (uid_t)strtol(data[1], NULL, 10);
 	} else if (check_args("setGID", 2)) {
@@ -531,14 +465,6 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 	} else if (check_args("addFD", 3)) {
 		int sfd = strtol(data[2], NULL, 10);
         	struct initngd_jobfd *jfd;
-
-		/* can't add more than one FD if we're in inetd "wait" compatibility mode */
-		if (j->compat_inetd_wait && TAILQ_FIRST(&j->fds)) {
-			close(sfd);
-			r = -1;
-			e = EEXIST;
-			goto out;
-		}
 
 		jfd = calloc(1, sizeof(struct initngd_jobfd));
 		jfd->label = strdup(data[1]);
@@ -615,10 +541,7 @@ static void initngd_do_web_feedback(int lfd)
 		fprintf(F, "%s ", j->on_demand ? "on_demand" : "");
 		fprintf(F, "%s ", j->batch ? "batch" : "");
 		fprintf(F, "%s ", j->launch_once ? "launch_once" : "");
-		fprintf(F, "%s ", j->supports_mgmt ? "supports_mgmt" : "");
 		fprintf(F, "%s ", j->running ? "running" : "");
-		fprintf(F, "%s ", j->compat_inetd_wait ? "compat_inetd_wait" : "");
-		fprintf(F, "%s", j->compat_inetd_nowait ? "compat_inetd_nowait" : "");
 		fprintf(F, "%s", j->is_initngd ? "is_initngd" : "");
 		fprintf(F, "</td>");
 		fprintf(F, "<td>");
