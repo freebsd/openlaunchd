@@ -9,8 +9,8 @@
 StartService ()
 {
     CheckForNetwork 
-    if [ -f /var/run/NFS.StartupItem -o "${NETWORKUP}" = "-NO-" ]; then exit; fi
-    touch /var/run/NFS.StartupItem
+    if [ "${NETWORKUP}" = "-NO-" ]; then exit; fi
+    lockfile -r 0 /var/run/NFS.StartupItem || exit 0
 
     ##
     # Set up NFS client.
