@@ -90,7 +90,7 @@ fi
 
 echo "Resetting files and devices"
 
-RMRF_ITEMS="/var/tmp/folders"
+RMRF_ITEMS="/mach.sym /var/tmp/folders"
 ##
 # Attempt to recover the passwd file, if needed.  This procedure is
 # primarily historical and makes sense only when the passwd file is edited
@@ -197,9 +197,6 @@ else
 	fi
 fi
 
-echo Removing $RMRF_ITEMS
-rm -rf $RMRF_ITEMS
-
 echo "Starting virtual memory"
 
 swapdir=/private/var/vm
@@ -212,9 +209,12 @@ if [ ! -d ${swapdir} ]; then
     mkdir -p -m 755 ${swapdir}
     chown root:wheel ${swapdir}
 else
-    rm -rf ${swapdir}/swap*
+    RMRF_ITEMS="${RMRF_ITEMS} ${swapdir}/swap*"
 fi
 		    
+echo Removing $RMRF_ITEMS
+rm -rf $RMRF_ITEMS
+
 if [ ${ENCRYPTSWAP:=-NO-} = "-YES-" ]; then
     encryptswap="-E"
 else
@@ -233,14 +233,11 @@ if [ ! -d ${appprofiledir} ]; then
 fi
 
 # Create mach symbol file
-rm -f /mach.sym
 sysctl -n kern.symfile
 if [ -f /mach.sym ]; then
-	rm -f /mach
-	ln -s /mach.sym /mach
+	ln -sf /mach.sym /mach
 else
-	rm -f /mach
-	ln -s /mach_kernel /mach
+	ln -sf /mach_kernel /mach
 fi
 
 if [ "${SafeBoot}" = "-x" ]; then
