@@ -7,6 +7,7 @@
 #include <sys/fcntl.h>
 #include <sys/event.h>
 #include <sys/resource.h>
+#include <sys/param.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -32,14 +33,14 @@ static void distill_config_file(launch_data_t);
 static void sock_dict_cb(launch_data_t what, const char *key, void *context);
 static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, launch_data_t thejob);
 static launch_data_t CF2launch_data(CFTypeRef);
+static launch_data_t read_plist_file(const char *file, bool editondisk, bool load);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
-static bool readcfg(const char *, bool load, bool editondisk);
-static void update_plist(CFPropertyListRef, const char *, bool);
+static void readpath(const char *, launch_data_t, launch_data_t, bool editondisk, bool load);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
-static void wait4path(const char *path);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
+static void submit_job_pass(launch_data_t jobs);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -262,114 +263,119 @@ static void unloadjob(launch_data_t job)
 	launch_data_free(resp);
 }
 
-static void update_plist(CFPropertyListRef plist, const char *where, bool load)
+static launch_data_t read_plist_file(const char *file, bool editondisk, bool load)
 {
-	if (load) {
-		CFDictionaryRemoveValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED));
-		CFDictionaryRemoveValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_ENABLED));
-	} else {
-		CFDictionarySetValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED), kCFBooleanTrue);
+	CFPropertyListRef plist = CreateMyPropertyListFromFile(file);
+	launch_data_t r = NULL;
+
+	if (NULL == plist) {
+		fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), file);
+		return NULL;
 	}
 
-	WriteMyPropertyListToFile(plist, where);
+	if (editondisk) {
+		if (load)
+			CFDictionaryRemoveValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED));
+		else
+			CFDictionarySetValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED), kCFBooleanTrue);
+		WriteMyPropertyListToFile(plist, file);
+	}
+
+	r = CF2launch_data(plist);
+
+	CFRelease(plist);
+
+	return r;
 }
 
-static bool readcfg(const char *what, bool load, bool editondisk)
+static void delay_to_second_pass2(launch_data_t o, const char *key, void *context)
 {
-	launch_data_t resp, msg, tmp, tmpe, tmpd, tmpa, id_plist;
-	CFPropertyListRef plist;
-	DIR *d;
-	struct dirent *de;
-	struct stat sb;
-	char *foo;
-	bool job_disabled;
-	int e;
+	bool *res = context;
+	size_t i;
 
-	if (stat(what, &sb) == -1)
+	if (key && 0 == strcmp(key, LAUNCH_JOBSOCKETKEY_BONJOUR)) {
+		*res = true;
+		return;
+	}
+
+	switch (launch_data_get_type(o)) {
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o, delay_to_second_pass2, context);
+		break;
+	case LAUNCH_DATA_ARRAY:
+		for (i = 0; i < launch_data_array_get_count(o); i++)
+			delay_to_second_pass2(launch_data_array_get_index(o, i), NULL, context);
+		break;
+	default:
+		break;
+	}
+}
+
+static bool delay_to_second_pass(launch_data_t o)
+{
+	bool res = false;
+
+	launch_data_t socks = launch_data_dict_lookup(o, LAUNCH_JOBKEY_SOCKETS);
+
+	if (NULL == socks)
 		return false;
 
+	delay_to_second_pass2(socks, NULL, &res);
+
+	return res;
+}
+
+static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load)
+{
+	launch_data_t tmpd, thejob;
+	bool job_disabled = false;
+
+	if (NULL == (thejob = read_plist_file(what, editondisk, load))) {
+		fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), what);
+		return;
+	}
+
+	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))
+		job_disabled = launch_data_get_bool(tmpd);
+
+	if (job_disabled && load) {
+		launch_data_free(thejob);
+		return;
+	}
+
+	if (delay_to_second_pass(thejob))
+		launch_data_array_append(pass2, thejob);
+	else
+		launch_data_array_append(pass1, thejob);
+}
+
+static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load)
+{
+	char buf[MAXPATHLEN];
+	struct stat sb;
+	struct dirent *de;
+	DIR *d;
+
+	if (stat(what, &sb) == -1)
+		return;
+
 	if (S_ISREG(sb.st_mode) && !(sb.st_mode & S_IWOTH)) {
-		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-		plist = CreateMyPropertyListFromFile(what);
-		if (!plist) {
-			fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), what);
-			return false;
-		}
-
-		if (editondisk)
-			update_plist(plist, what, load);
-
-		id_plist = CF2launch_data(plist);
-
-		tmpe = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_ENABLED);
-		tmpd = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED);
-		if (tmpd)
-			job_disabled = launch_data_get_bool(tmpd);
-		else if (tmpe)
-			job_disabled = !launch_data_get_bool(tmpe);
-		else
-			job_disabled = false;
-
-		if (job_disabled || !load) {
-			unloadjob(id_plist);
-			launch_data_free(id_plist);
-			if (!load)
-				return true;
-			else
-				return false;
-		}
-		distill_config_file(id_plist);
-		launch_data_dict_insert(msg, id_plist, LAUNCH_KEY_SUBMITJOB);
+		readfile(what, pass1, pass2, editondisk, load);
 	} else {
-		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-		tmpa = launch_data_alloc(LAUNCH_DATA_ARRAY);
 		if ((d = opendir(what)) == NULL) {
 			fprintf(stderr, "%s: opendir() failed to open the directory\n", getprogname());
-			exit(EXIT_FAILURE);
+			return;
 		}
 
-		while ((de = readdir(d)) != NULL) {
+		while ((de = readdir(d))) {
 			if ((de->d_name[0] == '.'))
 				continue;
-			asprintf(&foo, "%s/%s", what, de->d_name);
-			plist = CreateMyPropertyListFromFile(foo);
-			if (!plist) {
-				fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), foo);
-				free(foo);
-				continue;
-			}
-			free(foo);
-			id_plist = CF2launch_data(plist);
-			if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED))) {
-				if (launch_data_get_bool(tmp)) {
-					launch_data_free(id_plist);
-					continue;
-				}
-			}
-			distill_config_file(id_plist);
-			launch_data_array_set_index(tmpa, id_plist, launch_data_array_get_count(tmpa));
+			snprintf(buf, sizeof(buf), "%s/%s", what, de->d_name);
+
+			readfile(buf, pass1, pass2, editondisk, load);
 		}
 		closedir(d);
-		if (launch_data_array_get_count(tmpa) == 0) {
-			launch_data_free(tmpa);
-			launch_data_free(msg);
-			return false;
-		}
-		launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_SUBMITJOB);
 	}
-
-	resp = launch_msg(msg);
-
-	if (resp) {
-		if (LAUNCH_DATA_ERRNO == launch_data_get_type(resp)) {
-			if ((e = launch_data_get_errno(resp)))
-				fprintf(stderr, "%s\n", strerror(e));
-		}
-		launch_data_free(resp);
-	} else {
-		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
-	}
-	return true;
 }
 
 struct distill_context {
@@ -598,10 +604,18 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv)
 {
+	struct stat sb;
 	DNSServiceRef service;
 	DNSServiceErrorType error;
 	char rvs_buf[200];
 	short port;
+	static int statres = 1;
+
+	if (1 == statres)
+		statres = stat("/usr/sbin/mDNSResponder", &sb);
+
+	if (-1 == statres)
+		return NULL;
 
 	sprintf(rvs_buf, "_%s._%s.", serv, res->ai_socktype == SOCK_STREAM ? "tcp" : "udp");
 
@@ -761,6 +775,7 @@ static int _fd(int fd)
 
 static int load_and_unload_cmd(int argc, char *const argv[])
 {
+	launch_data_t pass1, pass2;
 	int i, ch;
 	bool wflag = false;
 	bool lflag = false;
@@ -786,14 +801,97 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 		return 1;
 	}
 
-	for (i = 0; i < argc; i++) {
-		bool r = readcfg(argv[i], lflag, wflag);
-		/* <rdar://problem/3956518> mDNSResponder needs to go native with launchd */
-		if (r && !strcmp(argv[i], "/System/Library/LaunchDaemons/com.apple.mDNSResponder.plist") && lflag)
-			wait4path("/var/run/mDNSResponder");
+	/* I wish I didn't need to do two passes, but I need to load mDNSResponder and use it too.
+	 *
+	 * In later versions of launchd, I hope to load everything in the first pass,
+	 * then do the Bonjour magic on the jobs that need it, and reload them, but for now,
+	 * I haven't thought through the various complexities of reloading jobs, and therefore
+	 * launchd doesn't have reload support right now.
+	 */
+
+	pass1 = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	pass2 = launch_data_alloc(LAUNCH_DATA_ARRAY);
+
+	for (i = 0; i < argc; i++)
+		readpath(argv[i], pass1, pass2, wflag, lflag);
+
+	if (0 == launch_data_array_get_count(pass1) && 0 == launch_data_array_get_count(pass2)) {
+		fprintf(stderr, "nothing found to %s\n", lflag ? "load" : "unload");
+		launch_data_free(pass1);
+		launch_data_free(pass2);
+		return 1;
+	}
+	
+	if (lflag) {
+		if (0 < launch_data_array_get_count(pass1)) {
+			submit_job_pass(pass1);
+		}
+		if (0 < launch_data_array_get_count(pass2)) {
+			submit_job_pass(pass2);
+		}
+	} else {
+		for (i = 0; i < (int)launch_data_array_get_count(pass1); i++)
+			unloadjob(launch_data_array_get_index(pass1, i));
+		for (i = 0; i < (int)launch_data_array_get_count(pass2); i++)
+			unloadjob(launch_data_array_get_index(pass2, i));
 	}
 
 	return 0;
+}
+
+static void submit_job_pass(launch_data_t jobs)
+{
+	launch_data_t msg, resp;
+	size_t i;
+	int e;
+
+	for (i = 0; i < launch_data_array_get_count(jobs); i++)
+		distill_config_file(launch_data_array_get_index(jobs, i));
+
+	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+
+	launch_data_dict_insert(msg, jobs, LAUNCH_KEY_SUBMITJOB);
+
+	resp = launch_msg(msg);
+
+	if (resp) {
+		switch (launch_data_get_type(resp)) {
+		case LAUNCH_DATA_ERRNO:
+			if ((e = launch_data_get_errno(resp)))
+				fprintf(stderr, "%s\n", strerror(e));
+			break;
+		case LAUNCH_DATA_ARRAY:
+			for (i = 0; i < launch_data_array_get_count(jobs); i++) {
+				launch_data_t obatind = launch_data_array_get_index(resp, i);
+				launch_data_t jatind = launch_data_array_get_index(jobs, i);
+				const char *lab4job = launch_data_get_string(launch_data_dict_lookup(jatind, LAUNCH_JOBKEY_LABEL));
+				if (LAUNCH_DATA_ERRNO == launch_data_get_type(obatind)) {
+					e = launch_data_get_errno(obatind);
+					switch (e) {
+					case EEXIST:
+						fprintf(stderr, "%s: %s\n", lab4job, "Already loaded");
+						break;
+					case ESRCH:
+						fprintf(stderr, "%s: %s\n", lab4job, "Not loaded");
+						break;
+					default:
+						fprintf(stderr, "%s: %s\n", lab4job, strerror(e));
+					case 0:
+						break;
+					}
+				}
+			}
+			break;
+		default:
+			fprintf(stderr, "unknown respose from launchd!\n");
+			break;
+		}
+		launch_data_free(resp);
+	} else {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+	}
+
+	launch_data_free(msg);
 }
 
 static int start_and_stop_cmd(int argc, char *const argv[])
@@ -1321,44 +1419,6 @@ static int getrusage_cmd(int argc, char *const argv[])
 	launch_data_free(resp);
 
 	return r;
-}
-
-/* <rdar://problem/3956518> mDNSResponder needs to go native with launchd */
-static void wait4path(const char *path)
-{
-	struct timespec timeout = { 1, 0 };
-	int r, kq = kqueue();
-	int thedir = open(dirname(path), O_EVTONLY);
-	struct kevent kev;
-	struct stat sb;
-
-	if (thedir == -1)
-		goto out;
-
-	EV_SET(&kev, thedir, EVFILT_VNODE, EV_ADD|EV_CLEAR, NOTE_WRITE, 0, 0);
-
-	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
-		fprintf(stderr, "adding EVFILT_VNODE to kqueue failed: %s\n", strerror(errno));
-		goto out;
-	}
-
-	for (;;) {
-		if (stat(path, &sb) == 0)
-			goto out;
-		r = kevent(kq, NULL, 0, &kev, 1, &timeout);
-		if (r == -1) {
-			fprintf(stderr, "kevent(): %s\n", strerror(errno));
-			goto out;
-		} else if (r == 0) {
-			fprintf(stderr, "Gave up waiting for %s to show up!\n", path);
-			goto out;
-		}
-	}
-out:
-	if (thedir != -1)
-		close(thedir);
-	if (kq != -1)
-		close(kq);
 }
 
 static bool launch_data_array_append(launch_data_t a, launch_data_t o)

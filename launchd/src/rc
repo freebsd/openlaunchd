@@ -254,9 +254,9 @@ fi
 # Load [ideally on demand] daemons
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
 if [ "${SafeBoot}" = "-x" ]; then
-	launchctl load /System/Library/LaunchDaemons/com.apple.mDNSResponder.plist /System/Library/LaunchDaemons
+	launchctl load /System/Library/LaunchDaemons
 else
-	launchctl load /System/Library/LaunchDaemons/com.apple.mDNSResponder.plist /Library/LaunchDaemons /System/Library/LaunchDaemons
+	launchctl load /Library/LaunchDaemons /System/Library/LaunchDaemons
 	SystemStarter ${VerboseFlag}
 fi
 
