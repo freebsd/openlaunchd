@@ -396,6 +396,7 @@ single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __att
 	run_runcom = true;
 }
 
+static struct timeval runcom_start_tv = { 0, 0 };
 /*
  * Run the system startup script.
  */
@@ -407,6 +408,8 @@ runcom(void)
 	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
 	uint64_t nb = 0;
 	size_t nbsz = sizeof(nb);
+
+	gettimeofday(&runcom_start_tv, NULL);
 
 	if ((runcom_pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_ERR, "can't fork for %s on %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
@@ -476,6 +479,14 @@ static void
 runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
 	int status = runcom_status;
+	struct timeval runcom_end_tv, runcom_total_tv;
+	double sec;
+
+	gettimeofday(&runcom_end_tv, NULL);
+	timersub(&runcom_end_tv, &runcom_start_tv, &runcom_total_tv);
+	sec = runcom_total_tv.tv_sec;
+	sec += (double)runcom_total_tv.tv_usec / (double)1000000;
+	syslog(LOG_INFO, "%s finished in: %.3f seconds", _PATH_RUNCOM, sec);
 
 	switch (runcom_pid ? waitpid(runcom_pid, &status, 0) : 1) {
 	case -1:
