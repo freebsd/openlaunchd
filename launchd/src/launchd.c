@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
 			LOG_CONS|(getpid() != 1 ? LOG_PID : 0)|(debug ? LOG_PERROR : 0),
 			LOG_DAEMON);
 	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
-
+	
 	if (getpid() == 1) {
 		int memmib[2] = { CTL_HW, HW_PHYSMEM };
 		int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
@@ -291,7 +291,7 @@ static int launchd_server_init(char *thepath)
 {
         struct sockaddr_un sun;
         char *where = getenv(LAUNCHD_SOCKET_ENV);
-        mode_t oldmask = 0;
+        mode_t oldmask;
         int fd;
 
         memset(&sun, 0, sizeof(sun));
@@ -305,24 +305,22 @@ static int launchd_server_init(char *thepath)
 		thesockpath = LAUNCHD_DEFAULT_SOCK_PATH;
         strncpy(sun.sun_path, thesockpath, sizeof(sun.sun_path));
 
-        if (!thepath && !where)
-                oldmask = umask(0);
 
         if (unlink(sun.sun_path) == -1 && errno != ENOENT)
                 return -1;
         if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-                return -1;
+		return -1;
+	oldmask = umask(getpid() == 1 ? 0 : 077);
         if (bind(fd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
                 close(fd);
-                return -1;
+		umask(oldmask);
+		return -1;
         }
+	umask(oldmask);
         if (listen(fd, SOMAXCONN) == -1) {
                 close(fd);
-                return -1;
+		return -1;
         }
-
-        if (!thepath && !where)
-                umask(oldmask);
 
         return fd;
 }
