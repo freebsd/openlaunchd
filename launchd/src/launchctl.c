@@ -36,8 +36,7 @@ static int _fd(int);
 int main(int argc, char *argv[])
 {
 	int ch;
-	bool wflag = false, lflag = true;
-	char *what = NULL;
+	bool wflag = false;
 
 	while ((ch = getopt(argc, argv, "U:ES:hl:u:w")) != -1) {
 		switch (ch) {
@@ -54,11 +53,10 @@ int main(int argc, char *argv[])
 			wflag = true;
 			break;
 		case 'l':
-			what = optarg;
+			readcfg(optarg, true, wflag);
 			break;
 		case 'u':
-			what = optarg;
-			lflag = false;
+			readcfg(optarg, false, wflag);
 			break;
 		case 'h':
 			usage(stdout);
@@ -69,8 +67,6 @@ int main(int argc, char *argv[])
 			break;
 		}
 	}
-
-	readcfg(what, lflag, wflag);
 
 	exit(EXIT_SUCCESS);
 }
@@ -255,6 +251,9 @@ static void readcfg(const char *what, bool load, bool editondisk)
 			launch_data_array_set_index(tmpa, id_plist, launch_data_array_get_count(tmpa));
 		}
 		closedir(d);
+		if (launch_data_array_get_count(tmpa) == 0) {
+			exit(EXIT_SUCCESS);
+		}
 		launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_SUBMITJOBS);
 	}
 

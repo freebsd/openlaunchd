@@ -30,6 +30,8 @@ register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
+launchd_CFLAGS = -mdynamic-no-pic
+
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
 mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
