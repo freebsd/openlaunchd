@@ -73,7 +73,7 @@ static void startupItemTerminated (CFMachPortRef aMachPort, void *anInfo)
           {
             aPID = StartupItemGetPID(anItem);
             if (aPID > 0)
-                rPID = waitpid(aPID, &aStatus, WNOHANG);
+                rPID = waitpid(aPID, &aStatus, 0);
           }
           
         if (aStartupContext)
