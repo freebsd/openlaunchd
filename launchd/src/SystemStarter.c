@@ -37,13 +37,12 @@
 #include "SystemStarter.h"
 #include "SystemStarterIPC.h"
 
-int             gDebugFlag = 0;
-int             gVerboseFlag = 0;
-int             gNoRunFlag = 0;
+bool gDebugFlag = false;
+bool gVerboseFlag = false;
+bool gNoRunFlag = false;
 
 static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
-
 
 int 
 main(int argc, char *argv[])
@@ -55,23 +54,19 @@ main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "gvxirdDqn?")) != -1) {
 		switch (ch) {
 		case 'v':
-			gVerboseFlag = 1;
+			gVerboseFlag = true;
 			break;
 		case 'x':
 		case 'g':
 		case 'r':
+		case 'q':
 			break;
 		case 'd':
-			gDebugFlag = 1;
-			break;
 		case 'D':
-			gDebugFlag = 2;
-			break;
-		case 'q':
-			gDebugFlag = 0;
+			gDebugFlag = true;
 			break;
 		case 'n':
-			gNoRunFlag = 1;
+			gNoRunFlag = true;
 			break;
 		case '?':
 		default:
@@ -85,7 +80,14 @@ main(int argc, char *argv[])
 	if (argc > 2)
 		usage();
 
-	openlog(getprogname(), LOG_PID | LOG_CONS | (gDebugFlag ? LOG_PERROR : 0), LOG_DAEMON);
+	openlog(getprogname(), LOG_PID|LOG_CONS|(gDebugFlag || gVerboseFlag ? LOG_PERROR : 0), LOG_DAEMON);
+	if (gVerboseFlag) {
+		setlogmask(LOG_UPTO(LOG_INFO));
+	} else if (gDebugFlag) {
+		setlogmask(LOG_UPTO(LOG_DEBUG));
+	} else {
+		setlogmask(LOG_UPTO(LOG_NOTICE));
+	}
 
 
 	if (!gNoRunFlag && (getuid() != 0)) {
@@ -335,13 +337,12 @@ CF_syslog(int level, CFStringRef message,...)
 static void 
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-vdDqn?] [ <action> [ <item> ] ]\n"
+	fprintf(stderr, "usage: %s [-vdqn?] [ <action> [ <item> ] ]\n"
 	"\t<action>: action to take (start|stop|restart); default is start\n"
 		"\t<item>  : name of item to act on; default is all items\n"
 		"options:\n"
-		"\t-v: verbose (text mode) startup\n"
+		"\t-v: verbose startup\n"
 		"\t-d: print debugging output\n"
-		"\t-D: print debugging output and dependencies\n"
 		"\t-q: be quiet (disable debugging output)\n"
 	     "\t-n: don't actually perform action on items (pretend mode)\n"
 		"\t-?: show this help\n",

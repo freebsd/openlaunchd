@@ -47,6 +47,6 @@ typedef enum {
 } Action;
 
 void CF_syslog(int level, CFStringRef message, ...);
-extern int gVerboseFlag;
+extern bool gVerboseFlag;
 
 #endif /* _SYSTEM_STARTER_H_ */
