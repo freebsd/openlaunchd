@@ -641,6 +641,9 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 
 					if (error == kDNSServiceErr_NoError) {
 						rvs_fd = DNSServiceRefSockFD(service);
+						/* <rdar://problem/3964648> Launchd should not register the same service more than once */
+						/* <rdar://problem/3965154> Switch to DNSServiceRegisterAddrInfo() */
+						rendezvous = false;
 					} else {
 						fprintf(stderr, "DNSServiceRegister(\"%s\"): %d\n", serv, error);
 					}
