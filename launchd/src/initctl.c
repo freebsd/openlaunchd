@@ -276,8 +276,8 @@ static void handleConfigFile(const char *file)
 		CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
 		strcpy(socklabel, buf);
 
-		if (CFDictionaryContainsKey(tv, CFSTR("SockNodename"))) {
-			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockNodename"))))
+		if (CFDictionaryContainsKey(tv, CFSTR("SockNodeName"))) {
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockNodeName"))))
 				goto socket_out;
 			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
 			strcpy(socknodename, buf);
