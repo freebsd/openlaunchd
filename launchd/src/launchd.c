@@ -176,7 +176,7 @@ int main(int argc, char *argv[])
 		switch (ch) {
 		case 's': sflag = true;   break;
 		case 'x': xflag = true;   break;
-		case 'v': vflag = true; break;
+		case 'v': vflag = true;   break;
 		case 'h': usage(stdout);  break;
 		default:
 			syslog(LOG_WARNING, "ignoring unknown arguments");
@@ -1603,7 +1603,7 @@ static void launch_firstborn(char *argv[])
 	launch_data_t l = launch_data_new_string("com.apple.launchd.firstborn");
 	size_t i;
 
-	for (i = 0; *argv; argv++)
+	for (i = 0; *argv; argv++, i++)
 		launch_data_array_set_index(args, launch_data_new_string(*argv), i);
 
 	launch_data_dict_insert(d, args, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
