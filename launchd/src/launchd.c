@@ -66,7 +66,7 @@ static int mainkq = 0;
 static bool batch_enabled = true;
 
 static launch_data_t load_job(launch_data_t pload);
-static launch_data_t get_jobs(void);
+static launch_data_t get_jobs(const char *which);
 static void batch_job_enable(bool e);
 
 static void listen_callback(void *, struct kevent *);
@@ -668,7 +668,10 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		}
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
-		resp = get_jobs();
+		resp = get_jobs(NULL);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOB))) {
+		resp = get_jobs(launch_data_get_string(tmp));
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
 		batch_job_enable(launch_data_get_bool(tmp));
@@ -772,14 +775,25 @@ out:
 	return resp;
 }
 
-static launch_data_t get_jobs(void)
+static launch_data_t get_jobs(const char *which)
 {
 	struct jobcb *j;
-	launch_data_t tmp, resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_t tmp, resp = NULL;
 
-	TAILQ_FOREACH(j, &jobs, tqe) {
-		tmp = launch_data_copy(j->ldj);
-		launch_data_dict_insert(resp, tmp, job_get_string(tmp, LAUNCH_JOBKEY_LABEL));
+	if (which) {
+		TAILQ_FOREACH(j, &jobs, tqe) {
+			if (!strcmp(which, job_get_string(j, LAUNCH_JOBKEY_LABEL)))
+				resp = launch_data_copy(j);
+		}
+		if (resp == NULL)
+			resp = launch_data_new_string(LAUNCH_RESPONSE_JOBNOTFOUND);
+	} else {
+		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+
+		TAILQ_FOREACH(j, &jobs, tqe) {
+			tmp = launch_data_copy(j->ldj);
+			launch_data_dict_insert(resp, tmp, job_get_string(tmp, LAUNCH_JOBKEY_LABEL));
+		}
 	}
 
 	return resp;
