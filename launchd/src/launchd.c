@@ -112,6 +112,7 @@ static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_start(struct jobcb *j);
 static void job_start_child(struct jobcb *j);
+static void job_setup_attributes(struct jobcb *j);
 static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
@@ -547,7 +548,7 @@ static const char *job_get_string(launch_data_t j, const char *key)
 		return NULL;
 }
 
-static const char *job_get_argv0(launch_data_t j)
+static const char *job_get_file2exec(launch_data_t j)
 {
 	launch_data_t tmpi, tmp = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PROGRAM);
 
@@ -1523,11 +1524,37 @@ static void job_start(struct jobcb *j)
 static void job_start_child(struct jobcb *j)
 {
 	launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
+	size_t i, argv_cnt;
+	const char **argv, *file2exec = "/usr/libexec/launchproxy";
+
+	job_setup_attributes(j);
+
+	argv_cnt = launch_data_array_get_count(ldpa);
+	argv = alloca((argv_cnt + 2) * sizeof(char *));
+	for (i = 0; i < argv_cnt; i++)
+		argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
+	argv[argv_cnt + 1] = NULL;
+
+	if (inetcompat) {
+		argv[0] = file2exec;
+	} else {
+		argv++;
+		file2exec = job_get_file2exec(j->ldj);
+	}
+
+	if (-1 == execvp(file2exec, (char *const*)argv))
+		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", file2exec);
+	_exit(EXIT_FAILURE);
+}
+
+static void job_setup_attributes(struct jobcb *j)
+{
 	launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
 	launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
 	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
-	size_t i, argv_cnt;
-	const char **argv, *tmpstr;
+	size_t i;
+	const char *tmpstr;
 	struct group *gre = NULL;
 	gid_t gre_g = 0;
 	static const struct {
@@ -1544,17 +1571,6 @@ static void job_start_child(struct jobcb *j)
 		{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
 		{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
 	};
-
-	argv_cnt = launch_data_array_get_count(ldpa);
-	argv = alloca((argv_cnt + 2) * sizeof(char *));
-	for (i = 0; i < argv_cnt; i++)
-		argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
-	argv[argv_cnt + 1] = NULL;
-
-	if (inetcompat)
-		argv[0] = "/usr/libexec/launchproxy";
-	else
-		argv++;
 
 	setpriority(PRIO_PROCESS, 0, job_get_integer(j->ldj, LAUNCH_JOBKEY_NICE));
 
@@ -1578,7 +1594,7 @@ static void job_start_child(struct jobcb *j)
 	}
 
 	if (!inetcompat && job_get_bool(j->ldj, LAUNCH_JOBKEY_SESSIONCREATE))
-		launchd_SessionCreate(job_get_argv0(j->ldj));
+		launchd_SessionCreate(job_get_file2exec(j->ldj));
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_LOWPRIORITYIO)) {
 		int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
@@ -1662,9 +1678,6 @@ static void job_start_child(struct jobcb *j)
 					LAUNCH_JOBKEY_ENVIRONMENTVARIABLES),
 				setup_job_env, NULL);
 	setsid();
-	if (execvp(inetcompat ? argv[0] : job_get_argv0(j->ldj), (char *const*)argv) == -1)
-		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", inetcompat ? argv[0] : job_get_argv0(j->ldj));
-	_exit(EXIT_FAILURE);
 }
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
