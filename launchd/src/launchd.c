@@ -37,6 +37,7 @@
 #include "bootstrap_internal.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
+#define LAUNCHD_REWARD_JOB_RUN_TIME 60
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 #define PID1LAUNCHD_CONF "/etc/launchd.conf"
 #define LAUNCHD_CONF ".launchd.conf"
@@ -1119,9 +1120,9 @@ static void job_start(struct jobcb *j)
 	gettimeofday(&j->start_time, NULL);
 	timersub(&j->start_time, &last_start_time, &tvd);
 
-	if (tvd.tv_sec >= LAUNCHD_MIN_JOB_RUN_TIME) {
-		/* If the daemon lived long enough, let's reward it.
-		 * This lets infrequent bugs not cause the daemon to removed */
+	if (tvd.tv_sec >= LAUNCHD_REWARD_JOB_RUN_TIME) {
+		/* If the job lived long enough, let's reward it.
+		 * This lets infrequent bugs not cause the job to be removed. */
 		j->failed_exits = 0;
 	}
 	
