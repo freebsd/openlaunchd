@@ -178,15 +178,22 @@ int main(int argc, char *argv[])
 		int memmib[2] = { CTL_HW, HW_PHYSMEM };
 		int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
 		int hnmib[2] = { CTL_KERN, KERN_HOSTNAME };
-		uint64_t mem;
+		uint64_t mem = 0;
 		uint32_t mvn;
 		size_t memsz = sizeof(mem);
 		
 		if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
 			syslog(LOG_WARNING, "sysctl(\"hw.physmem\"): %m");
 		} else {
+			/* The following assignment of mem to itself if the size
+			 * of data returned is 32 bits instead of 64 is a clever
+			 * C trick to move the 32 bits on big endian systems to
+			 * the least significant bytes of the 64 mem variable.
+			 *
+			 * On little endian systems, this is effectively a no-op.
+			 */
 			if (memsz == 4)
-				mem >>= 32;
+				mem = *(uint32_t *)&mem;
 			mvn = mem / (64 * 1024) + 1024;
 			if (sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) == -1)
 				syslog(LOG_WARNING, "sysctl(\"kern.maxvnodes\"): %m");

@@ -407,7 +407,7 @@ runcom(void)
 	char *argv[4];
 	char options[30];
 	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
-	uint64_t nb;
+	uint64_t nb = 0;
 	size_t nbsz = sizeof(nb);
 
 	if ((runcom_pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
@@ -444,8 +444,16 @@ runcom(void)
 		if (runcom_safe)
 			options[i++] = 'x';
 		if (sysctl(nbmib, 2, &nb, &nbsz, NULL, 0) == 0) {
+			/* The following assignment of nb to itself if the
+			 * size of data returned is 32 bits instead of 64 is a
+			 * clever C trick to move the 32 bits on big endian
+			 * systems to the least significant bytes of the 64 mem
+			 * variable.
+			 *
+			 * On little endian systems, this is effectively a no-op.
+			 */
 			if (nbsz == 4)
-				nb >>= 32;
+				nb = *(uint32_t *)&nb;
 			if (nb != 0)
 				options[i++] = 'N';
 		} else {
