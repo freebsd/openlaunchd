@@ -220,7 +220,12 @@ else
     rm -rf ${swapdir}/swap*
 fi
 		    
-dynamic_pager -F ${swapdir}/swapfile
+if [ ${ENCRYPTSWAP:=-NO-} = "-YES-" ]; then
+    encryptswap="-E"
+else
+    encryptswap=""
+fi
+dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
 
 appprofiledir=/private/var/vm/app_profile
 
