@@ -198,18 +198,6 @@ else
 	cd /
 fi
 
-if [ ! "${netboot}" = "1" ] ; then
-    if [ ! -f /System/Library/Extensions.mkext -o \
-     /System/Library/Extensions.mkext -ot /System/Library/Extensions ]; then
-
-	if [ "${SafeBoot}" != "-x" ]; then
-	    echo "Updating kernel extensions cache"
-	    rm -f /System/Library/Extensions.mkext
-	    /usr/sbin/kextcache -elF -a `arch`
-	fi
-    fi
-fi
-
 update
 
 echo "Starting virtual memory"
