@@ -22,7 +22,6 @@
 #include "launch.h"
 
 static int kq = 0;
-static fd_set rendezvous_fds;
 
 static void find_fds(launch_data_t o, const char *key, void *context __attribute__((unused)))
 {
@@ -37,10 +36,10 @@ static void find_fds(launch_data_t o, const char *key, void *context __attribute
         switch (launch_data_get_type(o)) {
         case LAUNCH_DATA_FD:
 		fd = launch_data_get_fd(o);
+		if (-1 == fd)
+			break;
 		fcntl(fd, F_SETFD, 1);
-		if (subtree_is_rendezvous > 0) {
-			FD_SET(fd, &rendezvous_fds);
-		} else {
+		if (subtree_is_rendezvous == 0) {
 			EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
 			if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
 				syslog(LOG_DEBUG, "kevent(%d): %m", fd);
@@ -61,22 +60,6 @@ static void find_fds(launch_data_t o, const char *key, void *context __attribute
 		subtree_is_rendezvous--;
 }
 
-static void r_check(void)
-{
-	struct timeval timeout = { 0, 0 };
-	fd_set rfds = rendezvous_fds;
-
-	switch (select(sizeof(rfds) * 8, &rfds, NULL, NULL, &timeout)) {
-	case -1:
-		syslog(LOG_WARNING, "select(): %m");
-		break;
-	default:
-		syslog(LOG_WARNING, "mDNSResponder died, we need to reload the job now, but we aren't");
-	case 0:
-		break;
-	}
-}
-
 int main(int argc __attribute__((unused)), char *argv[])
 {
 	struct timespec timeout = { 10, 0 };
@@ -87,8 +70,6 @@ int main(int argc __attribute__((unused)), char *argv[])
 	launch_data_t tmp, resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
 	const char *prog = argv[1];
 	bool w = false, dupstdout = true, dupstderr = true;
-
-	FD_ZERO(&rendezvous_fds);
 
 	launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
 
@@ -106,7 +87,6 @@ int main(int argc __attribute__((unused)), char *argv[])
 	tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SOCKETS);
 	if (tmp) {
 		find_fds(tmp, NULL, NULL);
-		r_check();
 	} else {
 		syslog(LOG_ERR, "No FDs found to answer requests on!");
 		goto out;
