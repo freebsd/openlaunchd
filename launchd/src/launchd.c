@@ -59,7 +59,7 @@ struct jobcb {
 	pid_t p;
 	struct timeval start_time;
 	size_t failed_exits;
-	unsigned int checkedin:1, firstborn:1, futureflags:30;
+	unsigned int checkedin:1, firstborn:1, debug:1, futureflags:29;
 };
 
 struct conncb {
@@ -98,7 +98,7 @@ static kq_callback kqreadcfg_callback = readcfg_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static void job_watch_fds(launch_data_t o, void *cookie);
-static void job_ignore_fds(launch_data_t o, void *cookie);
+static void job_ignore_fds(launch_data_t o);
 static void job_start(struct jobcb *j);
 static void job_start_child(struct jobcb *j);
 static void job_stop(struct jobcb *j);
@@ -249,7 +249,11 @@ int main(int argc, char *argv[])
 			syslog(LOG_DEBUG, "kevent(): %m");
 			break;
 		case 1:
-			(*((kq_callback *)kev.udata))(kev.udata, &kev);
+			if (kev.udata) {
+				(*((kq_callback *)kev.udata))(kev.udata, &kev);
+			} else {
+				syslog(LOG_DEBUG, "kevent() returned and event with kev.udata == NULL!!!");
+			}
 			break;
 		case 0:
 			if (timeoutp)
@@ -631,25 +635,21 @@ static void launch_data_revoke_fds(launch_data_t o)
 	}
 }
 
-static void job_ignore_fds_dict(launch_data_t o, const char *k __attribute__((unused)), void *cookie)
-{
-	job_ignore_fds(o, cookie);
-}
-
-static void job_ignore_fds(launch_data_t o, void *cookie)
+static void job_ignore_fds(launch_data_t o)
 {
 	size_t i;
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, job_ignore_fds_dict, cookie);
+		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))job_ignore_fds, NULL);
 		break;
 	case LAUNCH_DATA_ARRAY:
 		for (i = 0; i < launch_data_array_get_count(o); i++)
-			job_ignore_fds(launch_data_array_get_index(o, i), cookie);
+			job_ignore_fds(launch_data_array_get_index(o, i));
 		break;
 	case LAUNCH_DATA_FD:
-		kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, cookie);
+		syslog(LOG_DEBUG, "Ignoring FD: %d", launch_data_get_fd(o));
+		kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, NULL);
 		break;
 	default:
 		break;
@@ -674,6 +674,7 @@ static void job_watch_fds(launch_data_t o, void *cookie)
 			job_watch_fds(launch_data_array_get_index(o, i), cookie);
 		break;
 	case LAUNCH_DATA_FD:
+		syslog(LOG_DEBUG, "Watching FD: %d", launch_data_get_fd(o));
 		kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
 		break;
 	default:
@@ -689,6 +690,8 @@ static void job_stop(struct jobcb *j)
 
 static void job_remove(struct jobcb *j)
 {
+	syslog(LOG_DEBUG, "Removing: %s", job_get_argv0(j->ldj));
+
 	TAILQ_REMOVE(&jobs, j, tqe);
 	if (j->p) {
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
@@ -944,6 +947,8 @@ static launch_data_t load_job(launch_data_t pload)
 
 	TAILQ_INSERT_TAIL(&jobs, j, tqe);
 
+	j->debug = job_get_bool(j->ldj, LAUNCH_JOBKEY_DEBUG);
+	
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 		job_watch_fds(j->ldj, &j->kqjob_callback);
 		notify_helperd();
@@ -1104,6 +1109,8 @@ static void job_reap(struct jobcb *j)
 	bool bad_exit = false;
 	int status;
 
+	syslog(LOG_DEBUG, "Reaping: %s", job_get_argv0(j->ldj));
+
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 	if (getpid() == 1)
 		status = pid1_child_exit_status;
@@ -1143,27 +1150,42 @@ static void job_callback(void *obj, struct kevent *kev)
 {
 	struct jobcb *j = obj;
 	bool checkin_check = j->checkedin;
+	bool d = j->debug;
+	int oldmask = 0;
 
-	if (kev->filter != EVFILT_PROC) {
-		job_start(j);
-
-		if (j == helperd && batch_disabler_count > 0)
-			kill(helperd->p, SIGSTOP);
-		return;
+	if (d) {
+		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
+		syslog(LOG_DEBUG, "log level debug temporarily enabled while processing job: %s", job_get_argv0(j->ldj));
 	}
 
-	job_reap(j);
+	if (kev->filter == EVFILT_PROC) {
+		job_reap(j);
 
-	if (j->firstborn)
-		do_shutdown();
-	else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
-		syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
-		job_remove(j);
-	} else if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
-		syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
-		job_remove(j);
-	} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
-		job_watch_fds(j->ldj, &j->kqjob_callback);
+		if (j->firstborn) {
+			syslog(LOG_DEBUG, "first born process died, begin shutdown");
+			do_shutdown();
+		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
+			syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
+			job_remove(j);
+		} else if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
+			syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
+			job_remove(j);
+		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
+			job_watch_fds(j->ldj, &j->kqjob_callback);
+			goto out;
+		}
+	}
+
+	job_start(j);
+
+	if (j == helperd && batch_disabler_count > 0) {
+		syslog(LOG_DEBUG, "restarted helperd while batch jobs are disabled, stopping helperd");
+		kill(helperd->p, SIGSTOP);
+	}
+out:
+	if (d) {
+		syslog(LOG_DEBUG, "restoring original log mask");
+		setlogmask(oldmask);
 	}
 }
 
@@ -1175,8 +1197,13 @@ static void job_start(struct jobcb *j)
 	char nbuf[64];
 	pid_t c;
 
-	if (j->p)
+	syslog(LOG_DEBUG, "[%s]: starting", job_get_argv0(j->ldj));
+
+	if (j->p) {
+		syslog(LOG_DEBUG, "[%s]: already running", job_get_argv0(j->ldj));
 		return;
+	}
+
 
 	sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
 
@@ -1192,6 +1219,7 @@ static void job_start(struct jobcb *j)
 	if (tvd.tv_sec >= LAUNCHD_REWARD_JOB_RUN_TIME) {
 		/* If the job lived long enough, let's reward it.
 		 * This lets infrequent bugs not cause the job to be removed. */
+		syslog(LOG_DEBUG, "[%s]: lived longer than %d seconds, rewarding", job_get_argv0(j->ldj), LAUNCHD_REWARD_JOB_RUN_TIME);
 		j->failed_exits = 0;
 	}
 	
@@ -1204,9 +1232,11 @@ static void job_start(struct jobcb *j)
 		}
 		break;
 	case 0:
-		setpgid(getpid(), getpid());
-		if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
-			syslog(LOG_WARNING, "tcsetpgrp(): %m");
+		if (j->firstborn) {
+			setpgid(getpid(), getpid());
+			if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
+				syslog(LOG_WARNING, "tcsetpgrp(): %m");
+		}
 
 		if (sipc) {
 			close(spair[0]);
@@ -1234,7 +1264,7 @@ static void job_start(struct jobcb *j)
 			j->p = c;
 			total_children++;
 			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
-				job_ignore_fds(j->ldj, j->kqjob_callback);
+				job_ignore_fds(j->ldj);
 		}
 		break;
 	}
