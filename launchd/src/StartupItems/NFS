@@ -6,6 +6,8 @@
 
 . /etc/rc.common
 
+AUTOMOUNTDIR=/private/var/automount
+
 StartService ()
 {
     CheckForNetwork 
@@ -16,6 +18,11 @@ StartService ()
     # Set up NFS client.
     ##
     echo "Starting network file system"
+
+	if [ -d ${AUTOMOUNTDIR} ]; then
+		chflags -R nouchg ${AUTOMOUNTDIR}
+		rm -rf ${AUTOMOUNTDIR}
+	fi
 
     # nsfiod is the NFS asynchronous block I/O daemon, which implements
     # NFS read-ahead and write-behind caching on NFS clients.
@@ -88,9 +95,9 @@ StartService ()
     ##
 
     if [ "${AUTOMOUNT:=-YES-}" = "-YES-" ]; then
-	automount -m /Network -nsl -mnt /private/var/automount
+	automount -m /Network -nsl -mnt ${AUTOMOUNTDIR}
 	automount -m /automount/Servers -fstab -mnt /private/Network/Servers \
-		-m /automount/static -static -mnt /private/var/automount
+		-m /automount/static -static -mnt ${AUTOMOUNTDIR}
 	ln -s /automount/Servers /Network/Servers
 	
 	#

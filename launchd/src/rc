@@ -203,19 +203,6 @@ if [ -d /private/tmp ]; then
 fi
 mkdir -p -m 01777 /private/var/tmp /private/tmp
 
-# Clear /private/Network (created by automount).
-if [ -d /private/Network ]; then
-	# blow away any _Network_ in case it exists as well
-	if [ -e /private/_Network_ ]; then
-		chflags -R nouchg /private/_Network_
-		rm -rf /private/_Network_
-	fi
-
-	echo -n " /private/Network"
-	mv /private/Network /private/_Network_
-	find -xd /private/_Network_ -type d -print0 | xargs -0 rmdir
-fi
-
 # Move /var/run out of the way
 if [ -d /var/run ]; then
 	# blow away any _run_ in case it exists as well
