@@ -89,7 +89,7 @@ sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
-launchctl_LDFLAGS = -framework CoreFoundation -ltcl -ledit
+launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libtcl.dylib -weak_library /usr/lib/libedit.dylib
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 

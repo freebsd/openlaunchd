@@ -123,6 +123,11 @@ int main(int argc, char *const argv[])
 		exit(demux_cmd(argc, argv));
 	}
 
+	if (NULL == Tcl_CreateInterp) {
+		fprintf(stderr, "missing library: Tcl\n");
+		exit(EXIT_FAILURE);
+	}
+
 	interp = Tcl_CreateInterp();
 
 	if (interp == NULL) {
@@ -134,6 +139,10 @@ int main(int argc, char *const argv[])
 		Tcl_CreateCommand(interp, cmds[i].name, lctl_tcl_cmd, 0, 0);
 
 	if (isatty(STDIN_FILENO)) {
+		if (NULL == readline) {
+			fprintf(stderr, "missing library: readline\n");
+			exit(EXIT_FAILURE);
+		}
 		while ((l = readline("launchd % "))) {
 			if (Tcl_Eval(interp, l) != TCL_OK)
 				fprintf(stderr, "%s at line %d: %s\n", getprogname(), interp->errorLine, interp->result);
