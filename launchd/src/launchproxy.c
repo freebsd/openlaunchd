@@ -61,7 +61,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 	int r, ec = EXIT_FAILURE;
 	launch_data_t tmp, resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
 	const char *prog = NULL;
-	bool w = false;
+	bool w = false, dupstdout = true, dupstderr = true;
 
 	launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
 
@@ -99,6 +99,12 @@ int main(int argc __attribute__((unused)), char *argv[])
 			w = launch_data_get_bool(tmp);
 	}
 
+	if (launch_data_dict_lookup(resp, LAUNCH_JOBKEY_STANDARDOUTPATH))
+		dupstdout = false;
+
+	if (launch_data_dict_lookup(resp, LAUNCH_JOBKEY_STANDARDERRORPATH))
+		dupstderr = false;
+
 	if (!w)
 		signal(SIGCHLD, SIG_IGN);
 
@@ -113,8 +119,10 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 		if (w) {
 			dup2(kev.ident, STDIN_FILENO);
-			dup2(kev.ident, STDOUT_FILENO);
-			dup2(kev.ident, STDERR_FILENO);
+			if (dupstdout)
+				dup2(kev.ident, STDOUT_FILENO);
+			if (dupstderr)
+				dup2(kev.ident, STDERR_FILENO);
 			execv(prog ? prog : argv[1], argv + 1);
 			syslog(LOG_ERR, "execv(): %m");
 			exit(EXIT_FAILURE);
@@ -143,8 +151,10 @@ int main(int argc __attribute__((unused)), char *argv[])
 			}
 			fcntl(r, F_SETFL, 0);
 			dup2(r, STDIN_FILENO);
-			dup2(r, STDOUT_FILENO);
-			dup2(r, STDERR_FILENO);
+			if (dupstdout)
+				dup2(r, STDOUT_FILENO);
+			if (dupstderr)
+				dup2(r, STDERR_FILENO);
 			signal(SIGCHLD, SIG_DFL);
 			execv(prog ? prog : argv[1], argv + 1);
 			syslog(LOG_ERR, "execv(): %m");
