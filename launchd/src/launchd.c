@@ -93,6 +93,7 @@ static void job_watch_fds(launch_data_t o, void *cookie);
 static void job_ignore_fds(launch_data_t o, void *cookie);
 static void job_launch(struct jobcb *j);
 static void job_reap(struct jobcb *j);
+static void job_remove(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 
 static void ipc_open(int fd, struct jobcb *j);
@@ -286,6 +287,16 @@ static bool launchd_check_pid(pid_t p, int status)
 	return false;
 }
 
+static void launchd_remove_all_jobs(void)
+{
+	struct usercb *u;
+	struct jobcb *j;
+
+	TAILQ_FOREACH(u, &users, tqe) {
+		while ((j = TAILQ_FIRST(&u->ujobs)))
+			job_remove(j);
+	}
+}
 
 static int launchd_server_init(char *thepath)
 {
@@ -1053,15 +1064,12 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 		update_ttys();
 		break;
 	case SIGTERM:
-		death();
-		break;
-	case SIGTSTP:
+		launchd_remove_all_jobs();
 		catatonia();
+		mach_start_shutdown(SIGTERM);
 		break;
 	case SIGUSR1:
 		debug = !debug;
-		/* fall through to SIGUSR2 */
-	case SIGUSR2:
 		closelog();
 		openlog(basename(getprogname()),
 				LOG_NDELAY|LOG_CONS|(debug ? LOG_PERROR : 0)|(getpid() > 1 ? LOG_PID : 0),

@@ -751,7 +751,7 @@ server_demux(
 			bootstraps.bootstrap_port);
 		deactivate_bootstrap(&bootstraps);
 		syslog(LOG_NOTICE, "Done.");
-		exit(0);
+		pthread_exit(NULL);
 	}
 					
 	reply = (mig_reply_error_t *)Reply;
