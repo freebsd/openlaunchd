@@ -1,4 +1,4 @@
-SUBDIRS = . QuartzDisplay SafeBoot
+SUBDIRS = . QuartzDisplay SafeBoot SystemStarterResources
 
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 

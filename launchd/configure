@@ -5625,7 +5625,7 @@ fi
 done
 
 
-                                                  ac_config_files="$ac_config_files Makefile src/Makefile src/QuartzDisplay/Makefile src/SafeBoot/Makefile doc/Makefile"
+                                                            ac_config_files="$ac_config_files Makefile src/Makefile src/SystemStarterResources/Makefile src/QuartzDisplay/Makefile src/SafeBoot/Makefile doc/Makefile"
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -6170,6 +6170,7 @@ do
   # Handling of arguments.
   "Makefile" ) CONFIG_FILES="$CONFIG_FILES Makefile" ;;
   "src/Makefile" ) CONFIG_FILES="$CONFIG_FILES src/Makefile" ;;
+  "src/SystemStarterResources/Makefile" ) CONFIG_FILES="$CONFIG_FILES src/SystemStarterResources/Makefile" ;;
   "src/QuartzDisplay/Makefile" ) CONFIG_FILES="$CONFIG_FILES src/QuartzDisplay/Makefile" ;;
   "src/SafeBoot/Makefile" ) CONFIG_FILES="$CONFIG_FILES src/SafeBoot/Makefile" ;;
   "doc/Makefile" ) CONFIG_FILES="$CONFIG_FILES doc/Makefile" ;;
