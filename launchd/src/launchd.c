@@ -1331,6 +1331,9 @@ static void fs_callback(void)
 {
 	static bool mounted_volfs = false;
 
+	if (1 == getpid())
+		mounted_volfs = true;
+
 	if (pending_stdout) {
 		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
 		if (fd != -1) {
