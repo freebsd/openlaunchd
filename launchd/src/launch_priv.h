@@ -10,8 +10,6 @@
 
 typedef struct _launch *launch_t;
 
-launch_data_t launch_data_copy(launch_data_t);
-
 launch_t launchd_fdopen(int);
 int launchd_getfd(launch_t);
 void launchd_close(launch_t);

@@ -84,6 +84,7 @@ typedef enum {
 } launch_data_type_t;
 
 launch_data_t		launch_data_alloc(launch_data_type_t);
+launch_data_t		launch_data_copy(launch_data_t);
 launch_data_type_t	launch_data_get_type(launch_data_t);
 void			launch_data_free(launch_data_t);
 
