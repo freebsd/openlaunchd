@@ -16,7 +16,7 @@
 
 static void launch_print_obj(launch_data_t o, FILE *w);
 
-int kq = 0;
+static int kq = -1;
 
 static void find_fds(launch_data_t o)
 {
