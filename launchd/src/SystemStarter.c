@@ -104,7 +104,7 @@ main(int argc, char *argv[])
 	}
 	if (argc == 2)
 		aService = argv[1];
-	else
+	else if (!gDebugFlag)
 		daemon(0, 0);
 
 	exit(system_starter(anAction, aService));
@@ -198,8 +198,11 @@ static int
 system_starter(Action anAction, const char *aService_cstr)
 {
 	CFRunLoopSourceRef anIPCSource = NULL;
-	CFStringRef     aService = CFStringCreateWithCString(kCFAllocatorDefault, aService_cstr, kCFStringEncodingUTF8);
+	CFStringRef     aService = NULL;
 	NSSearchPathDomainMask aMask;
+
+	if (aService_cstr)
+		aService = CFStringCreateWithCString(kCFAllocatorDefault, aService_cstr, kCFStringEncodingUTF8);
 
 	StartupContext  aStartupContext = (StartupContext) malloc(sizeof(struct StartupContextStorage));
 	if (!aStartupContext) {
