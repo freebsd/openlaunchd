@@ -645,6 +645,7 @@ static void launch_data_revoke_fds(launch_data_t o, const char *key __attribute_
 static void job_ignore_fds(launch_data_t o)
 {
 	size_t i;
+	int fd;
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_DICTIONARY:
@@ -655,8 +656,11 @@ static void job_ignore_fds(launch_data_t o)
 			job_ignore_fds(launch_data_array_get_index(o, i));
 		break;
 	case LAUNCH_DATA_FD:
-		syslog(LOG_DEBUG, "Ignoring FD: %d", launch_data_get_fd(o));
-		kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, NULL);
+		fd = launch_data_get_fd(o);
+		if (-1 != fd) {
+			syslog(LOG_DEBUG, "Ignoring FD: %d", fd);
+			kevent_mod(fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+		}
 		break;
 	default:
 		break;
@@ -671,6 +675,7 @@ static void job_watch_fds_dict(launch_data_t o, const char *k __attribute__((unu
 static void job_watch_fds(launch_data_t o, void *cookie)
 {
 	size_t i;
+	int fd;
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_DICTIONARY:
@@ -681,8 +686,11 @@ static void job_watch_fds(launch_data_t o, void *cookie)
 			job_watch_fds(launch_data_array_get_index(o, i), cookie);
 		break;
 	case LAUNCH_DATA_FD:
-		syslog(LOG_DEBUG, "Watching FD: %d", launch_data_get_fd(o));
-		kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
+		fd = launch_data_get_fd(o);
+		if (-1 != fd) {
+			syslog(LOG_DEBUG, "Watching FD: %d", launch_data_get_fd(o));
+			kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
+		}
 		break;
 	default:
 		break;
@@ -1194,6 +1202,7 @@ static void job_callback(void *obj, struct kevent *kev)
 	} else if (kev->filter == EVFILT_READ && kev->flags & EV_EOF && kev->data == 0) {
 		/* Busted FD with no data/listeners pending. Revoke the fd and start the job. */
 		syslog(LOG_NOTICE, "%s: revoking busted FD %d", job_get_argv0(j->ldj), kev->ident);
+		close(kev->ident);
 		launch_data_revoke_fds(j->ldj, NULL, &kev->ident);
 	}
 
