@@ -1246,8 +1246,8 @@ static void job_start(struct jobcb *j)
 				sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
 			}
 		}
-                if (execvp(argv[0], (char *const*)argv) == -1)
-			syslog(LOG_ERR, "child execvp(): %m");
+                if (execvp(inetcompat ? argv[0] : job_get_argv0(j->ldj), (char *const*)argv) == -1)
+			syslog(LOG_ERR, "execvp(\"%s\", ...): %m", inetcompat ? argv[0] : job_get_argv0(j->ldj));
 		exit(EXIT_FAILURE);
 	}
 
