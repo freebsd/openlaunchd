@@ -6,12 +6,9 @@
 	<true/>
 	<key>Label</key>
 	<string>com.apple.ftpd</string>
-	<key>Program</key>
-	<string>/usr/libexec/ftpd</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>ftpd</string>
-		<string>-l</string>
+		<string>/usr/libexec/rlogind</string>
 	</array>
 	<key>inetdCompatibility</key>
 	<dict>
@@ -23,7 +20,7 @@
 		<key>Listeners</key>
 		<dict>
 			<key>SockServiceName</key>
-			<string>ftp</string>
+			<string>login</string>
 		</dict>
 	</dict>
 </dict>

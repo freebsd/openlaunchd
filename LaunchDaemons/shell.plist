@@ -5,13 +5,10 @@
 	<key>Disabled</key>
 	<true/>
 	<key>Label</key>
-	<string>com.apple.ftpd</string>
-	<key>Program</key>
-	<string>/usr/libexec/ftpd</string>
+	<string>com.apple.rshd</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>ftpd</string>
-		<string>-l</string>
+		<string>/usr/libexec/rshd</string>
 	</array>
 	<key>inetdCompatibility</key>
 	<dict>
@@ -23,7 +20,7 @@
 		<key>Listeners</key>
 		<dict>
 			<key>SockServiceName</key>
-			<string>ftp</string>
+			<string>shell</string>
 		</dict>
 	</dict>
 </dict>

@@ -5,25 +5,29 @@
 	<key>Disabled</key>
 	<true/>
 	<key>Label</key>
-	<string>com.apple.ftpd</string>
-	<key>Program</key>
-	<string>/usr/libexec/ftpd</string>
+	<string>com.apple.tftpd</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>ftpd</string>
-		<string>-l</string>
+		<string>/usr/libexec/tftpd</string>
+		<string>/private/tftpboot</string>
 	</array>
 	<key>inetdCompatibility</key>
 	<dict>
 		<key>Wait</key>
-		<false/>
+		<true/>
 	</dict>
+	<key>UserName</key>
+	<string>nobody</string>
+	<key>InitGroups</key>
+	<true/>
 	<key>Sockets</key>
 	<dict>
 		<key>Listeners</key>
 		<dict>
 			<key>SockServiceName</key>
-			<string>ftp</string>
+			<string>tftp</string>
+			<key>SockType</key>
+			<string>dgram</string>
 		</dict>
 	</dict>
 </dict>

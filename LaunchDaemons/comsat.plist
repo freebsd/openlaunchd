@@ -5,25 +5,24 @@
 	<key>Disabled</key>
 	<true/>
 	<key>Label</key>
-	<string>com.apple.ftpd</string>
-	<key>Program</key>
-	<string>/usr/libexec/ftpd</string>
+	<string>com.apple.comsat</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>ftpd</string>
-		<string>-l</string>
+		<string>/usr/libexec/comsat</string>
 	</array>
 	<key>inetdCompatibility</key>
 	<dict>
 		<key>Wait</key>
-		<false/>
+		<true/>
 	</dict>
 	<key>Sockets</key>
 	<dict>
 		<key>Listeners</key>
 		<dict>
 			<key>SockServiceName</key>
-			<string>ftp</string>
+			<string>comsat</string>
+			<key>SockType</key>
+			<string>dgram</string>
 		</dict>
 	</dict>
 </dict>

@@ -5,25 +5,27 @@
 	<key>Disabled</key>
 	<true/>
 	<key>Label</key>
-	<string>com.apple.ftpd</string>
-	<key>Program</key>
-	<string>/usr/libexec/ftpd</string>
+	<string>com.apple.fingerd</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>ftpd</string>
-		<string>-l</string>
+		<string>/usr/libexec/fingerd</string>
+		<string>-s</string>
 	</array>
 	<key>inetdCompatibility</key>
 	<dict>
 		<key>Wait</key>
 		<false/>
 	</dict>
+	<key>UserName</key>
+	<string>nobody</string>
+	<key>InitGroups</key>
+	<true/>
 	<key>Sockets</key>
 	<dict>
 		<key>Listeners</key>
 		<dict>
 			<key>SockServiceName</key>
-			<string>ftp</string>
+			<string>finger</string>
 		</dict>
 	</dict>
 </dict>
