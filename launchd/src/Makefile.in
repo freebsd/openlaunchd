@@ -95,13 +95,13 @@ SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
-launchctl_LDFLAGS = -framework CoreFoundation liblaunch.A.dylib
+launchctl_LDFLAGS = -framework CoreFoundation liblaunch.1.dylib
 
-launchd_LDFLAGS = liblaunch.A.dylib
+launchd_LDFLAGS = liblaunch.1.dylib
 
-launchdebugd_LDFLAGS = liblaunch.A.dylib
+launchdebugd_LDFLAGS = liblaunch.1.dylib
 
-launchproxy_LDFLAGS = liblaunch.A.dylib
+launchproxy_LDFLAGS = liblaunch.1.dylib
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
@@ -125,7 +125,7 @@ launchproxy_SOURCES = launchproxy.c
 
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.A.dylib
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.1.dylib
 
 man1_MANS = wait4path.1
 
@@ -808,16 +808,16 @@ bootstrap.c:: bootstrap.h
 bootstrap.h bootstrapServer.c bootstrapUser.c:
 	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
-liblaunch.A.dylib:
-	libtool -dynamic -o liblaunch.A.dylib -install_name /usr/lib/liblaunch.A.dylib -compatibility_version 1 -current_version 1 liblaunch.o -lSystem
+liblaunch.1.dylib:
+	libtool -dynamic -o liblaunch.1.dylib -install_name /usr/lib/liblaunch.1.dylib -compatibility_version 1 -current_version 1 liblaunch.o -lSystem
 
-launchctl.c:: liblaunch.A.dylib
+launchctl.c:: liblaunch.1.dylib
 
-launchdebugd.c:: liblaunch.A.dylib
+launchdebugd.c:: liblaunch.1.dylib
 
-launchd.c:: liblaunch.A.dylib
+launchd.c:: liblaunch.1.dylib
 
-launchproxy.c:: liblaunch.A.dylib
+launchproxy.c:: liblaunch.1.dylib
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@/Resources/English.lproj
@@ -830,8 +830,9 @@ install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STA
 
 install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/usr/lib
-	strip -S liblaunch.A.dylib
-	cp liblaunch.A.dylib $(DESTDIR)/usr/lib
+	strip -S liblaunch.1.dylib
+	cp liblaunch.1.dylib $(DESTDIR)/usr/lib
+	ln -s liblaunch.1.dylib $(DESTDIR)/usr/lib/liblaunch.dylib
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
