@@ -520,7 +520,28 @@ static void launch_data_close_fds(launch_data_t o)
 			launch_data_close_fds(launch_data_array_get_index(o, i));
 		break;
 	case LAUNCH_DATA_FD:
-		close(launch_data_get_fd(o));
+		if (launch_data_get_fd(o) != -1)
+			close(launch_data_get_fd(o));
+		break;
+	default:
+		break;
+	}
+}
+
+static void launch_data_revoke_fds(launch_data_t o)
+{
+	size_t i;
+
+	switch (launch_data_get_type(o)) {
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))launch_data_revoke_fds, NULL);
+		break;
+	case LAUNCH_DATA_ARRAY:
+		for (i = 0; i < launch_data_array_get_count(o); i++)
+			launch_data_revoke_fds(launch_data_array_get_index(o, i));
+		break;
+	case LAUNCH_DATA_FD:
+		launch_data_set_fd(o, -1);
 		break;
 	default:
 		break;
@@ -685,6 +706,8 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		launch_data_set_string(resp, LAUNCH_RESPONSE_UNKNOWNCOMMAND);
 	}
+
+	launch_data_close_fds(msg);
 out:
 	if (launchd_msg_send(c->conn, resp) == -1) {
 		if (errno == EAGAIN) {
@@ -736,6 +759,7 @@ static launch_data_t load_job(launch_data_t pload)
 
 	j = calloc(1, sizeof(struct jobcb));
 	j->ldj = launch_data_copy(pload);
+	launch_data_revoke_fds(pload);
 	j->kqjob_callback = job_callback;
 
 
