@@ -1,5 +1,0 @@
-{
-  Description     = "timed execution services";
-  Provides        = ("Cron");
-  Uses            = ("Network");
-}
