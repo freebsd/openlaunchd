@@ -269,6 +269,6 @@ fi
 
 export LANGUAGE
 
-SystemStarter -gr ${VerboseFlag} ${SafeBoot}
+SystemStarter -gr ${VerboseFlag} ${SafeBoot} &
 
 exit 0
