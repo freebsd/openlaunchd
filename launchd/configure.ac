@@ -39,5 +39,7 @@ AC_CHECK_FUNCS([memmove munmap strerror])
 
 AC_CONFIG_FILES([Makefile
                  src/Makefile
+                 src/QuartzDisplay/Makefile
+                 src/SafeBoot/Makefile
                  doc/Makefile])
 AC_OUTPUT

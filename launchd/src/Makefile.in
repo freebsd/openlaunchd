@@ -74,6 +74,8 @@ VERSION = @VERSION@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
+SUBDIRS = . QuartzDisplay SafeBoot
+
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
 sbin_SCRIPTS = service
@@ -86,7 +88,7 @@ libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemCon
 
 sysconf_DATA = hostconfig rc rc.boot rc.cleanup rc.common rc.netboot
 
-SystemStarter_LDFLAGS = -framework CoreFoundation -framework Bom
+SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
@@ -95,7 +97,7 @@ initctl_LDFLAGS = -framework CoreFoundation
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
-	Log.c TextDisplay.c main.c SafeBootPrivate.c
+	Log.c TextDisplay.c main.c SafeBoot.c
 
 
 wait4path_SOURCES = wait4path.c
@@ -140,7 +142,7 @@ StartupItemContext_DEPENDENCIES =
 StartupItemContext_LDFLAGS =
 am_SystemStarter_OBJECTS = StartupItems.$(OBJEXT) IPC.$(OBJEXT) \
 	SystemStarter.$(OBJEXT) Log.$(OBJEXT) TextDisplay.$(OBJEXT) \
-	main.$(OBJEXT) SafeBootPrivate.$(OBJEXT)
+	main.$(OBJEXT) SafeBoot.$(OBJEXT)
 SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_DEPENDENCIES =
@@ -192,7 +194,7 @@ LIBS = @LIBS@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
 @AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/ConsoleMessage.Po ./$(DEPDIR)/IPC.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/Log.Po ./$(DEPDIR)/SafeBootPrivate.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/Log.Po ./$(DEPDIR)/SafeBoot.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/StartupItemContext.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/StartupItems.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter.Po \
@@ -219,11 +221,17 @@ NROFF = nroff
 MANS = $(man1_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
+
+RECURSIVE_TARGETS = info-recursive dvi-recursive install-info-recursive \
+	uninstall-info-recursive all-recursive install-data-recursive \
+	install-exec-recursive installdirs-recursive install-recursive \
+	uninstall-recursive check-recursive installcheck-recursive
 DIST_COMMON = Makefile.am Makefile.in config.h.in
+DIST_SUBDIRS = $(SUBDIRS)
 SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(helloworldd_SOURCES) $(init_SOURCES) $(initctl_SOURCES) $(initngd_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
 all: config.h
-	$(MAKE) $(AM_MAKEFLAGS) all-am
+	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
 .SUFFIXES:
 .SUFFIXES: .c .o .obj
@@ -360,7 +368,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ConsoleMessage.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/IPC.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/Log.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SafeBootPrivate.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SafeBoot.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItemContext.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItems.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter.Po@am__quote@
@@ -500,6 +508,61 @@ uninstall-sysconfDATA:
 	  rm -f $(DESTDIR)$(sysconfdir)/$$f; \
 	done
 
+# This directory's subdirectories are mostly independent; you can cd
+# into them and run `make' without going through this Makefile.
+# To change the values of `make' variables: instead of editing Makefiles,
+# (1) if the variable is set in `config.status', edit `config.status'
+#     (which will cause the Makefiles to be regenerated when you run `make');
+# (2) otherwise, pass the desired values on the `make' command line.
+$(RECURSIVE_TARGETS):
+	@set fnord $$MAKEFLAGS; amf=$$2; \
+	dot_seen=no; \
+	target=`echo $@ | sed s/-recursive//`; \
+	list='$(SUBDIRS)'; for subdir in $$list; do \
+	  echo "Making $$target in $$subdir"; \
+	  if test "$$subdir" = "."; then \
+	    dot_seen=yes; \
+	    local_target="$$target-am"; \
+	  else \
+	    local_target="$$target"; \
+	  fi; \
+	  (cd $$subdir && $(MAKE) $(AM_MAKEFLAGS) $$local_target) \
+	   || case "$$amf" in *=*) exit 1;; *k*) fail=yes;; *) exit 1;; esac; \
+	done; \
+	if test "$$dot_seen" = "no"; then \
+	  $(MAKE) $(AM_MAKEFLAGS) "$$target-am" || exit 1; \
+	fi; test -z "$$fail"
+
+mostlyclean-recursive clean-recursive distclean-recursive \
+maintainer-clean-recursive:
+	@set fnord $$MAKEFLAGS; amf=$$2; \
+	dot_seen=no; \
+	case "$@" in \
+	  distclean-* | maintainer-clean-*) list='$(DIST_SUBDIRS)' ;; \
+	  *) list='$(SUBDIRS)' ;; \
+	esac; \
+	rev=''; for subdir in $$list; do \
+	  if test "$$subdir" = "."; then :; else \
+	    rev="$$subdir $$rev"; \
+	  fi; \
+	done; \
+	rev="$$rev ."; \
+	target=`echo $@ | sed s/-recursive//`; \
+	for subdir in $$rev; do \
+	  echo "Making $$target in $$subdir"; \
+	  if test "$$subdir" = "."; then \
+	    local_target="$$target-am"; \
+	  else \
+	    local_target="$$target"; \
+	  fi; \
+	  (cd $$subdir && $(MAKE) $(AM_MAKEFLAGS) $$local_target) \
+	   || case "$$amf" in *=*) exit 1;; *k*) fail=yes;; *) exit 1;; esac; \
+	done && test -z "$$fail"
+tags-recursive:
+	list='$(SUBDIRS)'; for subdir in $$list; do \
+	  test "$$subdir" = . || (cd $$subdir && $(MAKE) $(AM_MAKEFLAGS) tags); \
+	done
+
 ETAGS = etags
 ETAGSFLAGS =
 
@@ -514,10 +577,15 @@ ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
 	       END { for (i in files) print i; }'`; \
 	mkid -fID $$unique
 
-TAGS:  $(HEADERS) $(SOURCES) config.h.in $(TAGS_DEPENDENCIES) \
+TAGS: tags-recursive $(HEADERS) $(SOURCES) config.h.in $(TAGS_DEPENDENCIES) \
 		$(TAGS_FILES) $(LISP)
 	tags=; \
 	here=`pwd`; \
+	list='$(SUBDIRS)'; for subdir in $$list; do \
+	  if test "$$subdir" = .; then :; else \
+	    test -f $$subdir/TAGS && tags="$$tags -i $$here/$$subdir/TAGS"; \
+	  fi; \
+	done; \
 	list='$(SOURCES) $(HEADERS) config.h.in $(LISP) $(TAGS_FILES)'; \
 	unique=`for i in $$list; do \
 	    if test -f "$$i"; then echo $$i; else echo $(srcdir)/$$i; fi; \
@@ -561,22 +629,35 @@ distdir: $(DISTFILES)
 	    || exit 1; \
 	  fi; \
 	done
+	list='$(SUBDIRS)'; for subdir in $$list; do \
+	  if test "$$subdir" = .; then :; else \
+	    test -d $(distdir)/$$subdir \
+	    || mkdir $(distdir)/$$subdir \
+	    || exit 1; \
+	    (cd $$subdir && \
+	      $(MAKE) $(AM_MAKEFLAGS) \
+	        top_distdir="$(top_distdir)" \
+	        distdir=../$(distdir)/$$subdir \
+	        distdir) \
+	      || exit 1; \
+	  fi; \
+	done
 check-am: all-am
-check: check-am
+check: check-recursive
 all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) config.h
-
-installdirs:
+installdirs: installdirs-recursive
+installdirs-am:
 	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
 
-install: install-am
-install-exec: install-exec-am
-install-data: install-data-am
-uninstall: uninstall-am
+install: install-recursive
+install-exec: install-exec-recursive
+install-data: install-data-recursive
+uninstall: uninstall-recursive
 
 install-am: all-am
 	@$(MAKE) $(AM_MAKEFLAGS) install-exec-am install-data-am
 
-installcheck: installcheck-am
+installcheck: installcheck-recursive
 install-strip:
 	$(MAKE) $(AM_MAKEFLAGS) INSTALL_PROGRAM="$(INSTALL_STRIP_PROGRAM)" \
 	  INSTALL_STRIP_FLAG=-s \
@@ -593,21 +674,21 @@ distclean-generic:
 maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
 	@echo "it deletes files that may require special tools to rebuild."
-clean: clean-am
+clean: clean-recursive
 
 clean-am: clean-generic clean-libexecPROGRAMS clean-noinstPROGRAMS \
 	clean-sbinPROGRAMS mostlyclean-am
 
-distclean: distclean-am
+distclean: distclean-recursive
 
 distclean-am: clean-am distclean-compile distclean-depend \
 	distclean-generic distclean-hdr distclean-tags
 
-dvi: dvi-am
+dvi: dvi-recursive
 
 dvi-am:
 
-info: info-am
+info: info-recursive
 
 info-am:
 
@@ -618,17 +699,17 @@ install-data-am: install-man
 install-exec-am: install-libexecPROGRAMS install-sbinPROGRAMS \
 	install-sbinSCRIPTS install-sysconfDATA
 
-install-info: install-info-am
+install-info: install-info-recursive
 
 install-man: install-man1 install-man8
 
 installcheck-am:
 
-maintainer-clean: maintainer-clean-am
+maintainer-clean: maintainer-clean-recursive
 
 maintainer-clean-am: distclean-am maintainer-clean-generic
 
-mostlyclean: mostlyclean-am
+mostlyclean: mostlyclean-recursive
 
 mostlyclean-am: mostlyclean-compile mostlyclean-generic
 
@@ -636,21 +717,29 @@ uninstall-am: uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
 	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
 	uninstall-sysconfDATA
 
+uninstall-info: uninstall-info-recursive
+
 uninstall-man: uninstall-man1 uninstall-man8
 
-.PHONY: GTAGS all all-am check check-am clean clean-generic \
-	clean-libexecPROGRAMS clean-noinstPROGRAMS clean-sbinPROGRAMS \
-	distclean distclean-compile distclean-depend distclean-generic \
-	distclean-hdr distclean-tags distdir dvi dvi-am info info-am \
-	install install-am install-data install-data-am install-exec \
-	install-exec-am install-info install-info-am \
+.PHONY: $(RECURSIVE_TARGETS) GTAGS all all-am check check-am clean \
+	clean-generic clean-libexecPROGRAMS clean-noinstPROGRAMS \
+	clean-recursive clean-sbinPROGRAMS distclean distclean-compile \
+	distclean-depend distclean-generic distclean-hdr \
+	distclean-recursive distclean-tags distdir dvi dvi-am \
+	dvi-recursive info info-am info-recursive install install-am \
+	install-data install-data-am install-data-recursive \
+	install-exec install-exec-am install-exec-recursive \
+	install-info install-info-am install-info-recursive \
 	install-libexecPROGRAMS install-man install-man1 install-man8 \
-	install-sbinPROGRAMS install-sbinSCRIPTS install-strip \
-	install-sysconfDATA installcheck installcheck-am installdirs \
-	maintainer-clean maintainer-clean-generic mostlyclean \
-	mostlyclean-compile mostlyclean-generic tags uninstall \
-	uninstall-am uninstall-info-am uninstall-libexecPROGRAMS \
-	uninstall-man uninstall-man1 uninstall-man8 \
+	install-recursive install-sbinPROGRAMS install-sbinSCRIPTS \
+	install-strip install-sysconfDATA installcheck installcheck-am \
+	installdirs installdirs-am installdirs-recursive \
+	maintainer-clean maintainer-clean-generic \
+	maintainer-clean-recursive mostlyclean mostlyclean-compile \
+	mostlyclean-generic mostlyclean-recursive tags tags-recursive \
+	uninstall uninstall-am uninstall-info-am \
+	uninstall-info-recursive uninstall-libexecPROGRAMS \
+	uninstall-man uninstall-man1 uninstall-man8 uninstall-recursive \
 	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
 	uninstall-sysconfDATA
 
@@ -663,6 +752,7 @@ bootstrap.h bootstrapServer.c bootstrapUser.c:
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@/Resources/English.lproj
 	cp $(srcdir)/StartupItems/$(notdir $@) $@
+	chmod 755 $@/$(notdir $@)
 	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
 	cp $(srcdir)/StartupItems/$(notdir $@).strings $@/Resources/English.lproj/Localizable.strings
 

@@ -1,3 +1,5 @@
+SUBDIRS = . QuartzDisplay SafeBoot
+
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
 sbin_SCRIPTS = service
@@ -10,7 +12,7 @@ libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemCon
 
 sysconf_DATA = hostconfig rc rc.boot rc.cleanup rc.common rc.netboot
 
-SystemStarter_LDFLAGS = -framework CoreFoundation -framework Bom
+SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
@@ -18,8 +20,9 @@ initctl_LDFLAGS = -framework CoreFoundation
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
+
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
-	Log.c TextDisplay.c main.c SafeBootPrivate.c
+	Log.c TextDisplay.c main.c SafeBoot.c
 
 wait4path_SOURCES = wait4path.c
 
@@ -49,6 +52,7 @@ STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@/Resources/English.lproj
 	cp $(srcdir)/StartupItems/$(notdir $@) $@
+	chmod 755 $@/$(notdir $@)
 	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
 	cp $(srcdir)/StartupItems/$(notdir $@).strings $@/Resources/English.lproj/Localizable.strings
 

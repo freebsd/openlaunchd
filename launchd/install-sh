@@ -37,7 +37,7 @@ cpprog="${CPPROG-cp}"
 chmodprog="${CHMODPROG-chmod}"
 chownprog="${CHOWNPROG-chown}"
 chgrpprog="${CHGRPPROG-chgrp}"
-stripprog="${STRIPPROG-strip}"
+stripprog="${STRIPPROG-strip} -S"
 rmprog="${RMPROG-rm}"
 mkdirprog="${MKDIRPROG-mkdir}"
 
