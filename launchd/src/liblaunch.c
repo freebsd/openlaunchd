@@ -53,6 +53,7 @@ static void launch_client_init(void)
 		lfd = strtol(_launchd_fd, NULL, 10);
 		if ((dfd = dup(lfd)) >= 0) {
 			close(dfd);
+			_fd(lfd);
 		} else {
 			lfd = -1;
 		}

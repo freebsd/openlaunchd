@@ -1065,7 +1065,7 @@ static void job_launch(struct jobcb *j)
 
 	if (sipc) {
 		close(spair[1]);
-		ipc_open(spair[0], j);
+		ipc_open(_fd(spair[0]), j);
 	}
 
         if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
