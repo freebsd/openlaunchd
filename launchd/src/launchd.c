@@ -1411,7 +1411,6 @@ static void job_reap(struct jobcb *j)
 
 	total_children--;
 	j->p = 0;
-	j->checkedin = false;
 }
 
 static bool job_restart_fitness_test(struct jobcb *j)
@@ -1548,6 +1547,8 @@ static void job_start(struct jobcb *j)
 		job_log(j, LOG_DEBUG, "already running");
 		return;
 	}
+
+	j->checkedin = false;
 
 	sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
 
