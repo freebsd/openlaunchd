@@ -300,6 +300,10 @@ static void unloadjob(launch_data_t job)
 	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_REMOVEJOB);
 	resp = launch_msg(msg);
 	launch_data_free(msg);
+	if (!resp) {
+		fprintf(stderr, "%s: Error: launch_msg(): %s\n", getprogname(), strerror(errno));
+		return;
+	}
 	if (LAUNCH_DATA_ERRNO == launch_data_get_type(resp)) {
 		if ((e = launch_data_get_errno(resp)))
 			fprintf(stderr, "%s\n", strerror(e));
