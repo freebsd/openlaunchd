@@ -239,9 +239,15 @@ static void reload_jobs(void)
 
 static void job_add(launch_data_t ajob)
 {
-	struct jobcb *j = calloc(1, sizeof(struct jobcb));
-	launch_data_t tclc;
+	launch_data_t od = launch_data_dict_lookup(ajob, LAUNCH_JOBKEY_ONDEMAND);
+	launch_data_t tclc = launch_data_dict_lookup(ajob, LAUNCH_JOBKEY_TCL);
+	struct jobcb *j;
 	const char *l;
+
+	if (tclc == NULL || (od && !launch_data_get_bool(od)))
+		return;
+
+	j = calloc(1, sizeof(struct jobcb));
 
 	j->ldj = launch_data_copy(ajob);
 

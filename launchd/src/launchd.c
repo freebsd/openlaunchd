@@ -684,9 +684,10 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
 				if (!strcmp(launch_data_get_string(tmp), HELPERD))
 					helperd = NULL;
+				if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+					notify_helperd();
 				job_remove(j);
 				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
-				notify_helperd();
 				goto out;
 			}
 		}
@@ -870,17 +871,18 @@ static launch_data_t load_job(launch_data_t pload)
 
 	TAILQ_INSERT_TAIL(&jobs, j, tqe);
 
-	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 		job_watch_fds(j->ldj, &j->kqjob_callback);
-	else
+		notify_helperd();
+	} else {
 		job_start(j);
+	}
 
 	if (!strcmp(launch_data_get_string(label), HELPERD))
 		helperd = j;
 
 	resp = launch_data_alloc(LAUNCH_DATA_STRING);
 	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
-	notify_helperd();
 out:
 	return resp;
 }
