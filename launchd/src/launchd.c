@@ -35,6 +35,9 @@
 
 #include "bootstrap_internal.h"
 
+#define LAUNCHD_MIN_JOB_RUN_TIME 5
+#define LAUNCHD_FAILED_EXITS_THRESHOLD 10
+
 extern char **environ;
 
 struct jobcb {
@@ -45,6 +48,9 @@ struct jobcb {
 	bool suspended;
 	pid_t p;
 	int wstatus;
+	struct timeval start_time;
+	struct timeval exit_time;
+	size_t failed_exits;
 };
 
 struct usercb {
@@ -284,6 +290,7 @@ static bool launchd_check_pid(pid_t p, int status)
 		TAILQ_FOREACH(j, &u->ujobs, tqe) {
 			if (j->p == p) {
 				EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, j);
+				j->p = 0;
 				j->wstatus = status;
 				j->kqjob_callback(j, &kev);
 				return true;
@@ -954,17 +961,29 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 
 static void job_reap(struct jobcb *j)
 {
-	if (j->wstatus == 0)
+	bool bad_exit = false;
+
+	gettimeofday(&j->exit_time, NULL);
+
+	if (j->p)
 		waitpid(j->p, &j->wstatus, 0);
 
-	if (WIFEXITED(j->wstatus)) {
-		if (WEXITSTATUS(j->wstatus) > 0)
-			syslog(LOG_WARNING, "%s[%d] exited with exit code %d",
-					job_get_argv0(j->ldj), j->p, WEXITSTATUS(j->wstatus));
-	} else if (WIFSIGNALED(j->wstatus)) {
+	if (WIFEXITED(j->wstatus) && WEXITSTATUS(j->wstatus) > 0) {
+		syslog(LOG_WARNING, "%s[%d] exited with exit code %d",
+				job_get_argv0(j->ldj), j->p, WEXITSTATUS(j->wstatus));
+		bad_exit = true;
+	}
+
+	if (WIFSIGNALED(j->wstatus) && (WTERMSIG(j->wstatus) != SIGKILL || WTERMSIG(j->wstatus) != SIGTERM)) {
 		syslog(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
 					job_get_argv0(j->ldj), j->p, WTERMSIG(j->wstatus));
+		bad_exit = true;
 	}
+
+	if (bad_exit)
+		j->failed_exits++;
+	else
+		j->failed_exits = 0;
 
 	j->p = 0;
 	j->wstatus = 0;
@@ -984,6 +1003,12 @@ static void job_callback(void *obj, struct kevent *kev)
 		}
 
 		job_reap(j);
+
+		if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
+			syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
+			job_remove(j);
+			return;
+		}
 
 		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			job_watch_fds(j->ldj, &j->kqjob_callback);
@@ -1005,11 +1030,14 @@ static void job_launch(struct jobcb *j)
 	if (sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
+	gettimeofday(&j->start_time, NULL);
+
         if ((c = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
                 syslog(LOG_WARNING, "fork(): %m");
                 return;
         } else if (c == 0) {
 		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+		struct timeval tvd;
 		size_t i, argv_cnt;
 		const char *a0;
 
@@ -1058,6 +1086,11 @@ static void job_launch(struct jobcb *j)
 			a0 = "/usr/libexec/launchproxy";
 		else
 			a0 = job_get_argv0(j->ldj);
+		timersub(&j->start_time, &j->exit_time, &tvd);
+		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
+			syslog(LOG_NOTICE, "%s respawning to quickly! Sleeping %d seconds", job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+			sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+		}
                 if (execvp(a0, (char *const*)argv) == -1)
 			syslog(LOG_ERR, "child execvp(): %m");
                 exit(EXIT_FAILURE);
