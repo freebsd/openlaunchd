@@ -1324,7 +1324,7 @@ static void job_callback(void *obj, struct kevent *kev)
 			syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
 			job_remove(j);
 			goto out;
-		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
+		} else if (shutdown_in_progress || job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			job_watch(j);
 			goto out;
 		}
@@ -1631,11 +1631,8 @@ static void do_shutdown(void)
 
 	shutdown_in_progress = true;
 
-	TAILQ_FOREACH(j, &jobs, tqe) {
-	        launch_data_t od = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
-		launch_data_set_bool(od, false);
+	TAILQ_FOREACH(j, &jobs, tqe)
 		job_stop(j);
-	}
 
 	if (getpid() == 1) {
 		catatonia();
