@@ -109,8 +109,43 @@ main(int argc, char *argv[])
 	if (argc == 2) {
 		aService = argv[1];
 	} else if (!gDebugFlag && anAction != kActionStop) {
+		pid_t ipwa;
+		int status;
+
 		setpriority(PRIO_PROCESS, 0, 20);
 		daemon(0, 0);
+
+		/* Too many old StartupItems had implicit dependancies on
+		 * "Network" via other StartupItems that are now no-ops.
+		 *
+		 * SystemStarter is not on the critical path for boot up,
+		 * so we'll stall here to deal with this legacy dependancy
+		 * problem.
+		 */
+		switch ((ipwa = fork())) {
+		case -1:
+			syslog(LOG_WARNING, "fork(): %m");
+			break;
+		case 0:
+			execl("/usr/sbin/ipconfig", "ipconfig", "waitall", NULL);
+			syslog(LOG_WARNING, "execl(): %m");
+			exit(EXIT_FAILURE);
+		default:
+			if (waitpid(ipwa, &status, 0) == -1) {
+				syslog(LOG_WARNING, "waitpid(): %m");
+				break;
+			} else if (WIFEXITED(status)) {
+				if (WEXITSTATUS(status) == 0) {
+					break;
+				} else {
+					syslog(LOG_WARNING, "ipconfig waitall exit status: %d", WEXITSTATUS(status));
+				}
+			} else {
+				/* must have died due to signal */
+				syslog(LOG_WARNING, "ipconfig waitall: %s", strsignal(WTERMSIG(status)));
+			}
+			break;
+		}
 	}
 
 	exit(system_starter(anAction, aService));

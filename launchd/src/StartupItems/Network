@@ -10,8 +10,6 @@ StartService ()
 {
 	echo "Initializing network"
 
-	ipconfig waitall > /dev/null 2>&1
-
 	if [ "${IPV6:=-YES-}" = "-NO-" ]
 	then
 		sysctl -w net.inet6.ip6.auto_on=0 > /dev/null
