@@ -41,7 +41,6 @@
 #define LAUNCH_JOBKEY_INETDCOMPATIBILITY	"inetdCompatibility"
 #define LAUNCH_JOBKEY_PROGRAMARGUMENTS		"ProgramArguments"
 #define LAUNCH_JOBKEY_PROGRAM			"Program"
-#define LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES	"UserEnvironmentVariables"
 #define LAUNCH_JOBKEY_ONDEMAND			"OnDemand"
 #define LAUNCH_JOBKEY_RUNATLOAD			"RunAtLoad"
 #define LAUNCH_JOBKEY_ROOTDIRECTORY		"RootDirectory"
