@@ -39,6 +39,8 @@ struct jobcb {
         TAILQ_HEAD(watchpathcbhead, watchpathcb) wph;
 };
 
+static void wpremove(struct watchpathcbhead *wph, struct watchpathcb *wp);
+
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 
 static void myCFSocketCallBack(void);
@@ -212,14 +214,8 @@ static void job_cancel_all_callbacks(struct jobcb *j)
 {
 	struct watchpathcb *wp;
 
-	while ((wp = TAILQ_FIRST(&j->wph))) {
-		TAILQ_REMOVE(&j->wph, wp, tqe);
-		free(wp->path);
-		close(wp->fd);
-		if (wp->_event)
-			free(wp->_event);
-		free(wp);
-	}
+	while ((wp = TAILQ_FIRST(&j->wph)))
+		wpremove(&j->wph, wp);
 
 	if (j->rlt) {
 		CFRunLoopTimerInvalidate(j->rlt);
@@ -517,6 +513,16 @@ static int _cancel_all_callbacks(ClientData clientData, Tcl_Interp *interp, int 
 	return TCL_OK;
 }
 
+static void wpremove(struct watchpathcbhead *wph, struct watchpathcb *wp)
+{
+	TAILQ_REMOVE(wph, wp, tqe);
+	close(wp->fd);
+	free(wp->path);
+	if (wp->_event)
+		free(wp->_event);
+	free(wp);
+}
+
 static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[])
 {
 	struct jobcb *j = (struct jobcb *)clientData;
@@ -536,31 +542,14 @@ static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONS
 	optind = 1;
 	while ((ch = getopt(argc, (char *const *)argv, "dwealrRC")) != -1) {
 		switch (ch) {
-		case 'd':
-			fflags |= NOTE_DELETE;
-			break;
-		case 'w':
-			fflags |= NOTE_WRITE;
-			break;
-		case 'e':
-			fflags |= NOTE_EXTEND;
-			break;
-		case 'a':
-			fflags |= NOTE_ATTRIB;
-			break;
-		case 'l':
-			fflags |= NOTE_LINK;
-			break;
-		case 'r':
-			fflags |= NOTE_RENAME;
-			break;
-		case 'R':
-			fflags |= NOTE_REVOKE;
-			break;
-		case 'C':
-			cancelwatch = true;
-			break;
-		case '?':
+		case 'd': fflags |= NOTE_DELETE; break;
+		case 'w': fflags |= NOTE_WRITE;  break;
+		case 'e': fflags |= NOTE_EXTEND; break;
+		case 'a': fflags |= NOTE_ATTRIB; break;
+		case 'l': fflags |= NOTE_LINK;   break;
+		case 'r': fflags |= NOTE_RENAME; break;
+		case 'R': fflags |= NOTE_REVOKE; break;
+		case 'C': cancelwatch = true;    break;
 		default:
 			syslog(LOG_WARNING, "%s(): unknown flag", __PRETTY_FUNCTION__);
 			break;
@@ -575,37 +564,31 @@ static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONS
 	}
 
 	if (wp && cancelwatch) {
-		TAILQ_REMOVE(&j->wph, wp, tqe);
-		close(wp->fd);
-		free(wp->path);
-		free(wp);
-
+		wpremove(&j->wph, wp);
 		Tcl_SetIntObj(tcl_result, 0);
 		return TCL_OK;
 	} else if (wp == NULL) {
 		wp = calloc(1, sizeof(struct watchpathcb));
+
+		if ((wp->fd = open(wp->path, O_EVTONLY)) == -1) {
+			syslog(LOG_ERR, "open(\"%s\"): %m", wp->path);
+			free(wp);
+			Tcl_SetStringObj(tcl_result, "Couldn't open dir", -1);
+			return TCL_ERROR;
+		}
+
 		wp->path = strdup(argv[0]);
 
 		if (argc == 2)
 			wp->_event = strdup(argv[1]);
 
-		if ((wp->fd = open(wp->path, O_EVTONLY)) == -1) {
-			syslog(LOG_ERR, "open(\"%s\"): %m", wp->path);
-			free(wp->path);
-			free(wp);
-			Tcl_SetStringObj(tcl_result, "Couldn't open dir", -1);
-			return TCL_ERROR;
-		}
 		TAILQ_INSERT_TAIL(&j->wph, wp, tqe);
 	}
 
 	EV_SET(&kev, wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j);
 	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
 		syslog(LOG_ERR, "kevent(\"%s\"): %m", wp->path);
-		TAILQ_REMOVE(&j->wph, wp, tqe);
-		close(wp->fd);
-		free(wp->path);
-		free(wp);
+		wpremove(&j->wph, wp);
 		Tcl_SetStringObj(tcl_result, "kevent()", -1);
 		return TCL_ERROR;
 	}
