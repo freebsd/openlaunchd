@@ -39,9 +39,9 @@ fi
 echo "Mounting local filesystems"
 mount -uw /
 mount_fdesc -o union fdesc /dev
-mkdir -p -m 0555 /.vol
+[ ! -d /.vol ] && mkdir -p -m 0555 /.vol
 mount_volfs /.vol
-mount -vat nonfs
+[ -f /etc/fstab ] && mount -vat nonfs
 
 BootCacheControl=/System/Library/Extensions/BootCache.kext/Contents/Resources/BootCacheControl
 if [ ! -f $BootCacheControl ]; then

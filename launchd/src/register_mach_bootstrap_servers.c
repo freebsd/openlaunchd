@@ -19,7 +19,6 @@ int main(int argc, char *argv[])
 	DIR *d;
 	struct dirent *de;
 	struct stat sb;
-	uid_t u = geteuid();
 
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s: <configdir|configfile>\n", getprogname());
@@ -27,12 +26,9 @@ int main(int argc, char *argv[])
 	}
 
 	if (getenv("SECURITYSESSIONID")) {
-		/* 3875726 loginwindow, fix up uid/euid */
-		seteuid(0);
-		setuid(u);
 		if (fork() == 0) {
 			const char *h = getenv("HOME");
-			struct passwd *pwe = getpwuid(u);
+			struct passwd *pwe = getpwuid(getuid());
 			char *buf;
 			asprintf(&buf, "%s/%s", h ? h : pwe->pw_dir, "Library/LaunchAgents");
 			execlp("launchctl", "launchctl", "-l", "/System/Library/LaunchAgents", "-l", buf, NULL);
