@@ -607,7 +607,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 			if (!strcasecmp("TCP", launch_data_get_string(val)))
 				hints.ai_protocol = IPPROTO_TCP;
 		}
-		if ((rnames = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_RENDEZVOUS))) {
+		if ((rnames = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_BONJOUR))) {
 			rendezvous = true;
 			if (LAUNCH_DATA_BOOL == launch_data_get_type(rnames)) {
 				rendezvous = launch_data_get_bool(rnames);
@@ -665,7 +665,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 			}
 			val = create_launch_data_addrinfo_fd(res, sfd);
 			if (rvs_fd) {
-				launch_data_dict_insert(val, rvs_fd, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD);
+				launch_data_dict_insert(val, rvs_fd, LAUNCH_JOBSOCKETKEY_BONJOURFD);
 				/* <rdar://problem/3964648> Launchd should not register the same service more than once */
 				/* <rdar://problem/3965154> Switch to DNSServiceRegisterAddrInfo() */
 				rendezvous = false;

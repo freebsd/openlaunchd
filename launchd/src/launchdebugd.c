@@ -23,7 +23,7 @@ static void find_fds(launch_data_t o, const char *key, void *context __attribute
 	struct kevent kev;
 	size_t i;
 
-	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD)) {
+	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_BONJOURFD)) {
 		close(launch_data_get_fd(o));
 		return;
 	}

@@ -30,7 +30,7 @@ static void find_fds(launch_data_t o, const char *key, void *context __attribute
         size_t i;
 	int fd;
 
-	if (subtree_is_rendezvous == false && key && !strcmp(key, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD)) {
+	if (subtree_is_rendezvous == false && key && !strcmp(key, LAUNCH_JOBSOCKETKEY_BONJOURFD)) {
 		subtree_is_rendezvous = true;
 		find_fds(o, key, NULL);
 		subtree_is_rendezvous = false;
