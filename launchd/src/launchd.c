@@ -63,6 +63,8 @@ struct jobcb {
 	pid_t p;
 	struct timeval start_time;
 	size_t failed_exits;
+	int *vnodes;
+	size_t vnodes_cnt;
 	int *qdirs;
 	size_t qdirs_cnt;
 	unsigned int checkedin:1, firstborn:1, debug:1, futureflags:29;
@@ -692,6 +694,9 @@ static void job_ignore(struct jobcb *j)
 
 	job_ignore_fds(j->ldj, NULL, NULL);
 
+	for (i = 0; i < j->vnodes_cnt; i++) {
+		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_DELETE, 0, 0, NULL);
+	}
 	for (i = 0; i < j->qdirs_cnt; i++) {
 		kevent_mod(j->qdirs[i], EVFILT_VNODE, EV_DELETE, 0, 0, NULL);
 	}
@@ -725,19 +730,30 @@ static void job_watch_fds(launch_data_t o, const char *key __attribute__((unused
 static void job_watch(struct jobcb *j)
 {
 	launch_data_t ld_qdirs = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES);
+	launch_data_t ld_vnodes = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS);
 	size_t i;
 
 	job_watch_fds(j->ldj, NULL, &j->kqjob_callback);
+
+	for (i = 0; i < j->vnodes_cnt; i++) {
+		if (-1 == j->vnodes[i]) {
+			launch_data_t ld_idx = launch_data_array_get_index(ld_vnodes, i);
+			const char *thepath = launch_data_get_string(ld_idx);
+
+			if (-1 == (j->vnodes[i] = open(thepath, O_EVTONLY)))
+				syslog(LOG_ERR, "%s: open(\"%s\", O_EVTONLY) %m", job_get_argv0(j->ldj), thepath);
+		}
+		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_ADD|EV_CLEAR,
+				NOTE_WRITE|NOTE_EXTEND|NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_ATTRIB|NOTE_LINK,
+				0, &j->kqjob_callback);
+	}
 
 	for (i = 0; i < j->qdirs_cnt; i++) {
 		kevent_mod(j->qdirs[i], EVFILT_VNODE, EV_ADD|EV_CLEAR,
 				NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK, 0, &j->kqjob_callback);
 	}
 
-	if (!ld_qdirs)
-		return;
-
-	for (i = 0; i < launch_data_array_get_count(ld_qdirs); i++) {
+	for (i = 0; i < j->qdirs_cnt; i++) {
 		launch_data_t ld_idx = launch_data_array_get_index(ld_qdirs, i);
 		const char *thepath = launch_data_get_string(ld_idx);
 		int dcc_r;
@@ -773,6 +789,11 @@ static void job_remove(struct jobcb *j)
 	}
 	launch_data_close_fds(j->ldj);
 	launch_data_free(j->ldj);
+	for (i = 0; i < j->vnodes_cnt; i++)
+		if (-1 != j->vnodes[i])
+			close(j->vnodes[i]);
+	if (j->vnodes)
+		free(j->vnodes);
 	for (i = 0; i < j->qdirs_cnt; i++)
 		if (-1 != j->qdirs[i])
 			close(j->qdirs[i]);
@@ -992,6 +1013,7 @@ static launch_data_t load_job(launch_data_t pload)
 {
 	launch_data_t label, tmp, resp;
 	struct jobcb *j;
+	bool startnow;
 
 	if ((label = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
@@ -1025,6 +1047,11 @@ static launch_data_t load_job(launch_data_t pload)
 
 	j->debug = job_get_bool(j->ldj, LAUNCH_JOBKEY_DEBUG);
 
+	startnow = !job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
+
+	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_RUNATLOAD))
+		startnow = true;
+
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
 		size_t i;
 
@@ -1040,12 +1067,28 @@ static launch_data_t load_job(launch_data_t pload)
 
 	}
 	
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS))) {
+		size_t i;
+
+		j->vnodes_cnt = launch_data_array_get_count(tmp);
+		j->vnodes = malloc(sizeof(int) * j->vnodes_cnt);
+
+		for (i = 0; i < j->vnodes_cnt; i++) {
+			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
+
+			if (-1 == (j->vnodes[i] = open(thepath, O_EVTONLY)))
+				syslog(LOG_ERR, "open(\"%s\", O_EVTONLY) %m", thepath);
+		}
+
+	}
+	
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 		job_watch(j);
 		notify_helperd();
-	} else {
-		job_start(j);
 	}
+
+	if (startnow)
+		job_start(j);
 
 	if (!strcmp(launch_data_get_string(label), HELPERD))
 		helperd = j;
@@ -1286,26 +1329,43 @@ static void job_callback(void *obj, struct kevent *kev)
 			goto out;
 		}
 	} else if (kev->filter == EVFILT_VNODE) {
-		const char *thepath;
-		int dcc_r;
 		size_t i;
+		const char *thepath = NULL;
+
+		for (i = 0; i < j->vnodes_cnt; i++) {
+			if (j->vnodes[i] == (int)kev->ident) {
+				launch_data_t ld_vnodes = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS);
+
+				thepath = launch_data_get_string(launch_data_array_get_index(ld_vnodes, i));
+
+				syslog(LOG_DEBUG, "%s: watch path modified: %s", job_get_argv0(j->ldj), thepath);
+
+				if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
+					syslog(LOG_DEBUG, "%s: watch path invalidated: %s", job_get_argv0(j->ldj), thepath);
+					close(j->vnodes[i]);
+					j->vnodes[i] = -1; /* this will get fixed in job_watch() */
+				}
+			}
+		}
 
 		for (i = 0; i < j->qdirs_cnt; i++) {
-			if (j->qdirs[i] == (int)kev->ident)
-				break;
+			if (j->qdirs[i] == (int)kev->ident) {
+				launch_data_t ld_qdirs = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES);
+				int dcc_r;
+
+				thepath = launch_data_get_string(launch_data_array_get_index(ld_qdirs, i));
+
+				syslog(LOG_DEBUG, "%s: queue directory modified: %s", job_get_argv0(j->ldj), thepath);
+
+				if (-1 == (dcc_r = dir_has_files(thepath))) {
+					syslog(LOG_ERR, "%s: dir_has_files(\"%s\", ...): %m", job_get_argv0(j->ldj), thepath);
+				} else if (0 == dcc_r) {
+					syslog(LOG_DEBUG, "%s: spurious wake up, directory empty: %s", job_get_argv0(j->ldj), thepath);
+					goto out;
+				}
+			}
 		}
-
-		thepath = launch_data_get_string(launch_data_array_get_index(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES), i));
-
-		syslog(LOG_DEBUG, "%s: queue directory modified: %s", job_get_argv0(j->ldj), thepath);
-
-		if (-1 == (dcc_r = dir_has_files(thepath))) {
-			syslog(LOG_ERR, "%s: dir_has_files(\"%s\", ...): %m", job_get_argv0(j->ldj), thepath);
-			goto out;
-		} else if (0 == dcc_r) {
-			syslog(LOG_DEBUG, "%s: spurious wake up, directory empty: %s", job_get_argv0(j->ldj), thepath);
-			goto out;
-		}
+		/* if we get here, then the vnodes either wasn't a qdir, or if it was, it has entries in it */
 	} else if (kev->filter == EVFILT_READ && kev->flags & EV_EOF && kev->data == 0) {
 		/* Busted FD with no data/listeners pending. Revoke the fd and start the job. */
 		syslog(LOG_NOTICE, "%s: revoking busted FD %d", job_get_argv0(j->ldj), kev->ident);

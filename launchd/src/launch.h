@@ -43,6 +43,7 @@
 #define LAUNCH_JOBKEY_PROGRAM			"Program"
 #define LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES	"UserEnvironmentVariables"
 #define LAUNCH_JOBKEY_ONDEMAND			"OnDemand"
+#define LAUNCH_JOBKEY_RUNATLOAD			"RunAtLoad"
 #define LAUNCH_JOBKEY_ROOTDIRECTORY		"RootDirectory"
 #define LAUNCH_JOBKEY_WORKINGDIRECTORY		"WorkingDirectory"
 #define LAUNCH_JOBKEY_SERVICEDESCRIPTION	"ServiceDescription"
@@ -60,6 +61,7 @@
 #define LAUNCH_JOBKEY_STANDARDERRORPATH		"StandardErrorPath"
 #define LAUNCH_JOBKEY_DEBUG			"Debug"
 #define LAUNCH_JOBKEY_QUEUEDIRECTORIES		"QueueDirectories"
+#define LAUNCH_JOBKEY_WATCHPATHS		"WatchPaths"
 
 #define LAUNCH_JOBINETDCOMPATIBILITY_WAIT	"Wait"
 

@@ -107,6 +107,8 @@ This optional key maps to the first argument of
 If this key is missing, then the first element of the array of strings provided to the ProgramArguments will be used instead.
 .It Sy OnDemand <boolean>
 This optional key is used to control whether your job is launched based on demand or to be kept continuously running. The default is true.
+.It Sy RunAtLoad <boolean>
+This optional key is used to control whether your job is launched once at the time the job is loaded. The default is false.
 .It Sy RootDirectory <string>
 This optional key is used to specific a directory to
 .Xr chroot 2
@@ -144,6 +146,8 @@ code that will be executed at the time that the job is loaded. Additional docume
 man page.
 .It Sy QueueDirectories <array of strings>
 This optional key causes the job to be started if any one of the listed directories are not empty.
+.It Sy WatchPaths <array of strings>
+This optional key causes the job to be started if any one of the listed paths are modified.
 .It Sy StandardOutPath <string>
 This optional key specifies what file should be used for data being sent to stdout when using
 .Xr stdio 3 .
