@@ -9,6 +9,8 @@
 #include <sys/wait.h>
 #include <sys/sysctl.h>
 #include <sys/sockio.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -216,6 +218,8 @@ int main(int argc, char *argv[])
 
 	if (chdir("/") == -1)
 		syslog(LOG_ERR, "chdir(\"/\"): %m");
+
+	setpriority(PRIO_PROCESS, 0, -1);
 
 	launchd_bootstrap_port = mach_init_init();
 	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
@@ -1016,6 +1020,7 @@ static void job_launch(struct jobcb *j)
 		if (sipc)
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
                 setsid();
+		setpriority(PRIO_PROCESS, 0, 0);
                 if (execvp(job_get_argv0(j->ldj), (char *const*)argv) == -1)
 			syslog(LOG_ERR, "child execvp(): %m");
                 exit(EXIT_FAILURE);
@@ -1065,12 +1070,30 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 }
 
 static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
-{       
+{
+	pid_t p;
+	char *argv[] = { "launchctl", "-l", "/System/Library/LaunchDaemons", NULL };
+
 	if (thesocket == -1) {
 		if ((thesocket = _fd(launchd_server_init(thesockpath))) > 0) {
 			if (kevent_mod(thesocket, EVFILT_READ, EV_ADD, 0, 0, &kqlisten_callback) == -1)
 				syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
 			setenv(LAUNCHD_SOCKET_ENV, thesockpath, 1);
+			p = fork();
+			switch (p) {
+			case -1:
+				syslog(LOG_ALERT, "fork(): %m");
+				break;
+			case 0:
+				execvp(argv[0], argv);
+				syslog(LOG_ERR, "execvp(): %m");
+				exit(EXIT_FAILURE);
+				break;
+			default:
+        			if (kevent_mod(p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1)
+					waitpid(p, NULL, 0);
+				break;
+			}
 		}
 	}
 }

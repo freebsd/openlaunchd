@@ -62,6 +62,8 @@
 #include <sys/param.h>
 #include <sys/sysctl.h>
 #include <sys/wait.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -349,6 +351,7 @@ single_user(void)
 
 		argv[0] = "-sh";
 		argv[1] = 0;
+		setpriority(PRIO_PROCESS, 0, 0);
 		execv(_PATH_BSHELL, argv);
 		syslog(LOG_ERR, "can't exec %s for single user: %m", _PATH_BSHELL);
 		sleep(STALL_TIMEOUT);
@@ -457,6 +460,7 @@ runcom(void)
 		argv[2] = options;
 	}
 
+	setpriority(PRIO_PROCESS, 0, 0);
 	execv(_PATH_BSHELL, argv);
 	stall("can't exec %s for %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
 	exit(EXIT_FAILURE);
@@ -688,6 +692,7 @@ session_launch(session_t s)
 	sigemptyset(&mask);
 	sigprocmask(SIG_SETMASK, &mask, NULL);
 
+	setpriority(PRIO_PROCESS, 0, 0);
 	execv(se_cmd->argv[0], se_cmd->argv);
 	stall("can't exec %s '%s' for port %s: %m", session_type,
 		se_cmd->argv[0], s->se_device);
