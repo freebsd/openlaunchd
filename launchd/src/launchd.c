@@ -318,7 +318,7 @@ static void launchd_server_init(void)
 			return;
 		if (errno != EEXIST) {
 			syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
-			;exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -333,14 +333,14 @@ static void launchd_server_init(void)
 				return;
 		} else {
 			syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
-			;exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 	}
 
 	ourdirfd = _fd(open(ourdir, O_RDONLY));
 	if (ourdirfd == -1) {
 		syslog(LOG_ERR, "open(\"%s\"): %m", ourdir);
-		;exit(EXIT_FAILURE);
+		exit(EXIT_FAILURE);
 	}
 
 	if (flock(ourdirfd, LOCK_EX|LOCK_NB) == -1) {
@@ -348,7 +348,7 @@ static void launchd_server_init(void)
 			exit(EXIT_SUCCESS);
 		} else {
 			syslog(LOG_ERR, "flock(\"%s\"): %m", ourdir);
-			;exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 	}
 
