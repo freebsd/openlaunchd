@@ -8,28 +8,16 @@
 
 StartService ()
 {
-    ##
-    # Load network kernel modules
-    # This is a workaround for the fact that kextd does not presently know
-    # when to load BSD modules.
-    # Do this regardless of the startup state of networking; we're pretty
-    # sure a network will show up eventually.
-    ##
-    if [ -d /System/Library/Extensions/SharedIP.kext -a `uname -p` = "powerpc" ]; then
-	echo "Loading Shared IP extension"
-	kextload -v /System/Library/Extensions/SharedIP.kext
-    fi
-
 	fwHelper=/System/Library/PrivateFrameworks/NetworkConfig.framework/Resources/firewalltool
 	fwConfig=/Library/Preferences/com.apple.sharing.firewall.plist
 
 	if [ -x "${fwHelper}" -a -f "${fwConfig}" ]; then
-	    ${fwHelper}
+		${fwHelper}
 	fi
 
-    if [ "${VPNSERVER:=-NO-}" = "-YES-" ]; then
-	    vpnd
-    fi
+	if [ "${VPNSERVER:=-NO-}" = "-YES-" ]; then
+		vpnd
+	fi
 }
 
 StopService ()
