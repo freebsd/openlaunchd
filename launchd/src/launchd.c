@@ -1582,7 +1582,7 @@ static void workaround3048875(int argc, char *argv[])
 
 static void notify_helperd(void)
 {
-	if (helperd && helperd->p)
+	if (helperd && helperd->p && helperd->checkedin)
 		kill(helperd->p, SIGHUP);
 }
 
