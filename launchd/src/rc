@@ -296,10 +296,10 @@ if [ -f /etc/rc.local ]; then
 	sh /etc/rc.local
 fi
 
+touch /var/run/.systemStarterRunning
+
 if [ "${VerboseFlag}" != "-v" ] ; then
 	/usr/libexec/WaitingForLoginWindow
-else
-	touch /var/run/.systemStarterRunning
 fi
 
 exit 0
