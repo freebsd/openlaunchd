@@ -85,12 +85,12 @@ static void ipc_callback(void *, struct kevent *);
 static void ipc_readmsg(launch_data_t msg, void *context);
 
 static bool launchd_check_pid(pid_t p, int status);
-static int launchd_server_init(const char *);
+static int launchd_server_init(char *);
 
-static void usage(FILE *where, const char *argv0) __attribute__((noreturn));
+static void usage(FILE *where);
 static int _fd(int fd);
 
-static void dummysignalhandler(int sig __attribute__((unused)));
+static void dummysignalhandler(int sig);
 
 static int thesocket = -1;
 static char *thesockpath = NULL;
@@ -129,12 +129,12 @@ int main(int argc, char *argv[])
 			thesockpath = optarg;
 			break;
 		case 'h':
-			usage(stdout, argv[0]);
+			usage(stdout);
 			break;
 		case '?':
 		default:
 			syslog(LOG_WARNING, "ignoring unknown arguments");
-			usage(stderr, argv[0]);
+			usage(stderr);
 			break;
 		}
 	}
@@ -229,7 +229,7 @@ static bool launchd_check_pid(pid_t p, int status)
 }
 
 
-static int launchd_server_init(const char *thepath)
+static int launchd_server_init(char *thepath)
 {
         struct sockaddr_un sun;
         char *where = getenv(LAUNCHD_SOCKET_ENV);
@@ -674,9 +674,9 @@ static launch_data_t get_jobs(struct userjobs *uhead)
 	return resp;
 }
 
-static void usage(FILE *where, const char *argv0)
+static void usage(FILE *where)
 {
-	fprintf(where, "%s:\n", argv0);
+	fprintf(where, "%s:\n", getprogname());
 	fprintf(where, "\t-d\tdebug mode\n");
 	fprintf(where, "\t-S sock\talternate socket to use\n");
 	fprintf(where, "\t-h\tthis usage statement\n");
@@ -892,6 +892,6 @@ static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __
 	}
 }
 
-static void dummysignalhandler(int sig)
+static void dummysignalhandler(int sig __attribute__((unused)))
 {
 }
