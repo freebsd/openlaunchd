@@ -62,7 +62,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 	fprintf(c, "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n");
 		        
-	fprintf(c, "<html>\n<body>\n<pre>\n");
+	fprintf(c, "<html>\n<body>\n");
 
 	if (geteuid() == 0)
 		launch_data_set_string(msg, "GetAllJobs");
@@ -73,7 +73,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 	launch_print_obj(resp, c);
 
-	fprintf(c, "</pre>\n</body>\n</html>\n");
+	fprintf(c, "</body>\n</html>\n");
 
 	fclose(c);
 
@@ -82,52 +82,47 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 static void launch_print_obj(launch_data_t o, FILE *w)
 {
-        char prefix[20] = "";
-        size_t i;
-        int j;
-        static int depth = 0;
+	size_t i;
 	void launch_print_obj_dict_callback(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
-		fprintf(w, "%s{ %s }\n", prefix, key);
+		fprintf(w, "<li><i>%s</i></li>\n", key);
+		fprintf(w, "<ul>\n");
 		launch_print_obj(obj, w);
+		fprintf(w, "</ul>\n");
 	}
 
-        for (j = 0; j < depth; j++)
-                prefix[j] = '\t';
-        depth++;
 
         switch (launch_data_get_type(o)) {
         case LAUNCH_DATA_DICTIONARY:
+		fprintf(w, "<ul>\n");
 		launch_data_dict_iterate(o, launch_print_obj_dict_callback, NULL);
+		fprintf(w, "</ul>\n");
                 break;
         case LAUNCH_DATA_ARRAY:
-                for (i = 0; i < launch_data_array_get_count(o); i++) {
-                        fprintf(w, "%s[%zu]\n", prefix, i);
+		fprintf(w, "<ol>\n");
+                for (i = 0; i < launch_data_array_get_count(o); i++)
                         launch_print_obj(launch_data_array_get_index(o, i), w);
-                }
+		fprintf(w, "</ol>\n");
                 break;
         case LAUNCH_DATA_INTEGER:
-                fprintf(w, "%sNumber: %lld\n", prefix, launch_data_get_integer(o));
+                fprintf(w, "<li>Number: %lld</li>\n", launch_data_get_integer(o));
                 break;
         case LAUNCH_DATA_REAL:
-                fprintf(w, "%sFloat: %f\n", prefix, launch_data_get_real(o));
+                fprintf(w, "<li>Float: %f</li>\n", launch_data_get_real(o));
                 break;
         case LAUNCH_DATA_STRING:
-                fprintf(w, "%sString: %s\n", prefix, launch_data_get_string(o));
+                fprintf(w, "<li>String: %s</li>\n", launch_data_get_string(o));
                 break;
         case LAUNCH_DATA_OPAQUE:
-                fprintf(w, "%sOpaque: %p size %zu\n", prefix, launch_data_get_opaque(o), launch_data_get_opaque_size(o));
+                fprintf(w, "<li>Opaque: %p size %zu</li>\n", launch_data_get_opaque(o), launch_data_get_opaque_size(o));
                 break;
         case LAUNCH_DATA_FD:
-                fprintf(w, "%sFD: %d\n", prefix, launch_data_get_fd(o));
+                fprintf(w, "<li>FD: %d</li>\n", launch_data_get_fd(o));
                 break;
         case LAUNCH_DATA_BOOL:
-                fprintf(w, "%sBool: %s\n", prefix, launch_data_get_bool(o) ? "true" : "false");
+                fprintf(w, "<li>Bool: %s</li>\n", launch_data_get_bool(o) ? "true" : "false");
                 break;
         default:
-                fprintf(w, "%stype %d is unknown\n", prefix, launch_data_get_type(o));
+                fprintf(w, "<li>type %d is unknown</li>\n", launch_data_get_type(o));
                 break;
         }
-
-        depth--;
-        prefix[depth] = '\0';
 }
