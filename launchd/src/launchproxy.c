@@ -143,8 +143,9 @@ int main(int argc __attribute__((unused)), char *argv[])
 			}
 			if ((tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SESSIONCREATE)) && launch_data_get_bool(tmp)) {
 				if (SessionCreate) {
-					if (SessionCreate(0, 0) != noErr)
-						syslog(LOG_NOTICE, "%s: SessionCreate() failed!", prog ? prog : argv[1]);
+					OSStatus scr = SessionCreate(0, 0);
+					if (scr != noErr)
+						syslog(LOG_NOTICE, "%s: SessionCreate() failed: %d", prog ? prog : argv[1], scr);
 				} else {
 					syslog(LOG_NOTICE, "%s: SessionCreate == NULL!", prog ? prog : argv[1]);
 				}
