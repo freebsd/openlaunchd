@@ -1,4 +1,4 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Werror
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Werror -fconstant-cfstrings
 
 sbin_SCRIPTS = service
 

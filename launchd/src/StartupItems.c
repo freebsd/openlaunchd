@@ -178,7 +178,7 @@ startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef a
 static void 
 SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 {
-	const CFStringRef stubitems[] = {
+	static const CFStringRef stubitems[] = {
 		CFSTR("Accounting"),
 		CFSTR("System Tuning"),
 		CFSTR("SecurityServer"),
@@ -908,7 +908,7 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 {
 	int             anError = -1;
 	CFArrayRef      aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
-	const CFStringRef stubitems[] = {
+	static const CFStringRef stubitems[] = {
 		CFSTR("BootROMUpdater"),		/* 3893064 */
 		CFSTR("FCUUpdater"),			/* 3893064 */
 		CFSTR("AutoProtect Daemon"),		/* 3965785 */
