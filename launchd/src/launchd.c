@@ -34,7 +34,7 @@
 
 #include "bootstrap_internal.h"
 
-#define LAUNCHD_MIN_JOB_RUN_TIME 5
+#define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 
 extern char **environ;
@@ -1062,12 +1062,19 @@ static void job_launch(struct jobcb *j)
 			a0 = "/usr/libexec/launchproxy";
 		else
 			a0 = job_get_argv0(j->ldj);
-		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && j->failed_exits > 0) {
+		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			timersub(&j->start_time, &last_start_time, &tvd);
 			if (tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
-				syslog(LOG_NOTICE, "%s respawning too quickly! Sleeping %d seconds",
-						job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
-				sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+				/* Only punish short daemon life if the last exit was "bad." */
+				if (j->failed_exits > 0) {
+					syslog(LOG_NOTICE, "%s respawning too quickly! Sleeping %d seconds",
+							job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+					sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+				}
+			} else {
+				/* If the daemon lived long enough, let's reward it.
+				 * This lets infrequent bugs not cause the daemon to removed */
+				j->failed_exits = 0;
 			}
 		}
                 if (execvp(a0, (char *const*)argv) == -1)
