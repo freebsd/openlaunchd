@@ -33,8 +33,6 @@
 #include "Log.h"
 #include "SystemStarter.h"
 
-#define LOGINWINDOW_HINT_FILE "/var/run/.systemStarterRunning"
-
 /* Command line options */
 int gDebugFlag     = 0;
 int gVerboseFlag   = 0;
@@ -137,12 +135,6 @@ int main (int argc, char *argv[])
         if (argc >= 2)
 	  aService = CFStringCreateWithCString(kCFAllocatorDefault, argv[1], kCFStringEncodingUTF8);
 
-	if ((fd = open(LOGINWINDOW_HINT_FILE, O_RDWR|O_CREAT, 0666)) >= 0) {
-		close(fd);
-	} else {
-		warning(CFSTR("couldn't create: %s\n"), LOGINWINDOW_HINT_FILE);
-	}
-					
 	if (aService == NULL)
 		daemon(0, 0);
 
