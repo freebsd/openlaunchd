@@ -1,45 +1,50 @@
 #ifndef _LIBINITNG_H_
 #define _LIBINITNG_H_
 
-#include <sys/socket.h>
 #include <stdarg.h>
 #include <stdbool.h>
 
-typedef enum {
-	INITNG_ERR_SUCCESS = 0,
-	INITNG_ERR_AGAIN,
-	INITNG_ERR_CONN_NOT_FOUND,
-	INITNG_ERR_SYSCALL,
-	INITNG_ERR_RECVMSG_CTRUNC,
-	INITNG_ERR_DIRECTORY_LOOKUP,
-	INITNG_ERR_BROKEN_CONN,
-} initng_err_t;
 
-const char *initng_strerror(initng_err_t error);
+/* Unless otherwise stated, all of the following APIs return 0 on success
+ * and -1 (and errno) on failure */
 
-initng_err_t initng_init(int *fd, const char *thepath);
-initng_err_t initng_close(int fd);
+/* returns FD to connection, -1 and errno on failure */
+int initng_open(void);
+int initng_close(int fd);
 
-/* simple synchronous API */
-initng_err_t initng_msg(int fd, char *command, ...);
-initng_err_t initng_msgv(int fd, char *command, va_list ap);
-initng_err_t initng_msga(int fd, char *command, char *data[]);
+typedef void (*initng_checkin_cb)(char *key, char *data[], void *cookie);
+int initng_checkin(int fd, initng_checkin_cb cb, void *cookie);
 
-initng_err_t initng_checkin(int fd, char ****config);
-void initng_freeconfig(char ***config);
+/* simple synchronous APIs */
+
+int initng_msg(int fd, char *command, ...);
+int initng_msgv(int fd, char *command, va_list ap);
+int initng_msga(int fd, char *command, char *data[]);
 
 #ifdef INITNG_PRIVATE_API
 
-typedef void (*initng_msg_cb)(int fd, char *command, char *data[], void *cookie);
+/* asynchronous APIs */
 
-initng_err_t initng_recvmsg(int fd, initng_msg_cb cb, void *cookie);
+typedef struct {
+	pid_t	ic_pid;
+	uid_t	ic_uid;
+	gid_t	ic_gid;
+} initng_cred_t;
 
-initng_err_t initng_sendmsg(int fd, char *command, ...);
-initng_err_t initng_sendmsgv(int fd, char *command, va_list ap);
-initng_err_t initng_sendmsga(int fd, char *command, char *data[]); 
+typedef void (*initng_msg_cb)(int fd, char *command, char *data[], void *cookie, initng_cred_t *cred);
+int initng_recvmsg(int fd, initng_msg_cb cb, void *cookie);
 
-initng_err_t initng_server_init(int *fd, const char *thepath);
-initng_err_t initng_server_accept(int *cfd, int lfd);
+int initng_sendmsg(int fd, char *command, ...);
+int initng_sendmsgv(int fd, char *command, va_list ap);
+int initng_sendmsga(int fd, char *command, char *data[]); 
+
+/* server support */
+
+/* returns FD to connection, -1 and errno on failure */
+int initng_server_init(const char *thepath);
+
+/* returns FD to new connection, -1 and errno on failure */
+int initng_server_accept(int lfd);
 
 void initng_set_sniffer(int fd, bool e);
 void initng_sendmsga2sniffers(char *command, char *data[]);
@@ -48,7 +53,7 @@ void initng_sendmsga2sniffers(char *command, char *data[]);
  * call it when the FD becomes writable with select()/kevent()
  * will return INITNG_ERR_SUCCESS once the queue is drained.
  */
-initng_err_t initng_flush(int fd);
+int initng_flush(int fd);
 
 #endif
 #endif
