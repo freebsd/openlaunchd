@@ -17,6 +17,7 @@
 static int kq = 0;
 static int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 static int _fd(int fd);
+static void hwd_cb(char *key, char *data[], void *cookie);
 
 int main(int argc, char *argv[])
 {
@@ -24,8 +25,6 @@ int main(int argc, char *argv[])
 	struct sockaddr_storage ss;
 	socklen_t slen = sizeof(ss);
 	struct kevent kev;
-	initng_err_t ingerr;
-	char ***config, ***tmpvv, **tmpv;
 	int ch, thefd, r, ec = EXIT_FAILURE;
 	FILE *c;
 	bool cf = false, lf = false, wf = false;
@@ -59,27 +58,16 @@ int main(int argc, char *argv[])
 	kq = kqueue();
 
 
-	ingerr = initng_init(&thefd, NULL);
-	if (ingerr != INITNG_ERR_SUCCESS) {
-		syslog(LOG_DEBUG, "initng_init(): %s", initng_strerror(ingerr));
+	if ((thefd = initng_open()) == -1) {
+		syslog(LOG_DEBUG, "initng_open(): %m");
 		goto out;
 	}
 
-	ingerr = initng_checkin(thefd, &config);
-	if (ingerr != INITNG_ERR_SUCCESS) {
-		syslog(LOG_DEBUG, "initng_checkin(): %s", initng_strerror(ingerr));
+	if (initng_checkin(thefd, hwd_cb, NULL) == -1) {
+		syslog(LOG_DEBUG, "initng_checkin(): %s", strerror(errno));
 		goto out;
 	}
 
-	for (tmpvv = config; *tmpvv; tmpvv++) {
-		tmpv = *tmpvv;
-		if (!strcmp(tmpv[0], "addFD")) {
-			int fd = strtol(tmpv[3], NULL, 10);
-			__kevent(_fd(fd), EVFILT_READ, EV_ADD, 0, 0, NULL);
-		}
-	}
-
-	initng_freeconfig(config);
 	initng_close(thefd);
 
 	for (;;) {
@@ -98,7 +86,7 @@ int main(int argc, char *argv[])
 			} else {
 				c = fdopen(r, "r+");
 				if (wf) {
-					fprintf(c, "hello worldd says howdy howdy!\n");
+					fprintf(c, "helloworldd says howdy howdy!\n");
 				} else {
 					char buf[4096];
 					fread(buf, sizeof(buf), 1, c);
@@ -123,6 +111,16 @@ int main(int argc, char *argv[])
 
 out:
 	exit(ec);
+}
+
+static void hwd_cb(char *key, char *data[], void *cookie __attribute__((unused)))
+{
+	if (!strcmp(key, "FD")) {
+		int sfd = strtol(data[1], NULL, 10);
+		__kevent(_fd(sfd), EVFILT_READ, EV_ADD, 0, 0, NULL);
+	} else {
+		syslog(LOG_DEBUG, "unknown key: %s", key);
+	}
 }
 
 static int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
