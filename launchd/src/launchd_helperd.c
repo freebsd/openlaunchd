@@ -194,7 +194,7 @@ static void runjob(CFMutableDictionaryRef j)
 
 	CFStringGetCString(cflabel, buf, sizeof(buf), kCFStringEncodingUTF8);
 	launch_data_set_string(label, buf);
-	launch_data_dict_insert(msg, label, LAUNCH_KEY_RUNJOB);
+	launch_data_dict_insert(msg, label, LAUNCH_KEY_STARTJOB);
 
 	resp = launch_msg(msg);
 	launch_data_free(msg);
@@ -202,11 +202,11 @@ static void runjob(CFMutableDictionaryRef j)
 	if (resp) {
 		if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
 			if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS))
-				syslog(LOG_ERR, "launch_msg(%s): %s", LAUNCH_KEY_RUNJOB, launch_data_get_string(resp));
+				syslog(LOG_ERR, "launch_msg(%s): %s", LAUNCH_KEY_STARTJOB, launch_data_get_string(resp));
 		}
 		launch_data_free(resp);
 	} else {
-		syslog(LOG_ERR, "launch_msg(%s): %m", LAUNCH_KEY_RUNJOB);
+		syslog(LOG_ERR, "launch_msg(%s): %m", LAUNCH_KEY_STARTJOB);
 	}
 }
 

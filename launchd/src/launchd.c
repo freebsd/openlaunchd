@@ -83,7 +83,8 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static void job_watch_fds(launch_data_t o, void *cookie);
 static void job_ignore_fds(launch_data_t o, void *cookie);
-static void job_launch(struct jobcb *j);
+static void job_start(struct jobcb *j);
+static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
@@ -598,6 +599,12 @@ static void job_watch_fds(launch_data_t o, void *cookie)
 	}
 }
 
+static void job_stop(struct jobcb *j)
+{
+	if (j->p)
+		kill(j->p, SIGTERM);
+}
+
 static void job_remove(struct jobcb *j)
 {
 	TAILQ_REMOVE(&jobs, j, tqe);
@@ -605,7 +612,7 @@ static void job_remove(struct jobcb *j)
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
 			job_reap(j);
 		} else {
-			kill(j->p, SIGTERM);
+			job_stop(j);
 		}
 	}
 	launch_data_close_fds(j->ldj);
@@ -621,11 +628,22 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	size_t i;
 
 	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_RUNJOB))) {
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_STARTJOB))) {
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
-				job_launch(j);
+				job_start(j);
+				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+				goto out;
+			}
+		}
+		launch_data_set_string(resp, LAUNCH_RESPONSE_JOBNOTFOUND);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_STOPJOB))) {
+		resp = launch_data_alloc(LAUNCH_DATA_STRING);
+		TAILQ_FOREACH(j, &jobs, tqe) {
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
+				job_stop(j);
 				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 				goto out;
 			}
@@ -725,7 +743,7 @@ static void batch_job_enable(bool e)
 	if (e) {
 		batch_enabled = true;
 		if (helperd)
-			job_launch(helperd);
+			job_start(helperd);
 	} else {
 		batch_enabled = false;
 		if (helperd)
@@ -786,7 +804,7 @@ static launch_data_t load_job(launch_data_t pload)
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 		job_watch_fds(j->ldj, &j->kqjob_callback);
 	else
-		job_launch(j);
+		job_start(j);
 
 	notify_helperd(LAUNCH_KEY_SUBMITJOB, j->ldj);
 	
@@ -1007,10 +1025,10 @@ static void job_callback(void *obj, struct kevent *kev)
 			return;
 	}
 
-	job_launch(j);
+	job_start(j);
 }
 
-static void job_launch(struct jobcb *j)
+static void job_start(struct jobcb *j)
 {
 	char nbuf[64];
 	pid_t c;
