@@ -43,6 +43,7 @@ bool gNoRunFlag = false;
 
 static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
+static void	doCFnote(void);
 
 int 
 main(int argc, char *argv[])
@@ -103,6 +104,8 @@ main(int argc, char *argv[])
 			usage();
 		}
 	}
+
+	atexit(doCFnote);
 
 	unlink(kFixerPath);
 
@@ -387,4 +390,13 @@ usage(void)
 		"\t-?: show this help\n",
 		getprogname());
 	exit(EXIT_FAILURE);
+}
+
+static void doCFnote(void)
+{
+	CFNotificationCenterPostNotificationWithOptions(
+			CFNotificationCenterGetDistributedCenter(),
+			CFSTR("com.apple.startupitems.completed"),
+			NULL, NULL,
+			kCFNotificationDeliverImmediately | kCFNotificationPostToAllSessions);
 }
