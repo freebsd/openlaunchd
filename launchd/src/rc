@@ -121,6 +121,7 @@ fi
 # Mount essential local filesystems (according to /etc/fstab).
 echo "Mounting local filesystems"
 
+mount -uw /
 mount_fdesc -o union fdesc /dev
 mkdir -p -m 0555 /.vol
 mount_volfs /.vol
@@ -387,7 +388,6 @@ fi
 # Make sure the swapfile exists
 if [ ! -d ${swapdir} ]; then
     echo "Creating default swap directory"
-    mount -uw /
     mkdir -p -m 755 ${swapdir}
     chown root:wheel ${swapdir}
 else
