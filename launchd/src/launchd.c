@@ -265,7 +265,7 @@ int main(int argc, char *argv[])
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			break;
 		case 0:
-			if (TAILQ_EMPTY(&jobs))
+			if (TAILQ_EMPTY(&jobs) && getpid() != 1)
 				exit(EXIT_SUCCESS);
 			else
 				syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");

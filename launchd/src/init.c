@@ -376,24 +376,19 @@ single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __att
 		break;
 	}
 
-	if (!WIFEXITED(single_user_status)) {
-		if (WTERMSIG(single_user_status) == SIGKILL) { 
-			/* 
-			 *  reboot(8) killed shell? 
-			 */
-			syslog(LOG_INFO, "single user shell terminated.");
-			sleep(STALL_TIMEOUT);
-			exit(EXIT_SUCCESS);
-		} else {	
-			syslog(LOG_INFO, "single user shell terminated, restarting");
-			return;
-		}
+	if (WIFEXITED(single_user_status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
+		syslog(LOG_INFO, "single user shell terminated, restarting");
+		run_runcom = true;
+		single_user_mode = false;
+	} else {
+		syslog(LOG_INFO, "single user shell terminated.");
+		run_runcom = false;
+		if (WTERMSIG(single_user_status) != SIGKILL)
+			single_user_mode = true;
 	}
 
 	single_user_pid = 0;
 	single_user_status = 0;
-	single_user_mode = false;
-	run_runcom = true;
 }
 
 static struct timeval runcom_start_tv = { 0, 0 };
