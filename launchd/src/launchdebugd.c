@@ -84,7 +84,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 	fprintf(c, "<html>\n<body>\n");
 
 	if (geteuid() == 0)
-		launch_data_set_string(msg, LAUNCH_KEY_GETAllJOBS);
+		launch_data_set_string(msg, LAUNCH_KEY_GETALLJOBS);
 	else
 		launch_data_set_string(msg, LAUNCH_KEY_GETJOBS);
 

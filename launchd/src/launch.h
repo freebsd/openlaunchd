@@ -9,7 +9,7 @@
 #define LAUNCH_KEY_SUBMITJOBS			"SubmitJobs"
 #define LAUNCH_KEY_REMOVEJOB			"RemoveJob"
 #define LAUNCH_KEY_GETJOBS			"GetJobs"
-#define LAUNCH_KEY_GETAllJOBS			"GetAllJobs"
+#define LAUNCH_KEY_GETALLJOBS			"GetAllJobs"
 #define LAUNCH_KEY_CHECKIN			"CheckIn"
 #define LAUNCH_KEY_GETUSERENVIRONMENT		"GetUserEnvironment"
 #define LAUNCH_KEY_SETUSERENVIRONMENT		"SetUserEnvironment"

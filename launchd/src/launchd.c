@@ -605,7 +605,7 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(find_jobq(c->u));
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETAllJOBS)) {
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETALLJOBS)) {
 		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		TAILQ_FOREACH(u, &users, tqe) {
 			sprintf(uidstr, "%d", u->u);
