@@ -44,6 +44,7 @@
 
 #define kStartupItemsPath "/StartupItems"
 #define kParametersFile   "StartupParameters.plist"
+#define kDisabledFile   ".disabled"
 #define kLocalizedDescriptionKey CFSTR("_LocalizedDescription")
 
 #define kRunSuccess CFSTR("success")
@@ -300,21 +301,27 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 			struct dirent  *aBundle;
 
 			while ((aBundle = readdir(aDirectory))) {
-				char           *aBundleName = aBundle->d_name;
-
-				char            aBundlePath[PATH_MAX];
-				char            aBundleExecutablePath[PATH_MAX];
-				char            aConfigFile[PATH_MAX];
+				struct stat aStatBuf;
+				char *aBundleName = aBundle->d_name;
+				char aBundlePath[PATH_MAX];
+				char aBundleExecutablePath[PATH_MAX];
+				char aConfigFile[PATH_MAX];
+				char aDisabledFile[PATH_MAX];
 
 				if (aBundleName[0] == '.')
 					continue;
 
 				syslog(LOG_DEBUG, "Found item: %s", aBundleName);
 
-				sprintf(aBundlePath, "%s/%s", aPath, aBundleName);
-				sprintf(aBundleExecutablePath, "%s/%s/%s", aPath, aBundleName, aBundleName);
-				sprintf(aConfigFile, "%s/" kParametersFile, aBundlePath);
+				sprintf(aBundlePath,           "%s/%s", aPath,       aBundleName);
+				sprintf(aBundleExecutablePath, "%s/%s", aBundlePath, aBundleName);
+				sprintf(aConfigFile,           "%s/%s", aBundlePath, kParametersFile);
+				sprintf(aDisabledFile,         "%s/%s", aBundlePath, kDisabledFile);
 
+				if (lstat(aDisabledFile, &aStatBuf) == 0) {
+					syslog(LOG_NOTICE, "Skipping disabled StartupItem: %s", aBundlePath);
+					continue;
+				}
 				if (!StartupItemSecurityCheck(aBundlePath))
 					continue;
 				if (!StartupItemSecurityCheck(aBundleExecutablePath))
