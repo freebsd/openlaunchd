@@ -205,9 +205,6 @@ int main(int argc, char *argv[])
 	reload_launchd_config();
 
 	for (;;) {
-		/* <rdar://problem/3946331> "mount -uw /" doesn't cause kqueue EVFILT_FS to fire */
-		fs_callback();
-
 		if (getpid() == 1 && readcfg_pid == 0)
 			init_pre_kevent();
 
