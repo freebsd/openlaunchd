@@ -118,7 +118,7 @@ static bool launchd_check_pid(pid_t p);
 #endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
 static bool launchd_server_init(bool create_session);
-static void launch_firstborn(char *argv[]);
+static void conceive_firstborn(char *argv[]);
 
 static void *mach_demand_loop(void *);
 
@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
 	};
 	struct kevent kev;
 	size_t i;
-	bool sflag = false, xflag = false, vflag = false;
+	bool sflag = false, xflag = false, vflag = false, dflag = false;
 	int ch;
 
 	if (getpid() == 1)
@@ -171,9 +171,17 @@ int main(int argc, char *argv[])
 
 	setegid(getgid());
 	seteuid(getuid());
+
+	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
+	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
+	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
+
+	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
+	setlogmask(LOG_UPTO(LOG_NOTICE));
 	
-	while ((ch = getopt(argc, argv, "hsvx")) != -1) {
+	while ((ch = getopt(argc, argv, "dhsvx")) != -1) {
 		switch (ch) {
+		case 'd': dflag = true;   break;
 		case 's': sflag = true;   break;
 		case 'x': xflag = true;   break;
 		case 'v': vflag = true;   break;
@@ -187,12 +195,8 @@ int main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
-	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
-	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
-
-	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
-	setlogmask(LOG_UPTO(LOG_NOTICE));
+	if (dflag && daemon(0, 0) == -1)
+		syslog(LOG_WARNING, "couldn't daemonize: %m");
 
 	if ((mainkq = kqueue()) == -1) {
 		syslog(LOG_EMERG, "kqueue(): %m");
@@ -223,10 +227,13 @@ int main(int argc, char *argv[])
 			exit(EXIT_FAILURE);
 	}
 
+	if (argv[0])
+		conceive_firstborn(argv);
+
 	reload_launchd_config();
 
 	if (argv[0])
-		launch_firstborn(argv);
+		job_start(TAILQ_FIRST(&jobs));
 
 	for (;;) {
 		static struct timespec timeout = { 30, 0 };
@@ -249,11 +256,7 @@ int main(int argc, char *argv[])
 			syslog(LOG_DEBUG, "kevent(): %m");
 			break;
 		case 1:
-			if (kev.udata) {
-				(*((kq_callback *)kev.udata))(kev.udata, &kev);
-			} else {
-				syslog(LOG_DEBUG, "kevent() returned and event with kev.udata == NULL!!!");
-			}
+			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			break;
 		case 0:
 			if (timeoutp)
@@ -990,7 +993,8 @@ static launch_data_t get_jobs(const char *which)
 
 static void usage(FILE *where)
 {
-	fprintf(where, "%s:\n", getprogname());
+	fprintf(where, "%s: [-d] [-- command [args ...]]\n", getprogname());
+	fprintf(where, "\t-d\tdaemonize\n");
 	fprintf(where, "\t-h\tthis usage statement\n");
 
 	if (where == stdout)
@@ -1022,6 +1026,14 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 	kern_return_t kr;
 	pthread_attr_t attr;
 	int pthr_r, pfds[2];
+
+	if (flags & EV_ADD && NULL == udata) {
+		syslog(LOG_ERR, "%s(): kev.udata == NULL!!!", __func__);
+		syslog(LOG_ERR, "kev: ident %d filter %d flags 0x%x fflags 0x%x",
+				ident, filter, flags, fflags);
+		errno = EINVAL;
+		return -1;
+	}
 
 	if (filter != EVFILT_MACHPORT) {
 #ifdef PID1_REAP_ADOPTED_CHILDREN
@@ -1235,8 +1247,10 @@ static void job_start(struct jobcb *j)
 	case 0:
 		if (j->firstborn) {
 			setpgid(getpid(), getpid());
-			if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
-				syslog(LOG_WARNING, "tcsetpgrp(): %m");
+			if (isatty(STDIN_FILENO)) {
+				if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
+					syslog(LOG_WARNING, "tcsetpgrp(): %m");
+			}
 		}
 
 		if (sipc) {
@@ -1627,7 +1641,7 @@ static void reload_launchd_config(void)
 	}
 }
 
-static void launch_firstborn(char *argv[])
+static void conceive_firstborn(char *argv[])
 {
 	launch_data_t r, d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	launch_data_t args = launch_data_alloc(LAUNCH_DATA_ARRAY);
@@ -1646,8 +1660,6 @@ static void launch_firstborn(char *argv[])
 	launch_data_free(d);
 
 	TAILQ_FIRST(&jobs)->firstborn = true;
-	job_start(TAILQ_FIRST(&jobs));
-
 }
 
 static void loopback_setup(void)
