@@ -689,7 +689,8 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 				resp = launch_data_new_errno(0);
 			}
 		}
-		resp = launch_data_new_errno(ESRCH);
+		if (NULL == resp)
+			resp = launch_data_new_errno(ESRCH);
 	} else if (!strcmp(cmd, LAUNCH_KEY_STOPJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
@@ -697,7 +698,8 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 				resp = launch_data_new_errno(0);
 			}
 		}
-		resp = launch_data_new_errno(ESRCH);
+		if (NULL == resp)
+			resp = launch_data_new_errno(ESRCH);
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
@@ -709,7 +711,8 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 				resp = launch_data_new_errno(0);
 			}
 		}
-		resp = launch_data_new_errno(ESRCH);
+		if (NULL == resp)
+			resp = launch_data_new_errno(ESRCH);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SUBMITJOB)) {
 		if (launch_data_get_type(data) == LAUNCH_DATA_ARRAY) {
 			launch_data_t tmp;
