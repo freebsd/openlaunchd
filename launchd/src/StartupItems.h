@@ -114,7 +114,4 @@ int StartupItemRun   (CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef
 void StartupItemExit (CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Boolean aSuccess);		     
 void StartupItemSetStatus(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, CFStringRef aServiceName, Boolean aSuccess, Boolean aReplaceFlag);
 
-CFStringRef StartupItemCreateLocalizedString (CFDictionaryRef anItem, CFStringRef aString);
-CFStringRef StartupItemCreateLocalizedStringWithPath (CFStringRef aBundlePath, CFStringRef aString);
-
 #endif /* _StartupItems_H_ */

@@ -24,22 +24,13 @@ launchdebugd_LDFLAGS = liblaunch.1.dylib
 
 launchproxy_LDFLAGS = liblaunch.1.dylib
 
-register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
-
-SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
-	Log.c TextDisplay.c main.c
-
-wait4path_SOURCES = wait4path.c
-
 liblaunch_a_SOURCES = liblaunch.c
 
-launchdebugd_SOURCES = launchdebugd.c
+register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
-launchctl_SOURCES = launchctl.c
+SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
-
-launchproxy_SOURCES = launchproxy.c
 
 mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 

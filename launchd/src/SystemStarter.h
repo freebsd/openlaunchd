@@ -29,25 +29,13 @@
 #ifndef _SYSTEM_STARTER_H_
 #define _SYSTEM_STARTER_H_
 
-#include "StartupDisplay.h"
-
-
-#define kWelcomeToMacintoshKey  CFSTR("Welcome to Macintosh.")
-#define kStartupCompleteKey     CFSTR("Startup complete.")
-#define kResourcesBundleName    CFSTR("SystemStarterResources")
-
-#define LocalizedString(bundlePath,string) StartupItemCreateLocalizedStringWithPath((bundlePath),(string))
-
-
 /* Structure to pass common objects from system_starter to the IPC handlers */
 typedef struct StartupContextStorage {
     CFMutableArrayRef           aWaitingList;
     CFMutableArrayRef           aFailedList;
     CFMutableDictionaryRef      aStatusDict;
-    DisplayContext              aDisplayContext;
     int                         aServicesCount;
     int                         aRunningCount;
-    CFStringRef                 aResourcesBundlePath;
 } *StartupContext;
 
 /* Action types */
@@ -58,7 +46,7 @@ typedef enum {
   kActionRestart
 } Action;
 
-/* Driver */
-int system_starter (Action anAction, CFStringRef aService);
+void CF_syslog(int level, CFStringRef message, ...);
+extern int gVerboseFlag;
 
 #endif /* _SYSTEM_STARTER_H_ */

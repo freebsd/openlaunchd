@@ -101,23 +101,13 @@ launchdebugd_LDFLAGS = liblaunch.1.dylib
 
 launchproxy_LDFLAGS = liblaunch.1.dylib
 
-register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
-
-SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
-	Log.c TextDisplay.c main.c
-
-
-wait4path_SOURCES = wait4path.c
-
 liblaunch_a_SOURCES = liblaunch.c
 
-launchdebugd_SOURCES = launchdebugd.c
+register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
-launchctl_SOURCES = launchctl.c
+SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
-
-launchproxy_SOURCES = launchproxy.c
 
 mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
@@ -158,13 +148,12 @@ StartupItemContext_LDADD = $(LDADD)
 StartupItemContext_DEPENDENCIES =
 StartupItemContext_LDFLAGS =
 am_SystemStarter_OBJECTS = StartupItems.$(OBJEXT) IPC.$(OBJEXT) \
-	SystemStarter.$(OBJEXT) Log.$(OBJEXT) TextDisplay.$(OBJEXT) \
-	main.$(OBJEXT)
+	SystemStarter.$(OBJEXT)
 SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_DEPENDENCIES =
-am_launchctl_OBJECTS = launchctl.$(OBJEXT)
-launchctl_OBJECTS = $(am_launchctl_OBJECTS)
+launchctl_SOURCES = launchctl.c
+launchctl_OBJECTS = launchctl.$(OBJEXT)
 launchctl_LDADD = $(LDADD)
 launchctl_DEPENDENCIES =
 am_launchd_OBJECTS = launchd.$(OBJEXT) init.$(OBJEXT) \
@@ -173,12 +162,12 @@ am_launchd_OBJECTS = launchd.$(OBJEXT) init.$(OBJEXT) \
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
-am_launchdebugd_OBJECTS = launchdebugd.$(OBJEXT)
-launchdebugd_OBJECTS = $(am_launchdebugd_OBJECTS)
+launchdebugd_SOURCES = launchdebugd.c
+launchdebugd_OBJECTS = launchdebugd.$(OBJEXT)
 launchdebugd_LDADD = $(LDADD)
 launchdebugd_DEPENDENCIES =
-am_launchproxy_OBJECTS = launchproxy.$(OBJEXT)
-launchproxy_OBJECTS = $(am_launchproxy_OBJECTS)
+launchproxy_SOURCES = launchproxy.c
+launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_LDADD = $(LDADD)
 launchproxy_DEPENDENCIES =
 am_mach_init_OBJECTS = mach_init.$(OBJEXT) bootstrap.$(OBJEXT) \
@@ -194,8 +183,8 @@ register_mach_bootstrap_servers_OBJECTS = \
 	register_mach_bootstrap_servers.$(OBJEXT)
 register_mach_bootstrap_servers_LDADD = $(LDADD)
 register_mach_bootstrap_servers_DEPENDENCIES =
-am_wait4path_OBJECTS = wait4path.$(OBJEXT)
-wait4path_OBJECTS = $(am_wait4path_OBJECTS)
+wait4path_SOURCES = wait4path.c
+wait4path_OBJECTS = wait4path.$(OBJEXT)
 wait4path_LDADD = $(LDADD)
 wait4path_DEPENDENCIES =
 wait4path_LDFLAGS =
@@ -210,17 +199,15 @@ LIBS = @LIBS@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
 @AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/ConsoleMessage.Po ./$(DEPDIR)/IPC.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/Log.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/StartupItemContext.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/StartupItems.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/TextDisplay.Po ./$(DEPDIR)/bootstrap.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/bootstrap.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/bootstrapServer.Po ./$(DEPDIR)/init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po ./$(DEPDIR)/launchd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchdebugd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/lists.Po ./$(DEPDIR)/mach_init.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/main.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/rpc_services.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/wait4path.Po
@@ -230,17 +217,17 @@ CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
 DIST_SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c \
-	StartupItemContext.c $(SystemStarter_SOURCES) \
-	$(launchctl_SOURCES) $(launchd_SOURCES) $(launchdebugd_SOURCES) \
-	$(launchproxy_SOURCES) $(mach_init_SOURCES) \
-	register_mach_bootstrap_servers.c $(wait4path_SOURCES)
+	StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c \
+	$(launchd_SOURCES) launchdebugd.c launchproxy.c \
+	$(mach_init_SOURCES) register_mach_bootstrap_servers.c \
+	wait4path.c
 
 NROFF = nroff
 MANS = $(man1_MANS) $(man5_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 DIST_COMMON = Makefile.am Makefile.in config.h.in
-SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(launchctl_SOURCES) $(launchd_SOURCES) $(launchdebugd_SOURCES) $(launchproxy_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
+SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) launchdebugd.c launchproxy.c $(mach_init_SOURCES) register_mach_bootstrap_servers.c wait4path.c
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -409,11 +396,9 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ConsoleMessage.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/IPC.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/Log.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItemContext.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItems.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/TextDisplay.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/init.Po@am__quote@
@@ -424,7 +409,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lists.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/register_mach_bootstrap_servers.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rpc_services.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wait4path.Po@am__quote@

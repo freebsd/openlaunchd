@@ -49,7 +49,7 @@ typedef struct SystemStarterIPCMessage {
 } SystemStarterIPCMessage;
 
 /* Name of the CFMessagePort SystemStarter listens on. */
-#define kSystemStarterMessagePort	CFSTR("com.apple.SystemStarter")
+#define kSystemStarterMessagePort	"com.apple.SystemStarter"
 
 /* kIPCProtocolVersion should be passed as the messageID of the CFMessage. */
 #define kIPCProtocolVersion		0
