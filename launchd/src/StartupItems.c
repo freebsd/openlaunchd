@@ -961,25 +961,14 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 
 			case 0:/* Child */
 				{
-					char           *const aNullEnvironment[] = {NULL};
-
 					if (setsid() == -1)
 						syslog(LOG_WARNING, "Unable to create session for item %s: %m", anExecutable);
 
-					/* Close open file descriptors. */
-					{
-						int             anFD;
-						for (anFD = getdtablesize() - 1; anFD > STDERR_FILENO; anFD--)
-							close(anFD);
-					}
-
-					anError = execle(anExecutable,
-							 anExecutable, argumentForAction(anAction), NULL,
-							 aNullEnvironment);
+					anError = execl(anExecutable, anExecutable, argumentForAction(anAction), NULL);
 
 					/* We shouldn't get here. */
 
-					syslog(LOG_ERR, "execle(\"%s\"): %m", anExecutable);
+					syslog(LOG_ERR, "execl(\"%s\"): %m", anExecutable);
 
 					exit(anError);
 				}
