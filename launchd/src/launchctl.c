@@ -1,10 +1,12 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/fcntl.h>
 #include <sys/event.h>
+#include <sys/resource.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -53,6 +55,7 @@ static int stdio_cmd(int argc, char *const argv[]);
 static int fyi_cmd(int argc, char *const argv[]);
 static int logupdate_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
+static int getrusage_cmd(int argc, char *const argv[]);
 
 static int help_cmd(int argc, char *const argv[]);
 
@@ -76,6 +79,7 @@ static const struct {
 	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
 	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
+	{ "getrusage",	getrusage_cmd,		"Get resource usage statistics from launchd" },
 	{ "log",	logupdate_cmd,		"Adjust the logging level or mask of launchd" },
 	{ "umask",	umask_cmd,		"Change launchd's umask" },
 	{ "help",	help_cmd,		"This help output" },
@@ -1294,6 +1298,67 @@ static int umask_cmd(int argc, char *const argv[])
 	} else if (argc == 1) {
 		fprintf(stdout, "%o\n", (unsigned int)launch_data_get_integer(resp));
 	}
+
+	launch_data_free(resp);
+
+	return r;
+}
+
+static int getrusage_cmd(int argc, char *const argv[])
+{
+	launch_data_t resp, msg;
+	bool badargs = false;
+	int r = 0;
+
+	if (argc != 2)
+		badargs = true;
+	else if (strcmp(argv[1], "self") && strcmp(argv[1], "children"))
+		badargs = true;
+
+	if (badargs) {
+		fprintf(stderr, "usage: %s %s self | children\n", getprogname(), argv[0]);
+		return 1;
+	}
+
+	if (!strcmp(argv[1], "self")) {
+		msg = launch_data_new_string(LAUNCH_KEY_GETRUSAGESELF);
+	} else {
+		msg = launch_data_new_string(LAUNCH_KEY_GETRUSAGECHILDREN);
+	}
+
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
+		fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(launch_data_get_errno(resp)));
+		r = 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_OPAQUE) {
+		struct rusage *rusage = launch_data_get_opaque(resp);
+		fprintf(stdout, "\t%-10f\tuser time used\n",
+				(double)rusage->ru_utime.tv_sec + (double)rusage->ru_utime.tv_usec / (double)1000000);
+		fprintf(stdout, "\t%-10f\tsystem time used\n",
+				(double)rusage->ru_stime.tv_sec + (double)rusage->ru_stime.tv_usec / (double)1000000);
+		fprintf(stdout, "\t%-10ld\tmax resident set size\n", rusage->ru_maxrss);
+		fprintf(stdout, "\t%-10ld\tshared text memory size\n", rusage->ru_ixrss);
+		fprintf(stdout, "\t%-10ld\tunshared data size\n", rusage->ru_idrss);
+		fprintf(stdout, "\t%-10ld\tunshared stack size\n", rusage->ru_isrss);
+		fprintf(stdout, "\t%-10ld\tpage reclaims\n", rusage->ru_minflt);
+		fprintf(stdout, "\t%-10ld\tpage faults\n", rusage->ru_majflt);
+		fprintf(stdout, "\t%-10ld\tswaps\n", rusage->ru_nswap);
+		fprintf(stdout, "\t%-10ld\tblock input operations\n", rusage->ru_inblock);
+		fprintf(stdout, "\t%-10ld\tblock output operations\n", rusage->ru_oublock);
+		fprintf(stdout, "\t%-10ld\tmessages sent\n", rusage->ru_msgsnd);
+		fprintf(stdout, "\t%-10ld\tmessages received\n", rusage->ru_msgrcv);
+		fprintf(stdout, "\t%-10ld\tsignals received\n", rusage->ru_nsignals);
+		fprintf(stdout, "\t%-10ld\tvoluntary context switches\n", rusage->ru_nvcsw);
+		fprintf(stdout, "\t%-10ld\tinvoluntary context switches\n", rusage->ru_nivcsw);
+	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	} 
 
 	launch_data_free(resp);
 

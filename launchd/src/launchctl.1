@@ -60,6 +60,11 @@ Get an environmental variable inside of
 Export all of the environmental variables of
 .Nm launchd
 for use in a shell eval statement.
+.It Ar getrusage self | children
+Get the resource utilization statistics for
+.Nm launchd
+or the children of
+.Nm launchd .
 .It Xo Ar log
 .Op Ar level loglevel
 .Op Ar only | mask loglevels...

@@ -26,6 +26,8 @@
 #define LAUNCH_KEY_GETLOGMASK			"GetLogMask"
 #define LAUNCH_KEY_SETUMASK			"SetUmask"
 #define LAUNCH_KEY_GETUMASK			"GetUmask"
+#define LAUNCH_KEY_GETRUSAGESELF		"GetResourceUsageSelf"
+#define LAUNCH_KEY_GETRUSAGECHILDREN		"GetResourceUsageChildren"
 
 #define LAUNCH_JOBKEY_LABEL			"Label"
 #define LAUNCH_JOBKEY_DISABLED			"Disabled"

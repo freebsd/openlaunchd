@@ -764,6 +764,16 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		mode_t oldmask = umask(0);
 		resp = launch_data_new_integer(oldmask);
 		umask(oldmask);
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETRUSAGESELF)) {
+		struct rusage rusage;
+		getrusage(RUSAGE_SELF, &rusage);
+		resp = launch_data_new_opaque(&rusage, sizeof(rusage));
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETRUSAGECHILDREN)) {
+		struct rusage rusage;
+		getrusage(RUSAGE_CHILDREN, &rusage);
+		resp = launch_data_new_opaque(&rusage, sizeof(rusage));
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDOUT))) {
 		resp = setstdio(STDOUT_FILENO, tmp);
