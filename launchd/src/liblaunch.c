@@ -37,7 +37,7 @@ static void launch_client_init(void)
 	struct sockaddr_un sun;
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
 	char *_launchd_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
-	int lfd = -1;
+	int dfd, lfd = -1;
 	
 	_lc = calloc(1, sizeof(struct _launch_client));
 
