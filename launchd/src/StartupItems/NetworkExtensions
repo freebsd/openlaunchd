@@ -8,13 +8,6 @@
 
 StartService ()
 {
-	fwHelper=/System/Library/PrivateFrameworks/NetworkConfig.framework/Resources/firewalltool
-	fwConfig=/Library/Preferences/com.apple.sharing.firewall.plist
-
-	if [ -x "${fwHelper}" -a -f "${fwConfig}" ]; then
-		${fwHelper}
-	fi
-
 	if [ "${VPNSERVER:=-NO-}" = "-YES-" ]; then
 		vpnd
 	fi

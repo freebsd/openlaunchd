@@ -148,7 +148,12 @@ if [ -f /etc/sysctl.conf ]; then
 		sysctl -w ${REPLY}
 	done
 fi
+
 sysctl -w kern.sysv.shmmax=4194304 kern.sysv.shmmin=1 kern.sysv.shmmni=32 kern.sysv.shmseg=8 kern.sysv.shmall=1024
+
+if [ -f /Library/Preferences/com.apple.sharing.firewall.plist ]; then
+	/usr/libexec/FirewallTool
+fi
 
 if [ -f /etc/rc.installer_cleanup ]; then
 	/etc/rc.installer_cleanup multiuser
