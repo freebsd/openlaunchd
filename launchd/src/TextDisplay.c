@@ -54,7 +54,6 @@ static void* (*fInitDisplayContext)(void) = NULL;
 static void  (*fFreeDisplayContext)(DisplayContext) = NULL;
 static int   (*fDisplayStatus     )(DisplayContext, CFStringRef) = NULL;
 static int   (*fDisplayProgress   )(DisplayContext, float      ) = NULL;
-static int   (*fDisplaySafeBootMsg)(DisplayContext, CFStringRef) = NULL;
 
 #define _StartupDisplay_C_
 #include "StartupDisplay.h"
@@ -96,13 +95,11 @@ void LoadDisplayPlugIn(CFStringRef aPath)
         getSymbol("__freeDisplayContext", fFreeDisplayContext);
         getSymbol("__displayStatus"     , fDisplayStatus     );
         getSymbol("__displayProgress"   , fDisplayProgress   );
-        getSymbol("__displaySafeBootMsg" , fDisplaySafeBootMsg);
 
         if (fInitDisplayContext &&
             fFreeDisplayContext &&
             fDisplayStatus      &&
-            fDisplayProgress    &&
-            fDisplaySafeBootMsg )
+            fDisplayProgress )
           {
             if (gDebugFlag) debug(CFSTR("loaded\n"));
           }
@@ -121,7 +118,6 @@ void LoadDisplayPlugIn(CFStringRef aPath)
             fFreeDisplayContext = NULL;
             fDisplayStatus      = NULL;
             fDisplayProgress    = NULL;
-            fDisplaySafeBootMsg = NULL;
           }
     }
 }
@@ -135,7 +131,6 @@ void UnloadDisplayPlugIn()
     fFreeDisplayContext = NULL;
     fDisplayStatus      = NULL;
     fDisplayProgress    = NULL;
-    fDisplaySafeBootMsg = NULL;
 }
 
 /*
@@ -185,20 +180,3 @@ int displayProgress (DisplayContext aDisplayContext, float aPercentage)
     if (fDisplayProgress) return fDisplayProgress(aDisplayContext, aPercentage);
     return(0);
 }
-
-int displaySafeBootMsg (DisplayContext aDisplayContext, CFStringRef aMessage)
-{
-  if (fDisplaySafeBootMsg) return fDisplaySafeBootMsg(aDisplayContext, aMessage);
-
-  /**
-   * Draw text.
-   **/
-  if (aMessage)
-    {
-      message(CFSTR("%@\n"), aMessage);
-
-      return(0);
-    }
-  return(1);
-}
-

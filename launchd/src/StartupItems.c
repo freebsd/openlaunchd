@@ -42,7 +42,6 @@
 #include "Log.h"
 #include "main.h"
 #include "StartupItems.h"
-#include "SafeBoot.h"
 
 #define kStartupItemsPath "/StartupItems"
 #define kParametersFile   "StartupParameters.plist"
@@ -291,16 +290,8 @@ CFMutableArrayRef StartupItemListCreateWithMask (NSSearchPathDomainMask aMask)
 
     char aPath[PATH_MAX];
     CFIndex aDomainIndex = 0;
-    SafeBootContext    *aSafeBootContext = NULL;
 
     NSSearchPathEnumerationState aState = NSStartSearchPathEnumeration(NSLibraryDirectory, aMask);
-
-    if (gSafeBootFlag)	
-      {
-        /*    let's see if the BOM API is available, if so, let's set it up */
-        aSafeBootContext = InitSafeBoot();
-      }
-
 
     while ((aState = NSGetNextSearchPathEnumeration(aState, aPath)))
       {
@@ -326,16 +317,6 @@ CFMutableArrayRef StartupItemListCreateWithMask (NSSearchPathDomainMask aMask)
 
                 if ( aBundleName[0] == '.' ) 
                     continue;
-
-                if (aSafeBootContext)
-                  {
-                    /*  check to see if item is in the BOM list */
-                      if (!CheckSafeBootList(aSafeBootContext, aBundleName))
-                        {
-                          message(CFSTR("Safe Boot: %s not started.\n"), aBundleName);
-                          continue;
-                        }
-                  }
 
                 if (gDebugFlag) debug(CFSTR("Found item: %s\n"), aBundleName);
 
@@ -435,11 +416,6 @@ CFMutableArrayRef StartupItemListCreateWithMask (NSSearchPathDomainMask aMask)
                 return(NULL);
               }
           }
-      }
-
-    if (aSafeBootContext)
-      {
-        FreeSafeBootContext(aSafeBootContext);
       }
 
     return anItemList;

@@ -261,10 +261,6 @@ static CFDataRef queryConfigSetting (StartupContext aStartupContext, CFDictionar
               {
                 aValue = gVerboseFlag ? "-YES-" : "-NO-";
               }
-            else if (CFEqual(aSetting, kIPCConfigSettingSafeBoot))
-              {
-                aValue = gSafeBootFlag ? "-YES-" : "-NO-";
-              }
             else if (CFEqual(aSetting, kIPCConfigSettingNetworkUp))
               {
                 Boolean aNetworkUpFlag = FALSE;
@@ -303,16 +299,6 @@ static void loadDisplayBundle (StartupContext aStartupContext, CFDictionaryRef a
                   {
                     displayStatus(aStartupContext->aDisplayContext, aLocalizedString);
                     displayProgress(aStartupContext->aDisplayContext, ((float)CFDictionaryGetCount(aStartupContext->aStatusDict)/((float)aStartupContext->aServicesCount + 1.0)));
-                    CFRelease(aLocalizedString);
-                  }
-              }
-            
-            if (gSafeBootFlag)
-              {
-                CFStringRef aLocalizedString = LocalizedString(aStartupContext->aResourcesBundlePath, kSafeBootKey);
-                if (aLocalizedString)
-                  {
-                    (void) displaySafeBootMsg(aStartupContext->aDisplayContext, aLocalizedString);
                     CFRelease(aLocalizedString);
                   }
               }

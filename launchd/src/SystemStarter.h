@@ -35,7 +35,6 @@
 #define kWelcomeToMacintoshKey  CFSTR("Welcome to Macintosh.")
 #define kStartupCompleteKey     CFSTR("Startup complete.")
 #define kResourcesBundleName    CFSTR("SystemStarterResources")
-#define kSafeBootKey            CFSTR("Safe Boot")
 
 #define LocalizedString(bundlePath,string) StartupItemCreateLocalizedStringWithPath((bundlePath),(string))
 

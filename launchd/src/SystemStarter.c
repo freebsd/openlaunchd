@@ -186,16 +186,6 @@ int system_starter (Action anAction, CFStringRef aService)
           }
       }
       
-    if (gSafeBootFlag)
-      {
-        CFStringRef aLocalizedString = LocalizedString(aStartupContext->aResourcesBundlePath, kSafeBootKey);
-        if (aLocalizedString)
-          {
-            (void) displaySafeBootMsg(aStartupContext->aDisplayContext, aLocalizedString);
-            CFRelease(aLocalizedString);
-          }
-      }
-
    if (gDebugFlag && gNoRunFlag) sleep(1);
 
     /**
@@ -217,18 +207,7 @@ int system_starter (Action anAction, CFStringRef aService)
      * Get a list of Startup Items which are in /Local and /System.
      * We can't search /Network yet because the network isn't up.
      **/
-        aMask = NSSystemDomainMask;
-        if (!gSafeBootFlag)
-          {
-            aMask |= NSLocalDomainMask;
-          }
-        else
-          {
-            if (gDebugFlag)
-              {
-                debug(CFSTR("Safe Boot mode active\n")); fflush(stdout);
-              }
-          }
+        aMask = NSSystemDomainMask|NSLocalDomainMask;
 
         aStartupContext->aWaitingList = StartupItemListCreateWithMask(aMask);
         aStartupContext->aFailedList = NULL;

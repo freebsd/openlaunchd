@@ -37,7 +37,6 @@
 /* Command line options */
 extern int   gDebugFlag;
 extern int   gVerboseFlag;
-extern int   gSafeBootFlag;
 extern int   gNoRunFlag;
 
 #endif /* _MAIN_H_ */

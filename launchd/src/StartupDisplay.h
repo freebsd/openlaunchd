@@ -52,6 +52,5 @@ void freeDisplayContext (DisplayContext aContext);
 /* Update the user-visible progress. */
 int displayStatus (DisplayContext aContext, CFStringRef aMessage);
 int displayProgress (DisplayContext aContext, float aPercentage);
-int displaySafeBootMsg (DisplayContext aDisplayContext, CFStringRef aMessage);
 
 #endif /* _StartupDisplay_H_ */

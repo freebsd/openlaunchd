@@ -36,7 +36,6 @@
 /* Command line options */
 int gDebugFlag     = 0;
 int gVerboseFlag   = 0;
-int gSafeBootFlag  = 0;
 int gNoRunFlag     = 0;
 
 static void __attribute__((__noreturn__)) usage(const char *aProgram)
@@ -48,7 +47,7 @@ static void __attribute__((__noreturn__)) usage(const char *aProgram)
 		"\t-g: (ignored)\n"
 		"\t-r: (ignored)\n"
 		"\t-v: verbose (text mode) startup\n"
-		"\t-x: safe mode startup\n"
+		"\t-x: (ignored)\n"
 		"\t-d: print debugging output\n"
 		"\t-D: print debugging output and dependencies\n"
 		"\t-q: be quiet (disable debugging output)\n"
@@ -76,8 +75,6 @@ int main (int argc, char *argv[])
                     gVerboseFlag   = 1;
                     break;
                 case 'x':
-                    gSafeBootFlag = 1;
-                    break;
                 case 'g':
                 case 'r':
                     break;
@@ -114,7 +111,7 @@ int main (int argc, char *argv[])
       }
 
     {
-        int    fd, aStatus = 0;
+        int    aStatus = 0;
 	Action anAction = kActionStart;
 
 	CFStringRef aService = NULL;

@@ -27,7 +27,7 @@ launchproxy_LDFLAGS = liblaunch.1.dylib
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
-	Log.c TextDisplay.c main.c SafeBoot.c
+	Log.c TextDisplay.c main.c
 
 wait4path_SOURCES = wait4path.c
 
