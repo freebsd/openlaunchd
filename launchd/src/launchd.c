@@ -693,6 +693,12 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_SERVICEIPC);
 	}
 
+	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK) == NULL) {
+		tmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
+		launch_data_set_integer(tmp, ourmask);
+		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_UMASK);
+	}
+
 	TAILQ_INSERT_TAIL(find_jobq(c->u), j, tqe);
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
