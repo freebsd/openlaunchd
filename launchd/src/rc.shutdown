@@ -9,4 +9,6 @@ fi
 
 SystemStarter stop
 
+kill -TERM 1
+
 exit 0

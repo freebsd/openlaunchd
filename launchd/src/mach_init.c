@@ -54,6 +54,7 @@ static void toggle_debug(int);
 static void enablecoredumps(bool);
 
 mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
+sigset_t blocked_signals = 0;
 
 int
 main(int argc, char * argv[])
@@ -67,6 +68,8 @@ main(int argc, char * argv[])
 		execv(INIT_PATH, argv);
 		exit(EXIT_FAILURE);
 	}
+
+	sigemptyset(&blocked_signals);
 
 	while ((ch = getopt(argc, argv, "dFr:")) != -1) {
 		switch (ch) {

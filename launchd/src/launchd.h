@@ -7,6 +7,7 @@ typedef void (*kq_callback)(void *, struct kevent *);
 
 extern kq_callback kqsimple_zombie_reaper;
 extern mach_port_t launchd_bootstrap_port;
+extern sigset_t blocked_signals;
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 

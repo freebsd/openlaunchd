@@ -459,8 +459,11 @@ fork_with_bootstrap_port(mach_port_t p)
 	static pthread_mutex_t forklock = PTHREAD_MUTEX_INITIALIZER;
 	kern_return_t result;
 	pid_t r;
+	size_t i;
 
 	pthread_mutex_lock(&forklock);
+
+        sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
         result = task_set_bootstrap_port(mach_task_self(), p);
 	if (result != KERN_SUCCESS)
@@ -478,7 +481,14 @@ fork_with_bootstrap_port(mach_port_t p)
 		result = task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
 		if (result != KERN_SUCCESS)
 			panic("task_set_bootstrap_port(): %s", mach_error_string(result));
+	} else {
+		for (i = 0; i <= NSIG; i++) {
+			if (sigismember(&blocked_signals, i))
+				signal(i, SIG_DFL);
+		}
 	}
+
+	sigprocmask(SIG_UNBLOCK, &blocked_signals, NULL);
 	
 	pthread_mutex_unlock(&forklock);
 

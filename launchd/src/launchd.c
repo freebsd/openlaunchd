@@ -101,8 +101,6 @@ static void *mach_demand_loop(void *);
 static void usage(FILE *where);
 static int _fd(int fd);
 
-static void dummysignalhandler(int sig);
-
 static void loopback_setup(void);
 static void update_lm(void);
 static void workaround3048875(int argc, char *argv[]);
@@ -112,6 +110,7 @@ static bool debug = false;
 static bool verbose = false;
 static pthread_t mach_server_loop_thread;
 mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
+sigset_t blocked_signals = 0;
 
 int main(int argc, char *argv[])
 {
@@ -210,10 +209,13 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+	sigemptyset(&blocked_signals);
+
 	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
 		if (kevent_mod(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 			syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", sigigns[i]);
-		signal(sigigns[i], dummysignalhandler);
+		sigaddset(&blocked_signals, sigigns[i]);
+		signal(sigigns[i], SIG_IGN);
 	}
 
 	if (setsid() == -1)
@@ -1007,7 +1009,7 @@ static void job_launch(struct jobcb *j)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
 	gettimeofday(&j->start_time, NULL);
-
+	
 	if ((c = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_WARNING, "fork(): %m");
 		return;
@@ -1132,10 +1134,6 @@ static void update_lm(void)
 }
 
 static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
-{
-}
-
-static void dummysignalhandler(int sig __attribute__((unused)))
 {
 }
 
