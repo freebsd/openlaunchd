@@ -26,23 +26,49 @@ int main(int argc, char *argv[])
 	struct kevent kev;
 	initng_err_t ingerr;
 	char ***config, ***tmpvv, **tmpv;
-	int thefd, r;
+	int ch, thefd, r, ec = EXIT_FAILURE;
 	FILE *c;
+	bool cf = false, lf = false, wf = false;
+
+	openlog(basename(argv[0]), LOG_PERROR|LOG_PID|LOG_CONS, LOG_DAEMON);
+
+	while ((ch = getopt(argc, argv, "clw")) != -1) {
+		switch (ch) {
+		case 'c':
+			cf = true;
+			break;
+		case 'l':
+			lf = true;
+			break;
+		case 'w':
+			wf = true;
+			break;
+		case '?':
+		default:
+			syslog(LOG_DEBUG, "bogus command line arguments");
+			goto out;
+			break;
+		}
+	}
+
+	if ((cf && lf) || (!cf && !lf)) {
+		syslog(LOG_DEBUG, "connect OR listen, not both and not neither, %d %d ", cf, lf);
+		goto out;
+	}
 
 	kq = kqueue();
 
-	openlog(basename(argv[0]), LOG_PERROR|LOG_PID|LOG_CONS, LOG_DAEMON);
 
 	ingerr = initng_init(&thefd, NULL);
 	if (ingerr != INITNG_ERR_SUCCESS) {
 		syslog(LOG_DEBUG, "initng_init(): %s", initng_strerror(ingerr));
-		exit(EXIT_FAILURE);
+		goto out;
 	}
 
 	ingerr = initng_checkin(thefd, &config);
 	if (ingerr != INITNG_ERR_SUCCESS) {
 		syslog(LOG_DEBUG, "initng_checkin(): %s", initng_strerror(ingerr));
-		exit(EXIT_FAILURE);
+		goto out;
 	}
 
 	for (tmpvv = config; *tmpvv; tmpvv++) {
@@ -54,29 +80,49 @@ int main(int argc, char *argv[])
 	}
 
 	initng_freeconfig(config);
+	initng_close(thefd);
 
 	for (;;) {
 		if ((r = kevent(kq, NULL, 0, &kev, 1, &timeout)) == -1) {
 			syslog(LOG_DEBUG, "kevent(): %m");
-			exit(EXIT_FAILURE);
+			goto out;
 		} else if (r == 0) {
-			syslog(LOG_INFO, "no more work after timeout of %d second%s, exiting...",
-					timeout.tv_sec, timeout.tv_sec > 1 ? "s" : "" );
-			break;
+			ec = EXIT_SUCCESS;
+			goto out;
 		}
 
-		if ((r = _fd(accept(kev.ident, (struct sockaddr *)&ss, &slen))) == -1) {
-			syslog(LOG_DEBUG, "kevent(): %m");
-			exit(EXIT_FAILURE);
+		if (lf) {
+			if ((r = _fd(accept(kev.ident, (struct sockaddr *)&ss, &slen))) == -1) {
+				syslog(LOG_DEBUG, "accept(): %m");
+				goto out;
+			} else {
+				c = fdopen(r, "r+");
+				if (wf) {
+					fprintf(c, "hello worldd says howdy howdy!\n");
+				} else {
+					char buf[4096];
+					fread(buf, sizeof(buf), 1, c);
+					buf[4095] = '\0';
+					syslog(LOG_INFO, "received this message: %s", buf);
+				}
+				fclose(c);
+			}
+		} else {
+			c = fdopen(kev.ident, "r+");
+			if (wf) {
+				fprintf(c, "hello worldd says howdy howdy!\n");
+			} else {
+				char buf[4096];
+				fread(buf, sizeof(buf), 1, c);
+				buf[4095] = '\0';
+				syslog(LOG_INFO, "received this message: %s", buf);
+			}
+			fclose(c);
 		}
-		syslog(LOG_INFO, "fd %d fired and returned %d", kev.ident, r);
-		c = fdopen(r, "r+");
-		fprintf(c, "hello worldd says howdy howdy!\n");
-		fclose(c);
-		close(r);
 	}
 
-	exit(EXIT_SUCCESS);
+out:
+	exit(ec);
 }
 
 static int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
