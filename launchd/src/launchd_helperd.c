@@ -677,19 +677,12 @@ static bool on_battery_power(void)
 {
         bool result = false;
         kern_return_t kr;
-        mach_port_t master_device_port;
         CFArrayRef cfarray = NULL;
         CFDictionaryRef dict;
         CFNumberRef cfnum;
         int flags;
 
-        kr = IOMasterPort(bootstrap_port, &master_device_port);
-        if (KERN_SUCCESS != kr) {
-                syslog(LOG_WARNING, "IOMasterPort() failed");
-                return result;
-        }
-
-        kr = IOPMCopyBatteryInfo(master_device_port, &cfarray);
+        kr = IOPMCopyBatteryInfo(kIOMasterPortDefault, &cfarray);
         if (kIOReturnSuccess != kr) {
                 /* This case handles desktop machines in addition to error cases. */
                 return result;
