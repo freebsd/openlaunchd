@@ -1377,7 +1377,7 @@ static void wait4path(const char *path)
 	if (thedir == -1)
 		goto out;
 
-	EV_SET(&kev, thedir, EVFILT_VNODE, EV_ADD, NOTE_WRITE, 0, 0);
+	EV_SET(&kev, thedir, EVFILT_VNODE, EV_ADD|EV_CLEAR, NOTE_WRITE, 0, 0);
 
 	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
 		fprintf(stderr, "adding EVFILT_VNODE to kqueue failed: %s\n", strerror(errno));
