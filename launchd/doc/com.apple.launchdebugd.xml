@@ -24,5 +24,7 @@
 			</dict>
 		</array>
 	</dict>
+	<key>ServiceIPC</key>
+	<true/>
 </dict>
 </plist>

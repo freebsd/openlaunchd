@@ -18,5 +18,7 @@
 	<integer>30</integer>
 	<key>LowPriorityIO</key>
 	<true/>
+	<key>ServiceIPC</key>
+	<true/>
 </dict>
 </plist>

@@ -134,7 +134,7 @@ before running the job.
 .It Sy ServiceIPC <boolean>
 This optional key specifies whether the job participates in advanced communication with
 .Nm launchd .
-The default is true.
+The default is false.
 .It Sy InitGroups <boolean>
 This optional key specifies whether the job should have
 .Xr initgroups 3
@@ -240,10 +240,7 @@ to.
 .Pp
 .Sh EXAMPLE XML PROPERTY LISTS
 .Pp
-The following XML Property List simply keeps "exampled" running continuously and tells
-.Nm launchd
-that exampled doesn't wish to participate in advanced IPC with
-.Nm launchd :
+The following XML Property List simply keeps "exampled" running continuously:
 .Pp
 .Dl <?xml version="1.0" encoding="UTF-8"?>
 .Dl <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -256,8 +253,6 @@ that exampled doesn't wish to participate in advanced IPC with
 .Dl 		<string>exampled</string>
 .Dl 	</array>
 .Dl 	<key>OnDemand</key>
-.Dl 	<false/>
-.Dl 	<key>ServiceIPC</key>
 .Dl 	<false/>
 .Dl </dict>
 .Dl </plist>

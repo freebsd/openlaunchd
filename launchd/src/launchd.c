@@ -868,12 +868,6 @@ static launch_data_t load_job(launch_data_t pload)
 		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_ONDEMAND);
 	}
 
-	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) == NULL) {
-		tmp = launch_data_alloc(LAUNCH_DATA_BOOL);
-		launch_data_set_bool(tmp, true);
-		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_SERVICEIPC);
-	}
-
 	TAILQ_INSERT_TAIL(&jobs, j, tqe);
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
@@ -1104,17 +1098,21 @@ static void job_callback(void *obj, struct kevent *kev)
 
 static void job_start(struct jobcb *j)
 {
-	char nbuf[64];
-	pid_t c;
-	int spair[2];
-	const char **argv;
-	bool sipc;
 	struct timeval tvd, last_start_time = j->start_time;
+	int spair[2];
+	bool sipc, inetcompat;
+	pid_t c;
 
 	if (j->p)
 		return;
 
-	if ((sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC)))
+	sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
+	inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
+
+	if (inetcompat)
+		sipc = true;
+
+	if (sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
 	gettimeofday(&j->start_time, NULL);
@@ -1138,7 +1136,8 @@ static void job_start(struct jobcb *j)
 		launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
 		launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
 		size_t i, argv_cnt;
-		const char *a0;
+		const char **argv;
+		char nbuf[64];
 		const struct {
 			const char *key;
 			int val;
@@ -1155,10 +1154,15 @@ static void job_start(struct jobcb *j)
 		};
 
 		argv_cnt = launch_data_array_get_count(ldpa);
-		argv = alloca((argv_cnt + 1) * sizeof(char *));
+		argv = alloca((argv_cnt + 2) * sizeof(char *));
 		for (i = 0; i < argv_cnt; i++)
-			argv[i] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
-		argv[argv_cnt] = NULL;
+			argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
+		argv[argv_cnt + 1] = NULL;
+
+		if (inetcompat)
+			argv[0] = "/usr/libexec/launchproxy";
+		else
+			argv++;
 
 		if (sipc)
 			close(spair[0]);
@@ -1233,10 +1237,6 @@ static void job_start(struct jobcb *j)
 		if (sipc)
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		setsid();
-		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY))
-			a0 = "/usr/libexec/launchproxy";
-		else
-			a0 = job_get_argv0(j->ldj);
 		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
 			/* Only punish short daemon life if the last exit was "bad." */
 			if (j->failed_exits > 0) {
@@ -1245,7 +1245,7 @@ static void job_start(struct jobcb *j)
 				sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
 			}
 		}
-                if (execvp(a0, (char *const*)argv) == -1)
+                if (execvp(argv[0], (char *const*)argv) == -1)
 			syslog(LOG_ERR, "child execvp(): %m");
 		exit(EXIT_FAILURE);
 	}
