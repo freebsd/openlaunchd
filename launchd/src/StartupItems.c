@@ -251,6 +251,40 @@ CFIndex StartupItemListCountServices (CFArrayRef anItemList)
     return aResult;
 }
 
+static bool StartupItemSecurityCheck(const char *aPath)
+{
+	struct stat aStatBuf;
+
+	/* should use lstatx_np() on Tiger? */
+	if (lstat(aPath, &aStatBuf) == -1) {
+		if (errno != ENOENT)
+			error(CFSTR("lstat(\"%s\"): %s\n"), aPath, strerror(errno));
+		return false;
+	}
+
+	if (!(S_ISREG(aStatBuf.st_mode) || S_ISDIR(aStatBuf.st_mode))) {
+		error(CFSTR("\"%s\" failed security check: not a directory or regular file"), aPath);
+		return false;
+	}
+
+	if ((aStatBuf.st_mode & ALLPERMS) & ~(S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH)) {
+		error(CFSTR("\"%s\" failed security check: permissions"), aPath);
+		return false;
+	}
+
+	if (aStatBuf.st_uid != 0) {
+		error(CFSTR("\"%s\" failed security check: not owned by UID 0"), aPath);
+		return false;
+	}
+
+	if (aStatBuf.st_gid != 0) {
+		error(CFSTR("\"%s\" failed security check: not owned by GID 0"), aPath);
+		return false;
+	}
+
+	return true;
+}
+
 CFMutableArrayRef StartupItemListCreateWithMask (NSSearchPathDomainMask aMask)
 {
     CFMutableArrayRef anItemList = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
@@ -275,6 +309,9 @@ CFMutableArrayRef StartupItemListCreateWithMask (NSSearchPathDomainMask aMask)
         strcpy(aPath+strlen(aPath), kStartupItemsPath);
         ++aDomainIndex;
 
+	if (!StartupItemSecurityCheck(aPath))
+		continue;
+
         if ((aDirectory = opendir(aPath)))
           {
             struct dirent* aBundle;
@@ -284,6 +321,7 @@ CFMutableArrayRef StartupItemListCreateWithMask (NSSearchPathDomainMask aMask)
                 char *aBundleName = aBundle->d_name;
 
                 char aBundlePath[PATH_MAX];
+                char aBundleExecutablePath[PATH_MAX];
                 char aConfigFile[PATH_MAX];
 
                 if ( aBundleName[0] == '.' ) 
@@ -302,7 +340,15 @@ CFMutableArrayRef StartupItemListCreateWithMask (NSSearchPathDomainMask aMask)
                 if (gDebugFlag) debug(CFSTR("Found item: %s\n"), aBundleName);
 
                 sprintf(aBundlePath, "%s/%s", aPath, aBundleName);
+                sprintf(aBundleExecutablePath, "%s/%s/%s", aPath, aBundleName, aBundleName);
                 sprintf(aConfigFile, "%s/" kParametersFile, aBundlePath);
+
+		if (!StartupItemSecurityCheck(aBundlePath))
+			continue;
+		if (!StartupItemSecurityCheck(aBundleExecutablePath))
+			continue;
+		if (!StartupItemSecurityCheck(aConfigFile))
+			continue;
 
                 /* Stow away the plist data for each bundle */
                 {
