@@ -43,9 +43,6 @@ static void wpremove(struct watchpathcbhead *wph, struct watchpathcb *wp);
 
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 
-static void myCFSocketCallBack(void);
-static void tcl_timer_callback(CFRunLoopTimerRef, void *);
-
 static void job_add(launch_data_t j);
 static struct jobcb *job_find(const char *label);
 static void job_remove(struct jobcb *j);
@@ -54,12 +51,17 @@ static void job_stop(struct jobcb *j);
 static void job_tcleval(struct jobcb *j);
 static void job_cancel_all_callbacks(struct jobcb *j);
 
+static void myCFSocketCallBack(void);
+static void tcl_timer_callback(CFRunLoopTimerRef, void *);
 static void reload_jobs(void);
+static bool on_battery_power(void);
+static void sync_callback(void);
 
 static launch_data_t ldself = NULL;
-
 static int kq = 0;
 static char *testtcl = NULL;
+static double sync_interval = 30;
+static double energy_saving_sync_interval = 30;
 
 static int _start_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 static int _stop_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
@@ -67,9 +69,11 @@ static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int arg
 static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 static int _cancel_all_callbacks(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 static int _syslog(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+static int _getproperty(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 
 int main(int argc, char *argv[])
 {
+	launch_data_t si = NULL, si2 = NULL;
 	CFRunLoopSourceRef sockrlr = NULL;
 	CFSocketRef sockr = NULL;
 	CFRunLoopTimerRef syncr = NULL;
@@ -153,6 +157,11 @@ int main(int argc, char *argv[])
 		ldself = launch_msg(msg);
 		launch_data_free(msg);
 
+		if (ldself) {
+			si = launch_data_dict_lookup(ldself, "FileSystemSyncInterval");
+			si2 = launch_data_dict_lookup(ldself, "FileSystemEnergySavingSyncInterval");
+		}
+
 		reload_jobs();
 	}
 
@@ -164,15 +173,38 @@ int main(int argc, char *argv[])
 	else
 		exit(EXIT_FAILURE);
 
-	syncr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, 30, 0, 0, (CFRunLoopTimerCallBack)sync, NULL);
-	if (syncr)
-		CFRunLoopAddTimer(CFRunLoopGetCurrent(), syncr, kCFRunLoopDefaultMode);
-	else
-		syslog(LOG_WARNING, "CFRunLoopTimerCreate() failed");
+	if (si) {
+		energy_saving_sync_interval = sync_interval = launch_data_get_integer(si);
+		if (si2)
+			energy_saving_sync_interval = launch_data_get_integer(si2);
+		syncr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, sync_interval, 0, 0, (CFRunLoopTimerCallBack)sync_callback, NULL);
+		if (syncr)
+			CFRunLoopAddTimer(CFRunLoopGetCurrent(), syncr, kCFRunLoopDefaultMode);
+		else
+			syslog(LOG_WARNING, "CFRunLoopTimerCreate() failed");
+	}
 
 	CFRunLoopRun();
 
 	exit(EXIT_SUCCESS);
+}
+
+static void sync_callback(void)
+{
+	static double last_sync = 0;
+	static double current_sync_interval = 0;
+
+	if (on_battery_power())
+		current_sync_interval = energy_saving_sync_interval;
+	else
+		current_sync_interval = sync_interval;
+
+	if (last_sync >= current_sync_interval) {
+		sync();
+		last_sync = 0;
+	} else {
+		last_sync += sync_interval;
+	}
 }
 
 static void reload_job(launch_data_t ldj, const char *label, void *context __attribute__((unused)))
@@ -228,6 +260,7 @@ static void job_add(launch_data_t ajob)
 			Tcl_CreateCommand(j->tcli, "WatchPath", _watch_path, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "CancelAllCallBacks", _cancel_all_callbacks, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "syslog", _syslog, (void *)j, NULL);
+			Tcl_CreateCommand(j->tcli, "GetProperty", _getproperty, (void *)j, NULL);
 			if (Tcl_Init(j->tcli) != TCL_OK)
 				syslog(LOG_ERR, "Tcl_Init() for %s failed", l);
 		} else {
@@ -638,4 +671,67 @@ static void job_tcleval(struct jobcb *j)
 	if (Tcl_Eval(j->tcli, tclcode) != TCL_OK)
 		syslog(LOG_ERR, "%s: Tcl_Eval() failed at line %d: %s", l, j->tcli->errorLine, j->tcli->result);
 	Tcl_SetVar(j->tcli, LD_EVENT, "", TCL_GLOBAL_ONLY);
+}
+
+static bool on_battery_power(void)
+{
+        bool result = false;
+        kern_return_t kr;
+        mach_port_t master_device_port;
+        CFArrayRef cfarray = NULL;
+        CFDictionaryRef dict;
+        CFNumberRef cfnum;
+        int flags;
+
+        kr = IOMasterPort(bootstrap_port, &master_device_port);
+        if (KERN_SUCCESS != kr) {
+                syslog(LOG_WARNING, "IOMasterPort() failed");
+                return result;
+        }
+
+        kr = IOPMCopyBatteryInfo(master_device_port, &cfarray);
+        if (kIOReturnSuccess != kr) {
+                /* This case handles desktop machines in addition to error cases. */
+                return result;
+        }
+
+        dict = CFArrayGetValueAtIndex(cfarray, 0);
+        cfnum = CFDictionaryGetValue(dict, CFSTR(kIOBatteryFlagsKey));
+
+        if (CFNumberGetTypeID() != CFGetTypeID(cfnum)) {
+                syslog(LOG_WARNING, "%s(): battery flags not a CFNumber!", __func__);
+                goto out;
+        }
+
+        CFNumberGetValue(cfnum, kCFNumberLongType, &flags);
+
+        result = !(flags & kIOPMACInstalled);
+
+out:
+        if (cfarray)
+                CFRelease(cfarray);
+        return result;
+}
+
+static int _getproperty(ClientData clientData __attribute__((unused)), Tcl_Interp *interp, int argc, CONST char *argv[])
+{
+	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
+
+	if (argc != 2) {
+		Tcl_SetStringObj(tcl_result, "Wrong # args. GetProperty", -1);
+		return TCL_ERROR;
+	}
+
+	/* the default result is "false" */
+	Tcl_SetIntObj(tcl_result, 1);
+
+	if (!strcmp(argv[1], "onbattery")) {
+		if (on_battery_power())
+			Tcl_SetIntObj(tcl_result, 0);
+	} else {
+		Tcl_SetStringObj(tcl_result, "GetProperty: unknown property", -1);
+		return TCL_ERROR;
+	}
+
+	return TCL_OK;
 }
