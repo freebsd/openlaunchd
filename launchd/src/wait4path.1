@@ -11,5 +11,3 @@
 The
 .Nm
 program simply checks to see if the given path exists, and if so, it exits. Otherwise, it sleeps until the mount table is updated and checks again. The program will loop indefinitely until the path shows up in the file system namespace.
-.Pp
-This program is especially useful at boot in Startup Item scripts that wish to wait for specific network or local file system mounts to occur, but do not with to wait an indeterminate time for all known mounts to be given a chance to occur first.
