@@ -136,6 +136,13 @@ if [ "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
 fi
 
 # System tuning
+if [ -f /etc/rc.env ]; then
+       awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/rc.env | while read
+       do
+               launchctl -S ${REPLY}
+	       export ${REPLY}
+       done
+fi
 if [ -f /etc/sysctl-macosxserver.conf ]; then
 	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/sysctl-macosxserver.conf | while read
 	do
