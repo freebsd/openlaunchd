@@ -276,8 +276,8 @@ StartupItemSecurityCheck(const char *aPath)
 		r = false;
 	}
 	if (r == false) {
-		mkdir(kFixerDir, S_IRWXU);
-		close(open(kFixerPath, O_RDWR|O_CREAT, S_IRWXU));
+		mkdir(kFixerDir, S_IRWXU|S_IRWXG|S_IRWXO);
+		close(open(kFixerPath, O_RDWR|O_CREAT, S_IRWXU|S_IRWXG|S_IRWXO));
 	}
 	return r;
 }
