@@ -81,7 +81,7 @@ static void unset_launchd_env(const char *arg)
 
 	tmp = launch_data_alloc(LAUNCH_DATA_STRING);
 	launch_data_set_string(tmp, arg);
-	launch_data_dict_insert(req, tmp, "UnsetUserEnvironment");
+	launch_data_dict_insert(req, tmp, LAUNCH_KEY_UNSETUSERENVIRONMENT);
 
 	resp = launch_msg(req);
 
@@ -90,7 +90,7 @@ static void unset_launchd_env(const char *arg)
 	if (resp) {
 		launch_data_free(resp);
 	} else {
-		fprintf(stderr, "launch_msg(\"UnsetUserEnvironment\"): %s\n", strerror(errno));
+		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_UNSETUSERENVIRONMENT "\"): %s\n", strerror(errno));
 	}
 }
 
@@ -115,7 +115,7 @@ static void set_launchd_envkv(const char *key, const char *val)
 	tmpv = launch_data_alloc(LAUNCH_DATA_STRING);
 	launch_data_set_string(tmpv, val);
 	launch_data_dict_insert(tmp, tmpv, key);
-	launch_data_dict_insert(req, tmp, "SetUserEnvironment");
+	launch_data_dict_insert(req, tmp, LAUNCH_KEY_SETUSERENVIRONMENT);
 
 	resp = launch_msg(req);
 
@@ -124,7 +124,7 @@ static void set_launchd_envkv(const char *key, const char *val)
 	if (resp) {
 		launch_data_free(resp);
 	} else {
-		fprintf(stderr, "launch_msg(\"SetUserEnvironment\"): %s\n", strerror(errno));
+		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_SETUSERENVIRONMENT "\"): %s\n", strerror(errno));
 	}
 }
 
@@ -133,7 +133,7 @@ static void get_launchd_env(void)
 	launch_data_t resp, req = launch_data_alloc(LAUNCH_DATA_STRING);
 	char *s = getenv("SHELL");
 
-	launch_data_set_string(req, "GetUserEnvironment");
+	launch_data_set_string(req, LAUNCH_KEY_GETUSERENVIRONMENT);
 
 	resp = launch_msg(req);
 
@@ -141,7 +141,7 @@ static void get_launchd_env(void)
 		launch_data_dict_iterate(resp, print_launchd_env, s ? strstr(s, "csh") : NULL);
 		launch_data_free(resp);
 	} else {
-		fprintf(stderr, "launch_msg(\"GetUserEnvironment\"): %s\n", strerror(errno));
+		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_GETUSERENVIRONMENT "\"): %s\n", strerror(errno));
 	}
 }
 
@@ -156,14 +156,14 @@ static void unloadcfg(const char *what)
 	id_plist = CF2launch_data(plist);
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmp = launch_data_alloc(LAUNCH_DATA_STRING);
-	tmps = launch_data_dict_lookup(id_plist, "Label");
+	tmps = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL);
 	launch_data_set_string(tmp, launch_data_get_string(tmps));
 	launch_data_free(id_plist);
-	launch_data_dict_insert(msg, tmp, "RemoveJob");
+	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_REMOVEJOB);
 	resp = launch_msg(msg);
 	launch_data_free(msg);
 	if (LAUNCH_DATA_STRING == launch_data_get_type(resp)) {
-		if (strcmp("Success", launch_data_get_string(resp)))
+		if (strcmp(LAUNCH_RESPONSE_SUCCESS, launch_data_get_string(resp)))
 			fprintf(stderr, "%s\n", launch_data_get_string(resp));
 	}
 	launch_data_free(resp);
@@ -189,14 +189,14 @@ static void loadcfg(const char *what)
 			return;
 		}
 		id_plist = CF2launch_data(plist);
-		if ((tmp = launch_data_dict_lookup(id_plist, "Disabled"))) {
+		if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED))) {
 			if (launch_data_get_bool(tmp)) {
 				launch_data_free(id_plist);
 				return;
 			}
 		}
 		distill_config_file(id_plist);
-		launch_data_dict_insert(msg, id_plist, "SubmitJob");
+		launch_data_dict_insert(msg, id_plist, LAUNCH_KEY_SUBMITJOB);
 	} else {
 		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		tmpa = launch_data_alloc(LAUNCH_DATA_ARRAY);
@@ -217,7 +217,7 @@ static void loadcfg(const char *what)
 			}
 			free(foo);
 			id_plist = CF2launch_data(plist);
-			if ((tmp = launch_data_dict_lookup(id_plist, "Disabled"))) {
+			if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED))) {
 				if (launch_data_get_bool(tmp)) {
 					launch_data_free(id_plist);
 					continue;
@@ -227,14 +227,14 @@ static void loadcfg(const char *what)
 			launch_data_array_set_index(tmpa, id_plist, launch_data_array_get_count(tmpa));
 		}
 		closedir(d);
-		launch_data_dict_insert(msg, tmpa, "SubmitJobs");
+		launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_SUBMITJOBS);
 	}
 
 	resp = launch_msg(msg);
 
 	if (resp) {
 		if (LAUNCH_DATA_STRING == launch_data_get_type(resp)) {
-			if (strcmp("Success", launch_data_get_string(resp)))
+			if (strcmp(LAUNCH_RESPONSE_SUCCESS, launch_data_get_string(resp)))
 				fprintf(stderr, "%s\n", launch_data_get_string(resp));
 		}
 		launch_data_free(resp);
@@ -252,35 +252,35 @@ static void distill_config_file(launch_data_t id_plist)
 
 	ccfile = id_plist;
 
-	if ((tmp = launch_data_dict_lookup(id_plist, "UserName"))) {
+	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_USERNAME))) {
 		struct passwd *pwe = getpwnam(launch_data_get_string(tmp));
-		launch_data_dict_remove(id_plist, "UserName");
+		launch_data_dict_remove(id_plist, LAUNCH_JOBKEY_USERNAME);
 		if (pwe) {
 			launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
 			launch_data_set_integer(ntmp, pwe->pw_uid);
-			launch_data_dict_insert(id_plist, ntmp, "UID");
+			launch_data_dict_insert(id_plist, ntmp, LAUNCH_JOBKEY_UID);
 		}
 	}
 
-	if ((tmp = launch_data_dict_lookup(id_plist, "GroupName"))) {
+	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_GROUPNAME))) {
 		struct group *gre = getgrnam(launch_data_get_string(tmp));
-		launch_data_dict_remove(id_plist, "GroupName");
+		launch_data_dict_remove(id_plist, LAUNCH_JOBKEY_GROUPNAME);
 		if (gre) {
 			launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
 			launch_data_set_integer(ntmp, gre->gr_gid);
-			launch_data_dict_insert(id_plist, ntmp, "GID");
+			launch_data_dict_insert(id_plist, ntmp, LAUNCH_JOBKEY_GID);
 		}
 	}
 
-	if ((tmp = launch_data_dict_lookup(id_plist, "Sockets"))) {
+	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_SOCKETS))) {
 		launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		launch_data_dict_iterate(tmp, sock_dict_cb, ntmp);
-		launch_data_dict_insert(id_plist, ntmp, "EventSources");
-		launch_data_dict_remove(id_plist, "Sockets");
+		launch_data_dict_insert(id_plist, ntmp, LAUNCH_JOBKEY_EVENTSOURCES);
+		launch_data_dict_remove(id_plist, LAUNCH_JOBKEY_SOCKETS);
 	}
 
-	if ((tmp = launch_data_dict_lookup(id_plist, "inetdCompatWait"))) {
-		oldargs = launch_data_dict_lookup(id_plist, "ProgramArguments");
+	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_INETDCOMPATWAIT))) {
+		oldargs = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 		newargs = launch_data_alloc(LAUNCH_DATA_ARRAY);
 		tmps = launch_data_alloc(LAUNCH_DATA_STRING);
 		launch_data_set_string(tmps, "/usr/libexec/launchproxy");
@@ -288,7 +288,7 @@ static void distill_config_file(launch_data_t id_plist)
 		tmps = launch_data_alloc(LAUNCH_DATA_STRING);
 		launch_data_set_string(tmps, launch_data_get_bool(tmp) ? "--inetd_mt" : "--inetd_st");
 		launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
-		if ((tmp = launch_data_dict_lookup(id_plist, "Program"))) {
+		if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_PROGRAM))) {
 			tmps = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(tmps, "--program");
 			launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
@@ -304,7 +304,7 @@ static void distill_config_file(launch_data_t id_plist)
 			launch_data_set_string(tmps, launch_data_get_string(launch_data_array_get_index(oldargs, i)));
 			launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
 		}
-		launch_data_dict_insert(id_plist, newargs, "ProgramArguments");
+		launch_data_dict_insert(id_plist, newargs, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	}
 }
 
@@ -321,20 +321,20 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 
 		tmp = launch_data_array_get_index(what, i);
 
-		if ((val = launch_data_dict_lookup(tmp, "SockType"))) {
-			if (!strcmp(launch_data_get_string(val), "SOCK_STREAM")) {
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_TYPE))) {
+			if (!strcasecmp(launch_data_get_string(val), "stream")) {
 				st = SOCK_STREAM;
-			} else if (!strcmp(launch_data_get_string(val), "SOCK_DGRAM")) {
+			} else if (!strcasecmp(launch_data_get_string(val), "dgram")) {
 				st = SOCK_DGRAM;
-			} else if (!strcmp(launch_data_get_string(val), "SOCK_SEQPACKET")) {
+			} else if (!strcasecmp(launch_data_get_string(val), "seqpacket")) {
 				st = SOCK_SEQPACKET;
 			}
 		}
 
-		if ((val = launch_data_dict_lookup(tmp, "SockPassive")))
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PASSIVE)))
 			passive = launch_data_get_bool(val);
 
-		if ((val = launch_data_dict_lookup(tmp, "SecureSocketWithKey"))) {
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SECUREWITHKEY))) {
 			launch_data_t t, a;
 			char secdir[sizeof(LAUNCH_SECDIR)], buf[1024];
 
@@ -344,21 +344,21 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 
 			sprintf(buf, "%s/%s", secdir, key);
 
-			if (!(t = launch_data_dict_lookup(ccfile, "UserEnvironmentVariables"))) {
+			if (!(t = launch_data_dict_lookup(ccfile, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES))) {
 				t = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-				launch_data_dict_insert(ccfile, t, "UserEnvironmentVariables");
+				launch_data_dict_insert(ccfile, t, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES);
 			}
 
 			a = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(a, buf);
-			launch_data_dict_insert(tmp, a, "SockPathName");
+			launch_data_dict_insert(tmp, a, LAUNCH_JOBSOCKETKEY_PATHNAME);
 
 			a = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(a, buf);
 			launch_data_dict_insert(t, a, launch_data_get_string(val));
 		}
 		
-		if ((val = launch_data_dict_lookup(tmp, "SockPathName"))) {
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHNAME))) {
 			struct sockaddr_un sun;
 
 			memset(&sun, 0, sizeof(sun));
@@ -404,9 +404,9 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 			if (passive)
 				hints.ai_flags |= AI_PASSIVE;
 
-			if ((val = launch_data_dict_lookup(tmp, "SockNodeName")))
+			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_NODENAME)))
 				node = launch_data_get_string(val);
-			if ((val = launch_data_dict_lookup(tmp, "SockServiceName"))) {
+			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SERVICENAME))) {
 				if (LAUNCH_DATA_INTEGER == launch_data_get_type(val)) {
 					sprintf(servnbuf, "%lld", launch_data_get_integer(val));
 					serv = servnbuf;
@@ -414,14 +414,14 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 					serv = launch_data_get_string(val);
 				}
 			}
-			if ((val = launch_data_dict_lookup(tmp, "SockFamily"))) {
-				if (!strcmp("AF_INET", launch_data_get_string(val)))
+			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_FAMILY))) {
+				if (!strcasecmp("IPv4", launch_data_get_string(val)))
 					hints.ai_family = AF_INET;
-				else if (!strcmp("AF_INET6", launch_data_get_string(val)))
+				else if (!strcasecmp("IPv6", launch_data_get_string(val)))
 					hints.ai_family = AF_INET6;
 			}
-			if ((val = launch_data_dict_lookup(tmp, "SockProtocol"))) {
-				if (!strcmp("IPPROTO_TCP", launch_data_get_string(val)))
+			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PROTOCOL))) {
+				if (!strcasecmp("TCP", launch_data_get_string(val)))
 					hints.ai_protocol = IPPROTO_TCP;
 			}
 

@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <paths.h>
 
 #include "launch.h"
 #include "launch_priv.h"
@@ -144,7 +145,7 @@ int main(int argc, char *argv[])
 				break;
 			}
 		}
-		tmpfd = open("/dev/null", O_RDWR);
+		tmpfd = open(_PATH_DEVNULL, O_RDWR);
 		dup2(tmpfd, STDIN_FILENO);
 		dup2(tmpfd, STDOUT_FILENO);
 		dup2(tmpfd, STDERR_FILENO);
@@ -177,7 +178,7 @@ static int launchd_server_init(const char *thepath)
 
         memset(&sun, 0, sizeof(sun));
         sun.sun_family = AF_UNIX;
-        strncpy(sun.sun_path, thepath ? thepath : where ? where : "/var/run/launchd.socket", sizeof(sun.sun_path));
+        strncpy(sun.sun_path, thepath ? thepath : where ? where : LAUNCHD_DEFAULT_SOCK_PATH, sizeof(sun.sun_path));
 
         if (!thepath && !where)
                 oldmask = umask(0);
@@ -367,58 +368,69 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	launch_data_t pload, tmp, resp = NULL;
 	size_t i;
 
-	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) && (tmp = launch_data_dict_lookup(msg, "RemoveJob"))) {
+	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_REMOVEJOB))) {
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, find_jobq(c->u), tqe) {
 			if (!strcmp(j->label, launch_data_get_string(tmp))) {
 				job_remove(j);
-				launch_data_set_string(resp, "Success");
+				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 				goto out;
 			}
 		}
-		launch_data_set_string(resp, "JobNotFound");
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) && (pload = launch_data_dict_lookup(msg, "SubmitJobs"))) {
+		launch_data_set_string(resp, LAUNCH_RESPONSE_JOBNOTFOUND);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SUBMITJOBS))) {
 		resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
 		for (i = 0; i < launch_data_array_get_count(pload); i++) {
 			tmp = load_job(launch_data_array_get_index(pload, i), c);
 			launch_data_array_set_index(resp, tmp, i);
 		}
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) && (pload = launch_data_dict_lookup(msg, "SubmitJob"))) {
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SUBMITJOB))) {
 		resp = load_job(pload, c);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) && (pload = launch_data_dict_lookup(msg, "UnsetUserEnvironment"))) {
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_UNSETUSERENVIRONMENT))) {
 		launch_data_dict_remove(u->uenv, launch_data_get_string(pload));
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, "Success");
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) && !strcmp(launch_data_get_string(msg), "GetUserEnvironment")) {
+		launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETUSERENVIRONMENT)) {
 		resp = launch_data_copy(u->uenv);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) && (pload = launch_data_dict_lookup(msg, "SetUserEnvironment"))) {
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SETUSERENVIRONMENT))) {
 		launch_data_dict_iterate(pload, set_user_env, u);
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, "Success");
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) && !strcmp(launch_data_get_string(msg), "CheckIn")) {
+		launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_CHECKIN)) {
 		if (c->j) {
 			resp = evs2launch_data(c->j);
 			c->j->checkedin = true;
 		} else {
 			resp = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(resp, "NotRunningFromLaunchd");
+			launch_data_set_string(resp, LAUNCH_RESPONSE_NOTRUNNINGFROMLAUNCHD);
 		}
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) && !strcmp(launch_data_get_string(msg), "GetJobs")) {
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(find_jobq(c->u));
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) && !strcmp(launch_data_get_string(msg), "GetAllJobs")) {
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETAllJOBS)) {
 		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		TAILQ_FOREACH(u, &users, tqe) {
 			sprintf(uidstr, "%d", u->u);
 			launch_data_dict_insert(resp, get_jobs(&u->ujobs), uidstr);
 		}
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) && (tmp = launch_data_dict_lookup(msg, "BatchControl"))) {
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
 		resp = batch_control(u, launch_data_get_bool(tmp));
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) && !strcmp(launch_data_get_string(msg), "BatchQuery")) {
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_BATCHQUERY)) {
 		resp = launch_data_alloc(LAUNCH_DATA_BOOL);
 		launch_data_set_bool(resp, !u->batch_suspended);
 	} else {	
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, "UnknownCommand");
+		launch_data_set_string(resp, LAUNCH_RESPONSE_UNKNOWNCOMMAND);
 	}
 out:
 	free_stray_fds(msg);
@@ -438,7 +450,7 @@ static launch_data_t batch_control(struct usercb *u, bool e)
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_STRING);
 	struct jobcb *j;
 
-	launch_data_set_string(resp, "Success");
+	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 
 	if (e) {
 		u->batch_suspended = true;
@@ -473,29 +485,29 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 	struct usercb *u = find_usercb(c->u);
 	size_t i;
 
-	if ((tmp = launch_data_dict_lookup(pload, "Label"))) {
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
 		TAILQ_FOREACH(j, &u->ujobs, tqe) {
 			if (!strcmp(j->label, launch_data_get_string(tmp))) {
 				resp = launch_data_alloc(LAUNCH_DATA_STRING);
-				launch_data_set_string(resp, "JobExists");
+				launch_data_set_string(resp, LAUNCH_RESPONSE_JOBEXISTS);
 				goto out;
 			}
 		}
 	} else {
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, "LabelMissing");
+		launch_data_set_string(resp, LAUNCH_RESPONSE_LABELMISSING);
 		goto out;
 	}
-	if (launch_data_dict_lookup(pload, "ProgramArguments") == NULL) {
+	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS) == NULL) {
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, "ProgramArgumentsMissing");
+		launch_data_set_string(resp, LAUNCH_RESPONSE_PROGRAMARGUMENTSMISSING);
 		goto out;
 	}
-	if ((tmp = launch_data_dict_lookup(pload, "OnDemand")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND)))
 		od = launch_data_get_bool(tmp);
-	if (launch_data_dict_lookup(pload, "EventSources") == NULL && od) {
+	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_EVENTSOURCES) == NULL && od) {
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, "MissingEventSources");
+		launch_data_set_string(resp, LAUNCH_RESPONSE_MISSINGEVENTSOURCES);
 		goto out;
 	}
 	j = calloc(1, sizeof(struct jobcb));
@@ -506,31 +518,31 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 	j->uenv = u->uenv;
 
 	if (c->u == 0) {
-		if ((tmp = launch_data_dict_lookup(pload, "UID")))
+		if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_UID)))
 			j->u = (uid_t)launch_data_get_integer(tmp);
-		if ((tmp = launch_data_dict_lookup(pload, "GID")))
+		if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_GID)))
 			j->g = (uid_t)launch_data_get_integer(tmp);
-		if ((tmp = launch_data_dict_lookup(pload, "Root")))
+		if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ROOT)))
 			j->root = strdup(launch_data_get_string(tmp));
 	} else {
 		j->u = c->u;
 		j->g = c->g;
 	}
-	if ((tmp = launch_data_dict_lookup(pload, "Batch")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_BATCH)))
 		j->batch = launch_data_get_bool(tmp);
-	if ((tmp = launch_data_dict_lookup(pload, "WorkingDirectory")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_WORKINGDIRECTORY)))
 		j->wd = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, "Label")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)))
 		j->label = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, "ServiceDescription")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SERVICEDESCRIPTION)))
 		j->desc = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, "Program")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM)))
 		j->prog = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, "EnvironmentVariables")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES)))
 		j->env = launch_data_copy(tmp);
-	if ((tmp = launch_data_dict_lookup(pload, "UserEnvironmentVariables")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
 		launch_data_dict_iterate(tmp, set_user_env, u);
-	if ((tmp = launch_data_dict_lookup(pload, "ProgramArguments"))) {
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS))) {
 		j->argv = malloc(sizeof(char *) * (launch_data_array_get_count(tmp) + 1));
 		for (i = 0; i < launch_data_array_get_count(tmp); i++) {
 			tmpi = launch_data_array_get_index(tmp, i);
@@ -538,7 +550,7 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 		}
 		j->argv[launch_data_array_get_count(tmp)] = NULL;
 	}
-	if ((tmp = launch_data_dict_lookup(pload, "EventSources")))
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_EVENTSOURCES)))
 		launch_data_dict_iterate(tmp, job_addevs, j);
 
 	TAILQ_INSERT_TAIL(find_jobq(c->u), j, tqe);
@@ -549,7 +561,7 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 		job_event_callback(j, NULL);
 
 	resp = launch_data_alloc(LAUNCH_DATA_STRING);
-	launch_data_set_string(resp, "Success");
+	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 out:
 	return resp;
 }
@@ -587,28 +599,28 @@ static launch_data_t get_jobs(struct userjobs *uhead)
 
 		tmpi = launch_data_alloc(LAUNCH_DATA_BOOL);
 		launch_data_set_bool(tmpi, j->od);
-		launch_data_dict_insert(tmp, tmpi, "OnDemand");
+		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_ONDEMAND);
 
 		if (j->p != 0) {
 			tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
 			launch_data_set_integer(tmpi, j->p);
-			launch_data_dict_insert(tmp, tmpi, "PID");
+			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_PID);
 		}
 
 		tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
 		launch_data_set_integer(tmpi, j->m);
-		launch_data_dict_insert(tmp, tmpi, "Umask");
+		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_UMASK);
 
 		if (j->wd) {
 			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(tmpi, j->wd);
-			launch_data_dict_insert(tmp, tmpi, "WorkingDirectory");
+			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_WORKINGDIRECTORY);
 		}
 
 		if (j->root) {
 			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(tmpi, j->root);
-			launch_data_dict_insert(tmp, tmpi, "Root");
+			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_ROOT);
 		}
 
 		tmpi = launch_data_alloc(LAUNCH_DATA_ARRAY);
@@ -617,32 +629,32 @@ static launch_data_t get_jobs(struct userjobs *uhead)
 			launch_data_set_string(tmpa, *argvtmp);
 			launch_data_array_set_index(tmpi, tmpa, launch_data_array_get_count(tmpi));
 		}
-		launch_data_dict_insert(tmp, tmpi, "ProgramArguments");
+		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 
 		tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
 		launch_data_set_integer(tmpi, j->u);
-		launch_data_dict_insert(tmp, tmpi, "UID");
+		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_UID);
 
 		tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
 		launch_data_set_integer(tmpi, j->g);
-		launch_data_dict_insert(tmp, tmpi, "GID");
+		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_GID);
 
 		if (j->prog) {
 			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(tmpi, j->prog);
-			launch_data_dict_insert(tmp, tmpi, "Program");
+			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_PROGRAM);
 		}
 
 		if (j->desc) {
 			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(tmpi, j->desc);
-			launch_data_dict_insert(tmp, tmpi, "ServiceDescription");
+			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_SERVICEDESCRIPTION);
 		}
 
 		if (j->env)
-			launch_data_dict_insert(tmp, launch_data_copy(j->env), "EnvironmentVariables");
+			launch_data_dict_insert(tmp, launch_data_copy(j->env), LAUNCH_JOBKEY_ENVIRONMENTVARIABLES);
 
-		launch_data_dict_insert(tmp, evs2launch_data(j), "EventSources");
+		launch_data_dict_insert(tmp, evs2launch_data(j), LAUNCH_JOBKEY_EVENTSOURCES);
 
 		launch_data_dict_insert(resp, tmp, j->label);
 	}
@@ -805,7 +817,7 @@ launch_again:
 		launch_data_dict_iterate(j->uenv, setup_job_env, NULL);
 		if (j->env)
 			launch_data_dict_iterate(j->env, setup_job_env, NULL);
-		setenv("__LAUNCHD_FD", nbuf, 1);
+		setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
                 setsid();
                 if (execvp(j->prog ? j->prog : j->argv[0], (char * const*)j->argv) == -1)
                         launchd_debug(LOG_DEBUG, "child execvp(): %m");

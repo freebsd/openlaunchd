@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
 	launch_data_t fd_dict;
 	char *prog = NULL;
 
-	launch_data_set_string(checkin_cmd, "CheckIn");
+	launch_data_set_string(checkin_cmd, LAUNCH_KEY_CHECKIN);
 
 	openlog(basename(argv[0]), LOG_PERROR|LOG_PID|LOG_CONS, LOG_DAEMON);
 
@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
 	kq = kqueue();
 
 	if ((fd_dict = launch_msg(checkin_cmd)) == NULL) {
-		syslog(LOG_DEBUG, "launch_msg(\"CheckIn\"): %s", strerror(errno));
+		syslog(LOG_DEBUG, "launch_msg(\"" LAUNCH_KEY_CHECKIN "\"): %s", strerror(errno));
 		goto out;
 	}
 

@@ -1,7 +1,12 @@
 #ifndef _LAUNCH_PRIV_H_
 #define _LAUNCH_PRIV_H_
 
-#define LAUNCHD_SOCKET_ENV "LAUNCHD_SOCKET"
+#define LAUNCHD_SOCKET_ENV		"LAUNCHD_SOCKET"
+#define LAUNCHD_DEFAULT_SOCK_PATH	"/var/run/launchd.socket"
+#define LAUNCHD_TRUSTED_FD_ENV		"__LAUNCHD_FD"
+#define LAUNCHD_ASYNC_MSG_KEY		"_AsyncMessage"
+#define LAUNCH_KEY_BATCHCONTROL		"BatchControl"
+#define LAUNCH_KEY_BATCHQUERY		"BatchQuery"
 
 typedef struct _launch *launch_t;
 

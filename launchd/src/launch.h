@@ -4,6 +4,56 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+
+#define LAUNCH_KEY_SUBMITJOB			"SubmitJob"
+#define LAUNCH_KEY_SUBMITJOBS			"SubmitJobs"
+#define LAUNCH_KEY_REMOVEJOB			"RemoveJob"
+#define LAUNCH_KEY_GETJOBS			"GetJobs"
+#define LAUNCH_KEY_GETAllJOBS			"GetAllJobs"
+#define LAUNCH_KEY_CHECKIN			"CheckIn"
+#define LAUNCH_KEY_GETUSERENVIRONMENT		"GetUserEnvironment"
+#define LAUNCH_KEY_SETUSERENVIRONMENT		"SetUserEnvironment"
+#define LAUNCH_KEY_UNSETUSERENVIRONMENT		"UnsetUserEnvironment"
+
+#define LAUNCH_JOBKEY_LABEL			"Label"
+#define LAUNCH_JOBKEY_DISABLED			"Disabled"
+#define LAUNCH_JOBKEY_USERNAME			"UserName"
+#define LAUNCH_JOBKEY_UID			"UID"
+#define LAUNCH_JOBKEY_GROUPNAME			"GroupName"
+#define LAUNCH_JOBKEY_GID			"GID"
+#define LAUNCH_JOBKEY_SOCKETS			"Sockets"
+#define LAUNCH_JOBKEY_EVENTSOURCES		"EventSources"
+#define LAUNCH_JOBKEY_INETDCOMPATWAIT		"inetdCompatWait"
+#define LAUNCH_JOBKEY_PROGRAMARGUMENTS		"ProgramArguments"
+#define LAUNCH_JOBKEY_PROGRAM			"Program"
+#define LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES	"UserEnvironmentVariables"
+#define LAUNCH_JOBKEY_ONDEMAND			"OnDemand"
+#define LAUNCH_JOBKEY_ROOT			"Root"
+#define LAUNCH_JOBKEY_BATCH			"Batch"
+#define LAUNCH_JOBKEY_WORKINGDIRECTORY		"WorkingDirectory"
+#define LAUNCH_JOBKEY_SERVICEDESCRIPTION	"ServiceDescription"
+#define LAUNCH_JOBKEY_ENVIRONMENTVARIABLES	"EnvironmentVariables"
+#define LAUNCH_JOBKEY_PID			"PID"
+#define LAUNCH_JOBKEY_UMASK			"Umask"
+
+#define LAUNCH_JOBSOCKETKEY_TYPE		"SockType"
+#define LAUNCH_JOBSOCKETKEY_PASSIVE		"SockPassive"
+#define LAUNCH_JOBSOCKETKEY_SECUREWITHKEY	"SecureSocketWithKey"
+#define LAUNCH_JOBSOCKETKEY_PATHNAME		"SockPathName"
+#define LAUNCH_JOBSOCKETKEY_NODENAME		"SockNodeName"
+#define LAUNCH_JOBSOCKETKEY_SERVICENAME		"SockServiceName"
+#define LAUNCH_JOBSOCKETKEY_FAMILY		"SockFamily"
+#define LAUNCH_JOBSOCKETKEY_PROTOCOL		"SockProtocol"
+
+#define LAUNCH_RESPONSE_SUCCESS			"Success"
+#define LAUNCH_RESPONSE_JOBNOTFOUND		"JobNotFound"
+#define LAUNCH_RESPONSE_NOTRUNNINGFROMLAUNCHD	"NotRunningFromLaunchd"
+#define LAUNCH_RESPONSE_MISSINGEVENTSOURCES	"MissingEventSources"
+#define LAUNCH_RESPONSE_UNKNOWNCOMMAND		"UnknownCommand"
+#define LAUNCH_RESPONSE_JOBEXISTS		"JobExists"
+#define LAUNCH_RESPONSE_LABELMISSING		"LabelMissing"
+#define LAUNCH_RESPONSE_PROGRAMARGUMENTSMISSING	"ProgramArgumentsMissing"
+
 typedef struct _launch_data *launch_data_t;
 
 typedef enum {

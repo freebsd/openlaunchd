@@ -36,7 +36,7 @@ static void launch_client_init(void)
 {
 	struct sockaddr_un sun;
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
-	char *_launchd_fd = getenv("__LAUNCHD_FD");
+	char *_launchd_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
 	int lfd;
 	
 	_lc = calloc(1, sizeof(struct _launch_client));
@@ -50,7 +50,7 @@ static void launch_client_init(void)
 		lfd = strtol(_launchd_fd, NULL, 10);
 	} else {
 		if (!where)
-			where = "/var/run/launchd.socket";
+			where = LAUNCHD_DEFAULT_SOCK_PATH;
 
 		memset(&sun, 0, sizeof(sun));
 		sun.sun_family = AF_UNIX;
@@ -565,7 +565,7 @@ static void launch_msg_getmsgs(launch_data_t m, void *context)
 {
 	launch_data_t async_resp, *sync_resp = context;
 	
-	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(m)) && (async_resp = launch_data_dict_lookup(m, "_AsyncMessage"))) {
+	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(m)) && (async_resp = launch_data_dict_lookup(m, LAUNCHD_ASYNC_MSG_KEY))) {
 		launch_data_array_set_index(_lc->async_resp, launch_data_copy(async_resp), launch_data_array_get_count(_lc->async_resp));
 	} else {
 		*sync_resp = launch_data_copy(m);
@@ -705,7 +705,7 @@ void launchd_batch_enable(bool val)
 	launch_data_set_bool(tmp, val);
 
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	launch_data_dict_insert(msg, tmp, "BatchControl");
+	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_BATCHCONTROL);
 
 	resp = launch_msg(msg);
 
@@ -720,7 +720,7 @@ bool launchd_batch_query(void)
 	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
 	bool rval = true;
 
-	launch_data_set_string(msg, "BatchQuery");
+	launch_data_set_string(msg, LAUNCH_KEY_BATCHQUERY);
 
 	resp = launch_msg(msg);
 
