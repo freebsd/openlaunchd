@@ -23,6 +23,10 @@
 #define LD_EVENT	"launchd_event"
 #define LD_EVENT_FLAGS	"launchd_event_flags"
 
+#define SYNC_INTR_STR	"FileSystemSyncInterval"
+#define SYNC_INTR2_STR	"FileSystemEnergySavingSyncInterval"
+
+
 struct watchpathcb {
 	TAILQ_ENTRY(watchpathcb) tqe;
 	int fd;
@@ -72,8 +76,8 @@ static void sync_callback(void);
 
 static int kq = 0;
 static char *testtcl = NULL;
-static double sync_interval = 30;
-static double energy_saving_sync_interval = 30;
+static int sync_interval = 30;
+static int energy_saving_sync_interval = 30;
 
 static int _start_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 static int _stop_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
@@ -172,12 +176,17 @@ int main(int argc, char *argv[])
 		launch_data_free(msg);
 
 		if (resp) {
-			si = launch_data_dict_lookup(resp, "FileSystemSyncInterval");
-			si2 = launch_data_dict_lookup(resp, "FileSystemEnergySavingSyncInterval");
+			si = launch_data_dict_lookup(resp, SYNC_INTR_STR);
+			si2 = launch_data_dict_lookup(resp, SYNC_INTR2_STR);
 		} else {
 			syslog(LOG_ERR, "Failed to check in with launchd: %m");
 			exit(EXIT_FAILURE);
 		}
+
+		if (si && launch_data_get_type(si) == LAUNCH_DATA_INTEGER && launch_data_get_integer(si) > 0)
+			energy_saving_sync_interval = sync_interval = launch_data_get_integer(si);
+		if (si2 && launch_data_get_type(si2) == LAUNCH_DATA_INTEGER && launch_data_get_integer(si2) > 0)
+			energy_saving_sync_interval = launch_data_get_integer(si2);
 
 		launch_data_free(resp);
 
@@ -192,16 +201,13 @@ int main(int argc, char *argv[])
 	else
 		exit(EXIT_FAILURE);
 
-	if (si) {
-		energy_saving_sync_interval = sync_interval = launch_data_get_integer(si);
-		if (si2)
-			energy_saving_sync_interval = launch_data_get_integer(si2);
-		syncr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, sync_interval, 0, 0, (CFRunLoopTimerCallBack)sync_callback, NULL);
-		if (syncr)
-			CFRunLoopAddTimer(CFRunLoopGetCurrent(), syncr, kCFRunLoopDefaultMode);
-		else
-			syslog(LOG_WARNING, "CFRunLoopTimerCreate() failed");
-	}
+	syslog(LOG_INFO, "%s: %d", SYNC_INTR_STR, sync_interval);
+	syslog(LOG_INFO, "%s: %d", SYNC_INTR2_STR, energy_saving_sync_interval);
+	syncr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, sync_interval, 0, 0, (CFRunLoopTimerCallBack)sync_callback, NULL);
+	if (syncr)
+		CFRunLoopAddTimer(CFRunLoopGetCurrent(), syncr, kCFRunLoopDefaultMode);
+	else
+		syslog(LOG_WARNING, "CFRunLoopTimerCreate() failed");
 
 	CFRunLoopRun();
 
@@ -210,19 +216,17 @@ int main(int argc, char *argv[])
 
 static void sync_callback(void)
 {
-	static double last_sync = 0;
-	static double current_sync_interval = 0;
+	static int last_sync = 0;
+	int current_sync_interval = sync_interval;
+
+	last_sync += sync_interval;
 
 	if (on_battery_power())
 		current_sync_interval = energy_saving_sync_interval;
-	else
-		current_sync_interval = sync_interval;
 
 	if (last_sync >= current_sync_interval) {
 		sync();
 		last_sync = 0;
-	} else {
-		last_sync += sync_interval;
 	}
 }
 
