@@ -117,7 +117,7 @@ static void pid1waitpid(void);
 static bool launchd_check_pid(pid_t p);
 #endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
-static bool launchd_server_init(bool create_session);
+static void launchd_server_init(bool create_session);
 static void conceive_firstborn(char *argv[]);
 
 static void *mach_demand_loop(void *);
@@ -223,8 +223,7 @@ int main(int argc, char *argv[])
 		pid1_magic_init(sflag, vflag, xflag);
 	} else {
 		launchd_bootstrap_port = bootstrap_port;
-		if (!launchd_server_init(argv[0] ? true : false))
-			exit(EXIT_FAILURE);
+		launchd_server_init(argv[0] ? true : false);
 	}
 
 	if (argv[0])
@@ -378,7 +377,7 @@ static void launchd_clean_up(void)
 	seteuid(getuid());
 }
 
-static bool launchd_server_init(bool create_session)
+static void launchd_server_init(bool create_session)
 {
 	struct sockaddr_un sun;
 	mode_t oldmask;
@@ -499,7 +498,6 @@ out_bad:
 		if (ourdirfd != -1)
 			close(ourdirfd);
 	}
-	return launchd_inited;
 }
 
 static long long job_get_integer(launch_data_t j, const char *key)
