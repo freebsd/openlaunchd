@@ -23,12 +23,10 @@ static void removeJob(char *joblabel);
 
 int main(int argc, char *argv[])
 {
-	initng_err_t ingerr;
 	int ch;
 
-	ingerr = initng_init(&thefd, NULL);
-	if (ingerr != INITNG_ERR_SUCCESS) {
-		fprintf(stderr, "initng_init(): %s\n", initng_strerror(ingerr));
+	if ((thefd = initng_open()) == -1) {
+		fprintf(stderr, "initng_open(): %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
@@ -62,7 +60,7 @@ int main(int argc, char *argv[])
 	exit(EXIT_SUCCESS);
 }
 
-static void mon_cb(int fd, char *command, char *data[], void *cookie)
+static void mon_cb(int fd __attribute__((unused)), char *command, char *data[], void *cookie __attribute__((unused)), initng_cred_t *cred __attribute__((unused)))
 {
 	int sfd;
 
@@ -79,17 +77,13 @@ static void mon_cb(int fd, char *command, char *data[], void *cookie)
 
 static void monitor_initngd(void)
 {
-	initng_err_t ingerr;
-
-	ingerr = initng_msg(thefd, "enableMonitor", "true", NULL);
-	if (ingerr != INITNG_ERR_SUCCESS) {
-		fprintf(stderr, "monitoring request failed: %s\n", initng_strerror(ingerr));
+	if (initng_msg(thefd, "enableMonitor", "true", NULL) == -1) {
+		fprintf(stderr, "monitoring request failed: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
 	for (;;) {
-		ingerr = initng_recvmsg(thefd, mon_cb, NULL);
-		if (ingerr != INITNG_ERR_SUCCESS)
+		if (initng_recvmsg(thefd, mon_cb, NULL) == -1)
 			break;
 	}
 	exit(EXIT_FAILURE);
@@ -97,11 +91,8 @@ static void monitor_initngd(void)
 
 static void removeJob(char *joblabel)
 {
-	initng_err_t ingerr;
-
-	ingerr = initng_msg(thefd, "removeJob", joblabel, NULL);
-	if (ingerr != INITNG_ERR_SUCCESS) {
-		fprintf(stderr, "removeJob failed: %s\n", initng_strerror(ingerr));
+	if (initng_msg(thefd, "removeJob", joblabel, NULL) == -1) {
+		fprintf(stderr, "removeJob failed: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 }
@@ -222,7 +213,6 @@ static void handleConfigFile(const char *file)
 	char buf[4096];
 	char *joblabel = NULL;
 	size_t i;
-	initng_err_t ingerr;
 	const void *v, *tv, *iv;
 	char **msga, **msgatmp;
 	CFIndex count;
@@ -239,8 +229,8 @@ static void handleConfigFile(const char *file)
 		return;
 	CFStringGetCString(v, buf, sizeof(buf), kCFStringEncodingUTF8);
 	joblabel = strdup(buf);
-	if ((ingerr = initng_msg(thefd, "createJob", joblabel, NULL)) != INITNG_ERR_SUCCESS) {
-		fprintf(stderr, "createJob failed: %s\n", initng_strerror(ingerr));
+	if (initng_msg(thefd, "createJob", joblabel, NULL) == -1) {
+		fprintf(stderr, "createJob failed: %s\n", strerror(errno));
 		return;
 	}
 
@@ -256,9 +246,8 @@ static void handleConfigFile(const char *file)
 		msga = cf_file_options[i].func(v);
 		if (msga) {
 			msga[0] = joblabel;
-			ingerr = initng_msga(thefd, cf_file_options[i].command, msga);
-			if (ingerr != INITNG_ERR_SUCCESS) {
-				fprintf(stderr, "%s failed: %s\n", cf_file_options[i].command, initng_strerror(ingerr));
+			if (initng_msga(thefd, cf_file_options[i].command, msga) == -1) {
+				fprintf(stderr, "%s failed: %s\n", cf_file_options[i].command, strerror(errno));
 				return;
 			}
 			for (msgatmp = msga + 1; *msgatmp; msgatmp++)
@@ -353,17 +342,15 @@ static void handleConfigFile(const char *file)
 		}
 
 		if (strlen(sockpathname) > 0) {
-			ingerr = initng_msg(thefd, "addUnixSocket", joblabel, socklabel, sockpathname,
-					 socktype, sockprotocol, sockpassive, NULL);
-			if (ingerr != INITNG_ERR_SUCCESS) {
-				fprintf(stderr, "addUnixSocket failed: %s\n", initng_strerror(ingerr));
+			if (initng_msg(thefd, "addUnixSocket", joblabel, socklabel, sockpathname,
+					 socktype, sockprotocol, sockpassive, NULL) == -1) {
+				fprintf(stderr, "addUnixSocket failed: %s\n", strerror(errno));
 				return;
 			}
 		} else {
-			ingerr = initng_msg(thefd, "addGetaddrinfoSockets", joblabel, socklabel, socknodename, sockservname,
-					sockfamily, socktype, sockprotocol, sockpassive, NULL);
-			if (ingerr != INITNG_ERR_SUCCESS) {
-				fprintf(stderr, "addGetaddrinfoSockets failed: %s\n", initng_strerror(ingerr));
+			if (initng_msg(thefd, "addGetaddrinfoSockets", joblabel, socklabel, socknodename, sockservname,
+					sockfamily, socktype, sockprotocol, sockpassive, NULL) == -1) {
+				fprintf(stderr, "addGetaddrinfoSockets failed: %s\n", strerror(errno));
 				return;
 			}
 		}
@@ -378,9 +365,8 @@ socket_out:
 		if ((v = CFDictionaryGetValue(plist, CFSTR("Disabled"))))
 			e = !CFBooleanGetValue(v);
 	}
-	ingerr = initng_msg(thefd, "enableJob", joblabel, e ? "true" : "false", NULL);
-	if (ingerr != INITNG_ERR_SUCCESS)
-		fprintf(stderr, "enableJob failed: %s\n", initng_strerror(ingerr));
+	if (initng_msg(thefd, "enableJob", joblabel, e ? "true" : "false", NULL) == -1)
+		fprintf(stderr, "enableJob failed: %s\n", strerror(errno));
 }
 
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
