@@ -24,17 +24,18 @@
 
 extern char **environ;
 
-struct initng_job_fd {
-	TAILQ_ENTRY(initng_job_fd) tqe;
+struct initngd_jobfd {
+	TAILQ_ENTRY(initngd_jobfd) tqe;
 	int fd;
 	char *label;
 };
 
-struct initng_job {
-	TAILQ_ENTRY(initng_job) tqe;
+
+struct initngd_job {
+	TAILQ_ENTRY(initngd_job) tqe;
 	unsigned int enabled:1, on_demand:1, batch:1, launch_once:1,
 		supports_mgmt:1, running:1, compat_inetd_wait:1,
-		compat_inetd_nowait:1;
+		compat_inetd_nowait:1, is_initngd:1;
 	int setup_conn;
 	pid_t p;
 	uid_t u;
@@ -46,25 +47,30 @@ struct initng_job {
 	char **env;
 	char **msn;
 	unsigned int periodic;
-	TAILQ_HEAD(initng_job_fds, initng_job_fd) thefds;
+	void (*wn)(struct initngd_job *j, struct kevent *kev);
+	struct timeval lastrun;
+	TAILQ_HEAD(initngd_jobfds, initngd_jobfd) fds;
 };
 
-TAILQ_HEAD(initng_jobs, initng_job) thejobs = TAILQ_HEAD_INITIALIZER(thejobs);
+TAILQ_HEAD(initngd_jobs, initngd_job) thejobs = TAILQ_HEAD_INITIALIZER(thejobs);
 
 static int thesocket = 0;
 static int thewebsocket = 0;
 static int kq = 0;
 static char *argv0 = NULL;
+static struct initngd_job *thejob = NULL;
 
-static void parse_packet(int fd, char *command, char *data[], void *cookie);
-static void launch_job(struct initng_job *j);
-static void launch_job_st(struct initng_job *j, int tfd);
-static void reap_job(struct initng_job *j);
-static void runloop_observe(struct initng_job *j);
-static void runloop_ignore(struct initng_job *j);
-static void do_web_feedback(void);
-static void dump_job_state(int fd, struct initng_job *j);
-static void job_remove_cleanup(struct initng_job *j);
+static void initngd_parse_packet(int fd, char *command, char *data[], void *cookie, initng_cred_t *cred);
+static void initngd_do_web_feedback(int lfd);
+static void job_launch(struct initngd_job *j, struct kevent *kev);
+static void job_reap(struct initngd_job *j, struct kevent *kev);
+static void job_observe(struct initngd_job *j);
+static void job_ignore(struct initngd_job *j);
+static void job_remove(struct initngd_job *j);
+static void job_dump_state(struct initngd_job *j, int fd);
+static struct initngd_job *job_find(const char *label);
+static struct initngd_jobfd *job_fd_find(struct initngd_job *j, const char *label);
+static void initngd_internal_wn(struct initngd_job *j, struct kevent *kev);
 
 /* utility functions */
 static char **stringvdup(char **sv);
@@ -75,15 +81,34 @@ static void initngd_panic(const char *format, ...) __attribute__((noreturn, form
 static int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 static int _fd(int fd);
 
+#define initngd_assert(expression) ((void)((expression) ? 0 : __initngd_assert(#expression, __FILE__, __LINE__)))
+#define __initngd_assert(expression, file, line) (initngd_panic("%s:%u failed assertion: %s", file, line, expression), 0)
+
 int main(int argc, char *argv[])
 {
 	const char *thesockpath = NULL;
-	struct kevent kev;
-	struct initng_job *j, *ji;
-	initng_err_t ingerr;
-	int tmpfd, r, fd, ch, debug = 0;
+	struct kevent kev, k;
+	struct initngd_job *j, *ji;
+	int tmpfd, r, ch, debug = 0;
+
+	EV_SET(&k, 0, EVFILT_PROC, 0, 0, 0, 0);
 
 	argv0 = argv[0];
+
+	thejob = calloc(1, sizeof(struct initngd_job));
+	thejob->label = "__initngd__";
+	thejob->enabled = 1;
+	thejob->supports_mgmt = 1;
+	thejob->running = 1;
+	thejob->is_initngd = 1;
+	thejob->u = getuid();
+	thejob->g = getgid();
+	thejob->p = getpid();
+	thejob->argv = argv;
+	thejob->env = environ;
+	thejob->wn = initngd_internal_wn;
+	TAILQ_INIT(&thejob->fds);
+	TAILQ_INSERT_TAIL(&thejobs, thejob, tqe);
 
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGCHLD, SIG_IGN);
@@ -135,7 +160,7 @@ int main(int argc, char *argv[])
 		sain.sin_port = htons(12345);
 		sain.sin_addr.s_addr = htonl(0x7f000001);
 
-		if ((thewebsocket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+		if ((thewebsocket = _fd(socket(AF_INET, SOCK_STREAM, 0))) == -1)
 			initngd_panic("socket(): %m");
 		if (setsockopt(thewebsocket, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1)
 			initngd_panic("setsockopt(): %m");
@@ -143,7 +168,6 @@ int main(int argc, char *argv[])
 			initngd_panic("bind(): %m");
 		if (listen(thewebsocket, 255) == -1)
 			initngd_panic("listen(): %m");
-		__kevent(_fd(thewebsocket), EVFILT_READ, EV_ADD, 0, 0, NULL);
 	}
 
 	chdir("/");
@@ -152,11 +176,12 @@ int main(int argc, char *argv[])
 	if ((kq = _fd(kqueue())) == -1)
 		initngd_panic("kqueue(): %m");
 
-	openlog((const char*)basename(argv0), LOG_CONS|(debug ? LOG_PERROR : 0), LOG_DAEMON);
+	if (thewebsocket)
+		__kevent(thewebsocket, EVFILT_READ, EV_ADD, 0, 0, thejob);
 
-	if ((ingerr = initng_server_init(&thesocket, thesockpath)) != INITNG_ERR_SUCCESS)
-		initngd_panic("initng_server_init(): %s", initng_strerror(ingerr));
-	__kevent(_fd(thesocket), EVFILT_READ, EV_ADD, 0, 0, NULL);
+	if ((thesocket = _fd(initng_server_init(thesockpath))) == -1)
+		initngd_panic("initng_server_init(): %m");
+	__kevent(thesocket, EVFILT_READ, EV_ADD, 0, 0, thejob);
 
 	for (;;) {
 		if ((r = kevent(kq, NULL, 0, &kev, 1, NULL)) == -1) {
@@ -164,57 +189,58 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
-		j = (struct initng_job *)kev.udata;
+		j = (struct initngd_job *)kev.udata;
 
-		if (j && (kev.filter == EVFILT_PROC)) {
-			reap_job(j);
-		} else if (j) {
-			if (kev.filter == EVFILT_READ && kev.flags & EV_EOF && kev.data == 0) {
-				initngd_debug(LOG_WARNING, "one of %s's connections died, removing job", j->label);
-				job_remove_cleanup(j);
-			} else if (j->compat_inetd_nowait) {
-				launch_job_st(j, kev.ident);
-			} else {
-				launch_job(j);
-			}
-		} else if ((int)kev.ident == thesocket) {
-			if ((ingerr = initng_server_accept(&fd, thesocket)) != INITNG_ERR_SUCCESS) {
-				initngd_debug(LOG_DEBUG, "initng_server_accept(): %s", initng_strerror(ingerr));
-				continue;
-			}
-			__kevent(_fd(fd), EVFILT_READ, EV_ADD, 0, 0, NULL);
-		} else if ((int)kev.ident == thewebsocket) {
-			do_web_feedback();
-		} else if (kev.filter == EVFILT_READ) {
-			ingerr = initng_recvmsg(kev.ident, parse_packet, j);
-			if (ingerr != INITNG_ERR_SUCCESS && ingerr != INITNG_ERR_AGAIN) {
-				if (ingerr != INITNG_ERR_BROKEN_CONN)
-					initngd_debug(LOG_DEBUG, "initng_recvmsg(): %s", initng_strerror(ingerr));
-				TAILQ_FOREACH(ji, &thejobs, tqe) {
-					if ((int)kev.ident == ji->setup_conn)
-						job_remove_cleanup(ji);
-				}
-				initng_close(kev.ident);
-			}
-		} else if (kev.filter == EVFILT_WRITE) {
-			ingerr = initng_flush(kev.ident);
-			if (ingerr == INITNG_ERR_SUCCESS) {
-				__kevent(kev.ident, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-			} else if (ingerr == INITNG_ERR_AGAIN) {
-				continue;
-			} else {
-				initngd_debug(LOG_DEBUG, "initng_flush(): %s", initng_strerror(ingerr));
-				TAILQ_FOREACH(ji, &thejobs, tqe) {
-					if ((int)kev.ident == ji->setup_conn)
-						job_remove_cleanup(ji);
-				}
-				initng_close(kev.ident);
-			}
+		j->wn(j, &kev);
+
+		TAILQ_FOREACH(ji, &thejobs, tqe) {
+			if (!ji->on_demand && !ji->running)
+				job_launch(ji, &k);
 		}
 	}
 }
 
-static void launch_job_st(struct initng_job *j, int tfd)
+static void initngd_internal_wn(struct initngd_job *j, struct kevent *kev)
+{
+	struct initngd_job *ji;
+	int fd;
+
+	if ((int)kev->ident == thesocket) {
+		if ((fd = initng_server_accept(thesocket)) == -1) {
+			initngd_debug(LOG_DEBUG, "initng_server_accept(): %m");
+			return;
+		}
+		__kevent(_fd(fd), EVFILT_READ, EV_ADD, 0, 0, thejob);
+	} else if ((int)kev->ident == thewebsocket) {
+		initngd_do_web_feedback(thewebsocket);
+	} else if (kev->filter == EVFILT_READ) {
+		if (initng_recvmsg(kev->ident, initngd_parse_packet, j) == -1) {
+			if (errno == EAGAIN)
+			       return;
+			if (errno != ECONNRESET)
+				initngd_debug(LOG_DEBUG, "initng_recvmsg(): %m");
+			TAILQ_FOREACH(ji, &thejobs, tqe) {
+				if ((int)kev->ident == ji->setup_conn)
+					job_remove(ji);
+			}
+			initng_close(kev->ident);
+		}
+	} else if (kev->filter == EVFILT_WRITE) {
+		if (initng_flush(kev->ident) == -1) {
+			if (errno == EAGAIN)
+				return;
+			initngd_debug(LOG_DEBUG, "initng_flush(): %m");
+			TAILQ_FOREACH(ji, &thejobs, tqe) {
+				if ((int)kev->ident == ji->setup_conn)
+					job_remove(ji);
+			}
+			initng_close(kev->ident);
+		}
+		__kevent(kev->ident, EVFILT_WRITE, EV_DELETE, 0, 0, thejob);
+	}
+}
+
+static void launch_job_st(struct initngd_job *j)
 {
 	struct sockaddr_storage sas;
 	socklen_t sl = sizeof(sas);
@@ -222,7 +248,7 @@ static void launch_job_st(struct initng_job *j, int tfd)
 	int fd;
 	pid_t c;
 
-	fd = accept(tfd, (struct sockaddr *)&sas, &sl);
+	fd = accept((TAILQ_FIRST(&j->fds))->fd, (struct sockaddr *)&sas, &sl);
 
 	if ((c = fork()) == -1) {
 		initngd_debug(LOG_DEBUG, "fork(): %m");
@@ -256,25 +282,21 @@ static void launch_job_st(struct initng_job *j, int tfd)
 	}
 }
 
-static void launch_job(struct initng_job *j)
+static void job_launch(struct initngd_job *j, struct kevent *kev)
 {
 	pid_t c;
 	char *rdata[] = { j->label, NULL, NULL };
 	char **tmp, *tmps;
 
-	runloop_ignore(j);
+	initngd_assert(kev->filter == EVFILT_READ);
+
+	if (j->compat_inetd_nowait)
+		return launch_job_st(j);
 
 	if ((c = fork()) == -1) {
 		initngd_debug(LOG_DEBUG, "fork(): %m");
-		goto out_bad;
-	} else if (c) {
-		j->p = c;
-		if (__kevent(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j) == -1) {
-			if (errno != ESRCH)
-				initngd_debug(LOG_DEBUG, "kevent(): %m");
-			goto out_bad;
-		}
-	} else {
+		return;
+	} else if (c == 0) {
 		for (tmp = j->env; *tmp; tmp++) {
 			tmps = strchr(*tmp, '=');
 			if (tmps) {
@@ -291,59 +313,67 @@ static void launch_job(struct initng_job *j)
 			initngd_debug(LOG_DEBUG, "child execve(): %m");
 		_exit(EXIT_FAILURE);
 	}
+	gettimeofday(&j->lastrun, NULL);
+	if (__kevent(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j) == -1) {
+		initngd_debug(LOG_DEBUG, "kevent(): %m");
+		return;
+	}
+	j->p = c;
+	j->wn = job_reap;
 	j->running = 1;
 	asprintf(&(rdata[1]), "%d", j->p);
 	initng_sendmsga2sniffers("notifyRunning", rdata);
 	free(rdata[1]);
-	return;
-out_bad:
-	if (j->p) {
-		reap_job(j);
-	} else {
-		runloop_observe(j);
-	}
+	job_ignore(j);
 }
 
-static void reap_job(struct initng_job *j)
+static void job_reap(struct initngd_job *j, struct kevent *kev)
 {
 	int status = 0;
 	char *rdata[] = { j->label, "0", NULL };
+
+	initngd_assert(kev->filter == EVFILT_PROC);
 
 	waitpid(j->p, &status, 0);
 	if (WIFEXITED(status)) {
 		if (WEXITSTATUS(status) > 0)
 			initngd_debug(LOG_WARNING, "%s[%d] exited with exit code %d", j->program, j->p, WEXITSTATUS(status));
-	} else if (WIFSIGNALED(status))
+	} else if (WIFSIGNALED(status)) {
 		initngd_debug(LOG_WARNING, "%s[%d] exited abnormally with signal %d", j->program, j->p, WTERMSIG(status));
+	}
 	j->p = 0;
 	j->running = 0;
+	j->wn = job_launch;
 	initng_sendmsga2sniffers("notifyRunning", rdata);
-	runloop_observe(j);
+	job_observe(j);
 }
 
-static void runloop_ignore(struct initng_job *j)
+static void job_ignore(struct initngd_job *j)
 {
-	struct initng_job_fd *jfd;
-	TAILQ_FOREACH(jfd, &j->thefds, tqe) {
+	struct initngd_jobfd *jfd;
+
+	TAILQ_FOREACH(jfd, &j->fds, tqe) {
 		if (__kevent(jfd->fd, EVFILT_READ, EV_DELETE, 0, 0, j) == -1)
 			initngd_debug(LOG_DEBUG, "__kevent(%d, EV_DELETE): %m", jfd->fd);
 	}
 }
 
-static void runloop_observe(struct initng_job *j)
+static void job_observe(struct initngd_job *j)
 {
-	if (j->enabled && !j->running) {
-		struct initng_job_fd *jfd;
-		TAILQ_FOREACH(jfd, &j->thefds, tqe) {
-			if (__kevent(jfd->fd, EVFILT_READ, EV_ADD, 0, 0, j) == -1)
-				initngd_debug(LOG_DEBUG, "__kevent(%d, EV_ADD): %m", jfd->fd);
-		}
+	struct initngd_jobfd *jfd;
+	
+	if (j->running || !j->on_demand)
+		return;
+
+	TAILQ_FOREACH(jfd, &j->fds, tqe) {
+		if (__kevent(jfd->fd, EVFILT_READ, EV_ADD, 0, 0, j) == -1)
+			initngd_debug(LOG_DEBUG, "__kevent(%d, EV_ADD): %m", jfd->fd);
 	}
 }
 
-static struct initng_job *job_find(char *label)
+static struct initngd_job *job_find(const char *label)
 {
-	struct initng_job *j;
+	struct initngd_job *j;
 
 	TAILQ_FOREACH(j, &thejobs, tqe) {
 		if (!strcmp(j->label, label))
@@ -352,14 +382,14 @@ static struct initng_job *job_find(char *label)
 	return NULL;
 }
 
-static void job_remove_cleanup(struct initng_job *j)
+static void job_remove(struct initngd_job *j)
 {
-	struct initng_job_fd *jfd;
+	struct initngd_jobfd *jfd;
 
 	if (j->p)
 		__kevent(j->p, EVFILT_PROC, EV_DELETE, NOTE_EXIT, 0, j);
-	TAILQ_FOREACH(jfd, &j->thefds, tqe) {
-		TAILQ_REMOVE(&j->thefds, jfd, tqe);
+	TAILQ_FOREACH(jfd, &j->fds, tqe) {
+		TAILQ_REMOVE(&j->fds, jfd, tqe);
 		close(jfd->fd);
 		free(jfd->label);
 		free(jfd);
@@ -380,125 +410,156 @@ static void job_remove_cleanup(struct initng_job *j)
 	free(j);
 }
 
-static void parse_packet(int fd, char *command, char *data[], void *cookie)
+static void initngd_parse_packet(int fd, char *command, char *data[], void *cookie, initng_cred_t *cred)
 {
-	struct initng_job *j = NULL;
-	char **datatmp;
-	char *r = "success";
-	int i, argc = 0, dodump = 0;
-	initng_err_t ingerr;
-	static struct arg_check_s {
-		const char *command;
-		int arg_count;
-	} arg_check[] = {
-		{ "dumpJobState", 1 }, /* label */
-		{ "enableMonitor", 1 }, /* true/false */
-		{ "createJob", 1 }, /* label */
-		{ "removeJob", 1 }, /* label */
-		{ "enableJob", 2 }, /* label, true/false */
-		{ "setInetdSingleThreaded", 2 }, /* label, true/false */
-		{ "setUID", 2 }, /* label, uid */
-		{ "setGID", 2 }, /* label, gid */
-		{ "setProgram", 2 }, /* label, path */
-		{ "setServiceDescription", 2 }, /* label, desc */
-		{ "addFD", 3 }, /* label, fd label, fd count */
-	};
+	struct initngd_job *j = NULL;
+	char rstr[20], estr[20];
+	int r = 0, e = 0;
+	int dodump = 0;
+	bool check_args(const char *expected, int count) {
+		char **datatmp;
+		int argc = 0;
 
-	for (datatmp = data; *datatmp; datatmp++)
-		argc++;
-	for (i = 0; i < (int)(sizeof(arg_check) / sizeof(struct arg_check_s)); i++) {
-		if (!strcmp(command, arg_check[i].command) &&
-				argc != arg_check[i].arg_count) {
-			r = "malformed message";
-			goto out;
+		if (strcmp(expected, command))
+			return false;
+		for (datatmp = data; *datatmp; datatmp++)
+			argc++;
+		if (count < 0) {
+		       	if (abs(count) > argc)
+				return false;
+		} else {
+			if (argc != count)
+				return false;
 		}
-	}
+		return true;
+	};
 
 	if (*data)
 		j = job_find(*data);
 
-	if (!strcmp(command, "enableMonitor")) {
+	if (j && j->is_initngd) {
+		r = -1;
+		e = EPERM;
+		goto out;
+	}
+
+	if (check_args("enableMonitor", 1)) {
 		if (!strcmp(data[0], "true"))
 			initng_set_sniffer(fd, true);
 		else
 			initng_set_sniffer(fd, false);
-	} else if (!strcmp(command, "createJob")) {
+	} else if (check_args("createJob", 1)) {
 		if (j) {
-			r = "job exists";
+			r = -1;
+			e = EEXIST;
 			goto out;
 		}
 
-		j = calloc(1, sizeof(struct initng_job));
-		j->label = strdup(*data);
-		TAILQ_INIT(&j->thefds);
+		j = calloc(1, sizeof(struct initngd_job));
+		j->label = strdup(data[0]);
+		TAILQ_INIT(&j->fds);
 		j->setup_conn = fd;
+		j->wn = job_launch;
+		j->on_demand = 1;
 		TAILQ_INSERT_TAIL(&thejobs, j, tqe);
 		goto out;
 	} else if (!j) {
-			r = "job not found";
-	} else if (!strcmp(command, "dumpJobState")) {
+			r = -1;
+			e = ENOENT;
+	} else if (check_args("dumpJobState", 1)) {
 		dodump = 1;
-	} else if (!strcmp(command, "removeJob")) {
-		job_remove_cleanup(j);
-	} else if (!strcmp(command, "enableJob")) {
+	} else if (check_args("removeJob", 2)) {
+		job_remove(j);
+	} else if (check_args("enableJob", 2)) {
 		j->setup_conn = 0;
-		if (!strcmp(data[1], "true"))
+		if (!strcmp(data[1], "true")) {
 			j->enabled = 1;
-		else
+			job_observe(j);
+		} else {
 			j->enabled = 0;
-		runloop_observe(j);
-	} else if (!strcmp(command, "setInetdSingleThreaded")) {
+			job_ignore(j);
+		}
+	} else if (check_args("setInetdSingleThreaded", 2)) {
 		if (!strcmp(data[1], "true"))
 			j->compat_inetd_nowait = 1;
 		else
 			j->compat_inetd_nowait = 0;
-	} else if (!strcmp(command, "setUID")) {
+	} else if (check_args("setInetdMultiThreaded", 2)) {
+		/* can't set this flag if multiple FDs are a part of the job */
+		if (TAILQ_FIRST(&j->fds) && TAILQ_NEXT(TAILQ_FIRST(&j->fds), tqe)) {
+			r = -1;
+			e = EINVAL;
+			goto out;
+		}
+		if (!strcmp(data[1], "true"))
+			j->compat_inetd_wait = 1;
+		else
+			j->compat_inetd_wait = 0;
+	} else if (check_args("setUID", 2)) {
 		j->u = (uid_t)strtol(data[1], NULL, 10);
-	} else if (!strcmp(command, "setGID")) {
+	} else if (check_args("setGID", 2)) {
 		j->g = (gid_t)strtol(data[1], NULL, 10);
-	} else if (!strcmp(command, "setProgram")) {
+	} else if (check_args("setProgram", 2)) {
 		j->program = strdup(data[1]);
-	} else if (!strcmp(command, "setServiceDescription")) {
+	} else if (check_args("setServiceDescription", 2)) {
 		j->description = strdup(data[1]);
-	} else if (!strcmp(command, "setEnvironmentVariables")) {
-		j->env = stringvdup(data + 1);
-	} else if (!strcmp(command, "setProgramArguments")) {
+	} else if (check_args("setProgramArguments", -1)) {
 		j->argv = stringvdup(data + 1);
-	} else if (!strcmp(command, "setMachServiceNames")) {
+	} else if (check_args("setMachServiceNames", -1)) {
 		j->msn = stringvdup(data + 1);
-	} else if (!strcmp(command, "addFD")) {
+	} else if (check_args("addFD", 3)) {
 		int sfd = strtol(data[2], NULL, 10);
-        	struct initng_job_fd *jfd;
+        	struct initngd_jobfd *jfd;
 
-		jfd = calloc(1, sizeof(struct initng_job_fd));
+		/* can't add more than one FD if we're in inetd "wait" compatibility mode */
+		if (j->compat_inetd_wait && TAILQ_FIRST(&j->fds)) {
+			close(sfd);
+			r = -1;
+			e = EEXIST;
+			goto out;
+		}
+
+		jfd = calloc(1, sizeof(struct initngd_jobfd));
 		jfd->label = strdup(data[1]);
 		jfd->fd = _fd(sfd);
-       		TAILQ_INSERT_TAIL(&j->thefds, jfd, tqe);
+		TAILQ_INSERT_TAIL(&j->fds, jfd, tqe);
+	} else if (check_args("removeFD", 2)) {
+        	struct initngd_jobfd *jfd;
+
+		while ((jfd = job_fd_find(j, data[1]))) {
+			TAILQ_REMOVE(&j->fds, jfd, tqe);
+			close(jfd->fd);
+			free(jfd->label);
+			free(jfd);
+		}
+	} else if (check_args("setEnvironmentVariables", -1)) {
+		j->env = stringvdup(data + 1);
 	} else {
 		initngd_debug(LOG_DEBUG, "fd %d and cookie %p: unknown command %s", fd, cookie, command);
-		r = "unknown command";
+		r = -1;
+		e = EINVAL;
 	}
 out:
-	if (!dodump) {
-		ingerr = initng_sendmsg(fd, "commandACK", r, NULL);
-		if (ingerr != INITNG_ERR_SUCCESS)
-			initngd_debug(LOG_DEBUG, "fd %d: failed to send ack for %s: %s", fd, command, initng_strerror(ingerr));
-	}
-	initng_sendmsga2sniffers(command, data);
 	if (dodump)
-		dump_job_state(fd, j);
+		job_dump_state(j, fd);
+	snprintf(rstr, sizeof(rstr), "%d", r);
+	snprintf(estr, sizeof(estr), "%d", e);
+	if (initng_sendmsg(fd, "commandACK", rstr, estr, NULL) == -1)
+		initngd_debug(LOG_DEBUG, "fd %d: failed to send ack for %s: %m", fd, command);
+	if (r != -1)
+		initng_sendmsga2sniffers(command, data);
 }
 
-static void do_web_feedback(void)
+static void initngd_do_web_feedback(int lfd)
 {
 	struct sockaddr_in sain;
-	struct initng_job *j;
+	struct initngd_job *j;
 	socklen_t slen = sizeof(sain);
 	int afd;
 	FILE *F;
 	char **tmpv;
 
-	if ((afd = accept(thewebsocket, (struct sockaddr *)&sain, &slen)) == -1)
+	if ((afd = accept(lfd, (struct sockaddr *)&sain, &slen)) == -1)
 		return;
 
 	F = fdopen(afd, "w+");
@@ -523,8 +584,8 @@ static void do_web_feedback(void)
 	TAILQ_FOREACH(j, &thejobs, tqe) {
 		fprintf(F, "<tr>");
 		fprintf(F, "<td>%s</td>", j->label);
-		fprintf(F, "<td>%s</td>", j->description);
-		fprintf(F, "<td>%s</td>", j->program);
+		fprintf(F, "<td>%s</td>", j->description ? j->description : "");
+		fprintf(F, "<td>%s</td>", j->program ? j->program : "");
 		fprintf(F, "<td>%d</td>", j->p);
 		fprintf(F, "<td>%d</td>", j->u);
 		fprintf(F, "<td>%d</td>", j->g);
@@ -537,20 +598,22 @@ static void do_web_feedback(void)
 		fprintf(F, "%s ", j->running ? "running" : "");
 		fprintf(F, "%s ", j->compat_inetd_wait ? "compat_inetd_wait" : "");
 		fprintf(F, "%s", j->compat_inetd_nowait ? "compat_inetd_nowait" : "");
+		fprintf(F, "%s", j->is_initngd ? "is_initngd" : "");
 		fprintf(F, "</td>");
 		fprintf(F, "<td>");
-		for (tmpv = j->argv; *tmpv; tmpv++)
-			fprintf(F, "%s%s", *tmpv, *(tmpv + 1) ? " " : "");
+		if (j->argv)
+			for (tmpv = j->argv; *tmpv; tmpv++)
+				fprintf(F, "%s<br>", *tmpv);
 		fprintf(F, "</td>");
 		fprintf(F, "<td>");
 		if (j->env)
 			for (tmpv = j->env; *tmpv; tmpv++)
-				fprintf(F, "%s%s", *tmpv, *(tmpv + 1) ? " " : "");
+				fprintf(F, "%s<br>", *tmpv);
 		fprintf(F, "</td>");
 		fprintf(F, "<td>");
 		if (j->msn)
 			for (tmpv = j->msn; *tmpv; tmpv++)
-				fprintf(F, "%s%s", *tmpv, *(tmpv + 1) ? " " : "");
+				fprintf(F, "%s<br>", *tmpv);
 		fprintf(F, "</td></tr>");
 	}
 
@@ -559,22 +622,27 @@ static void do_web_feedback(void)
 	fclose(F);
 }
 
-static void dump_job_state(int fd, struct initng_job *j)
+static void job_dump_state(struct initngd_job *j, int fd)
 {
-	struct initng_job_fd *jfd;
-	initng_err_t ingerr;
+	struct initngd_jobfd *jfd;
+	char fdstr[20];
 	
-	TAILQ_FOREACH(jfd, &j->thefds, tqe) {
-		char *fdstr = NULL;
-		asprintf(&fdstr, "%d", jfd->fd);
-		ingerr = initng_sendmsg(fd, "addFD", j->label, jfd->label, fdstr, NULL);
-		free(fdstr);
-		if (ingerr != INITNG_ERR_SUCCESS)
-			return initngd_debug(LOG_DEBUG, "failed to send fd %d: %s", jfd->fd, initng_strerror(ingerr));
+	TAILQ_FOREACH(jfd, &j->fds, tqe) {
+		snprintf(fdstr, sizeof(fdstr), "%d", jfd->fd);
+		if (initng_sendmsg(fd, "addFD", j->label, jfd->label, fdstr, NULL) == -1)
+			return initngd_debug(LOG_DEBUG, "failed to send fd %d: %m", jfd->fd);
 	}
-	ingerr = initng_sendmsg(fd, "dumpJobStateDONE", j->label, NULL);
-	if (ingerr != INITNG_ERR_SUCCESS)
-		initngd_debug(LOG_DEBUG, "failed to send completion of dumpJobState: %s", initng_strerror(ingerr));
+}
+
+static struct initngd_jobfd *job_fd_find(struct initngd_job *j, const char *label)
+{
+	struct initngd_jobfd *jfd;
+
+	 TAILQ_FOREACH(jfd, &j->fds, tqe) {
+		 if (!strcmp(jfd->label, label))
+			 return jfd;
+	 }
+	 return NULL;
 }
 
 /* the remaining are utility functions */
