@@ -1656,8 +1656,9 @@ __private_extern__ void launchd_SessionCreate(const char *who)
 		sescr = dlsym(seclib, "SessionCreate");
 		
 		if (sescr) {
-			if (sescr(0, 0) != noErr)
-				syslog(LOG_WARNING, "%s: SessionCreate() failed!", who);
+			OSStatus scr = sescr(0, 0);
+			if (scr != noErr)
+				syslog(LOG_WARNING, "%s: SessionCreate() failed: %d", who, scr);
 		} else {
 			syslog(LOG_WARNING, "%s: couldn't find SessionCreate() in %s", who, SECURITY_LIB);
 		}
