@@ -69,6 +69,7 @@ static TAILQ_HEAD(usercbhead, usercb) users = TAILQ_HEAD_INITIALIZER(users);
 
 static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
 
+static mode_t ourmask = 0;
 static int mainkq = 0;
 
 static launch_data_t load_job(launch_data_t pload, struct conncb *c);
@@ -100,6 +101,9 @@ int main(int argc, char *argv[])
 
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGCHLD, SIG_IGN);
+
+	ourmask = umask(0);
+	umask(ourmask);
 
 	while ((ch = getopt(argc, argv, "dhs:")) != -1) {
 		switch (ch) {
@@ -731,6 +735,8 @@ launch_again:
 			setuid(j->u);
 		if (j->wd)
 			chdir(j->wd);
+		if (j->m != ourmask)
+			umask(j->m);
 		sprintf(nbuf, "%d", spair[1]);
 		launch_data_dict_iterate(j->uenv, setup_job_env, NULL);
 		if (j->env)
