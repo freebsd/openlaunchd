@@ -48,7 +48,7 @@ struct jobcb {
 	struct timeval start_time;
 	size_t failed_exits;
 	struct conncb *c;
-	bool checkedin;
+	int checkedin:1, futureflags:31;
 };
 
 struct conncb {
