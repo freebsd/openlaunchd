@@ -537,7 +537,7 @@ start_server(server_t *serverp)
 			syslog(LOG_WARNING, "fork(): %m");
 		} else if (pid == 0) {	/* CHILD */
 			exec_server(serverp);
-			exit(1);
+			exit(EXIT_FAILURE);
 		} else {		/* PARENT */
 			syslog(LOG_INFO, "Launched server %x in bootstrap %x uid %d: \"%s\": [pid %d]",
 			     serverp->port, serverp->bootstrap->bootstrap_port,
