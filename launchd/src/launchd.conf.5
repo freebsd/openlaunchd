@@ -15,9 +15,11 @@ when
 .Nm launchd
 starts.
 .Sh FILES
-.Bl
-.Nm $HOME/.launchd.conf
-.Nm /etc/launchd.conf
+.Bl -tag -width "$HOME/.launchd.conf" -compact
+.It Pa $HOME/.launchd.conf
+Your launchd configuration file.
+.It Pa /etc/launchd.conf
+The system's launchd configuration file.
 .El
 .Sh SEE ALSO 
 .Xr launchctl 1 ,
