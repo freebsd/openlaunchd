@@ -66,15 +66,10 @@
 /* Mig should produce a declaration for this,  but doesn't */
 extern boolean_t bootstrap_server(mach_msg_header_t *InHeadP, mach_msg_header_t *OutHeadP);
 
-/*
- * Exports
- */
-const char *program_name;	/* our name for error messages */
-
 #ifndef INIT_PATH
-#define INIT_PATH	"/sbin/init"			/* default init path */
+#define INIT_PATH	"/sbin/launchd"			/* default init path */
 #endif  INIT_PATH
-	
+
 uid_t inherited_uid;
 mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 boolean_t forward_ok = FALSE;
@@ -185,13 +180,11 @@ void start_shutdown(__unused int signalnum)
 int
 main(int argc, char * argv[])
 {
-	const char *argp;
-	char c;
 	kern_return_t result;
 	mach_port_t init_notify_port;
 	pthread_attr_t  attr;
 	sigset_t mask;
-	int pid;
+	int ch, pid;
 
 	/*
 	 * If we are pid one, we have to exec init.  Before doing so, we'll
@@ -246,10 +239,9 @@ main(int argc, char * argv[])
 				close(fd);
 			}
 			
-			/* pass our arguments on to init */
 			argv[0] = INIT_PATH;
-			execv(argv[0], argv);
-			exit(1);  /* will likely trigger a panic */
+			execv(INIT_PATH, argv);
+			exit(EXIT_FAILURE);  /* will likely trigger a panic */
 
 		}
 
@@ -276,40 +268,24 @@ main(int argc, char * argv[])
 	} else
 		init_notify_port = MACH_PORT_NULL;
 
-	/* Initialize error handling */
- 	program_name = rindex(*argv, '/');
-	if (program_name)
-		program_name++;
-	else
-		program_name = *argv;
- 	argv++; argc--;
-
-	/* Parse command line args */
-	while (argc > 0 && **argv == '-') {
-		argp = *argv++ + 1; argc--;
-		while (*argp) {
-			switch (c = *argp++) {
-			case 'd':
-				debugging = TRUE;
-				break;
-			case 'D':
-				debugging = FALSE;
-				break;
-			case 'F':
-				if (init_notify_port != MACH_PORT_NULL)
-					force_fork = TRUE;
-				break;
-			case 'r':
-				register_self = forward_ok = TRUE;
-				if (argc > 0) {
-					register_name = *argv++; argc--;
-				} else
-					fatal("-r requires name");
-				break;
-			case '-':
-			default:
-				break;
-			}
+	while ((ch = getopt(argc, argv, "dDFr:vsbx")) != -1) {
+		switch (ch) {
+		case 'd':
+			debugging = TRUE;
+			break;
+		case 'D':
+			debugging = FALSE;
+			break;
+		case 'F':
+			if (init_notify_port != MACH_PORT_NULL)
+				force_fork = TRUE;
+			break;
+		case 'r':
+			register_self = forward_ok = TRUE;
+			register_name = optarg;
+			break;
+		default:
+			break;
 		}
 	}
 
@@ -376,11 +352,9 @@ main(int argc, char * argv[])
 						&attr,
 						demand_loop,
 						NULL);
-	if (result) {
-		unix_error("pthread_create()");
-		exit(1);
-	}
-
+	if (result)
+		unix_fatal("pthread_create()");
+	
 	/* block all but SIGHUP and SIGTERM  */
 	sigfillset(&mask);
 	sigdelset(&mask, SIGHUP);

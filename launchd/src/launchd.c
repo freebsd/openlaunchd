@@ -19,9 +19,9 @@
 #include "launch.h"
 #include "launch_priv.h"
 
-extern char **environ;
+#include "launchd.h"
 
-typedef void (*kq_callback)(void *, struct kevent *);
+extern char **environ;
 
 struct jobcb {
 	kq_callback kqjob_callback;
@@ -29,8 +29,8 @@ struct jobcb {
 	launch_data_t ldj;
 	bool checkedin;
 	bool suspended;
-	bool has_fds;
 	pid_t p;
+	int wstatus;
 };
 
 struct usercb {
@@ -55,7 +55,7 @@ static TAILQ_HEAD(usercbhead, usercb) users = TAILQ_HEAD_INITIALIZER(users);
 static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
 
 static mode_t ourmask = 0;
-static int mainkq = 0;
+int mainkq = 0;
 
 static void job_watch_fds(launch_data_t o, void *cookie);
 static void job_ignore_fds(launch_data_t o, void *cookie);
@@ -68,40 +68,61 @@ static void ipc_close(struct conncb *c);
 
 static void listen_callback(void *, struct kevent *);
 static kq_callback kqlisten_callback = listen_callback;
+static void signal_callback(void *, struct kevent *);
+static kq_callback kqsignal_callback = signal_callback;
+static void fs_callback(void *, struct kevent *);
+static kq_callback kqfs_callback = fs_callback;
 
-static void simple_zombie_reaper(void *, struct kevent *);
-static kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
+kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
-static void job_waitpid(struct jobcb *j);
+static void job_reap(struct jobcb *j);
 static void job_event_callback(void *obj, struct kevent *kev);
 static int launchd_server_init(const char *);
 static void ipc_callback(void *, struct kevent *);
 static void ipc_readmsg(launch_data_t msg, void *context);
 static void usage(FILE *where, const char *argv0) __attribute__((noreturn));
-static void launchd_debug(int priority, const char *format, ...) __attribute__((format(printf,2,3)));
 static void launchd_panic(const char *format, ...) __attribute__((noreturn, format(printf,1,2)));
-static int __kevent(int q, uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, kq_callback *cback);
+static bool launchd_check_pid(pid_t p, int status);
 static int _fd(int fd);
+
+static void dummysignalhandler(int sig __attribute__((unused)))
+{
+}
+
+static int thesocket = -1;
+static char *thesockpath = NULL;
+static bool debug = false;
 
 int main(int argc, char *argv[])
 {
-	int thesocket;
 	struct kevent kev;
-	char *thesockpath = NULL;
-	int tmpfd, ch, debug = 0;
-
-	signal(SIGPIPE, SIG_IGN);
-	signal(SIGCHLD, SIG_IGN);
+	size_t i;
+	bool sflag = false, vflag = false, xflag = false, bflag = false;
+	int ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
+		SIGURG, SIGTSTP, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
+		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
 
 	ourmask = umask(0);
 	umask(ourmask);
 
-	while ((ch = getopt(argc, argv, "dhs:")) != -1) {
+	while ((ch = getopt(argc, argv, "dhS:svxb")) != -1) {
 		switch (ch) {
 		case 'd':
-			debug = 1;
+			debug = true;
 			break;
 		case 's':
+			sflag = true;
+			break;
+		case 'v':
+			vflag = true;
+			break;
+		case 'x':
+			xflag = true;
+			break;
+		case 'b':
+			bflag = true;
+			break;
+		case 'S':
 			thesockpath = optarg;
 			break;
 		case 'h':
@@ -109,56 +130,98 @@ int main(int argc, char *argv[])
 			break;
 		case '?':
 		default:
-			usage(stderr, argv[0]);
+			syslog(LOG_WARNING, "ignoring unknown arguments");
 			break;
 		}
 	}
 
-	openlog(basename(argv[0]), LOG_CONS|(debug ? LOG_PERROR : 0), LOG_DAEMON);
+	close(STDIN_FILENO);
+	close(STDOUT_FILENO);
+	close(STDERR_FILENO);
+	open(_PATH_DEVNULL, O_RDWR);
+	open(_PATH_DEVNULL, O_RDWR);
+	open(_PATH_DEVNULL, O_RDWR);
 
-	if ((thesocket = _fd(launchd_server_init(thesockpath))) == -1)
-		launchd_panic("launch_server_init(): %m");
-
-	if (!debug) {
-		if (getpid() > 1) {
-			switch (fork()) {
-			case -1:
-				launchd_panic("fork(): %m");
-			default:
-				exit(EXIT_SUCCESS);
-			case 0:
-				break;
-			}
-		}
-		tmpfd = open(_PATH_DEVNULL, O_RDWR);
-		dup2(tmpfd, STDIN_FILENO);
-		dup2(tmpfd, STDOUT_FILENO);
-		dup2(tmpfd, STDERR_FILENO);
-		close(tmpfd);
-	}
-
-	chdir("/");
-	setsid();
+	openlog(basename(argv[0]),
+			(getpid() == 1 ? LOG_CONS : LOG_PID)|(debug ? LOG_PERROR : 0),
+			LOG_DAEMON);
+	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
 
 	if ((mainkq = kqueue()) == -1)
 		launchd_panic("kqueue(): %m");
 
-	__kevent(mainkq, thesocket, EVFILT_READ, EV_ADD, 0, 0, &kqlisten_callback);
+	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
+		if (__kevent(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
+			syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", sigigns[i]);
+		signal(sigigns[i], dummysignalhandler);
+	}
+
+	setenv("PATH", _PATH_STDPATH, 1);
+
+	if (setsid() == -1)
+		syslog(LOG_ERR, "setsid(): %m");
+
+	if (getpid() == 1) {
+		if (setlogin("root") == -1)
+			syslog(LOG_ERR, "setlogin(\"root\"): %m");
+	}
+
+	if (chdir("/") == -1)
+		syslog(LOG_ERR, "chdir(\"/\"): %m");
+
+	init_boot(sflag, vflag, xflag, bflag);
+
+	if (__kevent(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
+		syslog(LOG_ERR, "__kevent(EVFILT_FS, &kqfs_callback): %m");
 
 	for (;;) {
-		switch (kevent(mainkq, NULL, 0, &kev, 1, NULL)) {
+		struct timespec timeout = { 1, 0 };
+
+		init_pre_kevent();
+
+		switch (kevent(mainkq, NULL, 0, &kev, 1, getpid() == 1 ? &timeout : NULL)) {
 		case -1:
-			launchd_debug(LOG_DEBUG, "kevent(): %m");
+			syslog(LOG_DEBUG, "kevent(): %m");
 			continue;
+		case 1:
+			(*((kq_callback *)kev.udata))(kev.udata, &kev);
+			break;
 		case 0:
-			launchd_debug(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
-			continue;
+			if (getpid() != 1)
+				syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
+			break;
 		default:
+			syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
 			break;
 		}
-		(*((kq_callback *)kev.udata))(kev.udata, &kev);
+
+		if (getpid() == 1) for (;;) {
+			int status;
+			pid_t p = waitpid(-1, &status, WNOHANG);
+			if (p <= 0)
+				break;
+			if (!launchd_check_pid(p, status))
+				init_check_pid(p, status);
+		}
 	}
 }
+
+static bool launchd_check_pid(pid_t p, int status)
+{
+	struct usercb *u;
+	struct jobcb *j;
+
+	TAILQ_FOREACH(u, &users, tqe) {
+		TAILQ_FOREACH(j, &u->ujobs, tqe) {
+			if (j->p == p) {
+				j->wstatus = status;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 
 static int launchd_server_init(const char *thepath)
 {
@@ -169,7 +232,14 @@ static int launchd_server_init(const char *thepath)
 
         memset(&sun, 0, sizeof(sun));
         sun.sun_family = AF_UNIX;
-        strncpy(sun.sun_path, thepath ? thepath : where ? where : LAUNCHD_DEFAULT_SOCK_PATH, sizeof(sun.sun_path));
+
+	if (thepath)
+		thesockpath = thepath;
+	else if (where)
+		thesockpath = where;
+	else
+		thesockpath = LAUNCHD_DEFAULT_SOCK_PATH;
+        strncpy(sun.sun_path, thesockpath, sizeof(sun.sun_path));
 
         if (!thepath && !where)
                 oldmask = umask(0);
@@ -260,14 +330,12 @@ static void ipc_open(int fd, struct jobcb *j)
         c->conn = launchd_fdopen(fd);
         c->j = j;
 	TAILQ_INSERT_TAIL(&connections, c, tqe);
-	__kevent(mainkq, fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
+	__kevent(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
 
-static void simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
+void simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
 {
-	int status;
-
-	waitpid(kev->ident, &status, 0);
+	waitpid(kev->ident, NULL, 0);
 }
 
 static void listen_callback(void *obj __attribute__((unused)), struct kevent *kev)
@@ -288,24 +356,26 @@ static void ipc_callback(void *obj, struct kevent *kev)
 	struct conncb *c = obj;
 	int r;
 
+	syslog(LOG_DEBUG, "%s()", __func__);
+
 	if (kev->filter == EVFILT_READ) {
 		if (launchd_msg_recv(c->conn, ipc_readmsg, c) == -1 && errno != EAGAIN) {
 			if (errno != ECONNRESET)
-				launchd_debug(LOG_DEBUG, "%s(): read: %m", __func__);
+				syslog(LOG_DEBUG, "%s(): read: %m", __func__);
 			ipc_close(c);
 		}
 	} else if (kev->filter == EVFILT_WRITE) {
 		r = launchd_msg_send(c->conn, NULL);
 		if (r == -1) {
 			if (errno != EAGAIN) {
-				launchd_debug(LOG_DEBUG, "%s(): send: %m", __func__);
+				syslog(LOG_DEBUG, "%s(): send: %m", __func__);
 				ipc_close(c);
 			}
 		} else if (r == 0) {
-			__kevent(mainkq, launchd_getfd(c->conn), EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+			__kevent(launchd_getfd(c->conn), EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
 		}
 	} else {
-		launchd_debug(LOG_DEBUG, "%s(): unknown filter type!", __func__);
+		syslog(LOG_DEBUG, "%s(): unknown filter type!", __func__);
 		ipc_close(c);
 	}
 }
@@ -355,7 +425,7 @@ static void job_ignore_fds(launch_data_t o, void *cookie)
 			job_ignore_fds(launch_data_array_get_index(o, i), cookie);
 		break;
 	case LAUNCH_DATA_FD:
-		__kevent(mainkq, launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, cookie);
+		__kevent(launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, cookie);
 		break;
 	default:
 		break;
@@ -380,7 +450,7 @@ static void job_watch_fds(launch_data_t o, void *cookie)
 			job_watch_fds(launch_data_array_get_index(o, i), cookie);
 		break;
 	case LAUNCH_DATA_FD:
-		__kevent(mainkq, launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
+		__kevent(launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
 		break;
 	default:
 		break;
@@ -391,8 +461,8 @@ static void job_remove(struct jobcb *j)
 {
 	TAILQ_REMOVE(find_jobq(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID)), j, tqe);
         if (j->p) {
-        	if (__kevent(mainkq, j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
-        		job_waitpid(j);
+        	if (__kevent(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
+        		job_reap(j);
 		} else {
 			kill(j->p, SIGTERM);
 		}
@@ -478,9 +548,9 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 out:
 	if (launchd_msg_send(c->conn, resp) == -1) {
 		if (errno == EAGAIN) {
-			__kevent(mainkq, launchd_getfd(c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &c->kqconn_callback);
+			__kevent(launchd_getfd(c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &c->kqconn_callback);
 		} else {
-			launchd_debug(LOG_DEBUG, "launchd_msg_send() == -1: %m");
+			syslog(LOG_DEBUG, "launchd_msg_send() == -1: %m");
 			ipc_close(c);
 		}
 	}
@@ -566,6 +636,12 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_ONDEMAND);
 	}
 
+	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) == NULL) {
+		tmp = launch_data_alloc(LAUNCH_DATA_BOOL);
+		launch_data_set_bool(tmp, true);
+		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_SERVICEIPC);
+	}
+
 	TAILQ_INSERT_TAIL(find_jobq(c->u), j, tqe);
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
@@ -601,19 +677,11 @@ static void launchd_panic(const char *format, ...)
 	exit(EXIT_FAILURE);
 }
 
-static void launchd_debug(int priority, const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	vsyslog(priority, format, ap);
-	va_end(ap);
-}
-
 static void usage(FILE *where, const char *argv0)
 {
 	fprintf(where, "%s:\n", argv0);
 	fprintf(where, "\t-d\tdebug mode\n");
-	fprintf(where, "\t-s sock\talternate socket to use\n");
+	fprintf(where, "\t-S sock\talternate socket to use\n");
 	fprintf(where, "\t-h\tthis usage statement\n");
 
 	if (where == stdout)
@@ -622,11 +690,11 @@ static void usage(FILE *where, const char *argv0)
 		exit(EXIT_FAILURE);
 }
 
-static int __kevent(int q, uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, kq_callback *cback)
+int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, kq_callback *cback)
 {
 	struct kevent kev;
 	EV_SET(&kev, ident, filter, flags, fflags, data, cback);
-	return kevent(q, &kev, 1, NULL, 0, NULL);
+	return kevent(mainkq, &kev, 1, NULL, 0, NULL);
 }
 
 static int _fd(int fd)
@@ -678,22 +746,22 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 		setenv(key, launch_data_get_string(obj), 1);
 }
 
-static void job_waitpid(struct jobcb *j)
+static void job_reap(struct jobcb *j)
 {
-	int status;
+	if (j->wstatus == 0)
+		waitpid(j->p, &j->wstatus, 0);
 
-	waitpid(j->p, &status, 0);
-
-	if (WIFEXITED(status)) {
-		if (WEXITSTATUS(status) > 0)
-			launchd_debug(LOG_WARNING, "%s[%d] exited with exit code %d",
-					job_get_argv0(j->ldj), j->p, WEXITSTATUS(status));
-	} else if (WIFSIGNALED(status)) {
-		launchd_debug(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
-					job_get_argv0(j->ldj), j->p, WTERMSIG(status));
+	if (WIFEXITED(j->wstatus)) {
+		if (WEXITSTATUS(j->wstatus) > 0)
+			syslog(LOG_WARNING, "%s[%d] exited with exit code %d",
+					job_get_argv0(j->ldj), j->p, WEXITSTATUS(j->wstatus));
+	} else if (WIFSIGNALED(j->wstatus)) {
+		syslog(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
+					job_get_argv0(j->ldj), j->p, WTERMSIG(j->wstatus));
 	}
 
 	j->p = 0;
+	j->wstatus = 0;
 }
 
 static void job_event_callback(void *obj, struct kevent *kev)
@@ -703,24 +771,31 @@ static void job_event_callback(void *obj, struct kevent *kev)
         pid_t c;
 	int spair[2];
 	const char **argv;
+	bool sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
 
 	if (kev && kev->filter == EVFILT_PROC) {
-		job_waitpid(j);
+		job_reap(j);
 
-		if (j->checkedin != true && j->has_fds) {
-			job_remove(j);
-			return;
+		if (sipc) {
+			if (j->checkedin != true) {
+				job_remove(j);
+				return;
+			} else {
+				j->checkedin = false;
+			}
 		}
+
 		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			job_watch_fds(j->ldj, &j->kqjob_callback);
 			return;
 		}
 	}
 
-	socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
+	if (sipc)
+		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
         if ((c = fork()) == -1) {
-                launchd_debug(LOG_DEBUG, "fork(): %m");
+                syslog(LOG_WARNING, "fork(): %m");
                 return;
         } else if (c == 0) {
 		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
@@ -732,7 +807,8 @@ static void job_event_callback(void *obj, struct kevent *kev)
 			argv[i] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
 		argv[argv_cnt] = NULL;
 
-		close(spair[0]);
+		if (sipc)
+			close(spair[0]);
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOT))
 			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOT));
 		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_GID) != getegid())
@@ -743,7 +819,8 @@ static void job_event_callback(void *obj, struct kevent *kev)
 			chdir(job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY));
 		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK) != ourmask)
 			umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
-		sprintf(nbuf, "%d", spair[1]);
+		if (sipc)
+			sprintf(nbuf, "%d", spair[1]);
 #ifdef FIXME
 		launch_data_dict_iterate(j->uenv, setup_job_env, NULL);
 #endif
@@ -751,23 +828,66 @@ static void job_event_callback(void *obj, struct kevent *kev)
 			launch_data_dict_iterate(launch_data_dict_lookup(j->ldj,
 						LAUNCH_JOBKEY_ENVIRONMENTVARIABLES),
 					setup_job_env, NULL);
-		setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
+		if (sipc)
+			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
                 setsid();
                 if (execvp(job_get_argv0(j->ldj), (char *const*)argv) == -1)
-                        launchd_debug(LOG_DEBUG, "child execvp(): %m");
-		sleep(1);
-                _exit(EXIT_FAILURE);
+			syslog(LOG_ERR, "child execvp(): %m");
+                exit(EXIT_FAILURE);
         }
-	close(spair[1]);
-	ipc_open(spair[0], j);
 
-        if (__kevent(mainkq, c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
-                launchd_debug(LOG_DEBUG, "kevent(): %m");
+	if (sipc) {
+		close(spair[1]);
+		ipc_open(spair[0], j);
+	}
+
+        if (__kevent(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
+                syslog(LOG_WARNING, "kevent(): %m");
                 return;
         } else {
 	        j->p = c;
-	        j->checkedin = false;
 		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 			job_ignore_fds(j->ldj, j->kqjob_callback);
+	}
+}
+
+static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
+{
+	syslog(LOG_DEBUG, "signal %d received", kev->ident);
+
+	switch (kev->ident) {
+	case SIGHUP:
+		update_ttys();
+		break;
+	case SIGTERM:
+		death();
+		break;
+	case SIGTSTP:
+		catatonia();
+		break;
+	case SIGUSR1:
+		closelog();
+		openlog(basename(getprogname()),
+				LOG_NDELAY|LOG_CONS|(debug ? LOG_PERROR : 0)|(getpid() > 1 ? LOG_PID : 0),
+				LOG_DAEMON);
+		syslog(LOG_INFO, "closelog();openlog();");
+		break;
+	case SIGUSR2:
+		debug = !debug;
+		setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
+		break;
+	default:
+		break;
+	}
+}
+
+static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
+{       
+	if (thesocket == -1) {
+		if ((thesocket = _fd(launchd_server_init(thesockpath))) > 0) {
+			if (__kevent(thesocket, EVFILT_READ, EV_ADD, 0, 0, &kqlisten_callback) == -1)
+				syslog(LOG_ERR, "__kevent(\"thesocket\", EVFILT_READ): %m");
+			setenv(LAUNCHD_SOCKET_ENV, thesockpath, 1);
+		}
 	}
 }

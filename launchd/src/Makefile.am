@@ -8,7 +8,7 @@ noinst_LIBRARIES = liblaunch.a
 
 bin_PROGRAMS = launchctl wait4path
 
-sbin_PROGRAMS = launchd SystemStarter init mach_init launchdebugd
+sbin_PROGRAMS = launchd SystemStarter mach_init launchdebugd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
@@ -33,15 +33,13 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 
 wait4path_SOURCES = wait4path.c
 
-init_SOURCES = init.c
-
 liblaunch_a_SOURCES = liblaunch.c
 
 launchdebugd_SOURCES = launchdebugd.c
 
 launchctl_SOURCES = launchctl.c
 
-launchd_SOURCES = launchd.c
+launchd_SOURCES = launchd.c init.c
 
 launchproxy_SOURCES = launchproxy.c
 

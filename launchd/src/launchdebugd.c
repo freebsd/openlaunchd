@@ -58,7 +58,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 	openlog(basename(argv[0]), LOG_PERROR|LOG_PID|LOG_CONS, LOG_DAEMON);
 
 	if ((resp = launch_msg(msg)) == NULL) {
-		syslog(LOG_DEBUG, "launch_msg(\"" LAUNCH_KEY_CHECKIN "\"): %m");
+		syslog(LOG_ERR, "launch_msg(\"" LAUNCH_KEY_CHECKIN "\"): %m");
 		exit(EXIT_FAILURE);
 	}
 
@@ -67,13 +67,13 @@ int main(int argc __attribute__((unused)), char *argv[])
 	launch_data_free(resp);
 
 	if ((r = kevent(kq, NULL, 0, &kev, 1, NULL)) == -1) {
-		syslog(LOG_DEBUG, "kevent(): %m");
+		syslog(LOG_ERR, "kevent(): %m");
 		exit(EXIT_FAILURE);
 	} else if (r == 0) {
 		exit(EXIT_SUCCESS);
 	}
 	if ((r = accept(kev.ident, (struct sockaddr *)&ss, &slen)) == -1) {
-		syslog(LOG_DEBUG, "accept(): %m");
+		syslog(LOG_ERR, "accept(): %m");
 		exit(EXIT_FAILURE);
 	}
 

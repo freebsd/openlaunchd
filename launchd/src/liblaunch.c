@@ -1,5 +1,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/fcntl.h>
 #include <sys/un.h>
 #include <sys/uio.h>
 #include <stdlib.h>
@@ -23,6 +24,7 @@ struct _launch {
 
 static void make_msg_and_cmsg(launch_data_t, void **, size_t *, int **, size_t *);
 static launch_data_t make_data(launch_t, size_t *, size_t *);
+static int _fd(int fd);
 
 static pthread_once_t _lc_once = PTHREAD_ONCE_INIT;
 
@@ -63,7 +65,7 @@ static void launch_client_init(void)
 
 		strncpy(sun.sun_path, where, sizeof(sun.sun_path));
 
-		if ((lfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
 			goto out_bad;
 		if (connect(lfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
 			close(lfd);
@@ -481,7 +483,7 @@ static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoff
 		*data_offset += r->opaque_size;
 		break;
 	case LAUNCH_DATA_FD:
-		r->fd = conn->recvfds[*fdoffset];
+		r->fd = _fd(conn->recvfds[*fdoffset]);
 		*fdoffset += 1;
 		break;
 	case LAUNCH_DATA_INTEGER:
@@ -740,3 +742,11 @@ bool launchd_batch_query(void)
 	}
 	return rval;
 }
+
+static int _fd(int fd)
+{
+	if (fd >= 0)
+		fcntl(fd, F_SETFD, 1);
+	return fd;
+}
+

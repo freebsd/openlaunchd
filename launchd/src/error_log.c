@@ -57,7 +57,7 @@ init_errlog(boolean_t start_as_daemon)
 		for (fd = 3; fd < nfds; fd++)
 			close(fd);
 	} else {
-		openlog((char *)program_name, LOG_PID|LOG_CONS, LOG_DAEMON);
+		openlog(getprogname(), LOG_PID|LOG_CONS, LOG_DAEMON);
 		setlogmask(LOG_UPTO(LOG_DEBUG)); /* we'll do our own filtering */
 	}
 }
@@ -82,7 +82,7 @@ static void do_log(const int level, const char *format, va_list ap)
 		if (stderr_open) {
 			fprintf(stderr, "%s[%d]%s: ",
 				level == LOG_ALERT ? " FATAL" : "",
-				getpid(), program_name);
+				getpid(), getprogname());
 			vfprintf(stderr, format, ap);
 			fprintf(stderr, "\n");
 		} else {

@@ -35,6 +35,7 @@
 #define LAUNCH_JOBKEY_ENVIRONMENTVARIABLES	"EnvironmentVariables"
 #define LAUNCH_JOBKEY_PID			"PID"
 #define LAUNCH_JOBKEY_UMASK			"Umask"
+#define LAUNCH_JOBKEY_SERVICEIPC		"ServiceIPC"
 
 #define LAUNCH_JOBSOCKETKEY_TYPE		"SockType"
 #define LAUNCH_JOBSOCKETKEY_PASSIVE		"SockPassive"

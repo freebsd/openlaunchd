@@ -40,7 +40,6 @@
 
 #define DEMAND_REQUEST	MACH_NOTIFY_LAST	/* demand service messaged */
 
-extern const char *program_name;
 extern mach_port_t lookup_only_port;
 extern mach_port_t inherited_bootstrap_port;
 extern mach_port_t self_port;		/* Compatability hack */

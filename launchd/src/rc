@@ -21,16 +21,6 @@ stty dsusp undef
 
 stty status '^T'
 
-##
-# Handle arguments passed from init.
-##
-
-BootType=$1; shift;
-
-if [ -z "${BootType}" ]; then
-	BootType="multiuser"
-fi
-
 VerboseFlag=""
    SafeBoot=""
 
@@ -48,7 +38,7 @@ for option; do
 done;
 
 if [ -d /System/Installation -a -f /etc/rc.cdrom ]; then
-	/etc/rc.cdrom ${BootType}
+	/etc/rc.cdrom multiuser
 	# We shouldn't get here; CDIS should reboot the machine when done
 	echo "CD-ROM boot procedure complete"
 	halt
@@ -69,7 +59,7 @@ mkdir -p -m 0555 /.vol && chmod 0555 /.vol && mount_volfs /.vol
 mkdir -p -m 01777 /private/var/tmp
 
 if [ -f /etc/rc.installer_cleanup ]; then
-	/etc/rc.installer_cleanup ${BootType}
+	/etc/rc.installer_cleanup multiuser
 fi
 
 . /etc/rc.cleanup
@@ -131,8 +121,6 @@ fi
 
 # Load [ideally on demand] Mach bootstrap based services
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
-
-launchd
 launchctl -l /System/Library/LaunchDaemons
 
 # We hope to launch portmap on demand in the next major release of Mac OS X,

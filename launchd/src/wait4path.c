@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 
 int main(int argc, char *argv[])
 {
@@ -20,7 +22,10 @@ int main(int argc, char *argv[])
 
 	EV_SET(&kev, 0, EVFILT_FS, EV_ADD, 0, 0, 0);
 
-	kevent(kq, &kev, 1, NULL, 0, NULL);
+	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
+		fprintf(stderr, "adding EVFILT_FS to kqueue failed: %s\n", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
 
 	for (;;) {
 		kevent(kq, NULL, 0, &kev, 1, NULL);
