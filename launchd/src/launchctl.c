@@ -41,7 +41,7 @@ static int list_cmd(int argc, char *const argv[]);
 
 static int setenv_cmd(int argc, char *const argv[]);
 static int unsetenv_cmd(int argc, char *const argv[]);
-static int getenv_cmd(int argc, char *const argv[]);
+static int getenv_and_export_cmd(int argc, char *const argv[]);
 
 //static int limit_cmd(int argc, char *const argv[]);
 static int setstdio_cmd(int argc, char *const argv[]);
@@ -62,9 +62,11 @@ static const struct {
 	{ "list",	list_cmd,		"List jobs and information about jobs" },
 	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
 	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
-	{ "getenv",	getenv_cmd,		"Get environmental variables from launchd" },
+	{ "getenv",	getenv_and_export_cmd,	"Get environmental variables from launchd" },
+	{ "export",	getenv_and_export_cmd,	"Export shell settings from launchd" },
 //	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
-	{ "setstdio",	setstdio_cmd,		"Redirect launchd's standard in, out and error" },
+	{ "setstdout",	setstdio_cmd,		"Redirect launchd's standard out to the given path" },
+	{ "setstderr",	setstdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
 	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
 	{ "help",	help_cmd,		"This help output" },
@@ -160,14 +162,6 @@ static int lctl_tcl_cmd(ClientData clientData __attribute__((unused)), Tcl_Inter
 	return TCL_OK;
 }
 
-static void print_launchd_env(launch_data_t obj, const char *key, void *context)
-{
-	if (context)
-		fprintf(stdout, "setenv %s %s;\n", key, launch_data_get_string(obj));
-	else
-		fprintf(stdout, "%s=%s; export %s;\n", key, launch_data_get_string(obj), key);
-}
-
 static int unsetenv_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, tmp, msg;
@@ -223,15 +217,32 @@ static int setenv_cmd(int argc, char *const argv[])
 	return 0;
 }
 
-static int getenv_cmd(int argc, char *const argv[] __attribute__((unused)))
+static int getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
 {
 	launch_data_t resp, msg;
-	char *s = getenv("SHELL");
-
-	if (argc != 1) {
-		fprintf(stderr, "%s usage: getenv\n", getprogname());
+	bool is_csh = false;
+	const char *k;
+	void print_launchd_env(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
+		if (is_csh)
+			fprintf(stdout, "setenv %s %s;\n", key, launch_data_get_string(obj));
+		else
+			fprintf(stdout, "%s=%s; export %s;\n", key, launch_data_get_string(obj), key);
+	}
+	void print_key_value(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
+		if (!strcmp(key, k))
+			fprintf(stdout, "%s\n", launch_data_get_string(obj));
+	}
+	
+	if (!strcmp(argv[0], "export")) {
+		char *s = getenv("SHELL");
+		if (s)
+			is_csh = strstr(s, "csh") ? true : false;
+	} else if (argc != 2) {
+		fprintf(stderr, "%s usage: getenv <key>\n", getprogname());
 		return 1;
 	}
+
+	k = argv[1];
 
 	msg = launch_data_new_string(LAUNCH_KEY_GETUSERENVIRONMENT);
 
@@ -239,7 +250,7 @@ static int getenv_cmd(int argc, char *const argv[] __attribute__((unused)))
 	launch_data_free(msg);
 
 	if (resp) {
-		launch_data_dict_iterate(resp, print_launchd_env, s ? strstr(s, "csh") : NULL);
+		launch_data_dict_iterate(resp, (!strcmp(argv[0], "export")) ? print_launchd_env : print_key_value, NULL);
 		launch_data_free(resp);
 	} else {
 		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_GETUSERENVIRONMENT "\"): %s\n", strerror(errno));
@@ -856,43 +867,29 @@ static int list_cmd(int argc, char *const argv[])
 
 static int setstdio_cmd(int argc, char *const argv[])
 {
-	launch_data_t resp, msg, msgd;
-	int ch, fd = -1, r = 0;
-	bool i = false, o = false, e = false;
+	launch_data_t resp, msg, tmp;
+	int fd = -1, r = 0;
 
-	while ((ch = getopt(argc, argv, "ioe")) != -1) {
-		switch (ch) {
-		case 'i': i = true; break;
-		case 'o': o = true; break;
-		case 'e': e = true; break;
-		default:
-			fprintf(stderr, "usage: %s setstdio [-i] [-o] [-e] [path]\n", getprogname());
-			return 1;
-		}
-	}
-	argc -= optind;
-	argv += optind;
-
-	if (!(i || o || e))
-		i = o = e = true;
-
-	if (argc > 1) {
-		fprintf(stderr, "usage: %s setstdio [-i] [-o] [-e] [path]\n", getprogname());
+	if (argc != 2) {
+		fprintf(stderr, "usage: %s %s <path>\n", getprogname(), argv[0]);
 		return 1;
-	} else if (argc == 1) {
-		fd = open(argv[0], O_CREAT|O_APPEND|O_RDWR, DEFFILEMODE);
 	}
+
+	fd = open(argv[1], O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
 
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	msgd = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	if (i)
-		launch_data_dict_insert(msgd, launch_data_new_fd(fd != -1 ? fd : STDIN_FILENO), LAUNCH_STDIOKEY_IN);
-	if (o)
-		launch_data_dict_insert(msgd, launch_data_new_fd(fd != -1 ? fd : STDOUT_FILENO), LAUNCH_STDIOKEY_OUT);
-	if (e)
-		launch_data_dict_insert(msgd, launch_data_new_fd(fd != -1 ? fd : STDERR_FILENO), LAUNCH_STDIOKEY_ERROR);
 
-	launch_data_dict_insert(msg, msgd, LAUNCH_KEY_SETSTDIO);
+	if (fd == -1) {
+		tmp = launch_data_new_string(argv[1]);
+	} else {
+		tmp = launch_data_new_fd(fd);
+	}
+
+	if (!strcmp(argv[0], "setstdout")) {
+		launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETSTDOUT);
+	} else {
+		launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETSTDERR);
+	}
 
 	resp = launch_msg(msg);
 	launch_data_free(msg);

@@ -16,7 +16,8 @@
 #define LAUNCH_KEY_GETUSERENVIRONMENT		"GetUserEnvironment"
 #define LAUNCH_KEY_SETUSERENVIRONMENT		"SetUserEnvironment"
 #define LAUNCH_KEY_UNSETUSERENVIRONMENT		"UnsetUserEnvironment"
-#define LAUNCH_KEY_SETSTDIO			"SetStandardIO"
+#define LAUNCH_KEY_SETSTDOUT			"SetStandardOut"
+#define LAUNCH_KEY_SETSTDERR			"SetStandardError"
 #define LAUNCH_KEY_SHUTDOWN			"Shutdown"
 #define LAUNCH_KEY_GETRESOURCELIMIT		"GetResourceLimit"
 #define LAUNCH_KEY_SETRESOURCELIMIT		"SetResourceLimit"
@@ -82,10 +83,6 @@
 #define LAUNCH_JOBADDRINFOKEY_ADDRESS		"Address"
 #define LAUNCH_JOBADDRINFOKEY_CANONICALNAME	"CanonicalName"
 #define LAUNCH_JOBADDRINFOKEY_FD		"FD"
-
-#define LAUNCH_STDIOKEY_IN			"StandardInFD"
-#define LAUNCH_STDIOKEY_OUT			"StandardOutFD"
-#define LAUNCH_STDIOKEY_ERROR			"StandardErrorFD"
 
 #define LAUNCH_RESPONSE_SUCCESS			"Success"
 #define LAUNCH_RESPONSE_JOBNOTFOUND		"JobNotFound"

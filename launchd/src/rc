@@ -38,7 +38,6 @@ fi
 
 echo "Mounting local filesystems"
 mount -uw /
-mount_fdesc -o union fdesc /dev
 [ ! -d /.vol ] && mkdir -p -m 0555 /.vol
 mount_volfs /.vol
 [ -f /etc/fstab ] && mount -vat nonfs
@@ -65,8 +64,6 @@ if [ -f /etc/sysctl.conf ]; then
 fi
 
 sysctl -w kern.sysv.shmmax=4194304 kern.sysv.shmmin=1 kern.sysv.shmmni=32 kern.sysv.shmseg=8 kern.sysv.shmall=1024
-
-[ -f /etc/rc.local_tuning ] && . /etc/rc.local_tuning
 
 if [ -f /var/account/acct ]; then
 	accton /var/account/acct
@@ -256,9 +253,6 @@ fi
 if [ -f /etc/security/rc.audit ]; then
 	. /etc/security/rc.audit
 fi
-
-# Configure launchd before life gets interesting
-[ -f /etc/launchd.conf ]  && launchctl < /etc/launchd.conf
 
 # Load [ideally on demand] daemons
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d

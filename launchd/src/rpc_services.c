@@ -433,9 +433,7 @@ x_bootstrap_look_up(
 		}
 	}
 	*serviceportp = servicep->port;
-	syslog(LOG_DEBUG, "Lookup returns port %x for service %s",
-	      servicep->port,
-	      servicep->name);
+	syslog(LOG_DEBUG, "Lookup returns port %x for service %s", servicep->port, servicep->name);
 	return BOOTSTRAP_SUCCESS;
 }
 

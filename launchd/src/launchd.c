@@ -13,6 +13,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/ioctl.h>
+#include <sys/mount.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -37,6 +38,8 @@
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
+#define LAUNCHD_CONF "/etc/launchd.conf"
+#define LAUNCHCTL_PATH "/bin/launchctl"
 
 extern char **environ;
 
@@ -67,7 +70,7 @@ static bool batch_enabled = true;
 
 static launch_data_t load_job(launch_data_t pload);
 static launch_data_t get_jobs(const char *which);
-static launch_data_t setstdio(launch_data_t d);
+static launch_data_t setstdio(int d, launch_data_t o);
 static void batch_job_enable(bool e);
 static void do_shutdown(void);
 
@@ -76,11 +79,13 @@ static void signal_callback(void *, struct kevent *);
 static void fs_callback(void *, struct kevent *);
 static void simple_zombie_reaper(void *, struct kevent *);
 static void mach_callback(void *, struct kevent *);
+static void readcfg_callback(void *, struct kevent *);
 
 static kq_callback kqlisten_callback = listen_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = fs_callback;
 static kq_callback kqmach_callback = mach_callback;
+static kq_callback kqreadcfg_callback = readcfg_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static void job_watch_fds(launch_data_t o, void *cookie);
@@ -113,18 +118,22 @@ static void loopback_setup(void);
 static void update_lm(void);
 static void workaround3048875(int argc, char *argv[]);
 
+static pid_t readcfg_pid = 0;
 static int thesocket = -1;
 static bool debug = false;
 static bool verbose = false;
 static pthread_t mach_server_loop_thread;
 mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 sigset_t blocked_signals = 0;
+static char *pending_stdout = NULL;
+static char *pending_stderr = NULL;
 
 int main(int argc, char *argv[])
 {
 	struct timespec timeout = { 30, 0 };
 	pthread_attr_t attr;
 	struct kevent kev;
+	struct stat sb;
 	size_t i;
 	bool sflag = false, xflag = false;
 	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
@@ -196,6 +205,9 @@ int main(int argc, char *argv[])
 
 		loopback_setup();
 
+		if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
+			syslog(LOG_ERR, "mount(\"fdesc\", \"/dev/\", ...): %m");
+
 		setenv("PATH", _PATH_STDPATH, 1);
 	}
 
@@ -245,8 +257,58 @@ int main(int argc, char *argv[])
 	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
 		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
 
+	if (lstat(LAUNCHD_CONF, &sb) == 0) {
+		int spair[2];
+		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
+		readcfg_pid = fork_with_bootstrap_port(launchd_bootstrap_port);
+		if (readcfg_pid == 0) {
+			char nbuf[100];
+			close(spair[0]);
+			sprintf(nbuf, "%d", spair[1]);
+			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
+			int fd = open(LAUNCHD_CONF, O_RDONLY);
+			if (fd == -1) {
+				syslog(LOG_ERR, "open(\"%s\"): %m", LAUNCHD_CONF);
+				exit(EXIT_FAILURE);
+			}
+			dup2(fd, STDIN_FILENO);
+			close(fd);
+			execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL);
+			syslog(LOG_ERR, "execl(): %m");
+			exit(EXIT_FAILURE);
+		} else if (readcfg_pid == -1) {
+			close(spair[0]);
+			close(spair[1]);
+			syslog(LOG_ERR, "fork(): %m");
+			readcfg_pid = 0;
+		} else {
+			close(spair[1]);
+			ipc_open(_fd(spair[0]), NULL);
+			if (kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) == -1)
+				syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqreadcfg_callback): %m");
+		}
+	}
+
 	for (;;) {
-		if (getpid() == 1)
+		if (pending_stdout) {
+			int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
+			if (fd != -1) {
+				dup2(fd, STDOUT_FILENO);
+				close(fd);
+				free(pending_stdout);
+				pending_stdout = NULL;
+			}
+		}
+		if (pending_stderr) {
+			int fd = open(pending_stderr, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
+			if (fd != -1) {
+				dup2(fd, STDERR_FILENO);
+				close(fd);
+				free(pending_stderr);
+				pending_stderr = NULL;
+			}
+		}
+		if (getpid() == 1 && readcfg_pid == 0)
 			init_pre_kevent();
 		if (thesocket == -1)
 			launchd_server_init();
@@ -270,8 +332,8 @@ int main(int argc, char *argv[])
 		}
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
-		// <rdar://problem/3632556> Please automatically reap processes reparented to PID 1
-		if (getpid() == 1)
+		/* <rdar://problem/3632556> Please automatically reap processes reparented to PID 1 */
+		if (getpid() == 1) 
 			pid1waitpid();
 #endif
 	}
@@ -290,6 +352,12 @@ static bool launchd_check_pid(pid_t p)
 			return true;
 		}
 	}
+
+	if (p == readcfg_pid) {
+		readcfg_callback(NULL, NULL);
+		return true;
+	}
+
 	return false;
 }
 #endif
@@ -338,6 +406,8 @@ static void launchd_server_init(void)
 			exit(EXIT_FAILURE);
 		}
 	}
+	if (chown(ourdir, getuid(), getgid()) == -1)
+		syslog(LOG_WARNING, "chown(\"%s\"): %m", ourdir);
 
 	ourdirfd = _fd(open(ourdir, O_RDONLY));
 	if (ourdirfd == -1) {
@@ -476,11 +546,11 @@ static void ipc_callback(void *obj, struct kevent *kev)
 {
 	struct conncb *c = obj;
 	int r;
-
+	
 	if (kev->filter == EVFILT_READ) {
 		if (launchd_msg_recv(c->conn, ipc_readmsg, c) == -1 && errno != EAGAIN) {
 			if (errno != ECONNRESET)
-				syslog(LOG_DEBUG, "%s(): read: %m", __func__);
+				syslog(LOG_DEBUG, "%s(): recv: %m", __func__);
 			ipc_close(c);
 		}
 	} else if (kev->filter == EVFILT_WRITE) {
@@ -721,8 +791,11 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOBWITHHANDLES))) {
 		resp = get_jobs(launch_data_get_string(tmp));
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDIO))) {
-		resp = setstdio(tmp);
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDOUT))) {
+		resp = setstdio(STDOUT_FILENO, tmp);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDERR))) {
+		resp = setstdio(STDERR_FILENO, tmp);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
 		batch_job_enable(launch_data_get_bool(tmp));
@@ -750,16 +823,22 @@ out:
 	launch_data_free(resp);
 }
 
-static launch_data_t setstdio(launch_data_t d)
+static launch_data_t setstdio(int d, launch_data_t o)
 {
-	launch_data_t tmp, resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
+	launch_data_t resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
 
-	if ((tmp = launch_data_dict_lookup(d, LAUNCH_STDIOKEY_IN)))
-		dup2(launch_data_get_fd(tmp), STDIN_FILENO);
-	if ((tmp = launch_data_dict_lookup(d, LAUNCH_STDIOKEY_OUT)))
-		dup2(launch_data_get_fd(tmp), STDOUT_FILENO);
-	if ((tmp = launch_data_dict_lookup(d, LAUNCH_STDIOKEY_ERROR)))
-		dup2(launch_data_get_fd(tmp), STDERR_FILENO);
+	if (launch_data_get_type(o) == LAUNCH_DATA_STRING) {
+		char **where = &pending_stderr;
+		if (d == STDOUT_FILENO)
+			where = &pending_stdout;
+		if (*where)
+			free(*where);
+		*where = strdup(launch_data_get_string(o));
+	} else if (launch_data_get_type(o) == LAUNCH_DATA_FD) {
+		dup2(launch_data_get_fd(o), d);
+	} else {
+		launch_data_set_string(resp, LAUNCH_RESPONSE_UNKNOWNCOMMAND);
+	}
 
 	return resp;
 }
@@ -768,12 +847,12 @@ static void batch_job_enable(bool e)
 {
 	if (e) {
 		batch_enabled = true;
-		if (helperd)
-			job_start(helperd);
+		if (helperd && helperd->p)
+			kill(helperd->p, SIGCONT);
 	} else {
 		batch_enabled = false;
-		if (helperd)
-			job_stop(helperd);
+		if (helperd && helperd->p)
+			kill(helperd->p, SIGSTOP);
 	}
 }
 
@@ -1078,6 +1157,10 @@ static void job_start(struct jobcb *j)
 	
 	if ((c = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_WARNING, "fork(): %m");
+		if (sipc) {
+			close(spair[0]);
+			close(spair[1]);
+		}
 		return;
 	} else if (c == 0) {
 		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
@@ -1271,6 +1354,29 @@ static void update_lm(void)
 
 static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
+}
+
+static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
+{
+	int status;
+
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+	if (getpid() == 1)
+		status = pid1_child_exit_status;
+	else
+#endif
+		waitpid(readcfg_pid, &status, 0);
+
+	readcfg_pid = 0;
+
+	if (WIFEXITED(status)) {
+		if (WEXITSTATUS(status))
+			syslog(LOG_WARNING, "Unable to read launchd.conf: launchctl exited with status: %d", WEXITSTATUS(status));
+	} else if (WIFSIGNALED(status)) {
+		syslog(LOG_WARNING, "Unable to read launchd.conf: launchctl exited abnormally: %s", strsignal(WTERMSIG(status)));
+	} else {
+		syslog(LOG_WARNING, "Unable to read launchd.conf: launchctl exited abnormally");
+	}
 }
 
 static void *mach_demand_loop(void *arg __attribute__((unused)))
