@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
 		j->wn(j, &kev);
 
 		TAILQ_FOREACH(ji, &thejobs, tqe) {
-			if (!ji->on_demand && !ji->running)
+			if (ji->enabled && !ji->on_demand && !ji->running)
 				job_launch(ji, &k);
 		}
 	}
