@@ -141,6 +141,40 @@ This optional key specifies what file should be used for data being sent to stdo
 .It Sy StandardErrorPath <string>
 This optional key specifies what file should be used for data being sent to stderr when using
 .Xr stdio 3 .
+.It Sy SoftResourceLimits <dictionary of integers>
+.It Sy HardResourceLimits <dictionary of integers>
+Resource limits to be imposed on the job. These adjust variables set with
+.Xr setrlimit 2 .
+The following keys apply:
+.Bl -ohang -offset indent
+.It Sy Core <integer>
+The largest size (in bytes) core file that may be created.
+.It Sy CPU <integer>
+The maximum amount of cpu time (in seconds) to be used by each process.
+.It Sy Data <integer>
+The maximum size (in bytes) of the data segment for a process; this defines how far a program may extend its break with the
+.Xr sbrk 2
+system call.
+.It Sy FileSize <integer>
+The largest size (in bytes) file that may be created.
+.It Sy MemoryLock <integer>
+The maximum size (in bytes) which a process may lock into memory using the
+.Xr mlock 2
+function.
+.It Sy NumberOfFiles <integer>
+The maximum number of open files for this process.
+.It Sy NumberOfProcesses <integer>
+The maximum number of simultaneous processes for this user id.
+.It Sy ResidentSetSize <integer>
+The maximum size (in bytes) to which a process's resident set size may grow.
+This imposes a limit on the amount of physical memory to be given to a process;
+if memory is tight, the system will prefer to take memory from processes that
+are exceeding their declared resident set size.
+.It Sy Stack <integer>
+The maximum size (in bytes) of the stack segment for a process; this defines
+how far a program's stack segment may be extended.  Stack extension is
+performed automatically by the system.
+.El
 .It Sy Nice <integer>
 This optional key specifies what
 .Xr nice 3

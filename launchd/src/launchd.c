@@ -967,9 +967,25 @@ static void job_launch(struct jobcb *j)
 		return;
 	} else if (c == 0) {
 		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+		launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
+		launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
 		struct timeval tvd;
 		size_t i, argv_cnt;
 		const char *a0;
+		const struct {
+			const char *key;
+			int val;
+		} limits[] = {
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
+			{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
+			};
 
 		argv_cnt = launch_data_array_get_count(ldpa);
 		argv = alloca((argv_cnt + 1) * sizeof(char *));
@@ -979,6 +995,22 @@ static void job_launch(struct jobcb *j)
 
 		if (sipc)
 			close(spair[0]);
+		if (srl || hrl) {
+			for (i = 0; i < (sizeof(limits) / sizeof(limits[0])); i++) {
+				struct rlimit rl;
+
+				if (getrlimit(limits[i].val, &rl) == -1)
+					syslog(LOG_NOTICE, "getrlimit(): %m");
+
+				if (hrl)
+					rl.rlim_max = job_get_integer(hrl, limits[i].key);
+				if (srl)
+					rl.rlim_cur = job_get_integer(srl, limits[i].key);
+
+				if (setrlimit(limits[i].val, &rl) == -1)
+					syslog(LOG_NOTICE, "setrlimit(): %m");
+			}
+		}
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))
 			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY));
 		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_GID) != getgid())
