@@ -82,7 +82,7 @@ new_server(
 {
 	server_t *serverp;
 
-	syslog(LOG_DEBUG, "adding new server \"%s\" with uid %d\n", cmd, uid);	
+	syslog(LOG_DEBUG, "adding new server \"%s\" with uid %d", cmd, uid);	
 	serverp = NEW(server_t, 1);
 	if (serverp != NULL) {
 		/* Doubly linked list */
@@ -256,7 +256,7 @@ delete_service(service_t *servicep)
 				   MACH_PORT_RIGHT_RECEIVE, -1);
 		break;
 	default:
-		syslog(LOG_ERR, "unknown service type %d\n", servicep->servicetype);
+		syslog(LOG_ERR, "unknown service type %d", servicep->servicetype);
 		break;
 	}
 	free(servicep);

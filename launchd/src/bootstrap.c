@@ -782,7 +782,7 @@ server_demux(
     kern_return_t result;
 	mig_reply_error_t *reply;
         
-	syslog(LOG_DEBUG, "received message on port %x\n", Request->msgh_local_port);
+	syslog(LOG_DEBUG, "received message on port %x", Request->msgh_local_port);
 
 	reply = (mig_reply_error_t *)Reply;
 
@@ -851,12 +851,12 @@ server_demux(
 
 		case MACH_NOTIFY_PORT_DELETED:
 			np = ((mach_port_deleted_notification_t *)Request)->not_port;
-			syslog(LOG_DEBUG, "port deleted notification on 0x%x\n", np);
+			syslog(LOG_DEBUG, "port deleted notification on 0x%x", np);
 			reply->RetCode = KERN_SUCCESS;
 			break;
 
 		case MACH_NOTIFY_SEND_ONCE:
-			syslog(LOG_DEBUG, "notification send-once right went unused\n");
+			syslog(LOG_DEBUG, "notification send-once right went unused");
 			reply->RetCode = KERN_SUCCESS;
 			break;
 
