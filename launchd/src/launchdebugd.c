@@ -18,15 +18,10 @@ static void launch_print_obj(launch_data_t o, FILE *w);
 
 static int kq = -1;
 
-static void find_fds(launch_data_t o, const char *key, void *context __attribute__((unused)))
+static void find_fds(launch_data_t o, const char *key __attribute__((unused)), void *context __attribute__((unused)))
 {
 	struct kevent kev;
 	size_t i;
-
-	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_BONJOURFD)) {
-		close(launch_data_get_fd(o));
-		return;
-	}
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_FD:

@@ -23,15 +23,11 @@
 
 static int kq = 0;
 
-static void find_fds(launch_data_t o, const char *key, void *context __attribute__((unused)))
+static void find_fds(launch_data_t o, const char *key __attribute__((unused)), void *context __attribute__((unused)))
 {
-	static int subtree_is_rendezvous = 0;
         struct kevent kev;
         size_t i;
 	int fd;
-
-	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_BONJOURFD))
-		subtree_is_rendezvous++;
 
         switch (launch_data_get_type(o)) {
         case LAUNCH_DATA_FD:
@@ -39,11 +35,9 @@ static void find_fds(launch_data_t o, const char *key, void *context __attribute
 		if (-1 == fd)
 			break;
 		fcntl(fd, F_SETFD, 1);
-		if (subtree_is_rendezvous == 0) {
-			EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-			if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
-				syslog(LOG_DEBUG, "kevent(%d): %m", fd);
-		}
+		EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+		if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
+			syslog(LOG_DEBUG, "kevent(%d): %m", fd);
                 break;
         case LAUNCH_DATA_ARRAY:
                 for (i = 0; i < launch_data_array_get_count(o); i++)
@@ -55,9 +49,6 @@ static void find_fds(launch_data_t o, const char *key, void *context __attribute
         default:
                 break;
         }
-
-	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_BONJOURFD))
-		subtree_is_rendezvous--;
 }
 
 int main(int argc __attribute__((unused)), char *argv[])

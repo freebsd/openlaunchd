@@ -27,9 +27,10 @@
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
 
+static bool launch_data_array_append(launch_data_t a, launch_data_t o);
 static void distill_config_file(launch_data_t);
 static void sock_dict_cb(launch_data_t what, const char *key, void *context);
-static void sock_dict_edit_entry(launch_data_t tmp, const char *key);
+static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, launch_data_t thejob);
 static launch_data_t CF2launch_data(CFTypeRef);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
@@ -371,78 +372,44 @@ static bool readcfg(const char *what, bool load, bool editondisk)
 	return true;
 }
 
+struct distill_context {
+	launch_data_t base;
+	launch_data_t newsockdict;
+};
+
 static void distill_config_file(launch_data_t id_plist)
 {
+	struct distill_context dc = { id_plist, NULL };
 	launch_data_t tmp;
 
-	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_SOCKETS)))
-		launch_data_dict_iterate(tmp, sock_dict_cb, id_plist);
+	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_SOCKETS))) {
+		dc.newsockdict = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+		launch_data_dict_iterate(tmp, sock_dict_cb, &dc);
+		launch_data_dict_insert(dc.base, dc.newsockdict, LAUNCH_JOBKEY_SOCKETS);
+	}
 }
 
-static launch_data_t create_launch_data_addrinfo_fd(struct addrinfo *ai, int fd)
+static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 {
-	launch_data_t t, d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	struct distill_context *dc = context;
+	launch_data_t fdarray = launch_data_alloc(LAUNCH_DATA_ARRAY);
 
-	if (ai->ai_flags & AI_PASSIVE) {
-		t = launch_data_alloc(LAUNCH_DATA_BOOL);
-		launch_data_set_bool(t, true);
-		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_PASSIVE);
-	}
+	launch_data_dict_insert(dc->newsockdict, fdarray, key);
 
-	if (ai->ai_family) {
-		t = launch_data_alloc(LAUNCH_DATA_INTEGER);
-		launch_data_set_integer(t, ai->ai_family);
-		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_FAMILY);
-	}
-
-	if (ai->ai_socktype) {
-		t = launch_data_alloc(LAUNCH_DATA_INTEGER);
-		launch_data_set_integer(t, ai->ai_socktype);
-		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_SOCKTYPE);
-	}
-
-	if (ai->ai_protocol) {
-		t = launch_data_alloc(LAUNCH_DATA_INTEGER);
-		launch_data_set_integer(t, ai->ai_protocol);
-		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_PROTOCOL);
-	}
-
-	if (ai->ai_addr) {
-		t = launch_data_alloc(LAUNCH_DATA_OPAQUE);
-		launch_data_set_opaque(t, ai->ai_addr, ai->ai_addrlen);
-		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_ADDRESS);
-	}
-
-	if (ai->ai_canonname) {
-		t = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(t, ai->ai_canonname);
-		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_CANONICALNAME);
-	}
-
-	t = launch_data_alloc(LAUNCH_DATA_FD);
-	launch_data_set_fd(t, fd);
-	launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_FD);
-
-	return d;
-}
-
-
-static void sock_dict_cb(launch_data_t what, const char *key, void *context __attribute__((unused)))
-{
 	if (launch_data_get_type(what) == LAUNCH_DATA_DICTIONARY) {
-		sock_dict_edit_entry(what, key);
+		sock_dict_edit_entry(what, key, fdarray, dc->base);
 	} else if (launch_data_get_type(what) == LAUNCH_DATA_ARRAY) {
 		launch_data_t tmp;
 		size_t i;
 
 		for (i = 0; i < launch_data_array_get_count(what); i++) {
 			tmp = launch_data_array_get_index(what, i);
-			sock_dict_edit_entry(tmp, key);
+			sock_dict_edit_entry(tmp, key, fdarray, dc->base);
 		}
 	}
 }
 
-static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
+static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, launch_data_t thejob)
 {
 	launch_data_t a, val;
 	int sfd, st = SOCK_STREAM;
@@ -506,11 +473,10 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 			return;
 		}
 
-		val = launch_data_alloc(LAUNCH_DATA_FD);
-		launch_data_set_fd(val, sfd);
-		launch_data_dict_insert(tmp, val, LAUNCH_JOBSOCKETKEY_FD);
+		val = launch_data_new_fd(sfd);
+		launch_data_array_append(fdarray, val);
 	} else {
-		launch_data_t rnames, ai_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
+		launch_data_t rnames = NULL;
 		const char *node = NULL, *serv = NULL;
 		char servnbuf[50];
 		struct addrinfo hints, *res0, *res;
@@ -583,22 +549,28 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 				}
 				if (rendezvous && (res->ai_family == AF_INET || res->ai_family == AF_INET6) &&
 						(res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_DGRAM)) {
+					launch_data_t rvs_fds = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_BONJOURFDS);
+					if (NULL == rvs_fds) {
+						rvs_fds = launch_data_alloc(LAUNCH_DATA_ARRAY);
+						launch_data_dict_insert(thejob, rvs_fds, LAUNCH_JOBKEY_BONJOURFDS);
+					}
 					if (NULL == rnames) {
 						rvs_fd = do_rendezvous_magic(res, serv);
+						if (rvs_fd)
+							launch_data_array_append(rvs_fds, rvs_fd);
 					} else if (LAUNCH_DATA_STRING == launch_data_get_type(rnames)) {
 						rvs_fd = do_rendezvous_magic(res, launch_data_get_string(rnames));
+						if (rvs_fd)
+							launch_data_array_append(rvs_fds, rvs_fd);
 					} else if (LAUNCH_DATA_ARRAY == launch_data_get_type(rnames)) {
 						size_t rn_i, rn_ac = launch_data_array_get_count(rnames);
 
-						
 						for (rn_i = 0; rn_i < rn_ac; rn_i++) {
 							launch_data_t rn_tmp = launch_data_array_get_index(rnames, rn_i);
-							launch_data_t magic_r = do_rendezvous_magic(res, launch_data_get_string(rn_tmp));
-							if (magic_r) {
-								if (NULL == rvs_fd)
-									rvs_fd = launch_data_alloc(LAUNCH_DATA_ARRAY);
-								launch_data_array_set_index(rvs_fd, magic_r, launch_data_array_get_count(rvs_fd));
-							}
+
+							rvs_fd = do_rendezvous_magic(res, launch_data_get_string(rn_tmp));
+							if (rvs_fd)
+								launch_data_array_append(rvs_fds, rvs_fd);
 						}
 					}
 				}
@@ -608,16 +580,14 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 					return;
 				}
 			}
-			val = create_launch_data_addrinfo_fd(res, sfd);
+			val = launch_data_new_fd(sfd);
 			if (rvs_fd) {
-				launch_data_dict_insert(val, rvs_fd, LAUNCH_JOBSOCKETKEY_BONJOURFD);
 				/* <rdar://problem/3964648> Launchd should not register the same service more than once */
 				/* <rdar://problem/3965154> Switch to DNSServiceRegisterAddrInfo() */
 				rendezvous = false;
 			}
-			launch_data_array_set_index(ai_array, val, launch_data_array_get_count(ai_array));
+			launch_data_array_append(fdarray, val);
 		}
-		launch_data_dict_insert(tmp, ai_array, LAUNCH_JOBSOCKETKEY_ADDRINFORESULTS);
 	}
 }
 
@@ -1384,4 +1354,11 @@ out:
 		close(thedir);
 	if (kq != -1)
 		close(kq);
+}
+
+static bool launch_data_array_append(launch_data_t a, launch_data_t o)
+{
+	size_t offt = launch_data_array_get_count(a);
+
+	return launch_data_array_set_index(a, o, offt);
 }
