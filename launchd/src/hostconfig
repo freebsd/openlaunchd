@@ -1,20 +1,7 @@
-##
-# /etc/hostconfig
-##
-# This file is maintained by the system control panels
-##
-
-# Network configuration
-HOSTNAME=-AUTOMATIC-
-ROUTER=-AUTOMATIC-
-
-# Services
 AFPSERVER=-NO-
 AUTHSERVER=-NO-
 AUTOMOUNT=-YES-
 CUPS=-AUTOMATIC-
-IPFORWARDING=-NO-
-IPV6=-YES-
 NFSLOCKS=-AUTOMATIC-
 NISDOMAIN=-NO-
 TIMESYNC=-NO-

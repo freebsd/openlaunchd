@@ -1,6 +1,5 @@
 {
   Description     = "Apache web server";
   Provides        = ("Web Server");
-  Requires        = ("Network");
   Uses            = ("Disks", "NFS");
 }

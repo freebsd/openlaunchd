@@ -1,6 +1,5 @@
 {
   Description     = "network file system";
   Provides        = ("NFS");
-  Requires        = ("Network");
   Uses            = ("Disks");
 }
