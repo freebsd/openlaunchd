@@ -1587,8 +1587,10 @@ static void job_start_child(struct jobcb *j)
 		if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
 			job_log_error(j, LOG_WARNING, "sysctl(\"%s\")", "kern.proc_low_pri_io");
 	}
-	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY)))
+	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))) {
 		chroot(tmpstr);
+		chdir(".");
+	}
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_GROUPNAME))) {
 		gre = getgrnam(tmpstr);
 		if (gre) {
