@@ -1193,6 +1193,7 @@ static void job_callback(void *obj, struct kevent *kev)
 		}
 	} else if (kev->filter == EVFILT_READ && kev->flags & EV_EOF && kev->data == 0) {
 		/* Busted FD with no data/listeners pending. Revoke the fd and start the job. */
+		syslog(LOG_NOTICE, "%s: revoking busted FD %d", job_get_argv0(j->ldj), kev->ident);
 		launch_data_revoke_fds(j->ldj, NULL, &kev->ident);
 	}
 
