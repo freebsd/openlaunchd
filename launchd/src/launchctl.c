@@ -21,7 +21,6 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <dns_sd.h>
-#include <tcl.h>
 
 #include "launch.h"
 #include "launch_priv.h"
@@ -40,8 +39,6 @@ static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
 static void wait4path(const char *path);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
-
-static int lctl_tcl_cmd(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -89,47 +86,35 @@ static const struct {
 
 int main(int argc, char *const argv[])
 {
-	Tcl_Interp *interp;
+	bool istty = isatty(STDIN_FILENO);
 	char *l;
-	size_t i;
 
-	if (argc > 1) {
+	if (argc > 1)
 		exit(demux_cmd(argc - 1, argv + 1));
-	} else {
-		help_cmd(0, NULL);
-	}
 
-	if (NULL == Tcl_CreateInterp) {
-		fprintf(stderr, "missing library: Tcl\n");
+	if (NULL == readline) {
+		fprintf(stderr, "missing library: readline\n");
 		exit(EXIT_FAILURE);
 	}
 
-	interp = Tcl_CreateInterp();
+	while ((l = readline(istty ? "launchd% " : NULL))) {
+		char *inputstring = l, *argv2[100], **ap = argv2;
+		int i = 0;
 
-	if (interp == NULL) {
-		fprintf(stderr, "Tcl_CreateInterp() failed\n");
-		exit(EXIT_FAILURE);
+		while ((*ap = strsep(&inputstring, " \t"))) {
+			if (**ap != '\0') {
+				ap++;
+				i++;
+			}
+		}
+
+		if (i > 0)
+			demux_cmd(i, argv2);
+
+		free(l);
 	}
 
-	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++)
-		Tcl_CreateCommand(interp, cmds[i].name, lctl_tcl_cmd, 0, 0);
-
-	if (isatty(STDIN_FILENO)) {
-		if (NULL == readline) {
-			fprintf(stderr, "missing library: readline\n");
-			exit(EXIT_FAILURE);
-		}
-		while ((l = readline("launchd % "))) {
-			if (Tcl_Eval(interp, l) != TCL_OK)
-				fprintf(stderr, "%s at line %d: %s\n", getprogname(), interp->errorLine, interp->result);
-			free(l);
-		}
-		fputc('\n', stdout);
-	} else if (Tcl_EvalFile(interp, "/dev/stdin") != TCL_OK) {
-		fprintf(stderr, "%s at line %d: %s\n", getprogname(), interp->errorLine, interp->result);
-	}
-
-	Tcl_DeleteInterp(interp);
+	fputc('\n', stdout);
 
 	exit(EXIT_SUCCESS);
 }
@@ -148,17 +133,6 @@ static int demux_cmd(int argc, char *const argv[])
 
 	fprintf(stderr, "%s: unknown subcommand \"%s\"\n", getprogname(), argv[0]);
 	return 1;
-}
-
-static int lctl_tcl_cmd(ClientData clientData __attribute__((unused)), Tcl_Interp *interp, int argc, CONST char *argv[])
-{
-	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
-	int r = demux_cmd(argc, (char *const *)argv);
-
-	Tcl_SetIntObj(tcl_result, r);
-	if (r)
-		return TCL_ERROR;
-	return TCL_OK;
 }
 
 static int unsetenv_cmd(int argc, char *const argv[])
