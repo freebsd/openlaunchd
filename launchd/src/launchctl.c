@@ -181,7 +181,7 @@ static void loadcfg(const char *what)
 	if (stat(what, &sb) == -1)
 		return;
 
-	if (S_ISREG(sb.st_mode)) {
+	if (S_ISREG(sb.st_mode) && !(sb.st_mode & S_IWOTH)) {
 		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		plist = CreateMyPropertyListFromFile(what);
 		if (!plist) {
