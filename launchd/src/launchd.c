@@ -648,7 +648,7 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 		launch_data_set_integer(tmp, c->g);
 		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_GID);
 
-		launch_data_dict_remove(j->ldj, LAUNCH_JOBKEY_ROOT);
+		launch_data_dict_remove(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY);
 	}
 	
 	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
@@ -958,8 +958,8 @@ static void job_launch(struct jobcb *j)
 
 		if (sipc)
 			close(spair[0]);
-		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOT))
-			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOT));
+		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))
+			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY));
 		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_GID) != getegid())
 			setgid(job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
 		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UID) != geteuid())
