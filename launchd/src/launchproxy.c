@@ -15,7 +15,34 @@
 
 #include "launch.h"
 
-static void fd_cb(launch_data_t a, const char *key, void *cookie);
+int kq = 0;
+
+static void find_fds(launch_data_t o)
+{
+        struct kevent kev;
+        size_t i;
+	int fd;
+
+        switch (launch_data_get_type(o)) {
+        case LAUNCH_DATA_FD:
+                fd = launch_data_get_fd(o);
+		fcntl(fd, F_SETFD, 1);
+                EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+                if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
+                        syslog(LOG_DEBUG, "kevent(): %m");
+                break;
+        case LAUNCH_DATA_ARRAY:
+                for (i = 0; i < launch_data_array_get_count(o); i++)
+                        find_fds(launch_data_array_get_index(o, i));
+                break;
+        case LAUNCH_DATA_DICTIONARY:
+                launch_data_dict_iterate(o,
+                                (void (*)(launch_data_t, const char *, void *))find_fds, NULL);
+                break;
+        default:
+                break;
+        }
+}
 
 int main(int argc, char *argv[])
 {
@@ -29,13 +56,12 @@ int main(int argc, char *argv[])
 	struct sockaddr_storage ss;
 	socklen_t slen = sizeof(ss);
 	struct kevent kev;
-	int kq, ch, r, ec = EXIT_FAILURE;
+	int ch, r, ec = EXIT_FAILURE;
 	bool ist = false, imt = false;
-	launch_data_t checkin_cmd = launch_data_alloc(LAUNCH_DATA_STRING);
-	launch_data_t fd_dict;
+	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
 	char *prog = NULL;
 
-	launch_data_set_string(checkin_cmd, LAUNCH_KEY_CHECKIN);
+	launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
 
 	openlog(basename(argv[0]), LOG_PERROR|LOG_PID|LOG_CONS, LOG_DAEMON);
 
@@ -60,16 +86,14 @@ int main(int argc, char *argv[])
 
 	kq = kqueue();
 
-	if ((fd_dict = launch_msg(checkin_cmd)) == NULL) {
+	if ((resp = launch_msg(msg)) == NULL) {
 		syslog(LOG_DEBUG, "launch_msg(\"" LAUNCH_KEY_CHECKIN "\"): %s", strerror(errno));
 		goto out;
 	}
 
-	launch_data_free(checkin_cmd);
-
-	launch_data_dict_iterate(fd_dict, fd_cb, &kq);
-
-	launch_data_free(fd_dict);
+	launch_data_free(msg);
+	find_fds(resp);
+	launch_data_free(resp);
 
 	for (;;) {
 		if ((r = kevent(kq, NULL, 0, &kev, 1, &timeout)) == -1) {
@@ -113,23 +137,4 @@ int main(int argc, char *argv[])
 
 out:
 	exit(ec);
-}
-
-static void fd_cb(launch_data_t a, const char *key __attribute__((unused)), void *cookie)
-{
-	int fd, kq = *((int*)cookie);
-	size_t i;
-	struct kevent kev;
-	launch_data_t ifd;
-
-	for (i = 0; i < launch_data_array_get_count(a); i++) {
-		ifd = launch_data_array_get_index(a, i);
-		fd = launch_data_get_fd(ifd);
-
-		fcntl(fd, F_SETFD, 1);
-		fcntl(fd, F_SETFL, O_NONBLOCK);
-
-		EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-		kevent(kq, &kev, 1, NULL, 0, NULL);
-	}
 }

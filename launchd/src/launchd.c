@@ -23,34 +23,14 @@ extern char **environ;
 
 typedef void (*kq_callback)(void *, struct kevent *);
 
-struct evsourcecb {
-	TAILQ_ENTRY(evsourcecb) tqe;
-	char *key;
-	size_t count;
-	int fds[0];
-};
-
 struct jobcb {
 	kq_callback kqjob_callback;
 	TAILQ_ENTRY(jobcb) tqe;
-	bool od;
+	launch_data_t ldj;
 	bool checkedin;
-	bool batch;
 	bool suspended;
-	int kq;
+	bool has_fds;
 	pid_t p;
-	uid_t u;
-	gid_t g;
-	mode_t m;
-	char *wd;
-	char *prog;
-	char *label;
-	char *desc;
-	char *root;
-	const char **argv;
-	launch_data_t env;
-	TAILQ_HEAD(evsources, evsourcecb) evs;
-	launch_data_t uenv;
 };
 
 struct usercb {
@@ -77,10 +57,11 @@ static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(conne
 static mode_t ourmask = 0;
 static int mainkq = 0;
 
+static void job_watch_fds(launch_data_t o, void *cookie);
+static void job_ignore_fds(launch_data_t o, void *cookie);
 static launch_data_t load_job(launch_data_t pload, struct conncb *c);
-static void free_stray_fds(launch_data_t o);
 static launch_data_t get_jobs(struct userjobs *uhead);
-static launch_data_t batch_control(struct usercb *u, bool e);
+static launch_data_t batch_job_disable(struct usercb *u, bool e);
 static struct usercb *find_usercb(uid_t u);
 static struct userjobs *find_jobq(uid_t u);
 static void ipc_close(struct conncb *c);
@@ -208,6 +189,50 @@ static int launchd_server_init(const char *thepath)
         return fd;
 }
 
+static long long job_get_integer(launch_data_t j, const char *key)
+{
+	launch_data_t t = launch_data_dict_lookup(j, key);
+	if (t)
+		return launch_data_get_integer(t);
+	else
+		return 0;
+}
+
+static const char *job_get_string(launch_data_t j, const char *key)
+{
+	launch_data_t t = launch_data_dict_lookup(j, key);
+	if (t)
+		return launch_data_get_string(t);
+	else
+		return NULL;
+}
+
+static const char *job_get_argv0(launch_data_t j)
+{
+	launch_data_t tmpi, tmp = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PROGRAM);
+
+	if (tmp) {
+		return launch_data_get_string(tmp);
+	} else {
+		tmp = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+		if (tmp) {
+			tmpi = launch_data_array_get_index(tmp, 0);
+			if (tmpi)
+				return launch_data_get_string(tmpi);
+		}
+		return NULL;
+	}
+}
+
+static bool job_get_bool(launch_data_t j, const char *key)
+{
+	launch_data_t t = launch_data_dict_lookup(j, key);
+	if (t)
+		return launch_data_get_bool(t);
+	else
+		return false;
+}
+
 static void ipc_open(int fd, struct jobcb *j)
 {
 	struct xucred cr;
@@ -217,8 +242,8 @@ static void ipc_open(int fd, struct jobcb *j)
 	fcntl(fd, F_SETFL, O_NONBLOCK);
 
 	if (j) {
-		c->u = j->u;
-		c->g = j->g;
+		c->u = job_get_integer(j->ldj, LAUNCH_JOBKEY_UID);
+		c->g = job_get_integer(j->ldj, LAUNCH_JOBKEY_GID);
 	} else if (getsockopt(fd, LOCAL_PEERCRED, 1, &cr, &crlen) == -1) {
 		free(c);
 		close(fd);
@@ -274,55 +299,6 @@ static void ipc_callback(void *obj, struct kevent *kev)
 	}
 }
 
-static void job_addevs(launch_data_t val, const char *key, void *obj)
-{
-	struct jobcb *j = obj;
-	struct evsourcecb *ev = NULL;
-	launch_data_t tmpi;
-	size_t i;
-
-	if (LAUNCH_DATA_ARRAY == launch_data_get_type(val)) {
-		ev = malloc(sizeof(struct evsourcecb) + sizeof(int) * launch_data_array_get_count(val));
-		ev->key = strdup(key);
-		ev->count = launch_data_array_get_count(val);
-
-		for (i = 0; i < ev->count; i++) {
-			tmpi = launch_data_array_get_index(val, i);
-			ev->fds[i] = _fd(launch_data_get_fd(tmpi));
-			launch_data_set_fd(tmpi, -1);
-			if (j->od && __kevent(j->kq, ev->fds[i], EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1)
-				launchd_debug(LOG_DEBUG, "%s(): kevent(): %m", __func__);
-		}
-	} else if (LAUNCH_DATA_FD == launch_data_get_type(val)) {
-		ev = malloc(sizeof(struct evsourcecb) + sizeof(int));
-		ev->key = strdup(key);
-		ev->count = 1;
-		ev->fds[0] = _fd(launch_data_get_fd(val));
-		launch_data_set_fd(val, -1);
-	}
-
-	if (ev)
-		TAILQ_INSERT_TAIL(&j->evs, ev, tqe);
-}
-
-static launch_data_t evs2launch_data(struct jobcb *j)
-{
-	struct evsourcecb *ev;
-	size_t i;
-	launch_data_t tmp, tmpi, resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-
-	TAILQ_FOREACH(ev, &j->evs, tqe) {
-		tmp = launch_data_alloc(LAUNCH_DATA_ARRAY);
-		for (i = 0; i < ev->count; i++) {
-			tmpi = launch_data_alloc(LAUNCH_DATA_FD);
-			launch_data_set_fd(tmpi, ev->fds[i]);
-			launch_data_array_set_index(tmp, tmpi, i);
-		}
-		launch_data_dict_insert(resp, tmp, ev->key);
-	}
-	return resp;
-}
-
 static void set_user_env(launch_data_t obj, const char *key, void *context)
 {
 	struct usercb *u = context;
@@ -330,38 +306,81 @@ static void set_user_env(launch_data_t obj, const char *key, void *context)
 	launch_data_dict_insert(u->uenv, launch_data_copy(obj), key);
 }
 
-static void job_remove(struct jobcb *j)
+static void launch_data_close_fds(launch_data_t o)
 {
-	struct evsourcecb *ev;
-	const char **argvtmp;
 	size_t i;
 
-	TAILQ_REMOVE(find_jobq(j->u), j, tqe);
-	if (j->kq != -1)
-		close(j->kq);
-	if (j->p)
-       		__kevent(mainkq, j->p, EVFILT_PROC, EV_DELETE, NOTE_EXIT, 0, &j->kqjob_callback);
-	if (j->wd)
-		free(j->wd);
-	if (j->root)
-		free(j->root);
-	if (j->prog)
-		free(j->prog);
-	free(j->label);
-	if (j->desc)
-		free(j->desc);
-	for (argvtmp = j->argv; *argvtmp; argvtmp++)
-		free((char *)*argvtmp);
-	free(j->argv);
-	if (j->env)
-		launch_data_free(j->env);
-	while ((ev = TAILQ_FIRST(&j->evs))) {
-		TAILQ_REMOVE(&j->evs, ev, tqe);
-		for (i = 0; i < ev->count; i++)
-       			close(ev->fds[i]);
-		free(ev->key);
-		free(ev);
+	switch (launch_data_get_type(o)) {
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))launch_data_close_fds, NULL);
+		break;
+	case LAUNCH_DATA_ARRAY:
+		for (i = 0; i < launch_data_array_get_count(o); i++)
+			launch_data_close_fds(launch_data_array_get_index(o, i));
+		break;
+	case LAUNCH_DATA_FD:
+		close(launch_data_get_fd(o));
+		break;
+	default:
+		break;
 	}
+}
+
+static void job_ignore_fds_dict(launch_data_t o, const char *k __attribute__((unused)), void *cookie)
+{
+	job_ignore_fds(o, cookie);
+}
+
+static void job_ignore_fds(launch_data_t o, void *cookie)
+{
+	size_t i;
+
+	switch (launch_data_get_type(o)) {
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o, job_ignore_fds_dict, cookie);
+		break;
+	case LAUNCH_DATA_ARRAY:
+		for (i = 0; i < launch_data_array_get_count(o); i++)
+			job_ignore_fds(launch_data_array_get_index(o, i), cookie);
+		break;
+	case LAUNCH_DATA_FD:
+		__kevent(mainkq, launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, cookie);
+		break;
+	default:
+		break;
+	}
+}
+
+static void job_watch_fds_dict(launch_data_t o, const char *k __attribute__((unused)), void *cookie)
+{
+	job_watch_fds(o, cookie);
+}
+
+static void job_watch_fds(launch_data_t o, void *cookie)
+{
+	size_t i;
+
+	switch (launch_data_get_type(o)) {
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o, job_watch_fds_dict, cookie);
+		break;
+	case LAUNCH_DATA_ARRAY:
+		for (i = 0; i < launch_data_array_get_count(o); i++)
+			job_watch_fds(launch_data_array_get_index(o, i), cookie);
+		break;
+	case LAUNCH_DATA_FD:
+		__kevent(mainkq, launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
+		break;
+	default:
+		break;
+	}
+}
+
+static void job_remove(struct jobcb *j)
+{
+	TAILQ_REMOVE(find_jobq(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID)), j, tqe);
+	launch_data_close_fds(j->ldj);
+	launch_data_free(j->ldj);
 	free(j);
 }
 
@@ -378,7 +397,7 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_REMOVEJOB))) {
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, find_jobq(c->u), tqe) {
-			if (!strcmp(j->label, launch_data_get_string(tmp))) {
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
 				job_remove(j);
 				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 				goto out;
@@ -411,7 +430,7 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_CHECKIN)) {
 		if (c->j) {
-			resp = evs2launch_data(c->j);
+			resp = launch_data_copy(c->j->ldj);
 			c->j->checkedin = true;
 		} else {
 			resp = launch_data_alloc(LAUNCH_DATA_STRING);
@@ -429,7 +448,7 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		}
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
-		resp = batch_control(u, launch_data_get_bool(tmp));
+		resp = batch_job_disable(u, launch_data_get_bool(tmp));
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_BATCHQUERY)) {
 		resp = launch_data_alloc(LAUNCH_DATA_BOOL);
@@ -439,7 +458,6 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		launch_data_set_string(resp, LAUNCH_RESPONSE_UNKNOWNCOMMAND);
 	}
 out:
-	free_stray_fds(msg);
 	if (launchd_msg_send(c->conn, resp) == -1) {
 		if (errno == EAGAIN) {
 			__kevent(mainkq, launchd_getfd(c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &c->kqconn_callback);
@@ -451,7 +469,7 @@ out:
 	launch_data_free(resp);
 }
 
-static launch_data_t batch_control(struct usercb *u, bool e)
+static launch_data_t batch_job_disable(struct usercb *u, bool e)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_STRING);
 	struct jobcb *j;
@@ -461,9 +479,9 @@ static launch_data_t batch_control(struct usercb *u, bool e)
 	if (e) {
 		u->batch_suspended = true;
 		TAILQ_FOREACH(j, &u->ujobs, tqe) {
-			if (j->batch && !j->suspended) {
+			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_BATCH) && !j->suspended) {
 				j->suspended = true;
-				__kevent(mainkq, j->kq, EVFILT_READ, EV_DELETE, 0, 0, &j->kqjob_callback);
+				job_ignore_fds(j->ldj, &j->kqjob_callback);
 				if (j->p)
 					kill(j->p, SIGSTOP);
 			}
@@ -471,9 +489,9 @@ static launch_data_t batch_control(struct usercb *u, bool e)
 	} else {
 		u->batch_suspended = false;
 		TAILQ_FOREACH(j, &u->ujobs, tqe) {
-			if (j->batch && j->suspended) {
+			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_BATCH) && j->suspended) {
 				j->suspended = false;
-				__kevent(mainkq, j->kq, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback);
+				job_watch_fds(j->ldj, &j->kqjob_callback);
 				if (j->p)
 					kill(j->p, SIGCONT);
 			}
@@ -485,15 +503,13 @@ static launch_data_t batch_control(struct usercb *u, bool e)
 
 static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 {
-	bool od = true;
-	launch_data_t tmp, tmpi, resp;
+	launch_data_t tmp, resp;
 	struct jobcb *j;
 	struct usercb *u = find_usercb(c->u);
-	size_t i;
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
 		TAILQ_FOREACH(j, &u->ujobs, tqe) {
-			if (!strcmp(j->label, launch_data_get_string(tmp))) {
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
 				resp = launch_data_alloc(LAUNCH_DATA_STRING);
 				launch_data_set_string(resp, LAUNCH_RESPONSE_JOBEXISTS);
 				goto out;
@@ -509,60 +525,33 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 		launch_data_set_string(resp, LAUNCH_RESPONSE_PROGRAMARGUMENTSMISSING);
 		goto out;
 	}
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND)))
-		od = launch_data_get_bool(tmp);
-	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_EVENTSOURCES) == NULL && od) {
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, LAUNCH_RESPONSE_MISSINGEVENTSOURCES);
-		goto out;
-	}
-	j = calloc(1, sizeof(struct jobcb));
-	TAILQ_INIT(&j->evs);
-	j->od = od;
-	j->kq = od ? kqueue() : -1;
-	j->kqjob_callback = job_event_callback;
-	j->uenv = u->uenv;
 
-	if (c->u == 0) {
-		if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_UID)))
-			j->u = (uid_t)launch_data_get_integer(tmp);
-		if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_GID)))
-			j->g = (uid_t)launch_data_get_integer(tmp);
-		if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ROOT)))
-			j->root = strdup(launch_data_get_string(tmp));
-	} else {
-		j->u = c->u;
-		j->g = c->g;
+	j = calloc(1, sizeof(struct jobcb));
+	j->ldj = launch_data_copy(pload);
+	j->kqjob_callback = job_event_callback;
+
+	if (c->u != 0) {
+		tmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
+		launch_data_set_integer(tmp, c->u);
+		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_UID);
+
+		tmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
+		launch_data_set_integer(tmp, c->g);
+		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_GID);
+
+		launch_data_dict_remove(j->ldj, LAUNCH_JOBKEY_ROOT);
 	}
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_BATCH)))
-		j->batch = launch_data_get_bool(tmp);
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_WORKINGDIRECTORY)))
-		j->wd = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)))
-		j->label = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SERVICEDESCRIPTION)))
-		j->desc = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM)))
-		j->prog = strdup(launch_data_get_string(tmp));
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES)))
-		j->env = launch_data_copy(tmp);
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
-		launch_data_dict_iterate(tmp, set_user_env, u);
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS))) {
-		j->argv = malloc(sizeof(char *) * (launch_data_array_get_count(tmp) + 1));
-		for (i = 0; i < launch_data_array_get_count(tmp); i++) {
-			tmpi = launch_data_array_get_index(tmp, i);
-			j->argv[i] = strdup(launch_data_get_string(tmpi));
-		}
-		j->argv[launch_data_array_get_count(tmp)] = NULL;
+	
+	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
+		tmp = launch_data_alloc(LAUNCH_DATA_BOOL);
+		launch_data_set_bool(tmp, true);
+		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_ONDEMAND);
 	}
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_EVENTSOURCES)))
-		launch_data_dict_iterate(tmp, job_addevs, j);
 
 	TAILQ_INSERT_TAIL(find_jobq(c->u), j, tqe);
 
-	if (j->od)
-		__kevent(mainkq, j->kq, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback);
+	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+		job_watch_fds(j->ldj, &j->kqjob_callback);
 	else
 		job_event_callback(j, NULL);
 
@@ -572,97 +561,14 @@ out:
 	return resp;
 }
 
-static void free_stray_fds(launch_data_t o)
-{
-	int fd;
-	size_t i;
-
-	switch (launch_data_get_type(o)) {
-	case LAUNCH_DATA_FD:
-		if ((fd = launch_data_get_fd(o)) != -1)
-			close(fd);
-		break;
-	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))free_stray_fds, NULL);
-		break;
-	case LAUNCH_DATA_ARRAY:
-		for (i = 0; i < launch_data_array_get_count(o); i++)
-			free_stray_fds(launch_data_array_get_index(o, i));
-		break;
-	default:
-		break;
-	}
-}
-
 static launch_data_t get_jobs(struct userjobs *uhead)
 {
-	const char **argvtmp;
 	struct jobcb *j;
-	launch_data_t tmp, tmpi, tmpa, resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_t tmp, resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
 	TAILQ_FOREACH(j, uhead, tqe) {
-		tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-
-		tmpi = launch_data_alloc(LAUNCH_DATA_BOOL);
-		launch_data_set_bool(tmpi, j->od);
-		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_ONDEMAND);
-
-		if (j->p != 0) {
-			tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
-			launch_data_set_integer(tmpi, j->p);
-			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_PID);
-		}
-
-		tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
-		launch_data_set_integer(tmpi, j->m);
-		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_UMASK);
-
-		if (j->wd) {
-			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmpi, j->wd);
-			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_WORKINGDIRECTORY);
-		}
-
-		if (j->root) {
-			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmpi, j->root);
-			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_ROOT);
-		}
-
-		tmpi = launch_data_alloc(LAUNCH_DATA_ARRAY);
-		for (argvtmp = j->argv; *argvtmp; argvtmp++) {
-			tmpa = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmpa, *argvtmp);
-			launch_data_array_set_index(tmpi, tmpa, launch_data_array_get_count(tmpi));
-		}
-		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-
-		tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
-		launch_data_set_integer(tmpi, j->u);
-		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_UID);
-
-		tmpi = launch_data_alloc(LAUNCH_DATA_INTEGER);
-		launch_data_set_integer(tmpi, j->g);
-		launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_GID);
-
-		if (j->prog) {
-			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmpi, j->prog);
-			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_PROGRAM);
-		}
-
-		if (j->desc) {
-			tmpi = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmpi, j->desc);
-			launch_data_dict_insert(tmp, tmpi, LAUNCH_JOBKEY_SERVICEDESCRIPTION);
-		}
-
-		if (j->env)
-			launch_data_dict_insert(tmp, launch_data_copy(j->env), LAUNCH_JOBKEY_ENVIRONMENTVARIABLES);
-
-		launch_data_dict_insert(tmp, evs2launch_data(j), LAUNCH_JOBKEY_EVENTSOURCES);
-
-		launch_data_dict_insert(resp, tmp, j->label);
+		tmp = launch_data_copy(j->ldj);
+		launch_data_dict_insert(resp, tmp, job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL));
 	}
 
 	return resp;
@@ -716,7 +622,7 @@ static void ipc_close(struct conncb *c)
 {
 	struct usercb *u = find_usercb(c->u);
 
-	batch_control(u, true);
+	launch_data_free(batch_job_disable(u, false));
 
 	TAILQ_REMOVE(&connections, c, tqe);
 	launchd_close(c->conn);
@@ -756,51 +662,35 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 
 static void job_event_callback(void *obj, struct kevent *kev)
 {
-	struct timespec tout = { 0, 0 };
-	struct kevent tmpkev;
 	char nbuf[64];
 	struct jobcb *j = obj;
         pid_t c;
 	int status;
 	int spair[2];
+	const char **argv;
 
-	if (kev == NULL)
-		goto launch_again;
-
-	if (kev->filter == EVFILT_PROC) {
+	if (kev && kev->filter == EVFILT_PROC) {
 		waitpid(j->p, &status, 0);
 
 		if (WIFEXITED(status)) {
 			if (WEXITSTATUS(status) > 0)
-				launchd_debug(LOG_WARNING, "%s[%d] exited with exit code %d", j->prog ? j->prog : j->argv[0], j->p, WEXITSTATUS(status));
+				launchd_debug(LOG_WARNING, "%s[%d] exited with exit code %d",
+						job_get_argv0(j->ldj), j->p, WEXITSTATUS(status));
 		} else if (WIFSIGNALED(status)) {
-			launchd_debug(LOG_WARNING, "%s[%d] exited abnormally with signal %d", j->prog ? j->prog : j->argv[0], j->p, WTERMSIG(status));
+			launchd_debug(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
+					job_get_argv0(j->ldj), j->p, WTERMSIG(status));
 		}
 
 		j->p = 0;
-		if (j->checkedin != true && !TAILQ_EMPTY(&j->evs)) {
+		if (j->checkedin != true && j->has_fds) {
 			job_remove(j);
 			return;
 		}
-		if (j->od)
-			__kevent(mainkq, j->kq, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback);
-		/* ah, the fun of kqueues
-		 *
-		 * events queued for delivery are checked for validity before actual delivery
-		 *
-		 * launchd is a bit weird, we don't actually need to call kevent on the sub-kqueue
-		 * but if we don't those queued events still cause the sub kqueue to count as
-		 * readable in the main kqueue, thus the following code to return the sub-kqueue
-		 * back to "no pending events" from the main kqueue's perspective
-		 */
-		if (j->od) {
-			if (kevent(j->kq, NULL, 0, &tmpkev, 1, &tout) > 0)
-				goto launch_again;
-		} else
-			goto launch_again;
-		return;
+		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
+			job_watch_fds(j->ldj, &j->kqjob_callback);
+			return;
+		}
 	}
-launch_again:
 
 	socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
@@ -808,24 +698,37 @@ launch_again:
                 launchd_debug(LOG_DEBUG, "fork(): %m");
                 return;
         } else if (c == 0) {
+		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+		size_t i, argv_cnt;
+
+		argv_cnt = launch_data_array_get_count(ldpa);
+		argv = alloca((argv_cnt + 1) * sizeof(char *));
+		for (i = 0; i < argv_cnt; i++)
+			argv[i] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
+		argv[argv_cnt] = NULL;
+
 		close(spair[0]);
-		if (j->root)
-			chroot(j->root);
-		if (j->g != getegid())
-			setgid(j->g);
-		if (j->u != geteuid())
-			setuid(j->u);
-		if (j->wd)
-			chdir(j->wd);
-		if (j->m != ourmask)
-			umask(j->m);
+		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOT))
+			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOT));
+		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_GID) != getegid())
+			setgid(job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
+		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UID) != geteuid())
+			setuid(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID));
+		if (job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY))
+			chdir(job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY));
+		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK) != ourmask)
+			umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
 		sprintf(nbuf, "%d", spair[1]);
+#ifdef FIXME
 		launch_data_dict_iterate(j->uenv, setup_job_env, NULL);
-		if (j->env)
-			launch_data_dict_iterate(j->env, setup_job_env, NULL);
+#endif
+		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))
+			launch_data_dict_iterate(launch_data_dict_lookup(j->ldj,
+						LAUNCH_JOBKEY_ENVIRONMENTVARIABLES),
+					setup_job_env, NULL);
 		setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
                 setsid();
-                if (execvp(j->prog ? j->prog : j->argv[0], (char * const*)j->argv) == -1)
+                if (execvp(job_get_argv0(j->ldj), (char *const*)argv) == -1)
                         launchd_debug(LOG_DEBUG, "child execvp(): %m");
 		sleep(1);
                 _exit(EXIT_FAILURE);
@@ -839,7 +742,7 @@ launch_again:
         } else {
 	        j->p = c;
 	        j->checkedin = false;
-		if (j->od)
-			__kevent(mainkq, j->kq, EVFILT_READ, EV_DELETE, 0, 0, &j->kqjob_callback);
+		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+			job_ignore_fds(j->ldj, j->kqjob_callback);
 	}
 }

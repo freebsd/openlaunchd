@@ -191,6 +191,25 @@ static void loadcfg(const char *what)
 		id_plist = CF2launch_data(plist);
 		if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_DISABLED))) {
 			if (launch_data_get_bool(tmp)) {
+				if (tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL)) {
+					tmpa = launch_data_alloc(LAUNCH_DATA_STRING);
+					launch_data_set_string(tmpa, launch_data_get_string(tmp));
+					launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_REMOVEJOB);
+					resp = launch_msg(msg);
+					if (resp) {
+						if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+							if (strcasecmp(launch_data_get_string(resp),
+										LAUNCH_RESPONSE_SUCCESS) &&
+									strcasecmp(launch_data_get_string(resp),
+										LAUNCH_RESPONSE_JOBNOTFOUND)) {
+								fprintf(stderr, "%s\n", launch_data_get_string(resp));
+							}
+
+						}
+						launch_data_free(resp);
+					}
+				}
+				launch_data_free(msg);
 				launch_data_free(id_plist);
 				return;
 			}
@@ -243,18 +262,13 @@ static void loadcfg(const char *what)
 	}
 }
 
-static launch_data_t ccfile = NULL;
-
 static void distill_config_file(launch_data_t id_plist)
 {
 	launch_data_t tmp, oldargs, newargs, tmps;
 	size_t i;
 
-	ccfile = id_plist;
-
 	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_USERNAME))) {
 		struct passwd *pwe = getpwnam(launch_data_get_string(tmp));
-		launch_data_dict_remove(id_plist, LAUNCH_JOBKEY_USERNAME);
 		if (pwe) {
 			launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
 			launch_data_set_integer(ntmp, pwe->pw_uid);
@@ -264,7 +278,6 @@ static void distill_config_file(launch_data_t id_plist)
 
 	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_GROUPNAME))) {
 		struct group *gre = getgrnam(launch_data_get_string(tmp));
-		launch_data_dict_remove(id_plist, LAUNCH_JOBKEY_GROUPNAME);
 		if (gre) {
 			launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
 			launch_data_set_integer(ntmp, gre->gr_gid);
@@ -272,12 +285,8 @@ static void distill_config_file(launch_data_t id_plist)
 		}
 	}
 
-	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_SOCKETS))) {
-		launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-		launch_data_dict_iterate(tmp, sock_dict_cb, ntmp);
-		launch_data_dict_insert(id_plist, ntmp, LAUNCH_JOBKEY_EVENTSOURCES);
-		launch_data_dict_remove(id_plist, LAUNCH_JOBKEY_SOCKETS);
-	}
+	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_SOCKETS)))
+		launch_data_dict_iterate(tmp, sock_dict_cb, id_plist);
 
 	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_INETDCOMPATWAIT))) {
 		oldargs = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
@@ -308,11 +317,56 @@ static void distill_config_file(launch_data_t id_plist)
 	}
 }
 
+static launch_data_t create_launch_data_addrinfo_fd(struct addrinfo *ai, int fd)
+{
+	launch_data_t t, d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+
+	if (ai->ai_flags & AI_PASSIVE) {
+		t = launch_data_alloc(LAUNCH_DATA_BOOL);
+		launch_data_set_bool(t, true);
+		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_PASSIVE);
+	}
+
+	if (ai->ai_family) {
+		t = launch_data_alloc(LAUNCH_DATA_INTEGER);
+		launch_data_set_integer(t, ai->ai_family);
+		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_FAMILY);
+	}
+
+	if (ai->ai_socktype) {
+		t = launch_data_alloc(LAUNCH_DATA_INTEGER);
+		launch_data_set_integer(t, ai->ai_socktype);
+		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_SOCKTYPE);
+	}
+
+	if (ai->ai_protocol) {
+		t = launch_data_alloc(LAUNCH_DATA_INTEGER);
+		launch_data_set_integer(t, ai->ai_protocol);
+		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_PROTOCOL);
+	}
+
+	if (ai->ai_addr) {
+		t = launch_data_alloc(LAUNCH_DATA_OPAQUE);
+		launch_data_set_opaque(t, ai->ai_addr, ai->ai_addrlen);
+		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_ADDRESS);
+	}
+
+	if (ai->ai_canonname) {
+		t = launch_data_alloc(LAUNCH_DATA_STRING);
+		launch_data_set_string(t, ai->ai_canonname);
+		launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_CANONICALNAME);
+	}
+
+	t = launch_data_alloc(LAUNCH_DATA_FD);
+	launch_data_set_fd(t, fd);
+	launch_data_dict_insert(d, t, LAUNCH_JOBADDRINFOKEY_FD);
+
+	return d;
+}
+
 static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 {
-	launch_data_t where = context;
-	launch_data_t evarray = launch_data_alloc(LAUNCH_DATA_ARRAY);
-	launch_data_t tmp, val;
+	launch_data_t a, tmp, val;
 	size_t i;
 
 	for (i = 0; i < launch_data_array_get_count(what); i++) {
@@ -335,7 +389,6 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 			passive = launch_data_get_bool(val);
 
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SECUREWITHKEY))) {
-			launch_data_t t, a;
 			char secdir[sizeof(LAUNCH_SECDIR)], buf[1024];
 
 			strcpy(secdir, LAUNCH_SECDIR);
@@ -344,18 +397,9 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 
 			sprintf(buf, "%s/%s", secdir, key);
 
-			if (!(t = launch_data_dict_lookup(ccfile, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES))) {
-				t = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-				launch_data_dict_insert(ccfile, t, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES);
-			}
-
 			a = launch_data_alloc(LAUNCH_DATA_STRING);
 			launch_data_set_string(a, buf);
 			launch_data_dict_insert(tmp, a, LAUNCH_JOBSOCKETKEY_PATHNAME);
-
-			a = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(a, buf);
-			launch_data_dict_insert(t, a, launch_data_get_string(val));
 		}
 		
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHNAME))) {
@@ -391,8 +435,9 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 
 			val = launch_data_alloc(LAUNCH_DATA_FD);
 			launch_data_set_fd(val, sfd);
-			launch_data_array_set_index(evarray, val, launch_data_array_get_count(evarray));
+			launch_data_dict_insert(tmp, val, LAUNCH_JOBSOCKETKEY_FD);
 		} else {
+			launch_data_t ai_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
 			const char *node = NULL, *serv = NULL;
 			char servnbuf[50];
 			struct addrinfo hints, *res0, *res;
@@ -455,14 +500,12 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 						continue;
 					}
 				}
-				val = launch_data_alloc(LAUNCH_DATA_FD);
-				launch_data_set_fd(val, sfd);
-				launch_data_array_set_index(evarray, val, launch_data_array_get_count(evarray));
+				val = create_launch_data_addrinfo_fd(res, sfd);
+				launch_data_array_set_index(ai_array, val, launch_data_array_get_count(ai_array));
 			}
+			launch_data_dict_insert(tmp, ai_array, LAUNCH_JOBSOCKETKEY_ADDRINFORESULTS);
 		}
 	}
-
-	launch_data_dict_insert(where, evarray, key);	
 }
 
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
@@ -563,6 +606,13 @@ static launch_data_t CF2launch_data(CFTypeRef cfr)
 
 static void usage(FILE *where)
 {
+	fprintf(where, "usage: %s\n", argv0);
+	fprintf(where, "\t-l <xmlfile>\tLoad a given service.\n");
+	fprintf(where, "\t-u <xmlfile>\tUnload a given service.\n");
+	fprintf(where, "\t-S FOO=bar\tSet per-user environmental variable 'FOO' to value 'bar'.\n");
+	fprintf(where, "\t-U FOO\t\tUnset per-user environmental variable 'FOO'.\n");
+	fprintf(where, "\t-E\t\tGet the per-user environmental variables.\n");
+	fprintf(where, "\t-h\t\tThis help statement.\n");
 	if (where == stdout)
 		exit(EXIT_SUCCESS);
 	else

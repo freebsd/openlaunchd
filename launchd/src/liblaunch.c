@@ -165,7 +165,7 @@ bool launch_data_dict_insert(launch_data_t dict, launch_data_t what, const char 
 	launch_data_set_string(thekey, key);
 
 	for (i = 0; i < dict->_array_cnt; i += 2) {
-		if (!strcmp(key, dict->_array[i]->string)) {
+		if (!strcasecmp(key, dict->_array[i]->string)) {
 			launch_data_array_set_index(dict, thekey, i);
 			launch_data_array_set_index(dict, what, i + 1);
 			return true;
@@ -184,7 +184,7 @@ launch_data_t launch_data_dict_lookup(launch_data_t dict, const char *key)
 		return NULL;
 
 	for (i = 0; i < dict->_array_cnt; i += 2) {
-		if (!strcmp(key, dict->_array[i]->string))
+		if (!strcasecmp(key, dict->_array[i]->string))
 			return dict->_array[i + 1];
 	}
 
@@ -196,7 +196,7 @@ bool launch_data_dict_remove(launch_data_t dict, const char *key)
 	size_t i;
 
 	for (i = 0; i < dict->_array_cnt; i += 2) {
-		if (!strcmp(key, dict->_array[i]->string))
+		if (!strcasecmp(key, dict->_array[i]->string))
 			break;
 	}
 	if (i == dict->_array_cnt)
@@ -678,6 +678,7 @@ launch_data_t launch_data_copy(launch_data_t o)
 	launch_data_t r = launch_data_alloc(o->type);
 	size_t i;
 
+	free(r->_array);
 	memcpy(r, o, sizeof(struct _launch_data));
 
 	switch (o->type) {

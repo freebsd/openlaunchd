@@ -16,33 +16,53 @@
 
 static void launch_print_obj(launch_data_t o, FILE *w);
 
+int kq = 0;
+
+static void find_fds(launch_data_t o)
+{
+	struct kevent kev;
+	size_t i;
+
+	switch (launch_data_get_type(o)) {
+	case LAUNCH_DATA_FD:
+		EV_SET(&kev, launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, NULL);
+		if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
+			syslog(LOG_DEBUG, "kevent(): %m");
+		break;
+	case LAUNCH_DATA_ARRAY:
+		for (i = 0; i < launch_data_array_get_count(o); i++)
+			find_fds(launch_data_array_get_index(o, i));
+		break;
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o,
+				(void (*)(launch_data_t, const char *, void *))find_fds, NULL);
+		break;
+	default:
+		break;
+	}
+}
+
 int main(int argc __attribute__((unused)), char *argv[])
 {
-	int r, kq = kqueue();
+	int r;
 	struct sockaddr_storage ss;
 	socklen_t slen = sizeof(ss);
 	struct kevent kev;
 	FILE *c;
-	size_t i;
-	launch_data_t resp, tmpi, tmp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
+	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
 
-	launch_data_set_string(msg, "CheckIn");
+	kq = kqueue();
+
+	launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
 
 	openlog(basename(argv[0]), LOG_PERROR|LOG_PID|LOG_CONS, LOG_DAEMON);
 
 	if ((resp = launch_msg(msg)) == NULL) {
-		syslog(LOG_DEBUG, "launch_msg(\"CheckIn\"): %m");
+		syslog(LOG_DEBUG, "launch_msg(\"" LAUNCH_KEY_CHECKIN "\"): %m");
 		exit(EXIT_FAILURE);
 	}
 
-	tmp = launch_data_dict_lookup(resp, "Listeners");
-
-	for (i = 0; i < launch_data_array_get_count(tmp); i++) {
-		tmpi = launch_data_array_get_index(tmp, i);
-		EV_SET(&kev, launch_data_get_fd(tmpi), EVFILT_READ, EV_ADD, 0, 0, NULL);
-		if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
-			syslog(LOG_DEBUG, "kevent(): %m");
-	}
+	find_fds(resp);
 
 	launch_data_free(resp);
 
@@ -57,7 +77,6 @@ int main(int argc __attribute__((unused)), char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-
 	c = fdopen(r, "r+");
 
 	fprintf(c, "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n");
@@ -65,9 +84,9 @@ int main(int argc __attribute__((unused)), char *argv[])
 	fprintf(c, "<html>\n<body>\n");
 
 	if (geteuid() == 0)
-		launch_data_set_string(msg, "GetAllJobs");
+		launch_data_set_string(msg, LAUNCH_KEY_GETAllJOBS);
 	else
-		launch_data_set_string(msg, "GetJobs");
+		launch_data_set_string(msg, LAUNCH_KEY_GETJOBS);
 
 	resp = launch_msg(msg);
 
@@ -84,45 +103,52 @@ static void launch_print_obj(launch_data_t o, FILE *w)
 {
 	size_t i;
 	void launch_print_obj_dict_callback(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
-		fprintf(w, "<li><i>%s</i></li>\n", key);
-		fprintf(w, "<ul>\n");
+		fprintf(w, "<i>%s</i>\n", key);
+		if (launch_data_get_type(obj) != LAUNCH_DATA_ARRAY &&
+				launch_data_get_type(obj) != LAUNCH_DATA_DICTIONARY)
+			fprintf(w, "<ul><li>\n");
 		launch_print_obj(obj, w);
-		fprintf(w, "</ul>\n");
+		if (launch_data_get_type(obj) != LAUNCH_DATA_ARRAY &&
+				launch_data_get_type(obj) != LAUNCH_DATA_DICTIONARY)
+			fprintf(w, "</li></ul>\n");
 	}
 
 
         switch (launch_data_get_type(o)) {
         case LAUNCH_DATA_DICTIONARY:
-		fprintf(w, "<ul>\n");
+		fprintf(w, "<ul><li>\n");
 		launch_data_dict_iterate(o, launch_print_obj_dict_callback, NULL);
-		fprintf(w, "</ul>\n");
+		fprintf(w, "</li></ul>\n");
                 break;
         case LAUNCH_DATA_ARRAY:
 		fprintf(w, "<ol>\n");
-                for (i = 0; i < launch_data_array_get_count(o); i++)
+                for (i = 0; i < launch_data_array_get_count(o); i++) {
+			fprintf(w, "<li>");
                         launch_print_obj(launch_data_array_get_index(o, i), w);
+			fprintf(w, "</li>\n");
+		}
 		fprintf(w, "</ol>\n");
                 break;
         case LAUNCH_DATA_INTEGER:
-                fprintf(w, "<li>Number: %lld</li>\n", launch_data_get_integer(o));
+                fprintf(w, "Number: %lld", launch_data_get_integer(o));
                 break;
         case LAUNCH_DATA_REAL:
-                fprintf(w, "<li>Float: %f</li>\n", launch_data_get_real(o));
+                fprintf(w, "Float: %f", launch_data_get_real(o));
                 break;
         case LAUNCH_DATA_STRING:
-                fprintf(w, "<li>String: %s</li>\n", launch_data_get_string(o));
+                fprintf(w, "String: %s", launch_data_get_string(o));
                 break;
         case LAUNCH_DATA_OPAQUE:
-                fprintf(w, "<li>Opaque: %p size %zu</li>\n", launch_data_get_opaque(o), launch_data_get_opaque_size(o));
+                fprintf(w, "Opaque: %p size %zu", launch_data_get_opaque(o), launch_data_get_opaque_size(o));
                 break;
         case LAUNCH_DATA_FD:
-                fprintf(w, "<li>FD: %d</li>\n", launch_data_get_fd(o));
+                fprintf(w, "FD: %d", launch_data_get_fd(o));
                 break;
         case LAUNCH_DATA_BOOL:
-                fprintf(w, "<li>Bool: %s</li>\n", launch_data_get_bool(o) ? "true" : "false");
+                fprintf(w, "Bool: %s", launch_data_get_bool(o) ? "true" : "false");
                 break;
         default:
-                fprintf(w, "<li>type %d is unknown</li>\n", launch_data_get_type(o));
+                fprintf(w, "type %d is unknown", launch_data_get_type(o));
                 break;
         }
 }
