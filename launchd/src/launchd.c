@@ -105,7 +105,7 @@ static void *mach_demand_loop(void *);
 static void usage(FILE *where);
 static int _fd(int fd);
 
-static void notify_helperd(const char *key, launch_data_t msg);
+static void notify_helperd(void);
 
 static void loopback_setup(void);
 static void update_lm(void);
@@ -648,11 +648,11 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
-				notify_helperd(LAUNCH_KEY_REMOVEJOB, tmp);
 				if (!strcmp(launch_data_get_string(tmp), HELPERD))
 					helperd = NULL;
 				job_remove(j);
 				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+				notify_helperd();
 				goto out;
 			}
 		}
@@ -746,7 +746,7 @@ static void batch_job_enable(bool e)
 	} else {
 		batch_enabled = false;
 		if (helperd)
-			kill(helperd->p, SIGTERM);
+			job_stop(helperd);
 	}
 }
 
@@ -805,13 +805,12 @@ static launch_data_t load_job(launch_data_t pload)
 	else
 		job_start(j);
 
-	notify_helperd(LAUNCH_KEY_SUBMITJOB, j->ldj);
-	
 	if (!strcmp(launch_data_get_string(label), HELPERD))
 		helperd = j;
 
 	resp = launch_data_alloc(LAUNCH_DATA_STRING);
 	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+	notify_helperd();
 out:
 	return resp;
 }
@@ -1402,19 +1401,8 @@ static void workaround3048875(int argc, char *argv[])
 	execv(newargv[0], newargv);
 }
 
-static void notify_helperd(const char *key, launch_data_t msg)
+static void notify_helperd(void)
 {
-	launch_data_t asyncmsg, what;
-
-	if (helperd == NULL || !batch_enabled)
-		return;
-
-	what = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	asyncmsg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-
-	launch_data_dict_insert(what, launch_data_copy(msg), key);
-	launch_data_dict_insert(asyncmsg, what, LAUNCHD_ASYNC_MSG_KEY);
-
-	launchd_msg_send(helperd->c->conn, asyncmsg);
-	launch_data_free(asyncmsg);
+	if (helperd && helperd->p)
+		kill(helperd->p, SIGHUP);
 }

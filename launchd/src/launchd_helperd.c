@@ -46,14 +46,15 @@ static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 static void myCFSocketCallBack(void);
 static void tcl_timer_callback(CFRunLoopTimerRef, void *);
 
-static void close_all_fds(launch_data_t);
-
 static void job_add(launch_data_t j);
-static void job_remove(const char *label);
+static struct jobcb *job_find(const char *label);
+static void job_remove(struct jobcb *j);
 static void job_start(struct jobcb *j);
 static void job_stop(struct jobcb *j);
 static void job_tcleval(struct jobcb *j);
 static void job_cancel_all_callbacks(struct jobcb *j);
+
+static void reload_jobs(void);
 
 static launch_data_t ldself = NULL;
 
@@ -87,12 +88,22 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	openlog(getprogname(), LOG_PID|LOG_CONS|(testtcl ? LOG_PERROR : 0), LOG_DAEMON);
+	openlog(getprogname(), LOG_PID|LOG_CONS|(testtcl ? LOG_PERROR : 0), LOG_LAUNCHD);
 
 	if ((kq = kqueue()) == -1) {
 		syslog(LOG_ERR, "kqueue(): %m");
 		exit(EXIT_FAILURE);
 	}
+
+	EV_SET(&kev, SIGHUP, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
+
+	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
+		syslog(LOG_ERR, "failed to add kevent for SIGHUP: %m");
+		exit(EXIT_FAILURE);
+	}
+
+	signal(SIGPIPE, SIG_IGN);
+	signal(SIGHUP, SIG_IGN);
 
 	if (testtcl) {
 		struct stat sb;
@@ -132,27 +143,17 @@ int main(int argc, char *argv[])
 
 		launch_data_free(j);
 	} else {
-		launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
+		launch_data_t msg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
 		EV_SET(&kev, launch_get_fd(), EVFILT_READ, EV_ADD, 0, 0, 0);
 		if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
 			syslog(LOG_ERR, "kevent(): %m");
 			exit(EXIT_FAILURE);
 		}
 
-		launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
 		ldself = launch_msg(msg);
-
-		launch_data_set_string(msg, LAUNCH_KEY_GETJOBS);
-		resp = launch_msg(msg);
 		launch_data_free(msg);
 
-		if (resp) {
-			close_all_fds(resp);
-			launch_data_dict_iterate(resp, (void (*)(launch_data_t, const char *, void *))job_add, NULL);
-			launch_data_free(resp);
-		} else {
-			syslog(LOG_WARNING, "launch_msg(%s): %m", LAUNCH_KEY_GETJOBS);
-		}
+		reload_jobs();
 	}
 
 	sockr = CFSocketCreateWithNative(kCFAllocatorDefault, kq, kCFSocketReadCallBack, (CFSocketCallBack)myCFSocketCallBack, NULL);
@@ -172,6 +173,36 @@ int main(int argc, char *argv[])
 	CFRunLoopRun();
 
 	exit(EXIT_SUCCESS);
+}
+
+static void reload_job(launch_data_t ldj, const char *label, void *context __attribute__((unused)))
+{
+	struct jobcb *j = job_find(label);
+
+	if (!j)
+		job_add(ldj);
+}
+
+static void reload_jobs(void)
+{
+	launch_data_t resp, msg = launch_data_new_string(LAUNCH_KEY_GETJOBS);
+	struct jobcb *j;
+	const char *l;
+
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp) {
+		TAILQ_FOREACH(j, &jobs, tqe) {
+			l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
+			if (launch_data_dict_lookup(resp, l) == NULL)
+				job_remove(j);
+		}
+		launch_data_dict_iterate(resp, reload_job, NULL);
+		launch_data_free(resp);
+	} else {
+		syslog(LOG_WARNING, "launch_msg(%s): %m", LAUNCH_KEY_GETJOBS);
+	}
 }
 
 static void job_add(launch_data_t ajob)
@@ -225,7 +256,7 @@ static void job_cancel_all_callbacks(struct jobcb *j)
 	}
 }
 
-static void job_remove(const char *label)
+static struct jobcb *job_find(const char *label)
 {
 	struct jobcb *j = NULL;
 	const char *l;
@@ -235,24 +266,24 @@ static void job_remove(const char *label)
 		if (!strcmp(label, l))
 			break;
 	}
+	return j;
+}
 
-	if (j == NULL) {
-		syslog(LOG_WARNING, "Couldn't find job \"%s\" to remove!", label);
-		return;
-	}
-	
+static void job_remove(struct jobcb *j)
+{
+	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
+
+	syslog(LOG_INFO, "Removing job: %s", l);
 	TAILQ_REMOVE(&jobs, j, tqe);
 
 	if (j->tcli)
 		Tcl_DeleteInterp(j->tcli);
 	launch_data_free(j->ldj);
 	free(j);
-	syslog(LOG_INFO, "Removed job: %s", label);
 }
 
 static void myCFSocketCallBack(void)
 {
-	launch_data_t resp, tmp;
 	struct kevent kev;
 	struct timespec ts = { 0, 0 };
 	int r;
@@ -265,7 +296,7 @@ static void myCFSocketCallBack(void)
 	}
 
 	if (kev.filter == EVFILT_READ && (int)kev.ident == launch_get_fd()) {
-		resp = launch_msg(NULL);
+		launch_data_t resp = launch_msg(NULL);
 
 		if (resp == NULL) {
 			if (errno != 0)
@@ -275,21 +306,16 @@ static void myCFSocketCallBack(void)
 			return;
 		}
 
-		close_all_fds(resp);
-
-		if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
-			if ((tmp = launch_data_dict_lookup(resp, LAUNCH_KEY_SUBMITJOB))) {
-				job_add(tmp);
-			} else if ((tmp = launch_data_dict_lookup(resp, LAUNCH_KEY_REMOVEJOB))) {
-				job_remove(launch_data_get_string(tmp));
-			} else {
-				syslog(LOG_NOTICE, "Unknown async dictionary received");
-			}
+		if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+			syslog(LOG_NOTICE, "Unknown async message received: %s", launch_data_get_string(resp));
 		} else {
 			syslog(LOG_NOTICE, "Unknown async message received");
 		}
 
 		launch_data_free(resp);
+	} else if (kev.filter == EVFILT_SIGNAL && kev.ident == SIGHUP) {
+		syslog(LOG_INFO, "Reloading jobs");
+		reload_jobs();
 	} else if (kev.filter == EVFILT_VNODE) {
 		struct jobcb *j = kev.udata;
 		struct watchpathcb *wp = NULL;
@@ -322,23 +348,6 @@ static void myCFSocketCallBack(void)
 		job_tcleval(j);
 	} else {
 		syslog(LOG_WARNING, "Unknown kqueue callback");
-	}
-}
-
-static void close_all_fds(launch_data_t o)
-{
-
-	if (launch_data_get_type(o) == LAUNCH_DATA_FD) {
-		close(launch_data_get_fd(o));
-		launch_data_set_fd(o, -1);
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_DICTIONARY) {
-		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))close_all_fds, NULL);
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_ARRAY) {
-		size_t i;
-		for (i = 0; i < launch_data_array_get_count(o); i++) {
-			launch_data_t t = launch_data_array_get_index(o, i);
-			close_all_fds(t);
-		}
 	}
 }
 

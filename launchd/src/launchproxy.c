@@ -57,7 +57,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 	launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
 
-	openlog(getprogname(), LOG_PERROR|LOG_PID|LOG_CONS, LOG_DAEMON);
+	openlog(getprogname(), LOG_PERROR|LOG_PID|LOG_CONS, LOG_LAUNCHD);
 
 	kq = kqueue();
 
