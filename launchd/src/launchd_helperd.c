@@ -2,44 +2,158 @@
 #include <IOKit/IOKitLib.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
 #include <IOKit/pwr_mgt/IOPM.h>
+#include <sys/types.h>
+#include <sys/queue.h>
+#include <sys/event.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <fcntl.h>
 #include <tcl.h>
+#include <getopt.h>
+#include <string.h>
+#include <errno.h>
+#include <assert.h>
 
 #include "launch.h"
 
-#define kHelperdTCLState CFSTR("__TCLstate__")
-#define kHelperdTCLCallbackState CFSTR("__TCLCallbackState__")
+#define LD_EVENT	"launchd_event"
+#define LD_EVENT_FLAGS	"launchd_event_flags"
+
+struct watchpathcb {
+        TAILQ_ENTRY(watchpathcb) tqe;
+	int fd;
+	char *path;
+	char *_event;
+};
+
+struct jobcb {
+        TAILQ_ENTRY(jobcb) tqe;
+        launch_data_t ldj;
+	Tcl_Interp *tcli;
+	CFRunLoopTimerRef rlt;
+	char *_event;
+        TAILQ_HEAD(watchpathcbhead, watchpathcb) wph;
+};
+
+static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 
 static void myCFSocketCallBack(void);
-static void sync_callback(CFRunLoopTimerRef, void *);
-static void tcl_callback(CFRunLoopTimerRef, void *);
+static void tcl_timer_callback(CFRunLoopTimerRef, void *);
+
 static void close_all_fds(launch_data_t);
-static CFTypeRef ld2CF(launch_data_t o);
-static void addjob(launch_data_t j);
-static void removejob(const char *label);
-static void runjob(CFMutableDictionaryRef j);
 
-static CFMutableDictionaryRef ldself = NULL;
-static CFMutableDictionaryRef alljobs = NULL;
+static void job_add(launch_data_t j);
+static void job_remove(const char *label);
+static void job_start(struct jobcb *j);
+static void job_stop(struct jobcb *j);
+static void job_tcleval(struct jobcb *j);
+static void job_cancel_all_callbacks(struct jobcb *j);
 
-static int _run_job(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]);
-static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[]);
+static launch_data_t ldself = NULL;
 
-int main(void)
+static int kq = 0;
+static char *testtcl = NULL;
+
+static int _start_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+static int _stop_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+static int _cancel_all_callbacks(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+static int _syslog(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+
+int main(int argc, char *argv[])
 {
-	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
 	CFRunLoopSourceRef sockrlr = NULL;
 	CFSocketRef sockr = NULL;
 	CFRunLoopTimerRef syncr = NULL;
+	struct kevent kev;
+	int ch;
 
-	alljobs = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	while ((ch = getopt(argc, argv, "T:")) != -1) {
+		switch (ch) {
+		case 'T':
+			testtcl = optarg;
+			break;
+		case '?':
+		default:
+			//usage();
+			break;
+		}
+	}
 
-	openlog(getprogname(), LOG_PID|LOG_CONS, LOG_DAEMON);
+	openlog(getprogname(), LOG_PID|LOG_CONS|(testtcl ? LOG_PERROR : 0), LOG_DAEMON);
 
-	sockr = CFSocketCreateWithNative(kCFAllocatorDefault, launch_get_fd(), kCFSocketReadCallBack, (CFSocketCallBack)myCFSocketCallBack, NULL);
+	if ((kq = kqueue()) == -1) {
+		syslog(LOG_ERR, "kqueue(): %m");
+		exit(EXIT_FAILURE);
+	}
+
+	if (testtcl) {
+		struct stat sb;
+		char *tclcode;
+		launch_data_t j = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+		launch_data_t l = launch_data_new_string("com.apple.launchd_helperd.testtcl");
+		launch_data_t t;
+		int fd;
+
+		errno = 0;
+		if (stat(testtcl, &sb) == -1 && errno != ENOENT) {
+			fprintf(stderr, "stat(\"%s\"): %s\n", testtcl, strerror(errno));
+			exit(EXIT_FAILURE);
+		} else if (errno == 0) {
+			tclcode = malloc(sb.st_size);
+			if ((fd = open(testtcl, O_RDONLY)) == -1) {
+				fprintf(stderr, "open(\"%s\"): %s\n", testtcl, strerror(errno));
+				exit(EXIT_FAILURE);
+			}
+			if (read(fd, tclcode, sb.st_size) == -1) {
+				fprintf(stderr, "read(\"%s\"): %s\n", testtcl, strerror(errno));
+				exit(EXIT_FAILURE);
+			}
+			close(fd);
+		} else {
+			tclcode = testtcl;
+		}
+
+		t = launch_data_new_string(tclcode);
+		if (tclcode != testtcl)
+			free(tclcode);
+
+		launch_data_dict_insert(j, l, LAUNCH_JOBKEY_LABEL);
+		launch_data_dict_insert(j, t, LAUNCH_JOBKEY_TCL);
+
+		job_add(j);
+
+		launch_data_free(j);
+	} else {
+		launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
+		EV_SET(&kev, launch_get_fd(), EVFILT_READ, EV_ADD, 0, 0, 0);
+		if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
+			syslog(LOG_ERR, "kevent(): %m");
+			exit(EXIT_FAILURE);
+		}
+
+		launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
+		ldself = launch_msg(msg);
+
+		launch_data_set_string(msg, LAUNCH_KEY_GETJOBS);
+		resp = launch_msg(msg);
+		launch_data_free(msg);
+
+		if (resp) {
+			close_all_fds(resp);
+			launch_data_dict_iterate(resp, (void (*)(launch_data_t, const char *, void *))job_add, NULL);
+			launch_data_free(resp);
+		} else {
+			syslog(LOG_WARNING, "launch_msg(%s): %m", LAUNCH_KEY_GETJOBS);
+		}
+	}
+
+	sockr = CFSocketCreateWithNative(kCFAllocatorDefault, kq, kCFSocketReadCallBack, (CFSocketCallBack)myCFSocketCallBack, NULL);
 	if (sockr)
 		sockrlr = CFSocketCreateRunLoopSource(kCFAllocatorDefault, sockr, 0);
 	if (sockrlr)
@@ -47,25 +161,7 @@ int main(void)
 	else
 		exit(EXIT_FAILURE);
 
-	launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
-	ldself = (CFMutableDictionaryRef)ld2CF(launch_msg(msg));
-
-	launch_data_set_string(msg, LAUNCH_KEY_GETJOBS);
-	resp = launch_msg(msg);
-	
-	launch_data_free(msg);
-
-	if (resp) {
-		close_all_fds(resp);
-
-		launch_data_dict_iterate(resp, (void (*)(launch_data_t, const char *, void *))addjob, NULL);
-
-		launch_data_free(resp);
-	} else {
-		syslog(LOG_WARNING, "launch_msg(%s): %m", LAUNCH_KEY_GETJOBS);
-	}
-
-	syncr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, 30, 0, 0, sync_callback, NULL);
+	syncr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, 30, 0, 0, (CFRunLoopTimerCallBack)sync, NULL);
 	if (syncr)
 		CFRunLoopAddTimer(CFRunLoopGetCurrent(), syncr, kCFRunLoopDefaultMode);
 	else
@@ -76,86 +172,163 @@ int main(void)
 	exit(EXIT_SUCCESS);
 }
 
-static void addjob(launch_data_t j)
+static void job_add(launch_data_t ajob)
 {
-	launch_data_t l = launch_data_dict_lookup(j, LAUNCH_JOBKEY_LABEL);
-	launch_data_t tclc = launch_data_dict_lookup(j, LAUNCH_JOBKEY_TCL);
-	const char *ckey = launch_data_get_string(l);
-	CFStringRef key = CFStringCreateWithBytes(kCFAllocatorDefault, ckey, strlen(ckey), kCFStringEncodingUTF8, false);
-	CFMutableDictionaryRef value = (CFMutableDictionaryRef)ld2CF(j);
+	struct jobcb *j = calloc(1, sizeof(struct jobcb));
+	launch_data_t tclc;
+	const char *l;
 
-	if (tclc) {
-		CFDataRef cfdr;
-		Tcl_Interp *interp;
+	j->ldj = launch_data_copy(ajob);
 
-		if ((interp = Tcl_CreateInterp())) {
-			Tcl_CreateObjCommand(interp, "RunJob", _run_job, (void *)value, NULL);
-			Tcl_CreateObjCommand(interp, "CallBackInterval", _callback_interval, (void *)value, NULL);
-			if (Tcl_Init(interp) != TCL_OK)
-				syslog(LOG_ERR, "Tcl_Init() for %s failed", ckey);
+	TAILQ_INIT(&j->wph);
+
+	l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
+
+	if ((tclc = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_TCL))) {
+		if ((j->tcli = Tcl_CreateInterp())) {
+			Tcl_DeleteCommand(j->tcli, "exit");
+			Tcl_DeleteCommand(j->tcli, "exec");
+			Tcl_DeleteCommand(j->tcli, "after");
+			Tcl_DeleteCommand(j->tcli, "gets");
+			Tcl_DeleteCommand(j->tcli, "socket");
+			Tcl_DeleteCommand(j->tcli, "vwait");
+			Tcl_CreateCommand(j->tcli, "StartJob", _start_job, (void *)j, NULL);
+			Tcl_CreateCommand(j->tcli, "StopJob", _stop_job, (void *)j, NULL);
+			Tcl_CreateCommand(j->tcli, "CallBackInterval", _callback_interval, (void *)j, NULL);
+			Tcl_CreateCommand(j->tcli, "WatchPath", _watch_path, (void *)j, NULL);
+			Tcl_CreateCommand(j->tcli, "CancelAllCallBacks", _cancel_all_callbacks, (void *)j, NULL);
+			Tcl_CreateCommand(j->tcli, "syslog", _syslog, (void *)j, NULL);
+			if (Tcl_Init(j->tcli) != TCL_OK)
+				syslog(LOG_ERR, "Tcl_Init() for %s failed", l);
 		} else {
-			syslog(LOG_ERR, "Tcl_CreateInterp() for %s failed", ckey);
+			syslog(LOG_ERR, "Tcl_CreateInterp() for %s failed", l);
 		}
 
-		cfdr = CFDataCreate(kCFAllocatorDefault, (UInt8 *)&interp, sizeof(interp)); 
-		CFDictionarySetValue(value, kHelperdTCLState, cfdr);
-		CFRelease(cfdr);
-
-		if (Tcl_Eval(interp, launch_data_get_string(tclc)) != TCL_OK) {
-			syslog(LOG_ERR, "Tcl_Eval() for %s failed", ckey);
-		}
+		job_tcleval(j);
 	}
 
-	CFDictionarySetValue(alljobs, key, value);
-	CFRelease(key);
-	CFRelease(value);
+	TAILQ_INSERT_TAIL(&jobs, j, tqe);
 
-	syslog(LOG_INFO, "Added job: %s", ckey);
+	syslog(LOG_INFO, "Added job: %s", l);
 }
 
-static void removejob(const char *label)
+static void job_cancel_all_callbacks(struct jobcb *j)
 {
-	CFStringRef key = CFStringCreateWithBytes(kCFAllocatorDefault, label, strlen(label), kCFStringEncodingUTF8, false);
-	CFMutableDictionaryRef j;
-	CFDataRef cfdr;
+	struct watchpathcb *wp;
 
-	if (CFDictionaryGetValueIfPresent(alljobs, key, (const void **)&j)) {
-		if (CFDictionaryGetValueIfPresent(j, kHelperdTCLState, (const void **)&cfdr))
-			Tcl_DeleteInterp(*(Tcl_Interp **)CFDataGetBytePtr(cfdr));
+	while ((wp = TAILQ_FIRST(&j->wph))) {
+		TAILQ_REMOVE(&j->wph, wp, tqe);
+		free(wp->path);
+		close(wp->fd);
+		if (wp->_event)
+			free(wp->_event);
+		free(wp);
 	}
 
-	CFDictionaryRemoveValue(alljobs, key);
-	CFRelease(key);
+	if (j->rlt) {
+		CFRunLoopTimerInvalidate(j->rlt);
+		CFRelease(j->rlt);
+		if (j->_event)
+			free(j->_event);
+	}
+}
 
+static void job_remove(const char *label)
+{
+	struct jobcb *j = NULL;
+	const char *l;
+
+	TAILQ_FOREACH(j, &jobs, tqe) {
+		l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
+		if (!strcmp(label, l))
+			break;
+	}
+
+	if (j == NULL) {
+		syslog(LOG_WARNING, "Couldn't find job \"%s\" to remove!", label);
+		return;
+	}
+	
+	TAILQ_REMOVE(&jobs, j, tqe);
+
+	if (j->tcli)
+		Tcl_DeleteInterp(j->tcli);
+	launch_data_free(j->ldj);
+	free(j);
 	syslog(LOG_INFO, "Removed job: %s", label);
 }
 
 static void myCFSocketCallBack(void)
 {
-	launch_data_t resp = launch_msg(NULL);
-	launch_data_t tmp;
+	launch_data_t resp, tmp;
+	struct kevent kev;
+	struct timespec ts = { 0, 0 };
+	int r;
 
-	if (resp == NULL) {
-		if (errno != 0)
-			syslog(LOG_ERR, "launch_msg(): %m");
+	r = kevent(kq, NULL, 0, &kev, 1, &ts);
+	if (r == -1) {
+		syslog(LOG_NOTICE, "kevent(): %m");
+	} else if (r == 0) {
 		return;
 	}
 
-	close_all_fds(resp);
+	if (kev.filter == EVFILT_READ && (int)kev.ident == launch_get_fd()) {
+		resp = launch_msg(NULL);
 
-	if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
-		if ((tmp = launch_data_dict_lookup(resp, LAUNCH_KEY_SUBMITJOB))) {
-			addjob(tmp);
-		} else if ((tmp = launch_data_dict_lookup(resp, LAUNCH_KEY_REMOVEJOB))) {
-			removejob(launch_data_get_string(tmp));
-		} else {
-			syslog(LOG_NOTICE, "Unknown async dictionary received");
+		if (resp == NULL) {
+			if (errno != 0)
+				syslog(LOG_ERR, "launch_msg(): %m");
+			return;
 		}
-	} else {
-		syslog(LOG_NOTICE, "Unknown async message received");
-	}
 
-	launch_data_free(resp);
+		close_all_fds(resp);
+
+		if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
+			if ((tmp = launch_data_dict_lookup(resp, LAUNCH_KEY_SUBMITJOB))) {
+				job_add(tmp);
+			} else if ((tmp = launch_data_dict_lookup(resp, LAUNCH_KEY_REMOVEJOB))) {
+				job_remove(launch_data_get_string(tmp));
+			} else {
+				syslog(LOG_NOTICE, "Unknown async dictionary received");
+			}
+		} else {
+			syslog(LOG_NOTICE, "Unknown async message received");
+		}
+
+		launch_data_free(resp);
+	} else if (kev.filter == EVFILT_VNODE) {
+		struct jobcb *j = kev.udata;
+		struct watchpathcb *wp = NULL;
+
+		TAILQ_FOREACH(wp, &j->wph, tqe) {
+			if (wp->fd == (int)kev.ident)
+				break;
+		}
+
+		assert(wp);
+
+		Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT);
+		if (kev.fflags & NOTE_DELETE)
+			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "delete", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
+		if (kev.fflags & NOTE_WRITE)
+			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "write", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
+		if (kev.fflags & NOTE_EXTEND)
+			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "extend", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
+		if (kev.fflags & NOTE_ATTRIB)
+			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "attrib", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
+		if (kev.fflags & NOTE_LINK)
+			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "link", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
+		if (kev.fflags & NOTE_RENAME)
+			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "rename", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
+		if (kev.fflags & NOTE_REVOKE)
+			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "revoke", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
+
+		if (wp->_event)
+			Tcl_SetVar(j->tcli, LD_EVENT, wp->_event, TCL_GLOBAL_ONLY);
+		job_tcleval(j);
+	} else {
+		syslog(LOG_WARNING, "Unknown kqueue callback");
+	}
 }
 
 static void close_all_fds(launch_data_t o)
@@ -175,26 +348,20 @@ static void close_all_fds(launch_data_t o)
 	}
 }
 
-static void sync_callback(CFRunLoopTimerRef timer __attribute__((unused)), void *context __attribute__((unused)))
+static void job_do_something(struct jobcb *j, const char *what)
 {
-	sync();
-}
-
-
-static void runjob(CFMutableDictionaryRef j)
-{
-        CFStringRef cflabel;
 	launch_data_t resp, msg, label;
-	char buf[1024];
 
-	label = launch_data_alloc(LAUNCH_DATA_STRING);
+	label = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL);
+
+	if (testtcl) {
+		fprintf(stdout, "Would have sent command \"%s\" to: %s\n", what, launch_data_get_string(label));
+		return;
+	}
+
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	cflabel = CFDictionaryGetValue(j, CFSTR(LAUNCH_JOBKEY_LABEL));
-
-	CFStringGetCString(cflabel, buf, sizeof(buf), kCFStringEncodingUTF8);
-	launch_data_set_string(label, buf);
-	launch_data_dict_insert(msg, label, LAUNCH_KEY_STARTJOB);
+	launch_data_dict_insert(msg, launch_data_copy(label), what);
 
 	resp = launch_msg(msg);
 	launch_data_free(msg);
@@ -202,62 +369,27 @@ static void runjob(CFMutableDictionaryRef j)
 	if (resp) {
 		if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
 			if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS))
-				syslog(LOG_ERR, "launch_msg(%s): %s", LAUNCH_KEY_STARTJOB, launch_data_get_string(resp));
+				syslog(LOG_ERR, "launch_msg(%s): %s", what, launch_data_get_string(resp));
 		}
 		launch_data_free(resp);
 	} else {
-		syslog(LOG_ERR, "launch_msg(%s): %m", LAUNCH_KEY_STARTJOB);
+		syslog(LOG_ERR, "launch_msg(%s): %m", what);
 	}
 }
 
-static void _launch_dict_callback(launch_data_t o, const char *key, void *context)
+static void job_start(struct jobcb *j)
 {
-        CFMutableDictionaryRef dict = (CFMutableDictionaryRef)context;
-        CFStringRef keyString = CFStringCreateWithBytes(kCFAllocatorDefault, key, strlen(key), kCFStringEncodingUTF8, false);
-        CFTypeRef value = ld2CF(o);
-        CFDictionarySetValue(dict, keyString, value);
-        CFRelease(keyString);
-        CFRelease(value);
+	job_do_something(j, LAUNCH_KEY_STARTJOB);
 }
 
-static CFTypeRef ld2CF(launch_data_t o)
+static void job_stop(struct jobcb *j)
 {
-	if (launch_data_get_type(o) == LAUNCH_DATA_DICTIONARY) {
-		CFMutableDictionaryRef dict = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		if (dict == NULL)
-			return NULL;
-		launch_data_dict_iterate(o, _launch_dict_callback, dict);
-		return dict;
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_ARRAY) {
-		size_t i, count = launch_data_array_get_count(o);
-		CFMutableArrayRef array = CFArrayCreateMutable(kCFAllocatorDefault, count, &kCFTypeArrayCallBacks);
-		for (i = 0; i < count; i++)
-			CFArraySetValueAtIndex(array, i, ld2CF(launch_data_array_get_index(o, i)));
-		return array;
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_FD) {
-		int value = launch_data_get_fd(o);
-		return CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &value);
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_INTEGER) {
-		long long value = launch_data_get_integer(o);
-		return CFNumberCreate(kCFAllocatorDefault, kCFNumberLongLongType, &value);
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_REAL) {
-		double value = launch_data_get_real(o);
-		return CFNumberCreate(kCFAllocatorDefault, kCFNumberDoubleType, &value);
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_BOOL) {
-		return launch_data_get_bool(o) ? kCFBooleanTrue : kCFBooleanFalse;
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_STRING) {
-		const char *value = launch_data_get_string(o);
-		return CFStringCreateWithBytes(kCFAllocatorDefault, value, strlen(value), kCFStringEncodingUTF8, false);
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_OPAQUE) {
-		return CFDataCreate(kCFAllocatorDefault, launch_data_get_opaque(o), launch_data_get_opaque_size(o));
-	}
-	return NULL;
+	job_do_something(j, LAUNCH_KEY_STOPJOB);
 }
 
-static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[])
+static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[])
 {
-	CFMutableDictionaryRef j = (CFMutableDictionaryRef)clientData;
-	CFRunLoopTimerRef rltr;
+	struct jobcb *j = (struct jobcb *)clientData;
 	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
         int  interval;
 	CFRunLoopTimerContext rlcont;
@@ -266,65 +398,241 @@ static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int obj
 	
 	rlcont.info = j; 
 
-        if (objc != 2) {
+        if (argc < 2 || argc > 3) {
             Tcl_SetStringObj(tcl_result, "Wrong # args. CallbackInterval i ", -1);
             return TCL_ERROR;
         }
 
-        if (Tcl_GetIntFromObj(interp, objv[1], &interval) == TCL_ERROR)
-		return TCL_ERROR;
+        interval = atoi(argv[1]);
 
-	rltr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, interval, 0, 0, tcl_callback, &rlcont);
-	if (rltr) {
-		CFRunLoopAddTimer(CFRunLoopGetCurrent(), rltr, kCFRunLoopDefaultMode);
-		CFDictionarySetValue(j, kHelperdTCLCallbackState, rltr);
-		CFRelease(rltr);
-	} else {
-		syslog(LOG_WARNING, "CFRunLoopTimerCreate() for some TCL based job failed");
+	if (j->rlt) {
+		CFRunLoopTimerInvalidate(j->rlt);
+		CFRelease(j->rlt);
+		if (j->_event)
+			free(j->_event);
+		j->_event = NULL;
+	}
+
+	if (interval > 0) {
+		j->rlt = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, interval, 0, 0, tcl_timer_callback, &rlcont);
+		if (j->rlt) {
+			CFRunLoopAddTimer(CFRunLoopGetCurrent(), j->rlt, kCFRunLoopDefaultMode);
+		} else {
+			syslog(LOG_WARNING, "CFRunLoopTimerCreate() for some TCL based job failed");
+		}
+	}
+
+	if (argc == 3)
+		j->_event = strdup(argv[2]);
+
+	Tcl_SetIntObj(tcl_result, 0);
+	return TCL_OK;
+}
+
+static int _syslog(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[])
+{
+	struct jobcb *j = (struct jobcb *)clientData;
+	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
+	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
+	const char *levelstr, *msg;
+	int level = -1;
+
+	if (argc != 3) {
+		Tcl_SetStringObj(tcl_result, "Wrong # args. syslog", -1);
+		return TCL_ERROR;
+	}
+
+	levelstr = argv[1];
+	msg = argv[2];
+
+	if (!strcmp(levelstr, "emergency"))
+		level = LOG_EMERG;
+	else if (!strcmp(levelstr, "alert"))
+		level = LOG_ALERT;
+	else if (!strcmp(levelstr, "critical"))
+		level = LOG_CRIT;
+	else if (!strcmp(levelstr, "error"))
+		level = LOG_ERR;
+	else if (!strcmp(levelstr, "warning"))
+		level = LOG_WARNING;
+	else if (!strcmp(levelstr, "notice"))
+		level = LOG_NOTICE;
+	else if (!strcmp(levelstr, "info"))
+		level = LOG_INFO;
+	else if (!strcmp(levelstr, "debug"))
+		level = LOG_DEBUG;
+
+	if (level == -1) {
+		Tcl_SetStringObj(tcl_result, "Bogus log level", -1);
+		return TCL_ERROR;
+	}
+
+	syslog(level, "%s: %s", l, msg);
+
+	Tcl_SetIntObj(tcl_result, 0);
+	return TCL_OK;
+}
+
+static int _start_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[] __attribute__((unused)))
+{
+	struct jobcb *j = (struct jobcb *)clientData;
+	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
+
+	if (argc != 1) {
+		Tcl_SetStringObj(tcl_result, "Wrong # args. StartJob", -1);
+		return TCL_ERROR;
+	}
+
+	job_start(j);
+
+	Tcl_SetIntObj(tcl_result, 0);
+	return TCL_OK;
+}
+
+static int _stop_job(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[] __attribute__((unused)))
+{
+	struct jobcb *j = (struct jobcb *)clientData;
+	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
+
+	if (argc != 1) {
+		Tcl_SetStringObj(tcl_result, "Wrong # args. StopJob", -1);
+		return TCL_ERROR;
+	}
+
+	job_stop(j);
+
+	Tcl_SetIntObj(tcl_result, 0);
+	return TCL_OK;
+}
+
+static int _cancel_all_callbacks(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[] __attribute__((unused)))
+{
+	struct jobcb *j = (struct jobcb *)clientData;
+	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
+
+	if (argc != 1) {
+		Tcl_SetStringObj(tcl_result, "Wrong # args. CancelAllCallBacks", -1);
+		return TCL_ERROR;
+	}
+
+	job_cancel_all_callbacks(j);
+
+	Tcl_SetIntObj(tcl_result, 0);
+	return TCL_OK;
+}
+
+static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[])
+{
+	struct jobcb *j = (struct jobcb *)clientData;
+	struct watchpathcb *wp = NULL;
+	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
+	struct kevent kev;
+	int ch, fflags = 0;
+	bool cancelwatch = false;
+
+
+	if (argc < 3) {
+		Tcl_SetStringObj(tcl_result, "Wrong # args. WatchPath", -1);
+		return TCL_ERROR;
+	}
+
+	optreset = 1;
+	optind = 1;
+	while ((ch = getopt(argc, (char *const *)argv, "dwealrRC")) != -1) {
+		switch (ch) {
+		case 'd':
+			fflags |= NOTE_DELETE;
+			break;
+		case 'w':
+			fflags |= NOTE_WRITE;
+			break;
+		case 'e':
+			fflags |= NOTE_EXTEND;
+			break;
+		case 'a':
+			fflags |= NOTE_ATTRIB;
+			break;
+		case 'l':
+			fflags |= NOTE_LINK;
+			break;
+		case 'r':
+			fflags |= NOTE_RENAME;
+			break;
+		case 'R':
+			fflags |= NOTE_REVOKE;
+			break;
+		case 'C':
+			cancelwatch = true;
+			break;
+		case '?':
+		default:
+			syslog(LOG_WARNING, "%s(): unknown flag", __PRETTY_FUNCTION__);
+			break;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+
+	TAILQ_FOREACH(wp, &j->wph, tqe) {
+		if (!strcmp(wp->path, argv[0]))
+			break;
+	}
+
+	if (wp && cancelwatch) {
+		TAILQ_REMOVE(&j->wph, wp, tqe);
+		close(wp->fd);
+		free(wp->path);
+		free(wp);
+
+		Tcl_SetIntObj(tcl_result, 0);
+		return TCL_OK;
+	} else if (wp == NULL) {
+		wp = calloc(1, sizeof(struct watchpathcb));
+		wp->path = strdup(argv[0]);
+
+		if (argc == 2)
+			wp->_event = strdup(argv[1]);
+
+		if ((wp->fd = open(wp->path, O_EVTONLY)) == -1) {
+			syslog(LOG_ERR, "open(\"%s\"): %m", wp->path);
+			free(wp->path);
+			free(wp);
+			Tcl_SetStringObj(tcl_result, "Couldn't open dir", -1);
+			return TCL_ERROR;
+		}
+		TAILQ_INSERT_TAIL(&j->wph, wp, tqe);
+	}
+
+	EV_SET(&kev, wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j);
+	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
+		syslog(LOG_ERR, "kevent(\"%s\"): %m", wp->path);
+		TAILQ_REMOVE(&j->wph, wp, tqe);
+		close(wp->fd);
+		free(wp->path);
+		free(wp);
+		Tcl_SetStringObj(tcl_result, "kevent()", -1);
+		return TCL_ERROR;
 	}
 
 	Tcl_SetIntObj(tcl_result, 0);
 	return TCL_OK;
 }
 
-static int _run_job(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST objv[] __attribute__((unused)))
+static void tcl_timer_callback(CFRunLoopTimerRef timer __attribute__((unused)), void *context)
 {
-	CFMutableDictionaryRef j = (CFMutableDictionaryRef)clientData;
-	Tcl_Obj * tcl_result = Tcl_GetObjResult(interp);
+	struct jobcb *j = context;
 
-	if (objc != 1) {
-		Tcl_SetStringObj(tcl_result, "Wrong # args. RunJob", -1);
-		return TCL_ERROR;
-	}
-
-	runjob(j);
-
-	Tcl_SetIntObj(tcl_result, 0);
-	return TCL_OK;
+	if (j->_event)
+		Tcl_SetVar(j->tcli, LD_EVENT, j->_event, TCL_GLOBAL_ONLY);
+	job_tcleval(j);
 }
 
-static void tcl_callback(CFRunLoopTimerRef timer __attribute__((unused)), void *context)
+static void job_tcleval(struct jobcb *j)
 {
-	CFMutableDictionaryRef j = context;
-	CFStringRef cftclcode;
-	CFDataRef cfdr;
-	Tcl_Interp *interp;
-	size_t bufsz = 4096;
-	char * buf = malloc(4096);
+	const char *tclcode = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_TCL));
+	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
 
-	cftclcode = CFDictionaryGetValue(j, CFSTR(LAUNCH_JOBKEY_TCL));
-	cfdr = CFDictionaryGetValue(j, kHelperdTCLState);
-	interp = *(Tcl_Interp **)CFDataGetBytePtr(cfdr);
-
-	while (!CFStringGetCString(cftclcode, buf, bufsz - 1, kCFStringEncodingUTF8)) {
-		free(buf);
-		bufsz *= 2;
-		buf = malloc(bufsz);
-	}
-
-	if (Tcl_Eval(interp, buf) != TCL_OK) {
-		syslog(LOG_ERR, "Tcl_Eval() for some TCL based job failed");
-	}
-
-	free(buf);
+	if (Tcl_Eval(j->tcli, tclcode) != TCL_OK)
+		syslog(LOG_ERR, "%s: Tcl_Eval() failed at line %d: %s", l, j->tcli->errorLine, j->tcli->result);
+	Tcl_SetVar(j->tcli, LD_EVENT, "", TCL_GLOBAL_ONLY);
 }

@@ -175,25 +175,24 @@ startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef a
 	return aResult;
 }
 
-static const CFStringRef stubitems[] = {
-	CFSTR("Accounting"),
-	CFSTR("System Tuning"),
-	CFSTR("SecurityServer"),
-	CFSTR("Portmap"),
-	CFSTR("System Log"),
-	CFSTR("Resolver"),
-	CFSTR("LDAP"),
-	CFSTR("NetInfo"),
-	CFSTR("NetworkExtensions"),
-	CFSTR("DirectoryServices"),
-	CFSTR("Network Configuration"),
-	CFSTR("mDNSResponder"),
-	NULL
-};
-
 static void 
 SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 {
+	const CFStringRef stubitems[] = {
+		CFSTR("Accounting"),
+		CFSTR("System Tuning"),
+		CFSTR("SecurityServer"),
+		CFSTR("Portmap"),
+		CFSTR("System Log"),
+		CFSTR("Resolver"),
+		CFSTR("LDAP"),
+		CFSTR("NetInfo"),
+		CFSTR("NetworkExtensions"),
+		CFSTR("DirectoryServices"),
+		CFSTR("Network Configuration"),
+		CFSTR("mDNSResponder"),
+		NULL
+	};
 	CFMutableArrayRef aList, aNewList;
 	CFIndex	i, aCount;
 	CFStringRef ci, type = kRequiresKey;
