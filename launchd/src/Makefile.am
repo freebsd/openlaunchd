@@ -2,39 +2,36 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshado
 
 sbin_SCRIPTS = service
 
-noinst_LIBRARIES = liblaunch.a
+noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 bin_PROGRAMS = launchctl wait4path
-
 sbin_PROGRAMS = launchd SystemStarter launchdebugd launchd_helperd
-
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
-
-SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
 launchctl_LDFLAGS = -framework CoreFoundation
 
-launchd_LDFLAGS = -lbsm
+register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
 launchdebugd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 liblaunch_a_SOURCES = liblaunch.c
 
-register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
+liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
+liblaunch_profile_a_SOURCES = liblaunch.c
 
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-
+SystemStarter_LDFLAGS = -framework CoreFoundation
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_helperd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 launchd_helperd_LDFLAGS = -framework CoreFoundation -framework IOKit -ltcl
 
 launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS)
-
+launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
@@ -64,7 +61,7 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/usr/local/lib/system
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
-	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
+	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/usr/local/include
