@@ -22,6 +22,8 @@
 #define LAUNCH_KEY_GETRESOURCELIMIT		"GetResourceLimit"
 #define LAUNCH_KEY_SETRESOURCELIMIT		"SetResourceLimit"
 #define LAUNCH_KEY_RELOADTTYS			"ReloadTTYS"
+#define LAUNCH_KEY_SETUMASK			"SetUmask"
+#define LAUNCH_KEY_GETUMASK			"GetUmask"
 
 #define LAUNCH_JOBKEY_LABEL			"Label"
 #define LAUNCH_JOBKEY_DISABLED			"Disabled"
@@ -104,6 +106,7 @@ typedef enum {
 	LAUNCH_DATA_BOOL,
 	LAUNCH_DATA_STRING,
 	LAUNCH_DATA_OPAQUE,
+	LAUNCH_DATA_ERRNO,
 } launch_data_type_t;
 
 launch_data_t		launch_data_alloc(launch_data_type_t);
@@ -145,6 +148,7 @@ double		launch_data_get_real(launch_data_t);
 const char *	launch_data_get_string(launch_data_t);
 void *		launch_data_get_opaque(launch_data_t);
 size_t		launch_data_get_opaque_size(launch_data_t);
+int		launch_data_get_errno(launch_data_t);
 
 
 /* launch_get_fd()

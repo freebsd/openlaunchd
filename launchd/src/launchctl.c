@@ -46,6 +46,7 @@ static int getenv_and_export_cmd(int argc, char *const argv[]);
 //static int limit_cmd(int argc, char *const argv[]);
 static int setstdio_cmd(int argc, char *const argv[]);
 static int fyi_cmd(int argc, char *const argv[]);
+static int umask_cmd(int argc, char *const argv[]);
 
 static int help_cmd(int argc, char *const argv[]);
 
@@ -69,6 +70,7 @@ static const struct {
 	{ "setstderr",	setstdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
 	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
+	{ "umask",	umask_cmd,		"Change launchd's umask" },
 	{ "help",	help_cmd,		"This help output" },
 };
 
@@ -944,6 +946,53 @@ static int fyi_cmd(int argc, char *const argv[])
 	} else {
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
 		r = 1;
+	}
+
+	launch_data_free(resp);
+
+	return r;
+}
+
+static int umask_cmd(int argc, char *const argv[])
+{
+	launch_data_t resp, msg;
+	bool badargs = false;
+	char *endptr;
+	long m = 0;
+	int r = 0;
+
+	if (argc == 2) {
+		m = strtol(argv[1], &endptr, 8);
+		if (*endptr != '\0' || m > 0777)
+			badargs = true;
+	}
+
+	if (argc > 2 || badargs) {
+		fprintf(stderr, "usage: %s %s <mask>\n", getprogname(), argv[0]);
+		return 1;
+	}
+
+
+	if (argc == 1) {
+		msg = launch_data_new_string(LAUNCH_KEY_GETUMASK);
+	} else {
+		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+		launch_data_dict_insert(msg, launch_data_new_integer(m), LAUNCH_KEY_SETUMASK);
+	}
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+		fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+		r = 1;
+	} else if (launch_data_get_type(resp) != LAUNCH_DATA_INTEGER) {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	} else if (argc == 1) {
+		fprintf(stdout, "%o\n", (unsigned int)launch_data_get_integer(resp));
 	}
 
 	launch_data_free(resp);

@@ -14,6 +14,9 @@ launch_t launchd_fdopen(int);
 int launchd_getfd(launch_t);
 void launchd_close(launch_t);
 
+launch_data_t   launch_data_new_errno(int);
+bool            launch_data_set_errno(launch_data_t, int);
+
 int launchd_msg_send(launch_t, launch_data_t);
 int launchd_msg_recv(launch_t, void (*)(launch_data_t, void *), void *);
 

@@ -13,6 +13,29 @@
 #include "launch.h"
 #include "launch_priv.h"
 
+struct _launch_data {
+	launch_data_type_t type;
+	union {
+		struct {
+			launch_data_t *_array;
+			size_t _array_cnt;
+		};
+		struct {
+			char *string;
+			size_t string_len;
+		};
+		struct {
+			void *opaque;
+			size_t opaque_size;
+		};
+		int fd;
+		int err;
+		long long number;
+		bool boolean;
+		double float_num;
+	};
+};
+
 struct _launch {
 	void	*sendbuf;
 	int	*sendfds;   
@@ -102,28 +125,6 @@ out_bad:
 		free(_lc);
 	_lc = NULL;
 }
-
-struct _launch_data {
-	launch_data_type_t type;
-	union {
-		struct {
-			launch_data_t *_array;
-			size_t _array_cnt;
-		};
-		struct {
-			char *string;
-			size_t string_len;
-		};
-		struct {
-			void *opaque;
-			size_t opaque_size;
-		};
-		int fd;
-		long long number;
-		bool boolean;
-		double float_num;
-	};
-};
 
 launch_data_t launch_data_alloc(launch_data_type_t t)
 {
@@ -284,6 +285,12 @@ size_t launch_data_array_get_count(launch_data_t where)
 	return where->_array_cnt;
 }
 
+bool launch_data_set_errno(launch_data_t d, int e)
+{
+	d->err = e;
+	return true;
+}
+
 bool launch_data_set_fd(launch_data_t d, int fd)
 {
 	d->fd = fd;
@@ -331,6 +338,11 @@ bool launch_data_set_opaque(launch_data_t d, const void *o, size_t os)
 		return true;
 	}
 	return false;
+}
+
+int launch_data_get_errno(launch_data_t d)
+{
+	return d->err;
 }
 
 int launch_data_get_fd(launch_data_t d)
@@ -795,6 +807,16 @@ static int _fd(int fd)
 	if (fd >= 0)
 		fcntl(fd, F_SETFD, 1);
 	return fd;
+}
+
+launch_data_t launch_data_new_errno(int e)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_ERRNO);
+
+	if (r)
+	       launch_data_set_errno(r, e);
+
+	return r;
 }
 
 launch_data_t launch_data_new_fd(int fd)

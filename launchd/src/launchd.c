@@ -793,6 +793,14 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOBWITHHANDLES))) {
 		resp = get_jobs(launch_data_get_string(tmp));
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETUMASK))) {
+		resp = launch_data_new_integer(umask(launch_data_get_integer(tmp)));
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETUMASK)) {
+		mode_t oldmask = umask(0);
+		resp = launch_data_new_integer(oldmask);
+		umask(oldmask);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDOUT))) {
 		resp = setstdio(STDOUT_FILENO, tmp);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
