@@ -57,6 +57,8 @@ int main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	initng_close(thefd);
+
 	exit(EXIT_SUCCESS);
 }
 
@@ -114,24 +116,23 @@ static void loadcfg(char *what)
 
 	if (S_ISREG(sb.st_mode)) {
 		handleConfigFile(what);
-		exit(EXIT_SUCCESS);
-	}
-
-	if ((d = opendir(what)) == NULL) {
-		fprintf(stderr, "%s: opendir() failed to open the directory\n", argv0);
-		exit(EXIT_FAILURE);
-	}
-
-	while ((de = readdir(d)) != NULL) {
-		if ((de->d_name[0] != '.')) {
-			char *foo;
-			if (asprintf(&foo, "%s/%s", what, de->d_name))
-				handleConfigFile(foo);
-			free(foo);
+	} else {
+		if ((d = opendir(what)) == NULL) {
+			fprintf(stderr, "%s: opendir() failed to open the directory\n", argv0);
+			exit(EXIT_FAILURE);
 		}
-	}
 
-	closedir(d);
+		while ((de = readdir(d)) != NULL) {
+			if ((de->d_name[0] != '.')) {
+				char *foo;
+				if (asprintf(&foo, "%s/%s", what, de->d_name))
+					handleConfigFile(foo);
+				free(foo);
+			}
+		}
+
+		closedir(d);
+	}
 }
 
 static char **getflag(const void *cfval)
