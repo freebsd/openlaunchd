@@ -1054,20 +1054,6 @@ void StartupItemSetStatus(CFMutableDictionaryRef aStatusDict, CFMutableDictionar
 void StartupItemExit (CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Boolean aSuccess)
 {
     StartupItemSetStatus(aStatusDict, anItem, NULL, aSuccess, FALSE);
-    
-    if (gParentPID && anItem)
-      {
-        CFArrayRef aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
-        if (aProvidesList)
-          {
-            CFIndex aProvidesCount = CFArrayGetCount(aProvidesList);
-            if (CFArrayContainsValue(aProvidesList, CFRangeMake(0, aProvidesCount), kLoginService))
-              {
-                kill(gParentPID, SIGHUP);
-                gParentPID = 0;
-              }
-           }
-        }
 }
 
 CFStringRef StartupItemCreateLocalizedString (CFDictionaryRef anItem, CFStringRef aString)

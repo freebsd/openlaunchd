@@ -46,7 +46,6 @@
 #define kBundlePathKey      CFSTR("PathToBundle")
 #define kPIDKey             CFSTR("ProcessID")
 #define kDomainKey          CFSTR("Domain")
-#define kLoginService       CFSTR("Multiuser Login Prompt")
 
 
 #define kErrorPermissions   CFSTR("incorrect permissions")

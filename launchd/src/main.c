@@ -28,23 +28,22 @@
 
 #include <unistd.h>
 #include <crt_externs.h>
-#include <signal.h>
+#include <fcntl.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include "Log.h"
 #include "SystemStarter.h"
+
+#define LOGINWINDOW_HINT_FILE "/var/run/.systemStarterRunning"
 
 /* Command line options */
 int gDebugFlag     = 0;
 int gVerboseFlag   = 1;
 int gSafeBootFlag  = 0;
 int gNoRunFlag     = 0;
-int gParentPID     = 0;
 int gQuitOnNotification = 0;
 
-static void usage() __attribute__((__noreturn__));
-static void usage()
+static void __attribute__((__noreturn__)) usage(const char *aProgram)
 {
-    char* aProgram = **_NSGetArgv();
     error(CFSTR("usage: %s [-vxdDrqng?] [ <action> [ <item> ] ]\n"
 		"\t<action>: action to take (start|stop|restart); default is start\n"
 		"\t<item>  : name of item to act on; default is all items\n"
@@ -109,7 +108,7 @@ int main (int argc, char *argv[])
 
 		/* Usage */
                 case '?':
-                    usage();
+                    usage(aProgram);
                     break;
                 default:
                     warning(CFSTR("ignoring unknown option '-%c'\n"), c);
@@ -120,7 +119,7 @@ int main (int argc, char *argv[])
 	argv += optind;
     }
 
-    if (argc > 2) usage();
+    if (argc > 2) usage(aProgram);
 
     if (!gNoRunFlag && (getuid() != 0))
       {
@@ -129,9 +128,8 @@ int main (int argc, char *argv[])
       }
 
     {
-        int    aStatus = 0;
+        int    fd, aStatus = 0;
 	Action anAction = kActionStart;
-	pid_t  aChildPID;
 
 	CFStringRef aService = NULL;
 
@@ -143,7 +141,7 @@ int main (int argc, char *argv[])
 	         if (CFEqual(anActionArg, CFSTR("start"  ))) anAction = kActionStart  ;
 	    else if (CFEqual(anActionArg, CFSTR("stop"   ))) anAction = kActionStop   ;
 	    else if (CFEqual(anActionArg, CFSTR("restart"))) anAction = kActionRestart;
-	    else usage();
+	    else usage(aProgram);
 
 	    CFRelease(anActionArg);
 	  }
@@ -151,32 +149,16 @@ int main (int argc, char *argv[])
         if (argc >= 2)
 	  aService = CFStringCreateWithCString(kCFAllocatorDefault, argv[1], kCFStringEncodingUTF8);
 
-	signal(SIGHUP, SIG_DFL);
+	if ((fd = open(LOGINWINDOW_HINT_FILE, O_RDWR|O_CREAT, 0666)) >= 0) {
+		close(fd);
+	} else {
+		warning(CFSTR("couldn't create: %s\n"), LOGINWINDOW_HINT_FILE);
+	}
+					
+	if (aService == NULL);	
+		daemon(0, 0);
 
-	gParentPID = getpid();
-
-	aChildPID = fork();
-
-	switch (aChildPID)
-	  {
-	  default: /* Parent (fork succeeded) */
-	    pause();
-	    break;
-
-	  case -1: /* Parent (fork failed) */
-	    error(CFSTR("Failed to fork; cannot background.\n"));
-	    gParentPID = 0;
-	    /* Fall through */
-
-	  case 0:
-	    if (setsid() == -1)
-	      warning(CFSTR("Unable to create session for starter process: %s\n"),
-		      strerror(errno));
-
-	    aStatus = system_starter(anAction, aService);
-	    if (gParentPID) kill(gParentPID, SIGHUP);
-	    break;
-	  }
+	aStatus = system_starter(anAction, aService);
 
         if (aService) CFRelease(aService);
 
