@@ -269,8 +269,7 @@ if [ -f /var/log/CDIS.custom ]; then
 fi
 
 # Start the Language Chooser. This code should be able to go away as far as I
-# know once loginwindow becomes dynamic and SystemStarter exits the GUI
-# business.
+# know once loginwindow becomes more dynamic.
 STARTPBS="/System/Library/CoreServices/pbs"            # apps stall w/o
 BUDDYCOOKIE="/var/db/.AppleSetupDone"
 LCACOOKIE="/var/db/.RunLanguageChooserToo"
