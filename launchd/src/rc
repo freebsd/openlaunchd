@@ -300,10 +300,10 @@ fi
 
 export LANGUAGE
 
-touch /var/run/.systemStarterRunning
-
 if [ -f /etc/rc.local ]; then
 	sh /etc/rc.local
 fi
+
+/usr/libexec/WaitingForLoginWindow
 
 exit 0

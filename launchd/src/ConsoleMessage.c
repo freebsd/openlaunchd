@@ -85,52 +85,60 @@ main(int argc, char *argv[])
 	int             anAction = kActionConsoleMessage;
 	char           *aProgram = argv[0];
 	char           *anArgCStr = NULL;
+	char            c;
+	pid_t		w4lw_pid = 0;
+	FILE	       *w4lw_f;
 
 	/**
          * Handle command line.
          **/
-	{
-		char            c;
-		while ((c = getopt(argc, argv, "?vSFs:f:q:b:u")) != -1) {
-			switch (c) {
-			case '?':
-				usage();
-				break;
-			case 'v':
-				aVerboseFlag = 1;
-				break;
-			case 'S':
-				anAction = kActionSuccess;
-				anArgCStr = NULL;
-				break;
-			case 'F':
-				anAction = kActionFailure;
-				anArgCStr = NULL;
-				break;
-			case 's':
-				anAction = kActionSuccess;
-				anArgCStr = optarg;
-				break;
-			case 'f':
-				anAction = kActionFailure;
-				anArgCStr = optarg;
-				break;
-			case 'q':
-				anAction = kActionQuery;
-				anArgCStr = optarg;
-				break;
-			case 'b':
-			case 'u':
-				exit(EXIT_SUCCESS);
-				break;
-			default:
-				fprintf(stderr, "ignoring unknown option '-%c'\n", c);
-				break;
+	while ((c = getopt(argc, argv, "?vSFs:f:q:b:u")) != -1) {
+		switch (c) {
+		case '?':
+			usage();
+			break;
+		case 'v':
+			aVerboseFlag = 1;
+			break;
+		case 'S':
+			anAction = kActionSuccess;
+			anArgCStr = NULL;
+			break;
+		case 'F':
+			anAction = kActionFailure;
+			anArgCStr = NULL;
+			break;
+		case 's':
+			anAction = kActionSuccess;
+			anArgCStr = optarg;
+			break;
+		case 'f':
+			anAction = kActionFailure;
+			anArgCStr = optarg;
+			break;
+		case 'q':
+			anAction = kActionQuery;
+			anArgCStr = optarg;
+			break;
+		case 'b':
+			exit(EXIT_SUCCESS);
+			break;
+		case 'u':
+			w4lw_f = fopen("/var/run/waiting4loginwindow.pid", "r");
+			if (w4lw_f) {
+				fscanf(w4lw_f, "%d\n", &w4lw_pid);
+				if (w4lw_pid)
+					kill(w4lw_pid, SIGTERM);
 			}
+			exit(EXIT_SUCCESS);
+			break;
+		default:
+			fprintf(stderr, "ignoring unknown option '-%c'\n", c);
+			break;
 		}
-		argc -= optind;
-		argv += optind;
 	}
+	argc -= optind;
+	argv += optind;
 
 	if ((anAction == kActionConsoleMessage && argc != 1) ||
 	    (anAction == kActionSuccess && argc != 0) ||
