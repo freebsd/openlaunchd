@@ -29,17 +29,17 @@
  * lists.c -- implementation of list handling routines
  */
 
-#import <mach/boolean.h>
-#import <mach/mach_error.h>
+#include <mach/boolean.h>
+#include <mach/mach_error.h>
 
-#import <stdlib.h>
-#import <string.h>
-#import <syslog.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
 
-#import <bsm/audit.h>
+#include <bsm/audit.h>
 
-#import "bootstrap_internal.h"
-#import "lists.h"
+#include "bootstrap_internal.h"
+#include "lists.h"
 
 /*
  * Exports

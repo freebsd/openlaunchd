@@ -59,7 +59,7 @@
 #include <libc.h>
 #include <paths.h>
 #include <syslog.h>
-#import <pwd.h>
+#include <pwd.h>
 
 #include <bsm/audit.h>
 #include <bsm/libbsm.h>

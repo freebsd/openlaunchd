@@ -29,17 +29,17 @@
  * rpc_services.c -- implementation of bootstrap rpc services
  */
 
-#import <mach/mach.h>
-#import <mach/mach_error.h>
-#import <syslog.h>
-#import <string.h>
+#include <mach/mach.h>
+#include <mach/mach_error.h>
+#include <syslog.h>
+#include <string.h>
 
-#import <bsm/audit.h>
-#import <bsm/libbsm.h>
+#include <bsm/audit.h>
+#include <bsm/libbsm.h>
 
-#import "bootstrap_internal.h"
-#import "lists.h"
-#import "bootstrap.h"
+#include "bootstrap_internal.h"
+#include "lists.h"
+#include "bootstrap.h"
 
 #ifndef ASSERT
 #define ASSERT(p)

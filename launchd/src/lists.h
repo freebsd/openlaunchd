@@ -29,12 +29,12 @@
  * lists.h -- interface to list routines
  */
 
-#import <sys/types.h>
-#import <mach/mach.h>
-#import <mach/boolean.h>
-#import <servers/bootstrap_defs.h>
+#include <sys/types.h>
+#include <mach/mach.h>
+#include <mach/boolean.h>
+#include <servers/bootstrap_defs.h>
 
-#import <bsm/audit.h>
+#include <bsm/audit.h>
 
 #ifndef NULL
 #define	NULL	((void *)0)
