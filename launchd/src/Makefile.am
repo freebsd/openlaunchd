@@ -10,7 +10,7 @@ sbin_PROGRAMS = launchd SystemStarter mach_init launchdebugd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
-sysconf_DATA = hostconfig rc rc.common rc.netboot
+sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
 SystemStarter_LDFLAGS = -framework CoreFoundation
 

@@ -89,25 +89,28 @@ main(int argc, char *argv[])
 		setlogmask(LOG_UPTO(LOG_NOTICE));
 	}
 
-
 	if (!gNoRunFlag && (getuid() != 0)) {
 		syslog(LOG_ERR, "must be root to run");
 		exit(EXIT_FAILURE);
 	}
+
 	if (argc > 0) {
-		if (strcmp(argv[0], "start") == 0)
+		if (strcmp(argv[0], "start") == 0) {
 			anAction = kActionStart;
-		else if (strcmp(argv[0], "stop") == 0)
+		} else if (strcmp(argv[0], "stop") == 0) {
 			anAction = kActionStop;
-		else if (strcmp(argv[0], "restart") == 0)
+		} else if (strcmp(argv[0], "restart") == 0) {
 			anAction = kActionRestart;
-		else
+		} else {
 			usage();
+		}
 	}
-	if (argc == 2)
+
+	if (argc == 2) {
 		aService = argv[1];
-	else if (!gDebugFlag)
+	} else if (!gDebugFlag && anAction != kActionStop) {
 		daemon(0, 0);
+	}
 
 	exit(system_starter(anAction, aService));
 }
