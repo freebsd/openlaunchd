@@ -176,6 +176,7 @@ startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef a
 }
 
 static const CFStringRef stubitems[] = {
+	CFSTR("Accounting"),
 	CFSTR("System Tuning"),
 	CFSTR("SecurityServer"),
 	CFSTR("Portmap"),

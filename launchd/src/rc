@@ -76,6 +76,10 @@ fi
 
 sysctl -w kern.sysv.shmmax=4194304 kern.sysv.shmmin=1 kern.sysv.shmmni=32 kern.sysv.shmseg=8 kern.sysv.shmall=1024
 
+if [ -f /var/account/acct ]; then
+	accton /var/account/acct
+fi
+
 if [ -f /Library/Preferences/com.apple.sharing.firewall.plist ]; then
 	/usr/libexec/FirewallTool
 fi
