@@ -73,13 +73,11 @@ static void signal_callback(void *, struct kevent *);
 static void fs_callback(void *, struct kevent *);
 static void simple_zombie_reaper(void *, struct kevent *);
 static void mach_callback(void *, struct kevent *);
-static void waitpid_callback(void *, struct kevent *);
 
 static kq_callback kqlisten_callback = listen_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = fs_callback;
 static kq_callback kqmach_callback = mach_callback;
-static kq_callback kqwaitpid_callback = waitpid_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static void job_watch_fds(launch_data_t o, void *cookie);
@@ -94,6 +92,7 @@ static void ipc_close(struct conncb *c);
 static void ipc_callback(void *, struct kevent *);
 static void ipc_readmsg(launch_data_t msg, void *context);
 
+static void pid1waitpid(void);
 static bool launchd_check_pid(pid_t p, int status);
 static void launchd_server_init(void);
 
@@ -120,8 +119,9 @@ int main(int argc, char *argv[])
 	struct kevent kev;
 	size_t i;
 	bool sflag = false, xflag = false, bflag = false;
-	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
-		SIGURG, SIGTSTP, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
+	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
+		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
+		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
 
 	if (getpid() == 1)
@@ -219,7 +219,8 @@ int main(int argc, char *argv[])
 		signal(sigigns[i], SIG_IGN);
 	}
 
-	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqwaitpid_callback) == -1)
+	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
+	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
 
 	if (setsid() == -1)
@@ -273,6 +274,9 @@ int main(int argc, char *argv[])
 			syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
 			break;
 		}
+
+		if (getpid() == 1)
+			pid1waitpid();
 	}
 }
 
@@ -1044,7 +1048,7 @@ static void job_launch(struct jobcb *j)
 	}
 }
 
-static void waitpid_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
+static void pid1waitpid(void)
 {
 	int status;
 	pid_t p;
