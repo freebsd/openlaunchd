@@ -107,7 +107,7 @@ static void pid1waitpid(void);
 static bool launchd_check_pid(pid_t p);
 #endif
 static void pid1_magic_init(bool sflag, bool xflag);
-static void launchd_server_init(void);
+static bool launchd_server_init(void);
 
 static void *mach_demand_loop(void *);
 
@@ -196,8 +196,11 @@ int main(int argc, char *argv[])
 	if (chdir("/") == -1)
 		syslog(LOG_ERR, "chdir(\"/\"): %m");
 
-	if (getpid() == 1)
+	if (getpid() == 1) {
 		pid1_magic_init(sflag, xflag);
+	} else if (!launchd_server_init()) {
+		exit(EXIT_FAILURE);
+	}
 
 	reload_launchd_config();
 
@@ -345,7 +348,7 @@ static void launchd_remove_all_jobs(void)
 		job_remove(j);
 }
 
-static void launchd_server_init(void)
+static bool launchd_server_init(void)
 {
 	struct sockaddr_un sun;
 	mode_t oldmask;
@@ -360,7 +363,7 @@ static void launchd_server_init(void)
 
 	if (mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH) == -1) {
 		if (errno == EROFS)
-			return;
+			return false;
 		if (errno != EEXIST) {
 			syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
 			exit(EXIT_FAILURE);
@@ -370,12 +373,12 @@ static void launchd_server_init(void)
 	unlink(ourdir);
 	if (mkdir(ourdir, S_IRWXU) == -1) {
 		if (errno == EROFS) {
-			return;
+			return false;
 		} else if (errno == EEXIST) {
 			struct stat sb;
 			stat(ourdir, &sb);
 			if (!S_ISDIR(sb.st_mode))
-				return;
+				return false;
 		} else {
 			syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
 			exit(EXIT_FAILURE);
@@ -432,12 +435,13 @@ static void launchd_server_init(void)
 	setgid(getgid());
 	setuid(getuid());
 
-	return;
+	return true;
 out_bad:
 	if (fd != -1)
 		close(fd);
 	if (ourdirfd != -1)
 		close(ourdirfd);
+	return false;
 }
 
 static long long job_get_integer(launch_data_t j, const char *key)
