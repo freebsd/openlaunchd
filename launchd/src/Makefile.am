@@ -1,4 +1,4 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare -Wpadded
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded
 
 sbin_SCRIPTS = service
 
@@ -22,6 +22,8 @@ launchd_LDFLAGS = liblaunch.1.dylib -lbsm
 
 mach_init_LDFLAGS = -lbsm
 
+launchdebugd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+
 launchdebugd_LDFLAGS = liblaunch.1.dylib
 
 launchproxy_LDFLAGS = liblaunch.1.dylib
@@ -30,11 +32,15 @@ liblaunch_a_SOURCES = liblaunch.c
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
+SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-launchd_CFLAGS = -mdynamic-no-pic
+launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
+
+mach_init_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 

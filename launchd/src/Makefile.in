@@ -75,7 +75,7 @@ VERSION = @VERSION@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare -Wpadded
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded
 
 sbin_SCRIPTS = service
 
@@ -99,6 +99,8 @@ launchd_LDFLAGS = liblaunch.1.dylib -lbsm
 
 mach_init_LDFLAGS = -lbsm
 
+launchdebugd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+
 launchdebugd_LDFLAGS = liblaunch.1.dylib
 
 launchproxy_LDFLAGS = liblaunch.1.dylib
@@ -107,11 +109,15 @@ liblaunch_a_SOURCES = liblaunch.c
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
+SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-launchd_CFLAGS = -mdynamic-no-pic
+launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
+
+mach_init_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
@@ -151,8 +157,9 @@ StartupItemContext_OBJECTS = StartupItemContext.$(OBJEXT)
 StartupItemContext_LDADD = $(LDADD)
 StartupItemContext_DEPENDENCIES =
 StartupItemContext_LDFLAGS =
-am_SystemStarter_OBJECTS = StartupItems.$(OBJEXT) IPC.$(OBJEXT) \
-	SystemStarter.$(OBJEXT)
+am_SystemStarter_OBJECTS = SystemStarter-StartupItems.$(OBJEXT) \
+	SystemStarter-IPC.$(OBJEXT) \
+	SystemStarter-SystemStarter.$(OBJEXT)
 SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_DEPENDENCIES =
@@ -168,16 +175,17 @@ launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
 launchdebugd_SOURCES = launchdebugd.c
-launchdebugd_OBJECTS = launchdebugd.$(OBJEXT)
+launchdebugd_OBJECTS = launchdebugd-launchdebugd.$(OBJEXT)
 launchdebugd_LDADD = $(LDADD)
 launchdebugd_DEPENDENCIES =
 launchproxy_SOURCES = launchproxy.c
 launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_LDADD = $(LDADD)
 launchproxy_DEPENDENCIES =
-am_mach_init_OBJECTS = mach_init.$(OBJEXT) bootstrap.$(OBJEXT) \
-	lists.$(OBJEXT) rpc_services.$(OBJEXT) \
-	bootstrapServer.$(OBJEXT)
+am_mach_init_OBJECTS = mach_init-mach_init.$(OBJEXT) \
+	mach_init-bootstrap.$(OBJEXT) mach_init-lists.$(OBJEXT) \
+	mach_init-rpc_services.$(OBJEXT) \
+	mach_init-bootstrapServer.$(OBJEXT)
 mach_init_OBJECTS = $(am_mach_init_OBJECTS)
 mach_init_LDADD = $(LDADD)
 mach_init_DEPENDENCIES =
@@ -202,12 +210,11 @@ LDFLAGS = @LDFLAGS@
 LIBS = @LIBS@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
-@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/ConsoleMessage.Po ./$(DEPDIR)/IPC.Po \
+@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/ConsoleMessage.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/StartupItemContext.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/StartupItems.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/SystemStarter.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/bootstrap.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/bootstrapServer.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-IPC.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-StartupItems.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-SystemStarter.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-bootstrap.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-bootstrapServer.Po \
@@ -215,11 +222,14 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-lists.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-rpc_services.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/launchdebugd.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchdebugd-launchdebugd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/lists.Po ./$(DEPDIR)/mach_init.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/mach_init-bootstrap.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/mach_init-bootstrapServer.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/mach_init-lists.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/mach_init-mach_init.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/mach_init-rpc_services.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/rpc_services.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/wait4path.Po
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -353,6 +363,9 @@ ConsoleMessage$(EXEEXT): $(ConsoleMessage_OBJECTS) $(ConsoleMessage_DEPENDENCIES
 StartupItemContext$(EXEEXT): $(StartupItemContext_OBJECTS) $(StartupItemContext_DEPENDENCIES) 
 	@rm -f StartupItemContext$(EXEEXT)
 	$(LINK) $(StartupItemContext_LDFLAGS) $(StartupItemContext_OBJECTS) $(StartupItemContext_LDADD) $(LIBS)
+SystemStarter-StartupItems.$(OBJEXT): StartupItems.c
+SystemStarter-IPC.$(OBJEXT): IPC.c
+SystemStarter-SystemStarter.$(OBJEXT): SystemStarter.c
 SystemStarter$(EXEEXT): $(SystemStarter_OBJECTS) $(SystemStarter_DEPENDENCIES) 
 	@rm -f SystemStarter$(EXEEXT)
 	$(LINK) $(SystemStarter_LDFLAGS) $(SystemStarter_OBJECTS) $(SystemStarter_LDADD) $(LIBS)
@@ -368,12 +381,18 @@ launchd-bootstrapServer.$(OBJEXT): bootstrapServer.c
 launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES) 
 	@rm -f launchd$(EXEEXT)
 	$(LINK) $(launchd_LDFLAGS) $(launchd_OBJECTS) $(launchd_LDADD) $(LIBS)
+launchdebugd-launchdebugd.$(OBJEXT): launchdebugd.c
 launchdebugd$(EXEEXT): $(launchdebugd_OBJECTS) $(launchdebugd_DEPENDENCIES) 
 	@rm -f launchdebugd$(EXEEXT)
 	$(LINK) $(launchdebugd_LDFLAGS) $(launchdebugd_OBJECTS) $(launchdebugd_LDADD) $(LIBS)
 launchproxy$(EXEEXT): $(launchproxy_OBJECTS) $(launchproxy_DEPENDENCIES) 
 	@rm -f launchproxy$(EXEEXT)
 	$(LINK) $(launchproxy_LDFLAGS) $(launchproxy_OBJECTS) $(launchproxy_LDADD) $(LIBS)
+mach_init-mach_init.$(OBJEXT): mach_init.c
+mach_init-bootstrap.$(OBJEXT): bootstrap.c
+mach_init-lists.$(OBJEXT): lists.c
+mach_init-rpc_services.$(OBJEXT): rpc_services.c
+mach_init-bootstrapServer.$(OBJEXT): bootstrapServer.c
 mach_init$(EXEEXT): $(mach_init_OBJECTS) $(mach_init_DEPENDENCIES) 
 	@rm -f mach_init$(EXEEXT)
 	$(LINK) $(mach_init_LDFLAGS) $(mach_init_OBJECTS) $(mach_init_LDADD) $(LIBS)
@@ -411,12 +430,10 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ConsoleMessage.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/IPC.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItemContext.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItems.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrap.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrapServer.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-IPC.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-StartupItems.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-SystemStarter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrapServer.Po@am__quote@
@@ -424,13 +441,15 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-lists.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-rpc_services.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchdebugd.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchdebugd-launchdebugd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lists.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init-bootstrap.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init-bootstrapServer.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init-lists.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init-mach_init.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init-rpc_services.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/register_mach_bootstrap_servers.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rpc_services.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wait4path.Po@am__quote@
 
 distclean-depend:
@@ -447,6 +466,42 @@ distclean-depend:
 @AMDEP_TRUE@	depfile='$(DEPDIR)/$*.Po' tmpdepfile='$(DEPDIR)/$*.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(COMPILE) -c `cygpath -w $<`
+
+SystemStarter-StartupItems.o: StartupItems.c
+@AMDEP_TRUE@	source='StartupItems.c' object='SystemStarter-StartupItems.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/SystemStarter-StartupItems.Po' tmpdepfile='$(DEPDIR)/SystemStarter-StartupItems.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -c -o SystemStarter-StartupItems.o `test -f 'StartupItems.c' || echo '$(srcdir)/'`StartupItems.c
+
+SystemStarter-StartupItems.obj: StartupItems.c
+@AMDEP_TRUE@	source='StartupItems.c' object='SystemStarter-StartupItems.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/SystemStarter-StartupItems.Po' tmpdepfile='$(DEPDIR)/SystemStarter-StartupItems.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -c -o SystemStarter-StartupItems.obj `cygpath -w StartupItems.c`
+
+SystemStarter-IPC.o: IPC.c
+@AMDEP_TRUE@	source='IPC.c' object='SystemStarter-IPC.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/SystemStarter-IPC.Po' tmpdepfile='$(DEPDIR)/SystemStarter-IPC.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -c -o SystemStarter-IPC.o `test -f 'IPC.c' || echo '$(srcdir)/'`IPC.c
+
+SystemStarter-IPC.obj: IPC.c
+@AMDEP_TRUE@	source='IPC.c' object='SystemStarter-IPC.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/SystemStarter-IPC.Po' tmpdepfile='$(DEPDIR)/SystemStarter-IPC.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -c -o SystemStarter-IPC.obj `cygpath -w IPC.c`
+
+SystemStarter-SystemStarter.o: SystemStarter.c
+@AMDEP_TRUE@	source='SystemStarter.c' object='SystemStarter-SystemStarter.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/SystemStarter-SystemStarter.Po' tmpdepfile='$(DEPDIR)/SystemStarter-SystemStarter.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -c -o SystemStarter-SystemStarter.o `test -f 'SystemStarter.c' || echo '$(srcdir)/'`SystemStarter.c
+
+SystemStarter-SystemStarter.obj: SystemStarter.c
+@AMDEP_TRUE@	source='SystemStarter.c' object='SystemStarter-SystemStarter.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/SystemStarter-SystemStarter.Po' tmpdepfile='$(DEPDIR)/SystemStarter-SystemStarter.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -c -o SystemStarter-SystemStarter.obj `cygpath -w SystemStarter.c`
 
 launchd-launchd.o: launchd.c
 @AMDEP_TRUE@	source='launchd.c' object='launchd-launchd.o' libtool=no @AMDEPBACKSLASH@
@@ -519,6 +574,78 @@ launchd-bootstrapServer.obj: bootstrapServer.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-bootstrapServer.Po' tmpdepfile='$(DEPDIR)/launchd-bootstrapServer.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-bootstrapServer.obj `cygpath -w bootstrapServer.c`
+
+launchdebugd-launchdebugd.o: launchdebugd.c
+@AMDEP_TRUE@	source='launchdebugd.c' object='launchdebugd-launchdebugd.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchdebugd-launchdebugd.Po' tmpdepfile='$(DEPDIR)/launchdebugd-launchdebugd.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchdebugd_CFLAGS) $(CFLAGS) -c -o launchdebugd-launchdebugd.o `test -f 'launchdebugd.c' || echo '$(srcdir)/'`launchdebugd.c
+
+launchdebugd-launchdebugd.obj: launchdebugd.c
+@AMDEP_TRUE@	source='launchdebugd.c' object='launchdebugd-launchdebugd.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchdebugd-launchdebugd.Po' tmpdepfile='$(DEPDIR)/launchdebugd-launchdebugd.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchdebugd_CFLAGS) $(CFLAGS) -c -o launchdebugd-launchdebugd.obj `cygpath -w launchdebugd.c`
+
+mach_init-mach_init.o: mach_init.c
+@AMDEP_TRUE@	source='mach_init.c' object='mach_init-mach_init.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-mach_init.Po' tmpdepfile='$(DEPDIR)/mach_init-mach_init.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-mach_init.o `test -f 'mach_init.c' || echo '$(srcdir)/'`mach_init.c
+
+mach_init-mach_init.obj: mach_init.c
+@AMDEP_TRUE@	source='mach_init.c' object='mach_init-mach_init.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-mach_init.Po' tmpdepfile='$(DEPDIR)/mach_init-mach_init.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-mach_init.obj `cygpath -w mach_init.c`
+
+mach_init-bootstrap.o: bootstrap.c
+@AMDEP_TRUE@	source='bootstrap.c' object='mach_init-bootstrap.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-bootstrap.Po' tmpdepfile='$(DEPDIR)/mach_init-bootstrap.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-bootstrap.o `test -f 'bootstrap.c' || echo '$(srcdir)/'`bootstrap.c
+
+mach_init-bootstrap.obj: bootstrap.c
+@AMDEP_TRUE@	source='bootstrap.c' object='mach_init-bootstrap.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-bootstrap.Po' tmpdepfile='$(DEPDIR)/mach_init-bootstrap.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-bootstrap.obj `cygpath -w bootstrap.c`
+
+mach_init-lists.o: lists.c
+@AMDEP_TRUE@	source='lists.c' object='mach_init-lists.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-lists.Po' tmpdepfile='$(DEPDIR)/mach_init-lists.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-lists.o `test -f 'lists.c' || echo '$(srcdir)/'`lists.c
+
+mach_init-lists.obj: lists.c
+@AMDEP_TRUE@	source='lists.c' object='mach_init-lists.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-lists.Po' tmpdepfile='$(DEPDIR)/mach_init-lists.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-lists.obj `cygpath -w lists.c`
+
+mach_init-rpc_services.o: rpc_services.c
+@AMDEP_TRUE@	source='rpc_services.c' object='mach_init-rpc_services.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-rpc_services.Po' tmpdepfile='$(DEPDIR)/mach_init-rpc_services.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-rpc_services.o `test -f 'rpc_services.c' || echo '$(srcdir)/'`rpc_services.c
+
+mach_init-rpc_services.obj: rpc_services.c
+@AMDEP_TRUE@	source='rpc_services.c' object='mach_init-rpc_services.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-rpc_services.Po' tmpdepfile='$(DEPDIR)/mach_init-rpc_services.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-rpc_services.obj `cygpath -w rpc_services.c`
+
+mach_init-bootstrapServer.o: bootstrapServer.c
+@AMDEP_TRUE@	source='bootstrapServer.c' object='mach_init-bootstrapServer.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-bootstrapServer.Po' tmpdepfile='$(DEPDIR)/mach_init-bootstrapServer.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-bootstrapServer.o `test -f 'bootstrapServer.c' || echo '$(srcdir)/'`bootstrapServer.c
+
+mach_init-bootstrapServer.obj: bootstrapServer.c
+@AMDEP_TRUE@	source='bootstrapServer.c' object='mach_init-bootstrapServer.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/mach_init-bootstrapServer.Po' tmpdepfile='$(DEPDIR)/mach_init-bootstrapServer.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(mach_init_CFLAGS) $(CFLAGS) -c -o mach_init-bootstrapServer.obj `cygpath -w bootstrapServer.c`
 CCDEPMODE = @CCDEPMODE@
 uninstall-info-am:
 
