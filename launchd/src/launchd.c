@@ -73,11 +73,13 @@ static void signal_callback(void *, struct kevent *);
 static void fs_callback(void *, struct kevent *);
 static void simple_zombie_reaper(void *, struct kevent *);
 static void mach_callback(void *, struct kevent *);
+static void waitpid_callback(void *, struct kevent *);
 
 static kq_callback kqlisten_callback = listen_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = fs_callback;
 static kq_callback kqmach_callback = mach_callback;
+static kq_callback kqwaitpid_callback = waitpid_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static void job_watch_fds(launch_data_t o, void *cookie);
@@ -216,6 +218,9 @@ int main(int argc, char *argv[])
 		sigaddset(&blocked_signals, sigigns[i]);
 		signal(sigigns[i], SIG_IGN);
 	}
+
+	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqwaitpid_callback) == -1)
+		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
 
 	if (setsid() == -1)
 		syslog(LOG_ERR, "setsid(): %m");
@@ -778,7 +783,6 @@ static size_t machcbtable_cnt = 0;
 static int machcbreadfd = -1;
 static int machcbwritefd = -1;
 static mach_port_t mach_demand_port_set = MACH_PORT_NULL;
-static pthread_t waitpid_demand_thread;
 static pthread_t mach_demand_thread;
 
 static void mach_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
@@ -793,43 +797,6 @@ static void mach_callback(void *obj __attribute__((unused)), struct kevent *kev 
 	(*((kq_callback *)mkev.udata))(mkev.udata, &mkev);
 }
 
-static int proccbreadfd = -1;
-static int proccbwritefd = -1;
-typedef struct {
-	pid_t p;
-	int status;
-} wait_pass_results_t;
-
-static void proc_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
-{
-	wait_pass_results_t wpr;
-
-	if (read(proccbreadfd, &wpr, sizeof(wpr)) == -1) {
-		syslog(LOG_ERR, "read(wpr): %m");
-		return;
-	}
-
-	if (!launchd_check_pid(wpr.p, wpr.status))
-		init_check_pid(wpr.p, wpr.status);
-}
-
-static kq_callback kqproc_callback = proc_callback;
-
-static void waitpid_demand_loop(void *arg __attribute__((unused)))
-{
-	wait_pass_results_t wpr;
-
-	for (;;) {
-		wpr.p = waitpid(-1, &wpr.status, 0);
-		if (wpr.p == -1) {
-			syslog(LOG_DEBUG, "waitpid(): %m");
-			continue;
-		}
-		if (write(proccbwritefd, &wpr, sizeof(wpr)) == -1)
-			syslog(LOG_DEBUG, "write(wpr): %m");
-	}
-}
-
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
@@ -837,29 +804,9 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 	pthread_attr_t attr;
 	int pthr_r, pfds[2];
 
-	if (filter == EVFILT_PROC && getpid() == 1) {
-		if (proccbreadfd > 0)
+	if (filter != EVFILT_MACHPORT) {
+		if (filter == EVFILT_PROC && getpid() == 1)
 			return 0;
-		pthread_attr_init(&attr);
-		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-		pthr_r = pthread_create(&waitpid_demand_thread, &attr, (void *(*)(void *))waitpid_demand_loop, NULL);
-		if (pthr_r != 0) {
-			syslog(LOG_ERR, "pthread_create(waitpid_demand_loop): %s", strerror(pthr_r));
-			exit(EXIT_FAILURE);
-		}
-
-		pthread_attr_destroy(&attr);
-
-		pipe(pfds);
-
-		proccbwritefd = _fd(pfds[1]);
-		proccbreadfd = _fd(pfds[0]);
-
-		kevent_mod(proccbreadfd, EVFILT_READ, EV_ADD, 0, 0, &kqproc_callback);
-
-		return 0;
-	} else if (filter != EVFILT_MACHPORT) {
 		EV_SET(&kev, ident, filter, flags, fflags, data, udata);
 		return kevent(mainkq, &kev, 1, NULL, 0, NULL);
 	}
@@ -1094,6 +1041,17 @@ static void job_launch(struct jobcb *j)
 		j->p = c;
 		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 			job_ignore_fds(j->ldj, j->kqjob_callback);
+	}
+}
+
+static void waitpid_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
+{
+	int status;
+	pid_t p;
+
+	while ((p = waitpid(-1, &status, WNOHANG)) > 0) {
+		if (!launchd_check_pid(p, status))
+			init_check_pid(p, status);
 	}
 }
 
