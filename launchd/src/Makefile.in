@@ -113,6 +113,8 @@ mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServ
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
 
+man1_MANS = wait4path.1
+
 man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8
 
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
@@ -215,7 +217,7 @@ DIST_SOURCES = ConsoleMessage.c StartupItemContext.c \
 	register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
 NROFF = nroff
-MANS = $(man8_MANS)
+MANS = $(man1_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 DIST_COMMON = Makefile.am Makefile.in config.h.in
@@ -375,6 +377,49 @@ distclean-depend:
 CCDEPMODE = @CCDEPMODE@
 uninstall-info-am:
 
+man1dir = $(mandir)/man1
+install-man1: $(man1_MANS) $(man_MANS)
+	@$(NORMAL_INSTALL)
+	$(mkinstalldirs) $(DESTDIR)$(man1dir)
+	@list='$(man1_MANS) $(dist_man1_MANS) $(nodist_man1_MANS)'; \
+	l2='$(man_MANS) $(dist_man_MANS) $(nodist_man_MANS)'; \
+	for i in $$l2; do \
+	  case "$$i" in \
+	    *.1*) list="$$list $$i" ;; \
+	  esac; \
+	done; \
+	for i in $$list; do \
+	  if test -f $(srcdir)/$$i; then file=$(srcdir)/$$i; \
+	  else file=$$i; fi; \
+	  ext=`echo $$i | sed -e 's/^.*\\.//'`; \
+	  case "$$ext" in \
+	    1*) ;; \
+	    *) ext='1' ;; \
+	  esac; \
+	  inst=`echo $$i | sed -e 's/\\.[0-9a-z]*$$//'`; \
+	  inst=`echo $$inst | sed -e 's/^.*\///'`; \
+	  inst=`echo $$inst | sed '$(transform)'`.$$ext; \
+	  echo " $(INSTALL_DATA) $$file $(DESTDIR)$(man1dir)/$$inst"; \
+	  $(INSTALL_DATA) $$file $(DESTDIR)$(man1dir)/$$inst; \
+	done
+uninstall-man1:
+	@$(NORMAL_UNINSTALL)
+	@list='$(man1_MANS) $(dist_man1_MANS) $(nodist_man1_MANS)'; \
+	l2='$(man_MANS) $(dist_man_MANS) $(nodist_man_MANS)'; \
+	for i in $$l2; do \
+	  case "$$i" in \
+	    *.1*) list="$$list $$i" ;; \
+	  esac; \
+	done; \
+	for i in $$list; do \
+	  ext=`echo $$i | sed -e 's/^.*\\.//'`; \
+	  inst=`echo $$i | sed -e 's/\\.[0-9a-z]*$$//'`; \
+	  inst=`echo $$inst | sed -e 's/^.*\///'`; \
+	  inst=`echo $$inst | sed '$(transform)'`.$$ext; \
+	  echo " rm -f $(DESTDIR)$(man1dir)/$$inst"; \
+	  rm -f $(DESTDIR)$(man1dir)/$$inst; \
+	done
+
 man8dir = $(mandir)/man8
 install-man8: $(man8_MANS) $(man_MANS)
 	@$(NORMAL_INSTALL)
@@ -502,7 +547,7 @@ check: check-am
 all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) config.h
 
 installdirs:
-	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
+	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
 
 install: install-am
 install-exec: install-exec-am
@@ -556,7 +601,7 @@ install-exec-am: install-libexecPROGRAMS install-sbinPROGRAMS \
 
 install-info: install-info-am
 
-install-man: install-man8
+install-man: install-man1 install-man8
 
 installcheck-am:
 
@@ -571,7 +616,7 @@ mostlyclean-am: mostlyclean-compile mostlyclean-generic
 uninstall-am: uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
 	uninstall-sbinPROGRAMS uninstall-sysconfDATA
 
-uninstall-man: uninstall-man8
+uninstall-man: uninstall-man1 uninstall-man8
 
 .PHONY: GTAGS all all-am check check-am clean clean-generic \
 	clean-libexecPROGRAMS clean-noinstPROGRAMS clean-sbinPROGRAMS \
@@ -579,13 +624,14 @@ uninstall-man: uninstall-man8
 	distclean-hdr distclean-tags distdir dvi dvi-am info info-am \
 	install install-am install-data install-data-am install-exec \
 	install-exec-am install-info install-info-am \
-	install-libexecPROGRAMS install-man install-man8 \
+	install-libexecPROGRAMS install-man install-man1 install-man8 \
 	install-sbinPROGRAMS install-strip install-sysconfDATA \
 	installcheck installcheck-am installdirs maintainer-clean \
 	maintainer-clean-generic mostlyclean mostlyclean-compile \
 	mostlyclean-generic tags uninstall uninstall-am \
 	uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
-	uninstall-man8 uninstall-sbinPROGRAMS uninstall-sysconfDATA
+	uninstall-man1 uninstall-man8 uninstall-sbinPROGRAMS \
+	uninstall-sysconfDATA
 
 
 bootstrap.c:: bootstrap.h
