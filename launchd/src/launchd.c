@@ -825,6 +825,7 @@ static void job_remove(struct jobcb *j)
 		kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 		free(j->start_cal_interval);
 	}
+	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	free(j);
 }
 
@@ -1350,6 +1351,7 @@ static void job_reap(struct jobcb *j)
 static void job_callback(void *obj, struct kevent *kev)
 {
 	struct jobcb *j = obj;
+	time_t td, now;
 	bool checkin_check = j->checkedin;
 	bool d = j->debug;
 	int oldmask = 0;
@@ -1361,6 +1363,9 @@ static void job_callback(void *obj, struct kevent *kev)
 
 	if (kev->filter == EVFILT_PROC) {
 		job_reap(j);
+
+		now = time(NULL);
+		td = now - j->start_time;
 
 		if (j->firstborn) {
 			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
@@ -1377,9 +1382,26 @@ static void job_callback(void *obj, struct kevent *kev)
 		} else if (shutdown_in_progress || job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			job_watch(j);
 			goto out;
+		} else if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
+			/* If the job lived long enough, let's reward it.
+			 * This lets infrequent bugs not cause the job to be removed. */
+			job_log(j, LOG_DEBUG, "lived longer than %d seconds, rewarding", LAUNCHD_REWARD_JOB_RUN_TIME);
+			j->failed_exits = 0;
+		} else if (j->failed_exits > 0) {
+			/* Only punish short daemon life if the last exit was "bad." */
+			job_log(j, LOG_WARNING, "respawning too quickly! will restart in %ld seconds",
+					LAUNCHD_MIN_JOB_RUN_TIME - td);
+			if (-1 == kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
+						NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME - td,
+						&j->kqjob_callback)) {
+				job_log_error(j, LOG_WARNING, "failed to setup timer callback!, starting now!");
+			} else {
+				goto out;
+			}
 		}
 	} else if (kev->filter == EVFILT_TIMER && kev->flags & EV_ONESHOT) {
-		job_set_alarm(j);
+		if (kev->ident != (uintptr_t)j)
+			job_set_alarm(j);
 	} else if (kev->filter == EVFILT_VNODE) {
 		size_t i;
 		const char *thepath = NULL;
@@ -1436,7 +1458,6 @@ out:
 
 static void job_start(struct jobcb *j)
 {
-	time_t td, last_start_time = j->start_time;
 	int spair[2];
 	bool sipc;
 	char nbuf[64];
@@ -1449,7 +1470,6 @@ static void job_start(struct jobcb *j)
 		return;
 	}
 
-
 	sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY))
@@ -1459,15 +1479,6 @@ static void job_start(struct jobcb *j)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
 	time(&j->start_time);
-	td = j->start_time - last_start_time;
-
-	if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
-		/* If the job lived long enough, let's reward it.
-		 * This lets infrequent bugs not cause the job to be removed. */
-		job_log(j, LOG_DEBUG, "lived longer than %d seconds, rewarding", LAUNCHD_REWARD_JOB_RUN_TIME);
-		j->failed_exits = 0;
-	}
-	
 	switch (c = fork_with_bootstrap_port(launchd_bootstrap_port)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork()");
@@ -1489,14 +1500,6 @@ static void job_start(struct jobcb *j)
 			close(spair[0]);
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
-		}
-		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && td < LAUNCHD_MIN_JOB_RUN_TIME) {
-			/* Only punish short daemon life if the last exit was "bad." */
-			if (j->failed_exits > 0) {
-				job_log(j, LOG_WARNING, "respawning too quickly! sleeping %ld seconds",
-						LAUNCHD_MIN_JOB_RUN_TIME - td);
-				sleep(LAUNCHD_MIN_JOB_RUN_TIME - td);
-			}
 		}
 		job_start_child(j);
 		break;
