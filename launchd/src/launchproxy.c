@@ -94,6 +94,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 			dup2(kev.ident, STDOUT_FILENO);
 			dup2(kev.ident, STDERR_FILENO);
 			execv(prog ? prog : argv[0], argv);
+			syslog(LOG_ERR, "execv(): %m");
 			exit(EXIT_FAILURE);
 		}
 
@@ -110,10 +111,12 @@ int main(int argc __attribute__((unused)), char *argv[])
 				close(r);
 				continue;
 			}
+			fcntl(r, F_SETFL, 0);
 			dup2(r, STDIN_FILENO);
 			dup2(r, STDOUT_FILENO);
 			dup2(r, STDERR_FILENO);
 			execv(prog ? prog : argv[0], argv);
+			syslog(LOG_ERR, "execv(): %m");
 			exit(EXIT_FAILURE);
 		}
 	}
