@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist SYSTEM "file://localhost/System/Library/DTDs/PropertyList.dtd">
+<plist version="0.9">
+<dict>
+	<key>Apache web server</key>
+	<string>Apache web server</string>
+	<key>Starting Apache web server</key>
+	<string>Starting Apache web server</string>
+	<key>Stopping Apache web server</key>
+	<string>Stopping Apache web server</string>
+	<key>Restarting Apache web server</key>
+	<string>Restarting Apache web server</string>
+	<key>Starting web performance cache server</key>
+	<string>Starting web performance cache server</string>
+	<key>Stopping web performance cache server</key>
+	<string>Stopping web performance cache server</string>
+	<key>Restarting web performance cache server</key>
+	<string>Restarting web performance cache server</string>
+</dict>
+</plist>
+

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist SYSTEM "file://localhost/System/Library/DTDs/PropertyList.dtd">
+<plist version="0.9">
+<dict>
+	<key>Core Graphics Display Server</key>
+	<string>Core Graphics Display Server</string>
+	<key>Starting ATS Server</key>
+	<string>Starting ATS Server</string>
+	<key>Starting Window Server</key>
+	<string>Starting Window Server</string>
+</dict>
+</plist>
+

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist SYSTEM "file://localhost/System/Library/DTDs/PropertyList.dtd">
+<plist version="0.9">
+<dict>
+	<key>Internet services</key>
+	<string>Internet services</string>
+	<key>Starting internet services</key>
+	<string>Starting internet services</string>
+	<key>Starting host configuration services</key>
+	<string>Starting host configuration services</string>
+</dict>
+</plist>
+

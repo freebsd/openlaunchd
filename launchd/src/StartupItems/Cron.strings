@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist SYSTEM "file://localhost/System/Library/DTDs/PropertyList.dtd">
+<plist version="0.9">
+<dict>
+	<key>timed execution services</key>
+	<string>timed execution services</string>
+	<key>Starting timed execution services</key>
+	<string>Starting timed execution services</string>
+	<key>Stopping timed execution services</key>
+	<string>Stopping timed execution services</string>
+	<key>Restarting timed execution services</key>
+	<string>Restarting timed execution services</string>
+</dict>
+</plist>
+
