@@ -78,6 +78,7 @@ struct jobcb {
 	unsigned int start_interval;
 	struct tm *start_cal_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, futureflags:29;
+	char label[0];
 };
 
 struct conncb {
@@ -122,6 +123,8 @@ static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
 static void job_set_alarm(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
+static void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+static void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 
 static void ipc_open(int fd, struct jobcb *j);
 static void ipc_close(struct conncb *c);
@@ -674,23 +677,24 @@ static void launch_data_revoke_fds(launch_data_t o, const char *key __attribute_
 	}
 }
 
-static void job_ignore_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie __attribute__((unused)))
+static void job_ignore_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie)
 {
+	struct jobcb *j = cookie;
 	size_t i;
 	int fd;
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, job_ignore_fds, NULL);
+		launch_data_dict_iterate(o, job_ignore_fds, cookie);
 		break;
 	case LAUNCH_DATA_ARRAY:
 		for (i = 0; i < launch_data_array_get_count(o); i++)
-			job_ignore_fds(launch_data_array_get_index(o, i), NULL, NULL);
+			job_ignore_fds(launch_data_array_get_index(o, i), NULL, cookie);
 		break;
 	case LAUNCH_DATA_FD:
 		fd = launch_data_get_fd(o);
 		if (-1 != fd) {
-			syslog(LOG_DEBUG, "Ignoring FD: %d", fd);
+			job_log(j, LOG_DEBUG, "Ignoring FD: %d", fd);
 			kevent_mod(fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
 		}
 		break;
@@ -703,7 +707,7 @@ static void job_ignore(struct jobcb *j)
 {
 	size_t i;
 
-	job_ignore_fds(j->ldj, NULL, NULL);
+	job_ignore_fds(j->ldj, NULL, j);
 
 	for (i = 0; i < j->vnodes_cnt; i++) {
 		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_DELETE, 0, 0, NULL);
@@ -715,6 +719,7 @@ static void job_ignore(struct jobcb *j)
 
 static void job_watch_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie)
 {
+	struct jobcb *j = cookie;
 	size_t i;
 	int fd;
 
@@ -729,8 +734,8 @@ static void job_watch_fds(launch_data_t o, const char *key __attribute__((unused
 	case LAUNCH_DATA_FD:
 		fd = launch_data_get_fd(o);
 		if (-1 != fd) {
-			syslog(LOG_DEBUG, "Watching FD: %d", launch_data_get_fd(o));
-			kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
+			job_log(j, LOG_DEBUG, "Watching FD: %d", fd);
+			kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, cookie);
 		}
 		break;
 	default:
@@ -752,7 +757,7 @@ static void job_watch(struct jobcb *j)
 			const char *thepath = launch_data_get_string(ld_idx);
 
 			if (-1 == (j->vnodes[i] = open(thepath, O_EVTONLY)))
-				syslog(LOG_ERR, "%s: open(\"%s\", O_EVTONLY) %m", job_get_argv0(j->ldj), thepath);
+				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
 		}
 		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_ADD|EV_CLEAR,
 				NOTE_WRITE|NOTE_EXTEND|NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_ATTRIB|NOTE_LINK,
@@ -770,7 +775,7 @@ static void job_watch(struct jobcb *j)
 		int dcc_r;
 
 		if (-1 == (dcc_r = dir_has_files(thepath))) {
-			syslog(LOG_ERR, "%s: dir_has_files(\"%s\", ...): %m", job_get_argv0(j->ldj), thepath);
+			job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", thepath);
 		} else if (dcc_r > 0) {
 			job_start(j);
 			break;
@@ -788,7 +793,7 @@ static void job_remove(struct jobcb *j)
 {
 	size_t i;
 
-	syslog(LOG_DEBUG, "Removing: %s", job_get_argv0(j->ldj));
+	job_log(j, LOG_DEBUG, "Removed");
 
 	TAILQ_REMOVE(&jobs, j, tqe);
 	if (j->p) {
@@ -864,7 +869,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 
 	if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
+			if (!strcmp(j->label, launch_data_get_string(data))) {
 				job_start(j);
 				resp = launch_data_new_errno(0);
 			}
@@ -873,7 +878,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			resp = launch_data_new_errno(ESRCH);
 	} else if (!strcmp(cmd, LAUNCH_KEY_STOPJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
+			if (!strcmp(j->label, launch_data_get_string(data))) {
 				job_stop(j);
 				resp = launch_data_new_errno(0);
 			}
@@ -882,7 +887,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			resp = launch_data_new_errno(ESRCH);
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
+			if (!strcmp(j->label, launch_data_get_string(data))) {
 				if (!strcmp(launch_data_get_string(data), HELPERD))
 					helperd = NULL;
 				if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
@@ -1028,13 +1033,14 @@ static void batch_job_enable(bool e, struct conncb *c)
 
 static launch_data_t load_job(launch_data_t pload)
 {
-	launch_data_t label, tmp, resp;
+	launch_data_t tmp, resp;
+	const char *label;
 	struct jobcb *j;
 	bool startnow;
 
-	if ((label = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
+	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL))) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(label))) {
+			if (!strcmp(j->label, label)) {
 				resp = launch_data_new_errno(EEXIST);
 				goto out;
 			}
@@ -1048,7 +1054,8 @@ static launch_data_t load_job(launch_data_t pload)
 		goto out;
 	}
 
-	j = calloc(1, sizeof(struct jobcb));
+	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
+	strcpy(j->label, label);
 	j->ldj = launch_data_copy(pload);
 	launch_data_revoke_fds(pload, NULL, NULL);
 	j->kqjob_callback = job_callback;
@@ -1079,7 +1086,7 @@ static launch_data_t load_job(launch_data_t pload)
 			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
 
 			if (-1 == (j->qdirs[i] = open(thepath, O_EVTONLY)))
-				syslog(LOG_ERR, "open(\"%s\", O_EVTONLY) %m", thepath);
+				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
 		}
 
 	}
@@ -1088,9 +1095,9 @@ static launch_data_t load_job(launch_data_t pload)
 		j->start_interval = launch_data_get_integer(tmp);
 
 		if (j->start_interval == 0)
-			syslog(LOG_WARNING, "%s: StartInterval is zero, ignoring", launch_data_get_string(label));
+			job_log(j, LOG_WARNING, "StartInterval is zero, ignoring");
 		else if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, &j->kqjob_callback))
-			syslog(LOG_ERR, "%s: adding kevent timer: %m", launch_data_get_string(label));
+			job_log_error(j, LOG_ERR, "adding kevent timer");
 	}
 
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTCALENDARINTERVAL))) {
@@ -1127,7 +1134,7 @@ static launch_data_t load_job(launch_data_t pload)
 			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
 
 			if (-1 == (j->vnodes[i] = open(thepath, O_EVTONLY)))
-				syslog(LOG_ERR, "open(\"%s\", O_EVTONLY) %m", thepath);
+				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
 		}
 
 	}
@@ -1140,7 +1147,7 @@ static launch_data_t load_job(launch_data_t pload)
 	if (startnow)
 		job_start(j);
 
-	if (!strcmp(launch_data_get_string(label), HELPERD))
+	if (!strcmp(label, HELPERD))
 		helperd = j;
 
 	resp = launch_data_new_errno(0);
@@ -1155,7 +1162,7 @@ static launch_data_t get_jobs(const char *which)
 
 	if (which) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(which, job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL)))
+			if (!strcmp(which, j->label))
 				resp = launch_data_copy(j->ldj);
 		}
 		if (resp == NULL)
@@ -1165,7 +1172,7 @@ static launch_data_t get_jobs(const char *which)
 
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			tmp = launch_data_copy(j->ldj);
-			launch_data_dict_insert(resp, tmp, job_get_string(tmp, LAUNCH_JOBKEY_LABEL));
+			launch_data_dict_insert(resp, tmp, j->label);
 		}
 	}
 
@@ -1310,7 +1317,7 @@ static void job_reap(struct jobcb *j)
 	bool bad_exit = false;
 	int status;
 
-	syslog(LOG_DEBUG, "Reaping: %s", job_get_argv0(j->ldj));
+	job_log(j, LOG_DEBUG, "Reaping");
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 	if (getpid() == 1)
@@ -1318,21 +1325,19 @@ static void job_reap(struct jobcb *j)
 	else
 #endif
 	if (-1 == waitpid(j->p, &status, 0)) {
-		syslog(LOG_WARNING, "waitpid(%p, ...): %m", j->p);
+		job_log_error(j, LOG_ERR, "waitpid(%d, ...)", j->p);
 		return;
 	}
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-		syslog(LOG_WARNING, "%s[%d] exited with exit code %d",
-				job_get_argv0(j->ldj), j->p, WEXITSTATUS(status));
+		job_log(j, LOG_WARNING, "exited with exit code: %d", WEXITSTATUS(status));
 		bad_exit = true;
 	}
 
 	if (WIFSIGNALED(status)) {
 		int s = WTERMSIG(status);
 		if (s != SIGKILL && s != SIGTERM) {
-			syslog(LOG_WARNING, "%s[%d] exited abnormally: %s",
-					job_get_argv0(j->ldj), j->p, strsignal(WTERMSIG(status)));
+			job_log(j, LOG_WARNING, "exited abnormally: %s", strsignal(WTERMSIG(status)));
 			bad_exit = true;
 		}
 	}
@@ -1356,22 +1361,22 @@ static void job_callback(void *obj, struct kevent *kev)
 
 	if (d) {
 		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
-		syslog(LOG_DEBUG, "log level debug temporarily enabled while processing job: %s", job_get_argv0(j->ldj));
+		job_log(j, LOG_DEBUG, "log level debug temporarily enabled while processing job");
 	}
 
 	if (kev->filter == EVFILT_PROC) {
 		job_reap(j);
 
 		if (j->firstborn) {
-			syslog(LOG_DEBUG, "first born process died, begin shutdown");
+			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
 			do_shutdown();
 			goto out;
 		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
-			syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
+			job_log(j, LOG_WARNING, "failed to checkin");
 			job_remove(j);
 			goto out;
 		} else if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
-			syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
+			job_log(j, LOG_WARNING, "too many failures in a row");
 			job_remove(j);
 			goto out;
 		} else if (shutdown_in_progress || job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
@@ -1390,10 +1395,10 @@ static void job_callback(void *obj, struct kevent *kev)
 
 				thepath = launch_data_get_string(launch_data_array_get_index(ld_vnodes, i));
 
-				syslog(LOG_DEBUG, "%s: watch path modified: %s", job_get_argv0(j->ldj), thepath);
+				job_log(j, LOG_DEBUG, "watch path modified: %s", thepath);
 
 				if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
-					syslog(LOG_DEBUG, "%s: watch path invalidated: %s", job_get_argv0(j->ldj), thepath);
+					job_log(j, LOG_DEBUG, "watch path invalidated: %s", thepath);
 					close(j->vnodes[i]);
 					j->vnodes[i] = -1; /* this will get fixed in job_watch() */
 				}
@@ -1407,12 +1412,12 @@ static void job_callback(void *obj, struct kevent *kev)
 
 				thepath = launch_data_get_string(launch_data_array_get_index(ld_qdirs, i));
 
-				syslog(LOG_DEBUG, "%s: queue directory modified: %s", job_get_argv0(j->ldj), thepath);
+				job_log(j, LOG_DEBUG, "queue directory modified: %s", thepath);
 
 				if (-1 == (dcc_r = dir_has_files(thepath))) {
-					syslog(LOG_ERR, "%s: dir_has_files(\"%s\", ...): %m", job_get_argv0(j->ldj), thepath);
+					job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", thepath);
 				} else if (0 == dcc_r) {
-					syslog(LOG_DEBUG, "%s: spurious wake up, directory empty: %s", job_get_argv0(j->ldj), thepath);
+					job_log(j, LOG_DEBUG, "spurious wake up, directory empty: %s", thepath);
 					goto out;
 				}
 			}
@@ -1420,7 +1425,7 @@ static void job_callback(void *obj, struct kevent *kev)
 		/* if we get here, then the vnodes either wasn't a qdir, or if it was, it has entries in it */
 	} else if (kev->filter == EVFILT_READ && kev->flags & EV_EOF && kev->data == 0) {
 		/* Busted FD with no data/listeners pending. Revoke the fd and start the job. */
-		syslog(LOG_NOTICE, "%s: revoking busted FD %d", job_get_argv0(j->ldj), kev->ident);
+		job_log(j, LOG_WARNING, "revoking busted FD %d", kev->ident);
 		close(kev->ident);
 		launch_data_revoke_fds(j->ldj, NULL, &kev->ident);
 	}
@@ -1428,12 +1433,12 @@ static void job_callback(void *obj, struct kevent *kev)
 	job_start(j);
 
 	if (j == helperd && batch_disabler_count > 0) {
-		syslog(LOG_DEBUG, "restarted helperd while batch jobs are disabled, stopping helperd");
+		job_log(j, LOG_DEBUG, "restarted helperd while batch jobs are disabled, stopping helperd");
 		kill(helperd->p, SIGSTOP);
 	}
 out:
 	if (d) {
-		syslog(LOG_DEBUG, "restoring original log mask");
+		job_log(j, LOG_DEBUG, "restoring original log mask");
 		setlogmask(oldmask);
 	}
 }
@@ -1446,10 +1451,10 @@ static void job_start(struct jobcb *j)
 	char nbuf[64];
 	pid_t c;
 
-	syslog(LOG_DEBUG, "[%s]: starting", job_get_argv0(j->ldj));
+	job_log(j, LOG_DEBUG, "starting");
 
 	if (j->p) {
-		syslog(LOG_DEBUG, "[%s]: already running", job_get_argv0(j->ldj));
+		job_log(j, LOG_DEBUG, "already running");
 		return;
 	}
 
@@ -1468,13 +1473,13 @@ static void job_start(struct jobcb *j)
 	if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
 		/* If the job lived long enough, let's reward it.
 		 * This lets infrequent bugs not cause the job to be removed. */
-		syslog(LOG_DEBUG, "[%s]: lived longer than %d seconds, rewarding", job_get_argv0(j->ldj), LAUNCHD_REWARD_JOB_RUN_TIME);
+		job_log(j, LOG_DEBUG, "lived longer than %d seconds, rewarding", LAUNCHD_REWARD_JOB_RUN_TIME);
 		j->failed_exits = 0;
 	}
 	
 	switch (c = fork_with_bootstrap_port(launchd_bootstrap_port)) {
 	case -1:
-		syslog(LOG_WARNING, "fork(): %m");
+		job_log_error(j, LOG_ERR, "fork()");
 		if (sipc) {
 			close(spair[0]);
 			close(spair[1]);
@@ -1485,7 +1490,7 @@ static void job_start(struct jobcb *j)
 			setpgid(getpid(), getpid());
 			if (isatty(STDIN_FILENO)) {
 				if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
-					syslog(LOG_WARNING, "tcsetpgrp(): %m");
+					job_log_error(j, LOG_WARNING, "tcsetpgrp()");
 			}
 		}
 
@@ -1497,8 +1502,8 @@ static void job_start(struct jobcb *j)
 		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && td < LAUNCHD_MIN_JOB_RUN_TIME) {
 			/* Only punish short daemon life if the last exit was "bad." */
 			if (j->failed_exits > 0) {
-				syslog(LOG_NOTICE, "%s respawning too quickly! Sleeping %d seconds",
-						job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - td);
+				job_log(j, LOG_WARNING, "respawning too quickly! sleeping %ld seconds",
+						LAUNCHD_MIN_JOB_RUN_TIME - td);
 				sleep(LAUNCHD_MIN_JOB_RUN_TIME - td);
 			}
 		}
@@ -1510,7 +1515,7 @@ static void job_start(struct jobcb *j)
 			ipc_open(_fd(spair[0]), j);
 		}
 		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
-			syslog(LOG_WARNING, "kevent(): %m");
+			job_log_error(j, LOG_ERR, "kevent()");
 		} else {
 			j->p = c;
 			total_children++;
@@ -1563,8 +1568,10 @@ static void job_start_child(struct jobcb *j)
 		for (i = 0; i < (sizeof(limits) / sizeof(limits[0])); i++) {
 			struct rlimit rl;
 
-			if (getrlimit(limits[i].val, &rl) == -1)
-				syslog(LOG_NOTICE, "getrlimit(): %m");
+			if (getrlimit(limits[i].val, &rl) == -1) {
+				job_log_error(j, LOG_WARNING, "getrlimit()");
+				continue;
+			}
 
 			if (hrl)
 				rl.rlim_max = job_get_integer(hrl, limits[i].key);
@@ -1572,7 +1579,7 @@ static void job_start_child(struct jobcb *j)
 				rl.rlim_cur = job_get_integer(srl, limits[i].key);
 
 			if (setrlimit(limits[i].val, &rl) == -1)
-				syslog(LOG_NOTICE, "setrlimit(): %m");
+				job_log_error(j, LOG_WARNING, "setrlimit()");
 		}
 	}
 
@@ -1584,7 +1591,7 @@ static void job_start_child(struct jobcb *j)
 		int val = 1;
 
 		if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
-			syslog(LOG_NOTICE, "sysctl(\"%s\"): %m", "kern.proc_low_pri_io");
+			job_log_error(j, LOG_WARNING, "sysctl(\"%s\")", "kern.proc_low_pri_io");
 	}
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY)))
 		chroot(tmpstr);
@@ -1593,11 +1600,11 @@ static void job_start_child(struct jobcb *j)
 		if (gre) {
 			gre_g = gre->gr_gid;
 			if (-1 == setgid(gre_g)) {
-				syslog(LOG_WARNING, "%s: setgid(%d): %m", job_get_argv0(j->ldj), gre_g);
+				job_log_error(j, LOG_ERR, "setgid(%d)", gre_g);
 				_exit(EXIT_FAILURE);
 			}
 		} else {
-			syslog(LOG_WARNING, "%s: getgrnam(\"%s\") failed", job_get_argv0(j->ldj), tmpstr);
+			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", tmpstr);
 			_exit(EXIT_FAILURE);
 		}
 	}
@@ -1608,27 +1615,27 @@ static void job_start_child(struct jobcb *j)
 			uid_t pwe_g = pwe->pw_gid;
 
 			if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
-				syslog(LOG_WARNING, "%s: expired account: %s", job_get_argv0(j->ldj), tmpstr);
+				job_log(j, LOG_ERR, "expired account: %s", tmpstr);
 				_exit(EXIT_FAILURE);
 			}
 			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
 				if (-1 == initgroups(tmpstr, gre ? gre_g : pwe_g)) {
-					syslog(LOG_WARNING, "%s: initgroups(): %m", job_get_argv0(j->ldj));
+					job_log_error(j, LOG_ERR, "initgroups()");
 					_exit(EXIT_FAILURE);
 				}
 			}
 			if (!gre) {
 				if (-1 == setgid(pwe_g)) {
-					syslog(LOG_WARNING, "%s: setgid(%d): %m", job_get_argv0(j->ldj), pwe_g);
+					job_log_error(j, LOG_ERR, "setgid(%d)", pwe_g);
 					_exit(EXIT_FAILURE);
 				}
 			}
 			if (-1 == setuid(pwe_u)) {
-				syslog(LOG_WARNING, "%s: setuid(%d): %m", job_get_argv0(j->ldj), pwe_u);
+				job_log_error(j, LOG_ERR, "setuid(%d)", pwe_u);
 				_exit(EXIT_FAILURE);
 			}
 		} else {
-			syslog(LOG_WARNING, "%s: getpwnam(\"%s\") failed", job_get_argv0(j->ldj), tmpstr);
+			job_log(j, LOG_WARNING, "getpwnam(\"%s\") failed", tmpstr);
 			_exit(EXIT_FAILURE);
 		}
 	}
@@ -1639,7 +1646,7 @@ static void job_start_child(struct jobcb *j)
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH))) {
 		int sofd = open(tmpstr, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sofd == -1) {
-			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", tmpstr);
+			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", tmpstr);
 		} else {
 			dup2(sofd, STDOUT_FILENO);
 			close(sofd);
@@ -1648,7 +1655,7 @@ static void job_start_child(struct jobcb *j)
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH))) {
 		int sefd = open(tmpstr, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sefd == -1) {
-			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", tmpstr);
+			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", tmpstr);
 		} else {
 			dup2(sefd, STDERR_FILENO);
 			close(sefd);
@@ -1660,7 +1667,7 @@ static void job_start_child(struct jobcb *j)
 				setup_job_env, NULL);
 	setsid();
 	if (execvp(inetcompat ? argv[0] : job_get_argv0(j->ldj), (char *const*)argv) == -1)
-		syslog(LOG_ERR, "execvp(\"%s\", ...): %m", inetcompat ? argv[0] : job_get_argv0(j->ldj));
+		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", inetcompat ? argv[0] : job_get_argv0(j->ldj));
 	_exit(EXIT_FAILURE);
 }
 
@@ -2201,5 +2208,35 @@ static void job_set_alarm(struct jobcb *j)
 		later = later < otherlater ? later : otherlater;
 
 	if (-1 == kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, &j->kqjob_callback))
-		syslog(LOG_ERR, "%s: adding kevent alarm: %m", job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL));
+		job_log_error(j, LOG_ERR, "adding kevent alarm");
+}
+
+static void job_log_error(struct jobcb *j, int pri, const char *msg, ...)
+{
+	size_t newmsg_sz = strlen(msg) + strlen(j->label) + 200;
+	char *newmsg = alloca(newmsg_sz);
+	va_list ap;
+
+	sprintf(newmsg, "%s: %s: %s", j->label, msg, strerror(errno));
+
+	va_start(ap, msg);
+
+	vsyslog(pri, newmsg, ap);
+
+	va_end(ap);
+}
+
+static void job_log(struct jobcb *j, int pri, const char *msg, ...)
+{
+	size_t newmsg_sz = strlen(msg) + sizeof(": ") + strlen(j->label);
+	char *newmsg = alloca(newmsg_sz);
+	va_list ap;
+
+	sprintf(newmsg, "%s: %s", j->label, msg);
+
+	va_start(ap, msg);
+
+	vsyslog(pri, newmsg, ap);
+
+	va_end(ap);
 }
