@@ -415,6 +415,7 @@ static void myCFSocketCallBack(void)
 static void job_do_something(struct jobcb *j, const char *what)
 {
 	launch_data_t resp, msg;
+	int e;
 
 	if (testtcl) {
 		fprintf(stdout, "Would have sent command \"%s\" to: %s\n", what, j->label);
@@ -429,9 +430,11 @@ static void job_do_something(struct jobcb *j, const char *what)
 	launch_data_free(msg);
 
 	if (resp) {
-		if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
-			if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS))
-				syslog(LOG_ERR, "launch_msg(%s): %s", what, launch_data_get_string(resp));
+		if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
+			if ((e = launch_data_get_errno(resp)))
+				syslog(LOG_ERR, "launch_msg(%s): %s", what, strerror(e));
+		} else {
+			syslog(LOG_ERR, "launch_msg(%s): response not errno", what);
 		}
 		launch_data_free(resp);
 	} else {

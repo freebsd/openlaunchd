@@ -529,6 +529,7 @@ static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoff
 	case LAUNCH_DATA_INTEGER:
 	case LAUNCH_DATA_REAL:
 	case LAUNCH_DATA_BOOL:
+	case LAUNCH_DATA_ERRNO:
 		break;
 	default:
 		errno = EINVAL;

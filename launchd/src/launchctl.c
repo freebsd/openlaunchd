@@ -268,6 +268,7 @@ static int getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unu
 static void unloadjob(launch_data_t job)
 {
 	launch_data_t resp, tmp, tmps, msg;
+	int e;
 
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmp = launch_data_alloc(LAUNCH_DATA_STRING);
@@ -282,9 +283,9 @@ static void unloadjob(launch_data_t job)
 	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_REMOVEJOB);
 	resp = launch_msg(msg);
 	launch_data_free(msg);
-	if (LAUNCH_DATA_STRING == launch_data_get_type(resp)) {
-		if (strcmp(LAUNCH_RESPONSE_SUCCESS, launch_data_get_string(resp)))
-			fprintf(stderr, "%s\n", launch_data_get_string(resp));
+	if (LAUNCH_DATA_ERRNO == launch_data_get_type(resp)) {
+		if ((e = launch_data_get_errno(resp)))
+			fprintf(stderr, "%s\n", strerror(e));
 	}
 	launch_data_free(resp);
 }
@@ -303,13 +304,14 @@ static void update_plist(CFPropertyListRef plist, const char *where, bool load)
 
 static void readcfg(const char *what, bool load, bool editondisk)
 {
+	launch_data_t resp, msg, tmp, tmpe, tmpd, tmpa, id_plist;
 	CFPropertyListRef plist;
 	DIR *d;
 	struct dirent *de;
 	struct stat sb;
 	char *foo;
 	bool job_disabled;
-	launch_data_t resp, msg, tmp, tmpe, tmpd, tmpa, id_plist;
+	int e;
 
 	if (stat(what, &sb) == -1)
 		return;
@@ -384,9 +386,9 @@ static void readcfg(const char *what, bool load, bool editondisk)
 	resp = launch_msg(msg);
 
 	if (resp) {
-		if (LAUNCH_DATA_STRING == launch_data_get_type(resp)) {
-			if (strcmp(LAUNCH_RESPONSE_SUCCESS, launch_data_get_string(resp)))
-				fprintf(stderr, "%s\n", launch_data_get_string(resp));
+		if (LAUNCH_DATA_ERRNO == launch_data_get_type(resp)) {
+			if ((e = launch_data_get_errno(resp)))
+				fprintf(stderr, "%s\n", strerror(e));
 		}
 		launch_data_free(resp);
 	} else {
@@ -833,7 +835,7 @@ static int start_and_stop_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	const char *lmsgcmd = LAUNCH_KEY_STOPJOB;
-	int r = 0;
+	int e, r = 0;
 
 	if (!strcmp(argv[0], "start"))
 		lmsgcmd = LAUNCH_KEY_STARTJOB;
@@ -852,9 +854,9 @@ static int start_and_stop_cmd(int argc, char *const argv[])
 	if (resp == NULL) {
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
-	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
-		if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS)) {
-			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
+		if ((e = launch_data_get_errno(resp))) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(e));
 			r = 1;
 		}
 	} else {
@@ -915,7 +917,7 @@ static int list_cmd(int argc, char *const argv[])
 static int stdio_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg, tmp;
-	int fd = -1, r = 0;
+	int e, fd = -1, r = 0;
 
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s %s <path>\n", getprogname(), argv[0]);
@@ -944,9 +946,9 @@ static int stdio_cmd(int argc, char *const argv[])
 	if (resp == NULL) {
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
-	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
-		if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS)) {
-			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
+		if ((e = launch_data_get_errno(resp))) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(e));
 			r = 1;
 		}
 	} else {
@@ -966,7 +968,7 @@ static int fyi_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	const char *lmsgk = LAUNCH_KEY_RELOADTTYS;
-	int r = 0;
+	int e, r = 0;
 
 	if (argc != 1) {
 		fprintf(stderr, "usage: %s %s\n", getprogname(), argv[0]);
@@ -983,9 +985,9 @@ static int fyi_cmd(int argc, char *const argv[])
 	if (resp == NULL) {
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
-	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
-		if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS)) {
-			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
+		if ((e = launch_data_get_errno(resp))) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(e));
 			r = 1;
 		}
 	} else {

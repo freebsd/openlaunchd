@@ -51,7 +51,6 @@ struct jobcb {
 	pid_t p;
 	struct timeval start_time;
 	size_t failed_exits;
-	struct conncb *c;
 	int checkedin:1, futureflags:31;
 };
 
@@ -477,8 +476,6 @@ static void ipc_open(int fd, struct jobcb *j)
 	c->kqconn_callback = ipc_callback;
 	c->conn = launchd_fdopen(fd);
 	c->j = j;
-	if (j)
-		j->c = c;
 	TAILQ_INSERT_TAIL(&connections, c, tqe);
 	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
@@ -654,29 +651,26 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 
 	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_STARTJOB))) {
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
 				job_start(j);
-				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+				resp = launch_data_new_errno(0);
 				goto out;
 			}
 		}
-		launch_data_set_string(resp, LAUNCH_RESPONSE_JOBNOTFOUND);
+		resp = launch_data_new_errno(ESRCH);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_STOPJOB))) {
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
 				job_stop(j);
-				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+				resp = launch_data_new_errno(0);
 				goto out;
 			}
 		}
-		launch_data_set_string(resp, LAUNCH_RESPONSE_JOBNOTFOUND);
+		resp = launch_data_new_errno(ESRCH);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_REMOVEJOB))) {
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
 				if (!strcmp(launch_data_get_string(tmp), HELPERD))
@@ -684,11 +678,11 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 				if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 					notify_helperd();
 				job_remove(j);
-				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+				resp = launch_data_new_errno(0);
 				goto out;
 			}
 		}
-		launch_data_set_string(resp, LAUNCH_RESPONSE_JOBNOTFOUND);
+		resp = launch_data_new_errno(ESRCH);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SUBMITJOB))) {
 		if (launch_data_get_type(pload) == LAUNCH_DATA_ARRAY) {
@@ -703,8 +697,7 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_UNSETUSERENVIRONMENT))) {
 		unsetenv(launch_data_get_string(pload));
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+		resp = launch_data_new_errno(0);
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETUSERENVIRONMENT)) {
 		char **tmpenviron = environ;
@@ -720,25 +713,23 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SETUSERENVIRONMENT))) {
 		launch_data_dict_iterate(pload, set_user_env, NULL);
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+		resp = launch_data_new_errno(0);
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_CHECKIN)) {
 		if (c->j) {
 			resp = launch_data_copy(c->j->ldj);
 			c->j->checkedin = true;
 		} else {
-			resp = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(resp, LAUNCH_RESPONSE_NOTRUNNINGFROMLAUNCHD);
+			resp = launch_data_new_errno(EACCES);
 		}
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_RELOADTTYS)) {
 		update_ttys();
-		resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
+		resp = launch_data_new_errno(0);
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_SHUTDOWN)) {
 		do_shutdown();
-		resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
+		resp = launch_data_new_errno(0);
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(NULL);
@@ -773,15 +764,13 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
 		batch_job_enable(launch_data_get_bool(tmp));
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+		resp = launch_data_new_errno(0);
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_BATCHQUERY)) {
 		resp = launch_data_alloc(LAUNCH_DATA_BOOL);
 		launch_data_set_bool(resp, batch_enabled);
 	} else {	
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, LAUNCH_RESPONSE_UNKNOWNCOMMAND);
+		resp = launch_data_new_errno(ENOSYS);
 	}
 
 	launch_data_close_fds(msg);
@@ -799,7 +788,7 @@ out:
 
 static launch_data_t setstdio(int d, launch_data_t o)
 {
-	launch_data_t resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
+	launch_data_t resp = launch_data_new_errno(0);
 
 	if (launch_data_get_type(o) == LAUNCH_DATA_STRING) {
 		char **where = &pending_stderr;
@@ -811,7 +800,7 @@ static launch_data_t setstdio(int d, launch_data_t o)
 	} else if (launch_data_get_type(o) == LAUNCH_DATA_FD) {
 		dup2(launch_data_get_fd(o), d);
 	} else {
-		launch_data_set_string(resp, LAUNCH_RESPONSE_UNKNOWNCOMMAND);
+		launch_data_set_errno(resp, EINVAL);
 	}
 
 	return resp;
@@ -838,19 +827,16 @@ static launch_data_t load_job(launch_data_t pload)
 	if ((label = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(label))) {
-				resp = launch_data_alloc(LAUNCH_DATA_STRING);
-				launch_data_set_string(resp, LAUNCH_RESPONSE_JOBEXISTS);
+				resp = launch_data_new_errno(EEXIST);
 				goto out;
 			}
 		}
 	} else {
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, LAUNCH_RESPONSE_LABELMISSING);
+		resp = launch_data_new_errno(EINVAL);
 		goto out;
 	}
 	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS) == NULL) {
-		resp = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(resp, LAUNCH_RESPONSE_PROGRAMARGUMENTSMISSING);
+		resp = launch_data_new_errno(EINVAL);
 		goto out;
 	}
 
@@ -878,8 +864,7 @@ static launch_data_t load_job(launch_data_t pload)
 	if (!strcmp(launch_data_get_string(label), HELPERD))
 		helperd = j;
 
-	resp = launch_data_alloc(LAUNCH_DATA_STRING);
-	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+	resp = launch_data_new_errno(0);
 out:
 	return resp;
 }
@@ -895,7 +880,7 @@ static launch_data_t get_jobs(const char *which)
 				resp = launch_data_copy(j->ldj);
 		}
 		if (resp == NULL)
-			resp = launch_data_new_string(LAUNCH_RESPONSE_JOBNOTFOUND);
+			resp = launch_data_new_errno(ESRCH);
 	} else {
 		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
@@ -1057,7 +1042,6 @@ static void job_reap(struct jobcb *j)
 	else
 		j->failed_exits = 0;
 
-	j->c = NULL;
 	j->p = 0;
 	j->checkedin = false;
 }

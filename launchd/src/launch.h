@@ -89,15 +89,6 @@
 #define LAUNCH_JOBADDRINFOKEY_CANONICALNAME	"CanonicalName"
 #define LAUNCH_JOBADDRINFOKEY_FD		"FD"
 
-#define LAUNCH_RESPONSE_SUCCESS			"Success"
-#define LAUNCH_RESPONSE_JOBNOTFOUND		"JobNotFound"
-#define LAUNCH_RESPONSE_NOTRUNNINGFROMLAUNCHD	"NotRunningFromLaunchd"
-#define LAUNCH_RESPONSE_MISSINGEVENTSOURCES	"MissingEventSources"
-#define LAUNCH_RESPONSE_UNKNOWNCOMMAND		"UnknownCommand"
-#define LAUNCH_RESPONSE_JOBEXISTS		"JobExists"
-#define LAUNCH_RESPONSE_LABELMISSING		"LabelMissing"
-#define LAUNCH_RESPONSE_PROGRAMARGUMENTSMISSING	"ProgramArgumentsMissing"
-
 typedef struct _launch_data *launch_data_t;
 
 typedef enum {
