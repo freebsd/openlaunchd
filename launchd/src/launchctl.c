@@ -588,6 +588,11 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 				return;
 			}
 			if (hints.ai_flags & AI_PASSIVE) {
+				if (AF_INET6 == res->ai_family && -1 == setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY,
+							(void *)&sock_opt, sizeof(sock_opt))) {
+					fprintf(stderr, "setsockopt(IPV6_V6ONLY): %m");
+					return;
+				}
 				if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
 					fprintf(stderr, "socket(): %s\n", strerror(errno));
 					return;
