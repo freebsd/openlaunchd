@@ -1,4 +1,4 @@
-SUBDIRS = . SafeBoot SystemStarterResources
+SUBDIRS = . SafeBoot
 
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 

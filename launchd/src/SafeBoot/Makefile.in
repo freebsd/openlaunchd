@@ -261,8 +261,6 @@ info: info-am
 info-am:
 
 install-data-am:
-	@$(NORMAL_INSTALL)
-	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
 
 install-exec-am:
 	@$(NORMAL_INSTALL)
@@ -297,12 +295,9 @@ uninstall-am: uninstall-info-am
 
 
 install-exec-hook:
-	mkdir -p $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle/Resources
+	mkdir -p $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle
 	strip -S SafeBootResources
 	cp SafeBootResources $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle
-
-install-data-hook:
-	cp $(srcdir)/InfoPlist.strings $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle/Resources
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

@@ -7,9 +7,6 @@ SafeBootResources_LDFLAGS = -bundle -Wl,-client_name,SafeBootResources -bundle_l
 SafeBootResources_SOURCES = SafeBootPrivate.c
 
 install-exec-hook:
-	mkdir -p $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle/Resources
+	mkdir -p $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle
 	strip -S SafeBootResources
 	cp SafeBootResources $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle
-
-install-data-hook:
-	cp $(srcdir)/InfoPlist.strings $(DESTDIR)/System/Library/CoreServices/SystemStarter/SafeBootResources.bundle/Resources
