@@ -906,6 +906,29 @@ int
 StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Action anAction)
 {
 	int             anError = -1;
+	CFArrayRef      aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
+	const CFStringRef stubitems[] = {
+		CFSTR("BootROMUpdater"),
+		CFSTR("FCUUpdater"),
+		NULL
+	};
+	const CFStringRef *c;
+
+	if (aProvidesList && anAction == kActionStop) {
+		CFIndex aProvidesCount = CFArrayGetCount(aProvidesList);
+		for (c = stubitems; *c; c++) {
+			if (CFArrayContainsValue(aProvidesList, CFRangeMake(0, aProvidesCount), *c)) {
+				CFIndex         aPID = -1;
+				CFNumberRef     aProcessNumber = CFNumberCreate(NULL, kCFNumberCFIndexType, &aPID);
+
+				CFDictionarySetValue(anItem, kPIDKey, aProcessNumber);
+				CFRelease(aProcessNumber);
+
+				StartupItemExit(aStatusDict, anItem, TRUE);
+				return -1;
+			}
+		}
+	}
 
 	if (anAction == kActionNone) {
 		StartupItemExit(aStatusDict, anItem, TRUE);
