@@ -42,10 +42,9 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include "StartupItems.h"
 
-#define kStartupItemsPath "/StartupItems"
-#define kParametersFile   "StartupParameters.plist"
-#define kDisabledFile   ".disabled"
-#define kLocalizedDescriptionKey CFSTR("_LocalizedDescription")
+#define kStartupItemsPath	"/StartupItems"
+#define kParametersFile		"StartupParameters.plist"
+#define kDisabledFile		".disabled"
 
 #define kRunSuccess CFSTR("success")
 #define kRunFailure CFSTR("failure")
@@ -251,7 +250,8 @@ StartupItemListCountServices(CFArrayRef anItemList)
 static bool 
 StartupItemSecurityCheck(const char *aPath)
 {
-	struct stat     aStatBuf;
+	struct stat aStatBuf;
+	bool r = true;
 
 	/* should use lstatx_np() on Tiger? */
 	if (lstat(aPath, &aStatBuf) == -1) {
@@ -260,22 +260,26 @@ StartupItemSecurityCheck(const char *aPath)
 		return false;
 	}
 	if (!(S_ISREG(aStatBuf.st_mode) || S_ISDIR(aStatBuf.st_mode))) {
-		syslog(LOG_ERR, "\"%s\" failed security check: not a directory or regular file", aPath);
-		return false;
+		syslog(LOG_WARNING, "\"%s\" failed security check: not a directory or regular file", aPath);
+		r = false;
 	}
 	if ((aStatBuf.st_mode & ALLPERMS) & ~(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)) {
-		syslog(LOG_ERR, "\"%s\" failed security check: permissions", aPath);
-		return false;
+		syslog(LOG_WARNING, "\"%s\" failed security check: permissions", aPath);
+		r = false;
 	}
 	if (aStatBuf.st_uid != 0) {
-		syslog(LOG_ERR, "\"%s\" failed security check: not owned by UID 0", aPath);
-		return false;
+		syslog(LOG_WARNING, "\"%s\" failed security check: not owned by UID 0", aPath);
+		r = false;
 	}
 	if (aStatBuf.st_gid != 0) {
-		syslog(LOG_ERR, "\"%s\" failed security check: not owned by GID 0", aPath);
-		return false;
+		syslog(LOG_WARNING, "\"%s\" failed security check: not owned by GID 0", aPath);
+		r = false;
 	}
-	return true;
+	if (r == false) {
+		mkdir(kFixerDir, S_IRWXU);
+		close(open(kFixerPath, O_RDWR|O_CREAT, S_IRWXU));
+	}
+	return r;
 }
 
 CFMutableArrayRef 

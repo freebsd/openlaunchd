@@ -104,6 +104,8 @@ main(int argc, char *argv[])
 		}
 	}
 
+	unlink(kFixerPath);
+
 	if (argc == 2) {
 		aService = argv[1];
 	} else if (!gDebugFlag && anAction != kActionStop) {

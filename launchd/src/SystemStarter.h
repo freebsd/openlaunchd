@@ -38,6 +38,9 @@ typedef struct StartupContextStorage {
     int                         aRunningCount;
 } *StartupContext;
 
+#define kFixerDir	"/var/db/fixer"
+#define kFixerPath	"/var/db/fixer/StartupItems"
+
 /* Action types */
 typedef enum {
   kActionNone = 0,
