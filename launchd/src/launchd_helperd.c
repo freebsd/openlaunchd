@@ -27,19 +27,31 @@ struct watchpathcb {
         TAILQ_ENTRY(watchpathcb) tqe;
 	int fd;
 	char *path;
-	char *_event;
+	char *event;
+};
+
+struct timercb {
+        TAILQ_ENTRY(timercb) tqe;
+	CFRunLoopTimerRef cftmr;
+	char *event;
 };
 
 struct jobcb {
         TAILQ_ENTRY(jobcb) tqe;
         launch_data_t ldj;
 	Tcl_Interp *tcli;
-	CFRunLoopTimerRef rlt;
-	char *_event;
+        TAILQ_HEAD(timercbhead, timercb) tmrh;
         TAILQ_HEAD(watchpathcbhead, watchpathcb) wph;
 };
 
-static void wpremove(struct watchpathcbhead *wph, struct watchpathcb *wp);
+static struct timercb *tmr_find_by_name(struct timercbhead *tmrh, const char *event);
+static struct timercb *tmr_find(struct timercbhead *tmrh, CFRunLoopTimerRef cftmr);
+static bool tmr_create(struct timercbhead *tmrh, double interval, const char *event, bool absol, void *context);
+static void tmr_remove(struct timercbhead *tmrh, struct timercb *tmr);
+
+static struct watchpathcb *wp_find(struct watchpathcbhead *wph, const char *event);
+static bool wp_create(struct watchpathcbhead *wph, const char *path, const char *event, int fflags, void *context);
+static void wp_remove(struct watchpathcbhead *wph, struct watchpathcb *wp);
 
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 
@@ -251,6 +263,7 @@ static void job_add(launch_data_t ajob)
 
 	j->ldj = launch_data_copy(ajob);
 
+	TAILQ_INIT(&j->tmrh);
 	TAILQ_INIT(&j->wph);
 
 	l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
@@ -284,16 +297,13 @@ static void job_add(launch_data_t ajob)
 static void job_cancel_all_callbacks(struct jobcb *j)
 {
 	struct watchpathcb *wp;
+	struct timercb *tmr;
 
 	while ((wp = TAILQ_FIRST(&j->wph)))
-		wpremove(&j->wph, wp);
+		wp_remove(&j->wph, wp);
 
-	if (j->rlt) {
-		CFRunLoopTimerInvalidate(j->rlt);
-		CFRelease(j->rlt);
-		if (j->_event)
-			free(j->_event);
-	}
+	while ((tmr = TAILQ_FIRST(&j->tmrh)))
+		tmr_remove(&j->tmrh, tmr);
 }
 
 static struct jobcb *job_find(const char *label)
@@ -383,8 +393,7 @@ static void myCFSocketCallBack(void)
 		if (kev.fflags & NOTE_REVOKE)
 			Tcl_SetVar(j->tcli, LD_EVENT_FLAGS, "revoke", TCL_GLOBAL_ONLY|TCL_LIST_ELEMENT|TCL_APPEND_VALUE);
 
-		if (wp->_event)
-			Tcl_SetVar(j->tcli, LD_EVENT, wp->_event, TCL_GLOBAL_ONLY);
+		Tcl_SetVar(j->tcli, LD_EVENT, wp->event, TCL_GLOBAL_ONLY);
 		job_tcleval(j);
 	} else {
 		syslog(LOG_WARNING, "Unknown kqueue callback");
@@ -433,21 +442,18 @@ static void job_stop(struct jobcb *j)
 static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[])
 {
 	struct jobcb *j = (struct jobcb *)clientData;
+	struct timercb *tmr;
 	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
         double interval;
-	CFRunLoopTimerContext rlcont;
 	bool use_interval = true;
+	const char *evname = "";
 
 	if (!strcmp(argv[0], "CallBackDate"))
 		use_interval = false;
 
-	memset(&rlcont, 0, sizeof(rlcont));
-	
-	rlcont.info = j; 
-
         if (argc < 2 || argc > 3) {
-            Tcl_SetStringObj(tcl_result, "Wrong # args. Callback i ", -1);
-            return TCL_ERROR;
+		Tcl_SetStringObj(tcl_result, "Wrong # args. Callback i ", -1);
+		return TCL_ERROR;
         }
 
         interval = atof(argv[1]);
@@ -455,28 +461,23 @@ static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int arg
 	if (!use_interval)
 		interval -= kCFAbsoluteTimeIntervalSince1970;
 
-	if (j->rlt) {
-		CFRunLoopTimerInvalidate(j->rlt);
-		CFRelease(j->rlt);
-		if (j->_event)
-			free(j->_event);
-		j->_event = NULL;
-	}
-
-	if (interval > 0) {
-		if (use_interval)
-			j->rlt = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, interval, 0, 0, tcl_timer_callback, &rlcont);
-		else
-			j->rlt = CFRunLoopTimerCreate(kCFAllocatorDefault, interval , 0, 0, 0, tcl_timer_callback, &rlcont);
-		if (j->rlt) {
-			CFRunLoopAddTimer(CFRunLoopGetCurrent(), j->rlt, kCFRunLoopDefaultMode);
-		} else {
-			syslog(LOG_WARNING, "CFRunLoopTimerCreate() for some TCL based job failed");
-		}
-	}
-
 	if (argc == 3)
-		j->_event = strdup(argv[2]);
+		evname = argv[2];
+
+	tmr = tmr_find_by_name(&j->tmrh, evname);
+
+	if (interval <= 0) {
+		Tcl_SetStringObj(tcl_result, "Non-positive interval: Callback i ", -1);
+		return TCL_ERROR;
+	}
+
+	if (tmr)
+		tmr_remove(&j->tmrh, tmr);
+
+	if (!tmr_create(&j->tmrh, interval, evname, !use_interval, j)) {
+		Tcl_SetStringObj(tcl_result, "Failed to add timer callback ", -1);
+		return TCL_ERROR;
+	}
 
 	Tcl_SetIntObj(tcl_result, 0);
 	return TCL_OK;
@@ -574,13 +575,53 @@ static int _cancel_all_callbacks(ClientData clientData, Tcl_Interp *interp, int 
 	return TCL_OK;
 }
 
-static void wpremove(struct watchpathcbhead *wph, struct watchpathcb *wp)
+static struct watchpathcb *wp_find(struct watchpathcbhead *wph, const char *event)
+{
+	struct watchpathcb *r = NULL;
+
+	TAILQ_FOREACH(r, wph, tqe) {
+		if (!strcmp(r->event, event))
+			break;
+	}
+
+	return r;
+}
+
+static bool wp_create(struct watchpathcbhead *wph, const char *path, const char *event, int fflags, void *context)
+{
+	struct watchpathcb *wp;
+	struct kevent kev;
+	int fd;
+
+	if ((fd = open(path, O_EVTONLY)) == -1) {
+		syslog(LOG_ERR, "open(\"%s\"): %m", path);
+		return false;
+	}
+
+	EV_SET(&kev, fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, context);
+	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
+		syslog(LOG_ERR, "kevent(\"%s\"): %m", path);
+		close(fd);
+		return false;
+	}
+
+	wp = calloc(1, sizeof(struct watchpathcb));
+
+	wp->fd = fd;
+	wp->path = strdup(path);
+	wp->event = strdup(event);
+
+	TAILQ_INSERT_TAIL(wph, wp, tqe);
+
+	return true;
+}
+
+static void wp_remove(struct watchpathcbhead *wph, struct watchpathcb *wp)
 {
 	TAILQ_REMOVE(wph, wp, tqe);
 	close(wp->fd);
 	free(wp->path);
-	if (wp->_event)
-		free(wp->_event);
+	free(wp->event);
 	free(wp);
 }
 
@@ -589,10 +630,9 @@ static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONS
 	struct jobcb *j = (struct jobcb *)clientData;
 	struct watchpathcb *wp = NULL;
 	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
-	struct kevent kev;
 	int ch, fflags = 0;
 	bool cancelwatch = false;
-
+	const char *evname = "";
 
 	if (argc < 3) {
 		Tcl_SetStringObj(tcl_result, "Wrong # args. WatchPath", -1);
@@ -619,38 +659,27 @@ static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONS
 	argc -= optind;
 	argv += optind;
 
-	TAILQ_FOREACH(wp, &j->wph, tqe) {
-		if (!strcmp(wp->path, argv[0]))
-			break;
-	}
+	if (argc == 2)
+		evname = argv[1];
 
-	if (wp && cancelwatch) {
-		wpremove(&j->wph, wp);
-		Tcl_SetIntObj(tcl_result, 0);
-		return TCL_OK;
-	} else if (wp == NULL) {
-		wp = calloc(1, sizeof(struct watchpathcb));
+	wp = wp_find(&j->wph, evname);
 
-		if ((wp->fd = open(argv[0], O_EVTONLY)) == -1) {
-			syslog(LOG_ERR, "open(\"%s\"): %m", argv[0]);
-			free(wp);
-			Tcl_SetStringObj(tcl_result, "Couldn't open dir", -1);
+	if (cancelwatch) {
+		if (wp) {
+			wp_remove(&j->wph, wp);
+			Tcl_SetIntObj(tcl_result, 0);
+			return TCL_OK;
+		} else {
+			Tcl_SetStringObj(tcl_result, "Couldn't find watchpath", -1);
 			return TCL_ERROR;
 		}
-
-		wp->path = strdup(argv[0]);
-
-		if (argc == 2)
-			wp->_event = strdup(argv[1]);
-
-		TAILQ_INSERT_TAIL(&j->wph, wp, tqe);
 	}
+	
+	if (wp)
+		wp_remove(&j->wph, wp);
 
-	EV_SET(&kev, wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j);
-	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
-		syslog(LOG_ERR, "kevent(\"%s\"): %m", wp->path);
-		wpremove(&j->wph, wp);
-		Tcl_SetStringObj(tcl_result, "kevent()", -1);
+	if (!wp_create(&j->wph, argv[0], evname, fflags, j)) {
+		Tcl_SetStringObj(tcl_result, "Couldn't create watchpath callback", -1);
 		return TCL_ERROR;
 	}
 
@@ -658,13 +687,18 @@ static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONS
 	return TCL_OK;
 }
 
-static void tcl_timer_callback(CFRunLoopTimerRef timer __attribute__((unused)), void *context)
+static void tcl_timer_callback(CFRunLoopTimerRef timer, void *context)
 {
 	struct jobcb *j = context;
+	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
+	struct timercb *tmr = tmr_find(&j->tmrh, timer);
 
-	if (j->_event)
-		Tcl_SetVar(j->tcli, LD_EVENT, j->_event, TCL_GLOBAL_ONLY);
-	job_tcleval(j);
+	if (tmr) {
+		Tcl_SetVar(j->tcli, LD_EVENT, tmr->event, TCL_GLOBAL_ONLY);
+		job_tcleval(j);
+	} else {
+		syslog(LOG_ERR, "%s: Couldn't find timer by ref!", l);
+	}
 }
 
 static void job_tcleval(struct jobcb *j)
@@ -731,4 +765,68 @@ static int _getproperty(ClientData clientData __attribute__((unused)), Tcl_Inter
 	}
 
 	return TCL_OK;
+}
+
+static void tmr_remove(struct timercbhead *tmrh, struct timercb *tmr)
+{
+	TAILQ_REMOVE(tmrh, tmr, tqe);
+	CFRunLoopTimerInvalidate(tmr->cftmr);
+	CFRelease(tmr->cftmr);
+	free(tmr->event);
+	free(tmr);
+}
+
+static struct timercb *tmr_find_by_name(struct timercbhead *tmrh, const char *event)
+{
+	struct timercb *r = NULL;
+
+	TAILQ_FOREACH(r, tmrh, tqe) {
+		if (!strcmp(r->event, event))
+			break;
+	}
+
+	return r;
+}
+
+static struct timercb *tmr_find(struct timercbhead *tmrh, CFRunLoopTimerRef cftmr)
+{
+	struct timercb *r = NULL;
+
+	TAILQ_FOREACH(r, tmrh, tqe) {
+		if (r->cftmr == cftmr)
+			break;
+	}
+
+	return r;
+}
+
+static bool tmr_create(struct timercbhead *tmrh, double interval, const char *event, bool absol, void *context)
+{
+	CFRunLoopTimerRef cftmr;
+	CFRunLoopTimerContext rlcont;
+	struct timercb *tmr;
+
+	memset(&rlcont, 0, sizeof(rlcont));
+	rlcont.info = context; 
+
+	if (absol)
+		cftmr = CFRunLoopTimerCreate(kCFAllocatorDefault, interval, 0, 0, 0, tcl_timer_callback, &rlcont);
+	else
+		cftmr = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, interval, 0, 0, tcl_timer_callback, &rlcont);
+
+	if (cftmr) {
+		CFRunLoopAddTimer(CFRunLoopGetCurrent(), cftmr, kCFRunLoopDefaultMode);
+	} else {
+		syslog(LOG_WARNING, "CFRunLoopTimerCreate() for some TCL based job failed");
+		return false;
+	}
+
+	tmr = calloc(1, sizeof(struct timercb));
+
+	tmr->cftmr = cftmr;
+	tmr->event = strdup(event);
+
+	TAILQ_INSERT_TAIL(tmrh, tmr, tqe);
+
+	return true;
 }
