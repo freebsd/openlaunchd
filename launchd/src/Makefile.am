@@ -2,9 +2,9 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshado
 
 sbin_SCRIPTS = service
 
-sbin_PROGRAMS = initctl initngd wait4path 
+sbin_PROGRAMS = initctl initngd wait4path SystemStarter init mach_init
 
-noinst_PROGRAMS = SystemStarter init mach_init helloworldd
+noinst_PROGRAMS = helloworldd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
 
