@@ -109,6 +109,8 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 
 wait4path_SOURCES = wait4path.c
 
+liblaunch_a_CFLAGS = -arch ppc64
+
 liblaunch_a_SOURCES = liblaunch.c
 
 launchdebugd_SOURCES = launchdebugd.c
@@ -138,7 +140,7 @@ LIBRARIES = $(noinst_LIBRARIES)
 
 liblaunch_a_AR = $(AR) cru
 liblaunch_a_LIBADD =
-am_liblaunch_a_OBJECTS = liblaunch.$(OBJEXT)
+am_liblaunch_a_OBJECTS = liblaunch_a-liblaunch.$(OBJEXT)
 liblaunch_a_OBJECTS = $(am_liblaunch_a_OBJECTS)
 bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
 libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
@@ -218,7 +220,8 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/bootstrapServer.Po ./$(DEPDIR)/init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po ./$(DEPDIR)/launchd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchdebugd.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/liblaunch_a-liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/lists.Po ./$(DEPDIR)/mach_init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/main.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
@@ -274,6 +277,7 @@ AR = ar
 
 clean-noinstLIBRARIES:
 	-test -z "$(noinst_LIBRARIES)" || rm -f $(noinst_LIBRARIES)
+liblaunch_a-liblaunch.$(OBJEXT): liblaunch.c
 liblaunch.a: $(liblaunch_a_OBJECTS) $(liblaunch_a_DEPENDENCIES) 
 	-rm -f liblaunch.a
 	$(liblaunch_a_AR) liblaunch.a $(liblaunch_a_OBJECTS) $(liblaunch_a_LIBADD)
@@ -421,7 +425,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchdebugd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_a-liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lists.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@
@@ -443,6 +447,18 @@ distclean-depend:
 @AMDEP_TRUE@	depfile='$(DEPDIR)/$*.Po' tmpdepfile='$(DEPDIR)/$*.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(COMPILE) -c `cygpath -w $<`
+
+liblaunch_a-liblaunch.o: liblaunch.c
+@AMDEP_TRUE@	source='liblaunch.c' object='liblaunch_a-liblaunch.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/liblaunch_a-liblaunch.Po' tmpdepfile='$(DEPDIR)/liblaunch_a-liblaunch.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -c -o liblaunch_a-liblaunch.o `test -f 'liblaunch.c' || echo '$(srcdir)/'`liblaunch.c
+
+liblaunch_a-liblaunch.obj: liblaunch.c
+@AMDEP_TRUE@	source='liblaunch.c' object='liblaunch_a-liblaunch.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/liblaunch_a-liblaunch.Po' tmpdepfile='$(DEPDIR)/liblaunch_a-liblaunch.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -c -o liblaunch_a-liblaunch.obj `cygpath -w liblaunch.c`
 CCDEPMODE = @CCDEPMODE@
 uninstall-info-am:
 
@@ -775,6 +791,10 @@ $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 
 install-data-hook: install-startupitems
+	mkdir -p $(DESTDIR)/usr/local/lib/system
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 	mkdir -p $(DESTDIR)/usr/lib
 	strip -S liblaunch.1.dylib
 	cp liblaunch.1.dylib $(DESTDIR)/usr/lib

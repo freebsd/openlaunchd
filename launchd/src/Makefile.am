@@ -31,6 +31,8 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 
 wait4path_SOURCES = wait4path.c
 
+liblaunch_a_CFLAGS = -arch ppc64
+
 liblaunch_a_SOURCES = liblaunch.c
 
 launchdebugd_SOURCES = launchdebugd.c
@@ -78,6 +80,10 @@ $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 
 install-data-hook: install-startupitems
+	mkdir -p $(DESTDIR)/usr/local/lib/system
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 	mkdir -p $(DESTDIR)/usr/lib
 	strip -S liblaunch.1.dylib
 	cp liblaunch.1.dylib $(DESTDIR)/usr/lib

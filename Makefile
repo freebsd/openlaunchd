@@ -1,8 +1,11 @@
+
 Project	= launchd
 Extra_Configure_Flags = --sbindir=/sbin --bindir=/bin --sysconfdir=/private/etc
 GnuAfterInstall = launchd_after_install
 include $(MAKEFILEPATH)/CoreOS/ReleaseControl/GNUSource.make
 Install_Flags = DESTDIR=$(DSTROOT)
+
+export CC = gcc-3.5
 
 launchd_after_install::
 	mkdir -p $(DSTROOT)/private/etc/xinetd.d
