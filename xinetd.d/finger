@@ -1,0 +1,11 @@
+service finger
+{
+	disable		= yes
+	socket_type	= stream
+	wait		= no
+	user		= nobody
+	server		= /usr/libexec/fingerd
+	server_args	= -s
+	groups		= yes
+	flags		= REUSE
+}

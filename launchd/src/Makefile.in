@@ -76,8 +76,7 @@ am__quote = @am__quote@
 install_sh = @install_sh@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
-#sbin_SCRIPTS = service
-noinst_SCRIPTS = service
+sbin_SCRIPTS = service
 
 sbin_PROGRAMS = initctl initngd wait4path 
 
@@ -182,7 +181,7 @@ wait4path_OBJECTS = $(am_wait4path_OBJECTS)
 wait4path_LDADD = $(LDADD)
 wait4path_DEPENDENCIES =
 wait4path_LDFLAGS =
-SCRIPTS = $(noinst_SCRIPTS)
+SCRIPTS = $(sbin_SCRIPTS)
 
 
 DEFS = @DEFS@
@@ -331,6 +330,26 @@ register_mach_bootstrap_servers$(EXEEXT): $(register_mach_bootstrap_servers_OBJE
 wait4path$(EXEEXT): $(wait4path_OBJECTS) $(wait4path_DEPENDENCIES) 
 	@rm -f wait4path$(EXEEXT)
 	$(LINK) $(wait4path_LDFLAGS) $(wait4path_OBJECTS) $(wait4path_LDADD) $(LIBS)
+sbinSCRIPT_INSTALL = $(INSTALL_SCRIPT)
+install-sbinSCRIPTS: $(sbin_SCRIPTS)
+	@$(NORMAL_INSTALL)
+	$(mkinstalldirs) $(DESTDIR)$(sbindir)
+	@list='$(sbin_SCRIPTS)'; for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  if test -f $$d$$p; then \
+	    f=`echo "$$p" | sed 's|^.*/||;$(transform)'`; \
+	    echo " $(sbinSCRIPT_INSTALL) $$d$$p $(DESTDIR)$(sbindir)/$$f"; \
+	    $(sbinSCRIPT_INSTALL) $$d$$p $(DESTDIR)$(sbindir)/$$f; \
+	  else :; fi; \
+	done
+
+uninstall-sbinSCRIPTS:
+	@$(NORMAL_UNINSTALL)
+	@list='$(sbin_SCRIPTS)'; for p in $$list; do \
+	  f=`echo "$$p" | sed 's|^.*/||;$(transform)'`; \
+	  echo " rm -f $(DESTDIR)$(sbindir)/$$f"; \
+	  rm -f $(DESTDIR)$(sbindir)/$$f; \
+	done
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT) core *.core
@@ -547,7 +566,7 @@ check: check-am
 all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) config.h
 
 installdirs:
-	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
+	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
 
 install: install-am
 install-exec: install-exec-am
@@ -597,7 +616,7 @@ install-data-am: install-man
 	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
 
 install-exec-am: install-libexecPROGRAMS install-sbinPROGRAMS \
-	install-sysconfDATA
+	install-sbinSCRIPTS install-sysconfDATA
 
 install-info: install-info-am
 
@@ -614,7 +633,8 @@ mostlyclean: mostlyclean-am
 mostlyclean-am: mostlyclean-compile mostlyclean-generic
 
 uninstall-am: uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
-	uninstall-sbinPROGRAMS uninstall-sysconfDATA
+	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
+	uninstall-sysconfDATA
 
 uninstall-man: uninstall-man1 uninstall-man8
 
@@ -625,12 +645,13 @@ uninstall-man: uninstall-man1 uninstall-man8
 	install install-am install-data install-data-am install-exec \
 	install-exec-am install-info install-info-am \
 	install-libexecPROGRAMS install-man install-man1 install-man8 \
-	install-sbinPROGRAMS install-strip install-sysconfDATA \
-	installcheck installcheck-am installdirs maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-compile \
-	mostlyclean-generic tags uninstall uninstall-am \
-	uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
-	uninstall-man1 uninstall-man8 uninstall-sbinPROGRAMS \
+	install-sbinPROGRAMS install-sbinSCRIPTS install-strip \
+	install-sysconfDATA installcheck installcheck-am installdirs \
+	maintainer-clean maintainer-clean-generic mostlyclean \
+	mostlyclean-compile mostlyclean-generic tags uninstall \
+	uninstall-am uninstall-info-am uninstall-libexecPROGRAMS \
+	uninstall-man uninstall-man1 uninstall-man8 \
+	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
 	uninstall-sysconfDATA
 
 
@@ -640,9 +661,10 @@ bootstrap.h bootstrapServer.c bootstrapUser.c:
 	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
-	mkdir -p $@
+	mkdir -p $@/Resources/English.lproj
 	cp $(srcdir)/StartupItems/$(notdir $@) $@
 	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
+	cp $(srcdir)/StartupItems/$(notdir $@).strings $@/Resources/English.lproj/Localizable.strings
 
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 

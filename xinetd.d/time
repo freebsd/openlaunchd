@@ -1,0 +1,11 @@
+service time
+{
+	disable		= yes
+	type		= INTERNAL
+	id		= time-stream
+	socket_type	= stream
+	wait		= no
+	user		= root
+	groups		= yes
+	flags		= REUSE
+}

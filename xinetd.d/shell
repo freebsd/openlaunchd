@@ -1,0 +1,10 @@
+service shell
+{
+	disable		= yes
+	socket_type	= stream
+	wait		= no
+	user		= root
+	server		= /usr/libexec/rshd
+	groups		= yes
+	flags		= REUSE
+}

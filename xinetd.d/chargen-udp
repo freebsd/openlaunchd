@@ -1,0 +1,11 @@
+service chargen-udp
+{
+	disable		= yes
+	type		= INTERNAL
+	id		= chargen-dgram
+	socket_type	= dgram
+	wait		= yes
+	user		= root
+	groups		= yes
+	flags		= REUSE
+}

@@ -1,0 +1,10 @@
+service auth
+{
+	disable		= yes
+	socket_type	= stream
+	wait		= no
+	user		= root
+	server		= /usr/bin/false
+	groups		= yes
+	flags		= REUSE IPv6
+}

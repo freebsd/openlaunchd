@@ -1,7 +1,6 @@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
-#sbin_SCRIPTS = service
-noinst_SCRIPTS = service
+sbin_SCRIPTS = service
 
 sbin_PROGRAMS = initctl initngd wait4path 
 
@@ -48,9 +47,10 @@ man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_in
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
-	mkdir -p $@
+	mkdir -p $@/Resources/English.lproj
 	cp $(srcdir)/StartupItems/$(notdir $@) $@
 	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
+	cp $(srcdir)/StartupItems/$(notdir $@).strings $@/Resources/English.lproj/Localizable.strings
 
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 

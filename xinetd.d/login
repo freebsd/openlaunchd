@@ -1,0 +1,10 @@
+service login
+{
+	disable		= yes
+	socket_type	= stream
+	wait		= no
+	user		= root
+	server		= /usr/libexec/rlogind
+	groups		= yes
+	flags		= REUSE
+}

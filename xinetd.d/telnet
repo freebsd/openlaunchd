@@ -1,0 +1,10 @@
+service telnet
+{
+	disable		= yes
+	socket_type	= stream
+	wait		= no
+	user		= root
+	server		= /usr/libexec/telnetd
+	groups		= yes
+	flags		= REUSE
+}

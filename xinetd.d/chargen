@@ -1,0 +1,11 @@
+service chargen
+{
+	disable		= yes
+	type		= INTERNAL
+	id		= chargen-stream
+	socket_type	= stream
+	wait		= no
+	user		= root
+	groups		= yes
+	flags		= REUSE
+}
