@@ -410,7 +410,7 @@ static
 void dispatch_server(server_t *serverp)
 {
 	if (!active_server(serverp)) {
-		if (useless_server(serverp))
+		if (useless_server(serverp) || shutdown_in_progress)
 			delete_server(serverp);
 		else if (serverp->servertype == RESTARTABLE)
 			start_server(serverp);
@@ -743,17 +743,6 @@ server_demux(
         
 	syslog(LOG_DEBUG, "received message on port %x\n", Request->msgh_local_port);
 
-	/*
-	 * Do minimal cleanup and then exit.
-	 */
-	if (shutdown_in_progress == TRUE) {
-		syslog(LOG_NOTICE, "Shutting down. Deactivating root bootstrap (%x) ...",
-			bootstraps.bootstrap_port);
-		deactivate_bootstrap(&bootstraps);
-		syslog(LOG_NOTICE, "Done.");
-		pthread_exit(NULL);
-	}
-					
 	reply = (mig_reply_error_t *)Reply;
 
 	/*
