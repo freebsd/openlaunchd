@@ -63,6 +63,7 @@ static void runloop_observe(struct initng_job *j);
 static void runloop_ignore(struct initng_job *j);
 static void do_web_feedback(void);
 static void dump_job_state(int fd, struct initng_job *j);
+static void job_remove_cleanup(struct initng_job *j);
 
 /* utility functions */
 static char **stringvdup(char **sv);
@@ -155,10 +156,14 @@ int main(int argc, char *argv[])
 		if (j && (kev.filter == EVFILT_PROC)) {
 			reap_job(j);
 		} else if (j) {
-			if (j->compat_inetd_nowait)
+			if (kev.filter == EVFILT_READ && kev.flags & EV_EOF && kev.data == 0) {
+				initngd_debug(LOG_WARNING, "one of %s's connections died, removing job", j->program);
+				job_remove_cleanup(j);
+			} else if (j->compat_inetd_nowait) {
 				launch_job_st(j, kev.ident);
-			else
+			} else {
 				launch_job(j);
+			}
 		} else if ((int)kev.ident == thesocket) {
 			if ((ingerr = initng_server_accept(&fd, thesocket)) != INITNG_ERR_SUCCESS) {
 				initngd_debug(LOG_DEBUG, "initng_server_accept(): %s", initng_strerror(ingerr));
@@ -280,16 +285,20 @@ static void reap_job(struct initng_job *j)
 static void runloop_ignore(struct initng_job *j)
 {
 	struct initng_job_fd *jfd;
-	TAILQ_FOREACH(jfd, &j->thefds, tqe)
-		__kevent(jfd->fd, EVFILT_READ, EV_DELETE, 0, 0, j);
+	TAILQ_FOREACH(jfd, &j->thefds, tqe) {
+		if (__kevent(jfd->fd, EVFILT_READ, EV_DELETE, 0, 0, j) == -1)
+			initngd_debug(LOG_DEBUG, "__kevent(%d, EV_DELETE): %m", jfd->fd);
+	}
 }
 
 static void runloop_observe(struct initng_job *j)
 {
 	if (j->enabled && !j->running) {
 		struct initng_job_fd *jfd;
-		TAILQ_FOREACH(jfd, &j->thefds, tqe)
-			__kevent(jfd->fd, EVFILT_READ, EV_ADD, 0, 0, j);
+		TAILQ_FOREACH(jfd, &j->thefds, tqe) {
+			if (__kevent(jfd->fd, EVFILT_READ, EV_ADD, 0, 0, j) == -1)
+				initngd_debug(LOG_DEBUG, "__kevent(%d, EV_ADD): %m", jfd->fd);
+		}
 	}
 }
 
