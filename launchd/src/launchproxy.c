@@ -17,6 +17,7 @@
 #include <libgen.h>
 #include <getopt.h>
 #include <signal.h>
+#include <netdb.h>
 
 #include "launch.h"
 
@@ -149,13 +150,32 @@ int main(int argc __attribute__((unused)), char *argv[])
 			syslog(LOG_DEBUG, "accept(): %m");
 			goto out;
 		} else {
-			pid_t p = fork();
-			if (p == -1)
+			char fromhost[NI_MAXHOST];
+			char fromport[NI_MAXSERV];
+			int gni_r;
+
+			gni_r = getnameinfo((struct sockaddr *)&ss, slen,
+					fromhost, sizeof(fromhost),
+					fromport, sizeof(fromport),
+					NI_NUMERICHOST | NI_NUMERICSERV);
+
+			if (gni_r) {
+				syslog(LOG_WARNING, "getnameinfo(): %s", gai_strerror(gni_r));
+			} else {
+				syslog(LOG_INFO, "Connection from: %s on port: %s", fromhost, fromport);
+			}
+
+			switch (fork()) {
+			case -1:
+				syslog(LOG_WARNING, "fork(): %m");
 				goto out;
-			if (p != 0) {
+			case 0:
+				break;
+			default:
 				close(r);
 				continue;
 			}
+
 			if ((tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SESSIONCREATE)) && launch_data_get_bool(tmp)) {
 				if (SessionCreate) {
 					OSStatus scr = SessionCreate(0, 0);
