@@ -608,17 +608,29 @@ launch_data_t launch_msg(launch_data_t d)
 
 	pthread_mutex_lock(&_lc->mtx);
 
-	if (d) {
-		if (launchd_msg_send(_lc->l, d) == -1)
-			goto out;
-	} else if (launch_data_array_get_count(_lc->async_resp) > 0) {
-		resp = launch_data_array_pop_first(_lc->async_resp);
+	if (d && launchd_msg_send(_lc->l, d) == -1)
 		goto out;
-	}
-
+       
 	while (resp == NULL) {
-		if (launchd_msg_recv(_lc->l, launch_msg_getmsgs, &resp) == -1 && errno != EAGAIN)
+		if (d == NULL && launch_data_array_get_count(_lc->async_resp) > 0) {
+			resp = launch_data_array_pop_first(_lc->async_resp);
 			goto out;
+		}
+		if (launchd_msg_recv(_lc->l, launch_msg_getmsgs, &resp) == -1) {
+			if (errno != EAGAIN) {
+				goto out;
+			} else if (d == NULL) {
+				errno = 0;
+				goto out;
+			} else {
+				fd_set rfds;
+
+				FD_ZERO(&rfds);
+				FD_SET(_lc->l->fd, &rfds);
+			
+				select(_lc->l->fd + 1, &rfds, NULL, NULL, NULL);
+			}
+		}
 	}
 
 out:
@@ -631,7 +643,7 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
 {
 	struct cmsghdr *cm = alloca(4096); 
 	launch_data_t rmsg;
-	size_t data_offset = 0, fd_offset = 0;
+	size_t data_offset, fd_offset;
         struct msghdr mh;
         struct iovec iov;
 	int r;
@@ -665,6 +677,9 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
 	}
 
 parse_more:
+	data_offset = 0;
+	fd_offset = 0;
+
 	rmsg = make_data(lh, &data_offset, &fd_offset);
 
 	if (rmsg) {
@@ -760,8 +775,10 @@ bool launchd_batch_query(void)
 
 static int _fd(int fd)
 {
-	if (fd >= 0)
+	if (fd >= 0) {
 		fcntl(fd, F_SETFD, 1);
+		fcntl(fd, F_SETFL, O_NONBLOCK);
+	}
 	return fd;
 }
 
