@@ -24,7 +24,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
 bootstrap.c:: bootstrap.h
 
 bootstrap.h bootstrapServer.c bootstrapUser.c:
-	mig $(MIGFLAGS) bootstrap.defs
+	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
 man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8
 

@@ -529,7 +529,7 @@ uninstall-man: uninstall-man8
 bootstrap.c:: bootstrap.h
 
 bootstrap.h bootstrapServer.c bootstrapUser.c:
-	mig $(MIGFLAGS) bootstrap.defs
+	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@
