@@ -2311,8 +2311,12 @@ static void job_set_alarm(struct jobcb *j)
 
 	later = mktime(&latertm);
 
-	if (otherlater)
-		later = later < otherlater ? later : otherlater;
+	if (otherlater) {
+		if (j->start_cal_interval->tm_mday)
+			later = later < otherlater ? later : otherlater;
+		else
+			later = otherlater;
+	}
 
 	if (-1 == kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, &j->kqjob_callback))
 		job_log_error(j, LOG_ERR, "adding kevent alarm");
