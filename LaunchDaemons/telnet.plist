@@ -21,7 +21,7 @@
 		<dict>
 			<key>SockServiceName</key>
 			<string>telnet</string>
-			<key>Rendezvous</key>
+			<key>Bonjour</key>
 			<true/>
 		</dict>
 	</dict>

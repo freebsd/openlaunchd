@@ -24,7 +24,7 @@
 		<dict>
 			<key>SockServiceName</key>
 			<string>ftp</string>
-			<key>Rendezvous</key>
+			<key>Bonjour</key>
 			<true/>
 		</dict>
 	</dict>
