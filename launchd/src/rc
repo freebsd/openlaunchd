@@ -134,6 +134,11 @@ if [ "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
 	${BootCacheControl} start
 fi
 
+# Logs are important. Start syslogd after the boot disk becomes r/w but before
+# everything else starts. In the future, we should launch this lazily when it
+# is first needed.
+/usr/sbin/syslogd -s -m 0
+
 # System tuning
 if [ -f /etc/sysctl-macosxserver.conf ]; then
 	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/sysctl-macosxserver.conf | while read
@@ -148,11 +153,6 @@ if [ -f /etc/sysctl.conf ]; then
 	done
 fi
 sysctl -w kern.sysv.shmmax=4194304 kern.sysv.shmmin=1 kern.sysv.shmmni=32 kern.sysv.shmseg=8 kern.sysv.shmall=1024
-
-# Logs are important. Start syslogd after the boot disk becomes r/w but before
-# everything else starts. In the future, we should launch this lazily when it
-# is first needed.
-/usr/sbin/syslogd -s -m 0
 
 if [ -f /etc/rc.installer_cleanup ]; then
 	/etc/rc.installer_cleanup multiuser
@@ -212,9 +212,7 @@ if [ -d /private/Network ]; then
 
 	echo -n " /private/Network"
 	mv /private/Network /private/_Network_
-	find -x /private/_Network_ -exec sh -c "chflags -R nouchg {} && rm -f -- {}" \; >/dev/null 2>&1;
-	find -xd /private/_Network_ -type d -exec rmdir -- {} \; >/dev/null 2>&1;
-	rmdir /private/_Network_ >/dev/null 2>&1;
+	find -xd /private/_Network_ -type d -print0 | xargs -0 rmdir
 fi
 
 # Move /var/run out of the way
@@ -309,8 +307,6 @@ fi
 
 # Load [ideally on demand] Mach bootstrap based services
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
-
-function bgboot {
 
 # We hope to launch portmap on demand in the next major release of Mac OS X,
 # but until then, we need to inline in here for reasons not worth going into in
@@ -415,10 +411,6 @@ if [ ! -d ${appprofiledir} ]; then
 fi
 
 SystemStarter ${VerboseFlag} ${SafeBoot}
-
-}
-
-bgboot &
 
 # Set language from CDIS.custom - assumes this is parse-able by sh
 if [ -f /var/log/CDIS.custom ]; then
