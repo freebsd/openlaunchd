@@ -105,6 +105,11 @@ StartService ()
 	#
 	ln -s . /Network/.localized
     fi
+	
+	#
+	# Leave a mark upon completion of the automounter startup:
+	#
+	touch /var/run/automount.initialized
 }
 
 StopService ()
