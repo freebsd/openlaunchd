@@ -71,6 +71,7 @@ static bool batch_enabled = true;
 static launch_data_t load_job(launch_data_t pload);
 static launch_data_t get_jobs(const char *which);
 static launch_data_t setstdio(int d, launch_data_t o);
+static launch_data_t adjust_rlimits(launch_data_t in);
 static void batch_job_enable(bool e);
 static void do_shutdown(void);
 
@@ -757,6 +758,12 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(NULL);
 		launch_data_revoke_fds(resp);
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETRESOURCELIMITS)) {
+		resp = adjust_rlimits(NULL);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETRESOURCELIMITS))) {
+		resp = adjust_rlimits(tmp);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOB))) {
 		resp = get_jobs(launch_data_get_string(tmp));
@@ -1565,4 +1572,27 @@ static void notify_helperd(void)
 {
 	if (helperd && helperd->p)
 		kill(helperd->p, SIGHUP);
+}
+
+static launch_data_t adjust_rlimits(launch_data_t in)
+{
+	static struct rlimit *l = NULL;
+	struct rlimit *ltmp;
+	size_t i,ltmpsz;
+
+	if (l == NULL) {
+		l = malloc(sizeof(struct rlimit) * RLIM_NLIMITS);
+	}
+
+	if (in) {
+		ltmp = launch_data_get_opaque(in);
+		ltmpsz = launch_data_get_opaque_size(in);
+		for (i = 0; i < (ltmpsz / sizeof(struct rlimit)); i++)
+			setrlimit(i, ltmp + i);
+	}
+
+	for (i = 0; i < RLIM_NLIMITS; i++)
+		getrlimit(i, l + i);
+
+	return launch_data_new_opaque(l, sizeof(struct rlimit) * RLIM_NLIMITS);
 }

@@ -43,7 +43,7 @@ static int setenv_cmd(int argc, char *const argv[]);
 static int unsetenv_cmd(int argc, char *const argv[]);
 static int getenv_and_export_cmd(int argc, char *const argv[]);
 
-//static int limit_cmd(int argc, char *const argv[]);
+static int limit_cmd(int argc, char *const argv[]);
 static int stdio_cmd(int argc, char *const argv[]);
 static int fyi_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
@@ -65,7 +65,7 @@ static const struct {
 	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
 	{ "getenv",	getenv_and_export_cmd,	"Get environmental variables from launchd" },
 	{ "export",	getenv_and_export_cmd,	"Export shell settings from launchd" },
-//	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
+	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
 	{ "stdout",	stdio_cmd,		"Redirect launchd's standard out to the given path" },
 	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
@@ -128,6 +128,7 @@ int main(int argc, char *const argv[])
 				fprintf(stderr, "%s at line %d: %s\n", getprogname(), interp->errorLine, interp->result);
 			free(l);
 		}
+		fputc('\n', stdout);
 	} else if (Tcl_EvalFile(interp, "/dev/stdin") != TCL_OK) {
 		fprintf(stderr, "%s at line %d: %s\n", getprogname(), interp->errorLine, interp->result);
 	}
@@ -944,6 +945,145 @@ static int fyi_cmd(int argc, char *const argv[])
 			r = 1;
 		}
 	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	}
+
+	launch_data_free(resp);
+
+	return r;
+}
+
+static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
+{
+	char slimstr[100];
+	char hlimstr[100];
+	struct rlimit *lmts = NULL;
+	launch_data_t resp, msg, tmp;
+	int r = 0;
+	size_t i, lsz = -1, which = 0;
+	rlim_t slim = -1, hlim = -1;
+	bool badargs = false;
+	static const struct {
+		const char *name;
+		int lim;
+	} limlookup[] = {
+		{ "cpu",	RLIMIT_CPU },
+		{ "filesize",	RLIMIT_FSIZE },
+		{ "data",	RLIMIT_DATA },
+		{ "stack",	RLIMIT_STACK },
+		{ "core",	RLIMIT_CORE },
+		{ "rss", 	RLIMIT_RSS },
+		{ "memlock",	RLIMIT_MEMLOCK },
+		{ "maxproc",	RLIMIT_NPROC },
+		{ "maxfiles",	RLIMIT_NOFILE }
+	};
+	size_t limlookupcnt = sizeof limlookup / sizeof limlookup[0];
+	bool name2num(const char *n) {
+		for (i = 0; i < limlookupcnt; i++) {
+			if (!strcmp(limlookup[i].name, n)) {
+				which = limlookup[i].lim;
+				return false;
+			}
+		}
+		return true;
+	};
+	const char *num2name(int n) {
+		for (i = 0; i < limlookupcnt; i++) {
+			if (limlookup[i].lim == n)
+				return limlookup[i].name;
+		}
+		return NULL;
+	};
+	const char *lim2str(rlim_t val, char *buf) {
+		if (val == RLIM_INFINITY)
+			strcpy(buf, "unlimited");
+		else
+			sprintf(buf, "%lld", val);
+		return buf;
+	};
+	bool str2lim(const char *buf, rlim_t *res) {
+		char *endptr;
+		*res = strtoll(buf, &endptr, 10);
+		if (!strcmp(buf, "unlimited")) {
+			*res = RLIM_INFINITY;
+			return false;
+		} else if (*endptr == '\0') {
+			 return false;
+		}
+		return true;
+	};
+
+	if (argc > 4)
+		badargs = true;
+
+	if (argc >= 3 && str2lim(argv[2], &slim))
+		badargs = true;
+	else
+		hlim = slim;
+
+	if (argc == 4 && str2lim(argv[3], &hlim))
+		badargs = true;
+
+	if (argc >= 2 && name2num(argv[1]))
+		badargs = true;
+
+	if (badargs) {
+		fprintf(stderr, "usage: %s %s [", getprogname(), argv[0]);
+		for (i = 0; i < limlookupcnt; i++)
+			fprintf(stderr, "%s %s", limlookup[i].name, (i + 1) == limlookupcnt ? "" : "| ");
+		fprintf(stderr, "[both | soft hard]]\n");
+		return 1;
+	}
+
+	msg = launch_data_new_string(LAUNCH_KEY_GETRESOURCELIMITS);
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_OPAQUE) {
+		lmts = launch_data_get_opaque(resp);
+		lsz = launch_data_get_opaque_size(resp);
+		if (argc <= 2) {
+			for (i = 0; i < (lsz / sizeof(struct rlimit)); i++) {
+				if (argc == 2 && which != i)
+					continue;
+				fprintf(stdout, "\t%-12s%-15s%-15s\n", num2name(i),
+						lim2str(lmts[i].rlim_cur, slimstr),
+						lim2str(lmts[i].rlim_max, hlimstr));
+			}
+		}
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+		fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+		r = 1;
+	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	}
+
+	launch_data_free(resp);
+
+	if (argc <= 2 || r != 0)
+		return r;
+
+	lmts[which].rlim_cur = slim;
+	lmts[which].rlim_max = hlim;
+
+	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	tmp = launch_data_new_opaque(lmts, lsz);
+	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETRESOURCELIMITS);
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+		fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+		r = 1;
+	} else if (launch_data_get_type(resp) != LAUNCH_DATA_OPAQUE) {
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
 		r = 1;
 	}
