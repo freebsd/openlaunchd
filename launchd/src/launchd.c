@@ -66,19 +66,20 @@ struct conncb {
 	TAILQ_ENTRY(conncb) tqe;
 	launch_t conn;
 	struct jobcb *j;
+	int disabled_batch:1, futureflags:31;
 };
 
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
 static struct jobcb *helperd = NULL;
 static int mainkq = 0;
-static bool batch_enabled = true;
+static int batch_disabler_count = 0;
 
 static launch_data_t load_job(launch_data_t pload);
 static launch_data_t get_jobs(const char *which);
 static launch_data_t setstdio(int d, launch_data_t o);
 static launch_data_t adjust_rlimits(launch_data_t in);
-static void batch_job_enable(bool e);
+static void batch_job_enable(bool e, struct conncb *c);
 static void do_shutdown(void);
 
 static void listen_callback(void *, struct kevent *);
@@ -780,12 +781,12 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		resp = setstdio(STDERR_FILENO, tmp);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
-		batch_job_enable(launch_data_get_bool(tmp));
+		batch_job_enable(launch_data_get_bool(tmp), c);
 		resp = launch_data_new_errno(0);
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_BATCHQUERY)) {
 		resp = launch_data_alloc(LAUNCH_DATA_BOOL);
-		launch_data_set_bool(resp, batch_enabled);
+		launch_data_set_bool(resp, batch_disabler_count == 0);
 	} else {	
 		resp = launch_data_new_errno(ENOSYS);
 	}
@@ -823,16 +824,22 @@ static launch_data_t setstdio(int d, launch_data_t o)
 	return resp;
 }
 
-static void batch_job_enable(bool e)
+static void batch_job_enable(bool e, struct conncb *c)
 {
-	if (e) {
-		batch_enabled = true;
-		if (helperd && helperd->p)
+	if (e && c->disabled_batch) {
+		batch_disabler_count--;
+		c->disabled_batch = 0;
+		if (batch_disabler_count == 0 && helperd && helperd->p) {
+			syslog(LOG_INFO, "Batch jobs enabled. Restarting: launchd_helperd");
 			kill(helperd->p, SIGCONT);
-	} else {
-		batch_enabled = false;
-		if (helperd && helperd->p)
+		}
+	} else if (!e && !c->disabled_batch) {
+		if (batch_disabler_count == 0 && helperd && helperd->p) {
+			syslog(LOG_INFO, "Batch jobs disabled. Stopping: launchd_helperd");
 			kill(helperd->p, SIGSTOP);
+		}
+		batch_disabler_count++;
+		c->disabled_batch = 1;
 	}
 }
 
@@ -1013,7 +1020,7 @@ static int _fd(int fd)
 
 static void ipc_close(struct conncb *c)
 {
-	batch_job_enable(true);
+	batch_job_enable(true, c);
 
 	TAILQ_REMOVE(&connections, c, tqe);
 	launchd_close(c->conn);
@@ -1087,12 +1094,12 @@ static void job_callback(void *obj, struct kevent *kev)
 			job_watch_fds(j->ldj, &j->kqjob_callback);
 			return;
 		}
-
-		if (j == helperd && !batch_enabled)
-			return;
 	}
 
 	job_start(j);
+
+	if (j == helperd && batch_disabler_count > 0)
+		kill(helperd->p, SIGSTOP);
 }
 
 static void job_start(struct jobcb *j)
