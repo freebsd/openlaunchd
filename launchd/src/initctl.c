@@ -9,35 +9,65 @@
 
 #include "libinitng.h"
 
+static int thefd = 0;
 static const char *argv0 = NULL;
 
 static void handleConfigFile(const char *file);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile);
 static void myEnvpCallback(const void *key, const void *value, char **where);
+static void usage(FILE *where) __attribute__((noreturn));
+static void loadcfg(char *what);
 
 int main(int argc, char *argv[])
+{
+	initng_err_t ingerr;
+	int ch;
+
+	ingerr = initng_init(&thefd, NULL);
+	if (ingerr != INITNG_ERR_SUCCESS) {
+		fprintf(stderr, "initng_init(): %s\n", initng_strerror(ingerr));
+		exit(EXIT_FAILURE);
+	}
+
+	argv0 = argv[0];
+
+	while ((ch = getopt(argc, argv, "mhl:")) != -1) {
+		switch (ch) {
+		case 'm':
+			fprintf(stderr, "i would be monitoring the connection right now");
+			break;
+		case 'l':
+			loadcfg(optarg);
+			break;
+		case 'h':
+			usage(stdout);
+			break;
+		case '?':
+		default:
+			usage(stderr);
+			break;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+
+	exit(EXIT_SUCCESS);
+}
+
+static void loadcfg(char *what)
 {
 	DIR *d;
 	struct dirent *de;
 	struct stat sb;
 
-	initng_init();
-
-	argv0 = argv[0];
-
-	if (argc != 2) {
-		fprintf(stderr, "usage: %s: <configdir|configfile>\n", argv0);
-		exit(EXIT_FAILURE);
-	}
-
-	stat(argv[1], &sb);
+	stat(what, &sb);
 
 	if (S_ISREG(sb.st_mode)) {
-		handleConfigFile(argv[1]);
+		handleConfigFile(what);
 		exit(EXIT_SUCCESS);
 	}
 
-	if ((d = opendir(argv[1])) == NULL) {
+	if ((d = opendir(what)) == NULL) {
 		fprintf(stderr, "%s: opendir() failed to open the directory\n", argv0);
 		exit(EXIT_FAILURE);
 	}
@@ -45,201 +75,231 @@ int main(int argc, char *argv[])
 	while ((de = readdir(d)) != NULL) {
 		if ((de->d_name[0] != '.')) {
 			char *foo;
-			if (asprintf(&foo, "%s/%s", argv[1], de->d_name))
+			if (asprintf(&foo, "%s/%s", what, de->d_name))
 				handleConfigFile(foo);
 			free(foo);
 		}
 	}
 
-	exit(EXIT_SUCCESS);
+	closedir(d);
 }
+
+static char **getflag(const void *cfval)
+{
+	char **tmp = malloc(sizeof(char*) * 3);
+
+	tmp[0] = NULL;
+	if (CFBooleanGetValue(cfval))
+		tmp[1] = strdup("true");
+	else
+		tmp[1] = strdup("false");
+	tmp[2] = NULL;
+
+	return tmp;
+}
+
+static char **getcfstring(const void *cfval)
+{
+	char buf[4096];
+	char **tmp = malloc(sizeof(char*) * 3);
+	
+	CFStringGetCString(cfval, buf, sizeof(buf), kCFStringEncodingUTF8);
+	tmp[0] = NULL;
+	tmp[1] = strdup(buf);
+	tmp[2] = NULL;
+
+	return tmp;
+}
+
+static char **getcfstringarray(const void *cfval)
+{
+	char buf[4096];
+	const void *tv;
+	CFIndex count;
+	char **tmp;
+	int ti;
+
+	count = CFArrayGetCount(cfval);
+	tmp = calloc(1, (count + 2) * sizeof(char*));
+	for (ti = 0; ti < count; ti++) {
+		if (!(tv = CFArrayGetValueAtIndex(cfval, ti)))
+			goto out_bad;
+		CFStringGetCString(tv, buf, sizeof(buf), kCFStringEncodingUTF8);
+		tmp[ti + 1] = strdup(buf);
+	}
+	return tmp;
+out_bad:
+	/* we could be a little more clever here, do it later */
+	for (ti = 1; ti < (count + 1); ti++) {
+		if (tmp[ti])
+			free(tmp[ti]);
+	}
+	free(tmp);
+	return NULL;
+}
+
+static char **getcfstringenv(const void *cfval)
+{
+	char **tmp;
+	CFIndex count;
+
+	count = CFDictionaryGetCount(cfval);
+	tmp = calloc(1, (count + 2) * sizeof(char*));
+	CFDictionaryApplyFunction(cfval, (CFDictionaryApplierFunction)myEnvpCallback, tmp + 1);
+
+	return tmp;
+}
+
+static struct cf_file_option {
+	const char *cfkey;
+	char *command;
+	char ** (*func)(const void *cfval);
+} cf_file_options[] = {
+	{ "inetdSingleThreaded", "setInetdSingleThreaded", getflag },
+	{ "UserName", "setUserName", getcfstring },
+	{ "GroupName", "setGroupName", getcfstring },
+	{ "Program", "setProgram", getcfstring },
+	{ "ServiceDescription", "setServiceDescription", getcfstring },
+	{ "ProgramArguments", "setProgramArguments", getcfstringarray },
+	{ "EnvironmentVariables", "setEnvironmentVariables", getcfstringenv },
+	{ "MachServiceNames", "setMachServiceNames", getcfstringarray },
+};
 
 static void handleConfigFile(const char *file)
 {
-	initng_jobinfo_t j = NULL;
 	CFPropertyListRef plist = CreateMyPropertyListFromFile(file);
 	char buf[4096];
+	char *joblabel = NULL;
+	size_t i;
+	initng_err_t ingerr;
+	const void *v, *tv, *iv;
+	char **msga, **msgatmp;
+	CFIndex count;
+	int ti = 0;
+	bool e = true;
 
 	if (!plist) {
 		fprintf(stderr, "%s: no plist was returned for: %s\n", argv0, file);
 		return;
 	}
-	if (CFDictionaryContainsKey(plist, CFSTR("UUID"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("UUID"));
-		CFUUIDRef u;
-		union {
-			CFUUIDBytes b;
-			char	rawuuid[16];
-		} uu;
-		if (!v) goto out;
-		u = CFUUIDCreateFromString(NULL, v);
-		if (!u) goto out;
-		uu.b = CFUUIDGetUUIDBytes(u);
-		if (!initng_jobinfo_alloc(&j, uu.rawuuid)) goto out;
-		CFRelease(u);
+	if (!CFDictionaryContainsKey(plist, CFSTR("Label")))
+		return;
+	if (!(v = CFDictionaryGetValue(plist, CFSTR("Label"))))
+		return;
+	CFStringGetCString(v, buf, sizeof(buf), kCFStringEncodingUTF8);
+	joblabel = strdup(buf);
+	if ((ingerr = initng_msg(thefd, "createJob", joblabel, NULL)) != INITNG_ERR_SUCCESS) {
+		fprintf(stderr, "createJob failed: %s\n", initng_strerror(ingerr));
+		return;
 	}
-	if (CFDictionaryContainsKey(plist, CFSTR("UserName"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("UserName"));
-		if (!v) goto out;
-		CFStringGetCString(v, buf, sizeof(buf), kCFStringEncodingUTF8);
-		if (!initng_jobinfo_set_UserName(j, buf)) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("GroupName"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("GroupName"));
-		if (!v) goto out;
-		CFStringGetCString(v, buf, sizeof(buf), kCFStringEncodingUTF8);
-		if (!initng_jobinfo_set_GroupName(j, buf)) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("inetdSingleThreaded"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("inetdSingleThreaded"));
-		if (!v || !initng_jobinfo_set_inetdSingleThreaded(j, CFBooleanGetValue(v))) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("LaunchOnce"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("LaunchOnce"));
-		if (!v || !initng_jobinfo_set_LaunchOnce(j, CFBooleanGetValue(v))) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("OnDemand"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("OnDemand"));
-		if (!v || !initng_jobinfo_set_OnDemand(j, CFBooleanGetValue(v))) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("Batch"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("Batch"));
-		if (!v || !initng_jobinfo_set_Batch(j, CFBooleanGetValue(v))) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("ServiceIPC"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("ServiceIPC"));
-		if (!v || !initng_jobinfo_set_ServiceIPC(j, CFBooleanGetValue(v))) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("PeriodicSeconds"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("PeriodicSeconds"));
-		unsigned int tmp = 0;
-		if (!v) goto out;
-		CFNumberGetValue(v, kCFNumberIntType, &tmp);
-	       	if (!initng_jobinfo_set_PeriodicSeconds(j, tmp)) goto out;
-	}
-#if 0
-	if (CFDictionaryContainsKey(plist, CFSTR("SpecificTimeval"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("SpecificTimeval"));
-		unsigned int tmp = 0;
-		if (!v) goto out;
-		CFNumberGetValue(v, kCFNumberIntType, &tmp);
-	       	if (!initng_jobinfo_set_SpecificTimeval(j, (time_t)tmp)) goto out;
-	}
-#endif
-	if (CFDictionaryContainsKey(plist, CFSTR("Program"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("Program"));
-		if (!v) goto out;
-		CFStringGetCString(v, buf, sizeof(buf), kCFStringEncodingUTF8);
-	       	if (!initng_jobinfo_set_Program(j, buf)) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("ProgramArguments"))) {
-		CFIndex count;
-		char **tmp;
-		int ti;
-		const void *v = CFDictionaryGetValue(plist, CFSTR("ProgramArguments"));
-		if (!v) goto out;
-		count = CFArrayGetCount(v);
-		tmp = malloc((count + 1) * sizeof(char*));
-		tmp[count] = NULL;
-		for (ti = 0; ti < count; ti++) {
-			const void *tv = CFArrayGetValueAtIndex(v, ti);
-			if (!tv) goto out;
-			CFStringGetCString(tv, buf, sizeof(buf), kCFStringEncodingUTF8);
-			tmp[ti] = strdup(buf);
+
+	for (i = 0; i < (sizeof(cf_file_options) / sizeof(struct cf_file_option)); i++) {
+		CFStringRef sr = CFStringCreateWithCString(NULL, cf_file_options[i].cfkey, kCFStringEncodingUTF8);
+		if (!CFDictionaryContainsKey(plist, sr)) {
+			continue;
 		}
-		if (!initng_jobinfo_set_ProgramArguments(j, tmp)) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("EnvironmentVariables"))) {
-		CFIndex count;
-		char **tmp;
-		const void *v = CFDictionaryGetValue(plist, CFSTR("EnvironmentVariables"));
-		if (!v) goto out;
-		count = CFDictionaryGetCount(v);
-		tmp = calloc(1, (count + 1) * sizeof(char*));
-		CFDictionaryApplyFunction(v, (CFDictionaryApplierFunction)myEnvpCallback, tmp);
-		if (!initng_jobinfo_set_EnvironmentVariables(j, tmp)) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("ServiceDescription"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("ServiceDescription"));
-		if (!v) goto out;
-		CFStringGetCString(v, buf, sizeof(buf), kCFStringEncodingUTF8);
-	       	if (!initng_jobinfo_set_ServiceDescription(j, buf)) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("MachServiceNames"))) {
-		CFIndex count;
-		char **tmp;
-		int ti;
-		const void *v = CFDictionaryGetValue(plist, CFSTR("MachServiceNames"));
-		if (!v) goto out;
-		count = CFArrayGetCount(v);
-		tmp = malloc((count + 1) * sizeof(char*));
-		tmp[count] = NULL;
-		for (ti = 0; ti < count; ti++) {
-			const void *tv = CFArrayGetValueAtIndex(v, ti);
-			if (!tv) goto out;
-			CFStringGetCString(tv, buf, sizeof(buf), kCFStringEncodingUTF8);
-			tmp[ti] = strdup(buf);
+		if (!(v = CFDictionaryGetValue(plist, sr))) {
+			fprintf(stderr, "key \"%s\" without value?!? skipping...\n", cf_file_options[i].cfkey);
+			continue;
 		}
-		if (!initng_jobinfo_set_MachServiceNames(j, tmp)) goto out;
-	}
-	if (CFDictionaryContainsKey(plist, CFSTR("Sockets"))) {
-		CFIndex count;
-		const void *v = CFDictionaryGetValue(plist, CFSTR("Sockets"));
-		int ti = 0;
-		if (!v) goto out;
-		count = CFArrayGetCount(v);
-		for (ti = 0; ti < count; ti++) {
-			struct addrinfopp tmp;
-			const void *tv = CFArrayGetValueAtIndex(v, ti);
-			if (!tv) goto out;
-			memset(&tmp, 0, sizeof(struct addrinfopp));
-			if (CFDictionaryContainsKey(tv, CFSTR("addrinfo_nodename"))) {
-				const void *iv = CFDictionaryGetValue(tv, CFSTR("addrinfo_nodename"));
-				if (!iv) goto out;
-				CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
-				strncpy(tmp.nodename, buf, sizeof(tmp.nodename));
-			}
-			if (CFDictionaryContainsKey(tv, CFSTR("addrinfo_servname"))) {
-				const void *iv = CFDictionaryGetValue(tv, CFSTR("addrinfo_servname"));
-				if (!iv) goto out;
-				CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
-				strncpy(tmp.servname, buf, sizeof(tmp.servname));
-			}
-			if (CFDictionaryContainsKey(tv, CFSTR("addrinfo_passive"))) {
-				const void *iv = CFDictionaryGetValue(tv, CFSTR("addrinfo_passive"));
-				if (!iv) goto out;
-				if (CFBooleanGetValue(iv))
-					tmp.hints.ai_flags |= AI_PASSIVE;
-			}
-			if (CFDictionaryContainsKey(tv, CFSTR("addrinfo_socktype"))) {
-				const void *iv = CFDictionaryGetValue(tv, CFSTR("addrinfo_socktype"));
-				if (!iv) goto out;
-				CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
-				if (!strcmp(buf, "SOCK_STREAM"))
-					tmp.hints.ai_socktype = SOCK_STREAM;
-				else if (!strcmp(buf, "SOCK_DGRAM"))
-					tmp.hints.ai_socktype = SOCK_DGRAM;
-			}
-			if (!initng_jobinfo_add_Socket(j, &tmp)) {
-				fprintf(stdout, "%s: failed to add a socket\n", argv0);
-				goto out;
-			}
+		msga = cf_file_options[i].func(v);
+		if (msga) {
+			msga[0] = joblabel;
+			ingerr = initng_msga(thefd, cf_file_options[i].command, msga);
+			if (ingerr != INITNG_ERR_SUCCESS)
+				fprintf(stderr, "%s failed: %s\n", cf_file_options[i].command, initng_strerror(ingerr));
+			for (msgatmp = msga + 1; *msgatmp; msgatmp++)
+				free(*msgatmp);
+			free(msga);
+		} else {
+			fprintf(stderr, "no msga!?!\n");
 		}
 	}
+
+	if (!CFDictionaryContainsKey(plist, CFSTR("Sockets")))
+		return;
+	if (!(v = CFDictionaryGetValue(plist, CFSTR("Sockets"))))
+		return;
+
+	count = CFArrayGetCount(v);
+	for (ti = 0; ti < count; ti++) {
+		char socklabel[1024] = { 0 };
+		char socknodename[1024] = { 0 };
+		char sockservname[1024] = { 0 };
+		char sockfamily[1024] = { 0 };
+		char socktype[1024] = { 0 };
+		char sockprotocol[1024] = { 0 };
+		char sockpassive[1024] = { 'f', 'a', 'l', 's', 'e', 0 };
+		if (!(tv = CFArrayGetValueAtIndex(v, ti))) {
+			fprintf(stderr, "failed to get Socket %d\n", ti);
+			break;
+		}
+		if (!CFDictionaryContainsKey(tv, CFSTR("SockLabel")))
+			goto socket_out;
+		if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockLabel"))))
+			goto socket_out;
+		CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+		strcpy(socklabel, buf);
+
+		if (CFDictionaryContainsKey(tv, CFSTR("SockNodename"))) {
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockNodename"))))
+				goto socket_out;
+			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+			strcpy(socknodename, buf);
+		}
+
+		if (!CFDictionaryContainsKey(tv, CFSTR("SockServname")))
+			goto socket_out;
+		if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockServname"))))
+			goto socket_out;
+		CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+		strcpy(sockservname, buf);
+
+		if (CFDictionaryContainsKey(tv, CFSTR("SockFamily"))) {
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockFamily"))))
+				goto socket_out;
+			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+			strcpy(sockfamily, buf);
+		}
+
+		if (CFDictionaryContainsKey(tv, CFSTR("SockType"))) {
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockType"))))
+				goto socket_out;
+			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+			strcpy(socktype, buf);
+		}
+
+		if (CFDictionaryContainsKey(tv, CFSTR("SockProtocol"))) {
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockProtocol"))))
+				goto socket_out;
+			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+			strcpy(sockprotocol, buf);
+		}
+
+		if (CFDictionaryContainsKey(tv, CFSTR("SockPassive"))) {
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockPassive"))))
+				goto socket_out;
+			if (CFBooleanGetValue(iv))
+				strcpy(sockpassive, "true");
+		}
+
+		ingerr = initng_msg(thefd, "addGetaddrinfoSockets", joblabel, socklabel, socknodename, sockservname,
+				sockfamily, socktype, sockprotocol, sockpassive, NULL);
+		if (ingerr != INITNG_ERR_SUCCESS)
+			fprintf(stderr, "addSocket failed: %s\n", initng_strerror(ingerr));
+
+		continue;
+socket_out:
+		fprintf(stderr, "failed to add Socket at index %d\n", ti);
+	}
+
 	if (CFDictionaryContainsKey(plist, CFSTR("Disabled"))) {
-		const void *v = CFDictionaryGetValue(plist, CFSTR("Disabled"));
-		if (!v || !initng_jobinfo_set_Enabled(j, !CFBooleanGetValue(v))) goto out;
-	} else {
-		if (!initng_jobinfo_set_Enabled(j, true))
-			goto out;
+		if ((v = CFDictionaryGetValue(plist, CFSTR("Disabled"))))
+			e = !CFBooleanGetValue(v);
 	}
-
-
-	goto out_good;
-out:
-	fprintf(stdout, "%s: failed to register: %s\n", argv0, file);
-out_good:
-	CFRelease(plist);
+	ingerr = initng_msg(thefd, "enableJob", joblabel, e ? "true" : "false", NULL);
+	if (ingerr != INITNG_ERR_SUCCESS)
+		fprintf(stderr, "enableJob failed: %s\n", initng_strerror(ingerr));
 }
 
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
@@ -258,7 +318,6 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
 	propertyList = CFPropertyListCreateFromXMLData(kCFAllocatorDefault, resourceData, kCFPropertyListImmutable, &errorString);
 	if (!propertyList)
 		fprintf(stderr, "%s: propertyList is NULL\n", argv0);
-	CFRelease(resourceData);
 
 	return propertyList;
 }
@@ -274,4 +333,12 @@ static void myEnvpCallback(const void *key, const void *value, char **where)
 	buf[i] = '=';
 	CFStringGetCString(value, buf + i + 1, sizeof(buf) - (i + 1), kCFStringEncodingUTF8);
 	*tmp = strdup(buf);
+}
+
+static void usage(FILE *where)
+{
+	if (where == stdout)
+		exit(EXIT_SUCCESS);
+	else
+		exit(EXIT_FAILURE);
 }

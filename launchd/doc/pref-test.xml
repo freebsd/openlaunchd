@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>UUID</key>
+	<key>Label</key>
 	<string>E8D8FB5E-50F6-11D8-A465-000A95CC7904</string>
 	<key>GroupName</key>
 	<string>staff</string>
@@ -32,23 +32,27 @@
 	<key>Sockets</key>
 	<array>
 		<dict>
-			<key>addrinfo_nodename</key>
+			<key>SockLabel</key>
+			<string>SockLabelOne</string>
+			<key>SockNodename</key>
 			<string>localhost</string>
-			<key>addrinfo_servname</key>
+			<key>SockServname</key>
 			<string>3456</string>
-			<key>addrinfo_passive</key>
+			<key>SockPassive</key>
 			<true/>
-			<key>addrinfo_socktype</key>
+			<key>SockType</key>
 			<string>SOCK_STREAM</string>
 		</dict>
 		<dict>
-			<key>addrinfo_nodename</key>
+			<key>SockLabel</key>
+			<string>SockLabelTwo</string>
+			<key>SockNodename</key>
 			<string>localhost</string>
-			<key>addrinfo_servname</key>
+			<key>SockServname</key>
 			<string>6543</string>
-			<key>addrinfo_passive</key>
+			<key>SockPassive</key>
 			<true/>
-			<key>addrinfo_socktype</key>
+			<key>SockType</key>
 			<string>SOCK_DGRAM</string>
 		</dict>
 	</array>

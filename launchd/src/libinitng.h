@@ -1,38 +1,49 @@
 #ifndef _LIBINITNG_H_
 #define _LIBINITNG_H_
 
-#include <stdbool.h>
-#include <netdb.h>
+#include <sys/socket.h>
+#include <stdarg.h>
 
-typedef struct initng_jobinfo * initng_jobinfo_t;
+typedef enum {
+	INITNG_ERR_SUCCESS = 0,
+	INITNG_ERR_AGAIN,
+	INITNG_ERR_CONN_NOT_FOUND,
+	INITNG_ERR_SYSCALL,
+	INITNG_ERR_RECVMSG_CTRUNC,
+	INITNG_ERR_DIRECTORY_LOOKUP,
+	INITNG_ERR_BROKEN_CONN,
+} initng_err_t;
 
-struct addrinfopp {
-	struct addrinfo hints;
-	char nodename[1024];
-	char servname[1024];
-};
+const char *initng_strerror(initng_err_t error);
 
-/* returns a fd to add to run loops to poll for readability, safe to ignore */
-int initng_init(void);
+initng_err_t initng_init(int *fd, const char *thepath);
+initng_err_t initng_close(int fd);
 
-bool initng_jobinfo_alloc(initng_jobinfo_t *j, char *u);
-void initng_jobinfo_free(initng_jobinfo_t j);
+/* simple synchronous API */
+initng_err_t initng_msg(int fd, char *command, ...);
+initng_err_t initng_msgv(int fd, char *command, va_list ap);
+initng_err_t initng_msga(int fd, char *command, char *data[]);
 
-bool initng_jobinfo_set_UserName(initng_jobinfo_t j, char *u);
-bool initng_jobinfo_set_GroupName(initng_jobinfo_t j, char *g);
-bool initng_jobinfo_set_EnvironmentVariables(initng_jobinfo_t j, char *envp[]);
-bool initng_jobinfo_set_Enabled(initng_jobinfo_t j, bool d);
-bool initng_jobinfo_set_LaunchOnce(initng_jobinfo_t j, bool lo);
-bool initng_jobinfo_set_OnDemand(initng_jobinfo_t j, bool od);
-bool initng_jobinfo_set_Batch(initng_jobinfo_t j, bool b);
-bool initng_jobinfo_set_ServiceIPC(initng_jobinfo_t j, bool sipc);
-bool initng_jobinfo_set_inetdSingleThreaded(initng_jobinfo_t j, bool st);
-bool initng_jobinfo_set_PeriodicSeconds(initng_jobinfo_t j, unsigned int ps);
-bool initng_jobinfo_set_SpecificTimeval(initng_jobinfo_t j, time_t stv);
-bool initng_jobinfo_set_Program(initng_jobinfo_t j, char *p);
-bool initng_jobinfo_set_ProgramArguments(initng_jobinfo_t j, char *argv[]);
-bool initng_jobinfo_set_ServiceDescription(initng_jobinfo_t j, char *sd);
-bool initng_jobinfo_set_MachServiceNames(initng_jobinfo_t j, char *msn[]);
-bool initng_jobinfo_add_Socket(initng_jobinfo_t j, struct addrinfopp *ai);
+/* used for asynchrous message receipt */
+typedef void (*initng_msg_cb)(int fd, char *command, char *data[], void *cookie);
 
+initng_err_t initng_recvmsg(int fd, initng_msg_cb cb, void *cookie);
+
+#ifdef INITNG_SERVER
+
+initng_err_t initng_sendmsg(int fd, char *command, ...);
+initng_err_t initng_sendmsgv(int fd, char *command, va_list ap);
+initng_err_t initng_sendmsga(int fd, char *command, char *data[]); 
+
+
+initng_err_t initng_server_init(int *fd, const char *thepath);
+initng_err_t initng_server_accept(int *cfd, int lfd);
+
+/* use this if you enable non-blocking IO on a FD
+ * call it when the FD becomes writable with select()/kevent()
+ * will return INITNG_ERR_SUCCESS once the queue is drained.
+ */
+initng_err_t initng_flush(int fd);
+
+#endif
 #endif

@@ -1,3 +1,4 @@
+#include <sys/queue.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -10,246 +11,535 @@
 #include <pwd.h>
 #include <grp.h>
 #include <errno.h>
+
+#define INITNG_SERVER
 #include "libinitng.h"
-#include "initngd.h"
 
-static bool initng_jobinfo_set_data(initng_jobinfo_t j, void *d, size_t dl, int command);
-static bool initng_jobinfo_set_data_with_ancillary(initng_jobinfo_t j, void *d, size_t dl, int command, void *c, size_t cl);
-static bool initng_jobinfo_set_string(initng_jobinfo_t j, char *s, int command);
-static bool initng_jobinfo_set_multiple_strings(initng_jobinfo_t j, char *sa[], int command);
+static struct initng_ipc_conn *find_conn_with_fd(int fd);
+static void create_ipc_conn(int fd);
+static char **lstring2vdup(void *data, size_t data_len);
+static initng_err_t __initng_sendmsga(int fd, char *command, char *data[], struct cmsghdr *cm, size_t cml);
 
-struct initng_jobinfo {
-	char uuid[16];
+#define INITNG_SOCKET_ENV       "INITNG_SOCKET"
+#define INITNG_SOCKET_DEFAULT   "/var/run/initng.socket"
+
+struct initng_ipc_packet {
+	size_t p_len;
+	char p_data[0];
 };
 
-static int initng_fd;
+struct initng_ipc_conn {
+	TAILQ_ENTRY(initng_ipc_conn) tqe;
+	int     monitoring:1;
+	int     fd;
+	void    *sendbuf;
+	size_t  sendlen;
+	void    *sendctrlbuf;
+	size_t  sendctrllen;
+	void    *recvbuf;
+	size_t  recvlen;
+	void    *recvctrlbuf;
+	size_t  recvctrllen;
+};
 
-int initng_init(void)
+static TAILQ_HEAD(initng_ipc_connections, initng_ipc_conn) theconnections = TAILQ_HEAD_INITIALIZER(theconnections);
+
+initng_err_t initng_init(int *fd, const char *thepath)
 {
 	struct sockaddr_un sun;
-	char *where;
-	int r = 0;
-	
-	where = getenv(INITNG_SOCKET_ENV);
+	char *where = getenv(INITNG_SOCKET_ENV);
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
-	strncpy(sun.sun_path, where ? where : INITNG_SOCKET_DEFAULT, sizeof(sun.sun_path));
+	strncpy(sun.sun_path, thepath ? thepath : where ? where : INITNG_SOCKET_DEFAULT, sizeof(sun.sun_path));
 	
-	initng_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (initng_fd == -1)
-		return -1;
-	r = connect(initng_fd, (struct sockaddr *)&sun, sizeof(sun));
-	if (r == -1)
-		return -1;
-	return initng_fd;
+	if ((*fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+		return INITNG_ERR_SYSCALL;
+	if (connect(*fd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+		close(*fd);
+		return INITNG_ERR_SYSCALL;
+	}
+
+	create_ipc_conn(*fd);
+
+	return INITNG_ERR_SUCCESS;
 }
 
-bool initng_jobinfo_alloc(initng_jobinfo_t *j, char *u)
+initng_err_t initng_server_init(int *fd, const char *thepath)
 {
-	bool r;
+	struct sockaddr_un sun;
+	char *where = getenv(INITNG_SOCKET_ENV);
 
-	*j = calloc(1, sizeof(struct initng_jobinfo));
-	memcpy((*j)->uuid, u, 16);
+	memset(&sun, 0, sizeof(sun));
+	sun.sun_family = AF_UNIX;
+	strncpy(sun.sun_path, thepath ? thepath : where ? where : INITNG_SOCKET_DEFAULT, sizeof(sun.sun_path));
 
-	r = initng_jobinfo_set_data(*j, NULL, 0, INITNG_CREATE);
-	if (!r)
-		free(*j);
+        if (unlink(sun.sun_path) == -1 && errno != ENOENT)
+                return INITNG_ERR_SYSCALL;
+	if ((*fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+                return INITNG_ERR_SYSCALL;
+        if (bind(*fd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+		close(*fd);
+                return INITNG_ERR_SYSCALL;
+	}
+        if (listen(*fd, 255) == -1) {
+		close(*fd);
+                return INITNG_ERR_SYSCALL;
+	}
+
+        return INITNG_ERR_SUCCESS;
+}
+
+initng_err_t initng_server_accept(int *cfd, int lfd)
+{
+        struct sockaddr_un sun;
+        socklen_t sl = sizeof(sun);
+
+        if ((*cfd = accept(lfd, (struct sockaddr *)&sun, &sl)) == -1)
+                return INITNG_ERR_SYSCALL;
+
+	create_ipc_conn(*cfd);
+
+	return INITNG_ERR_SUCCESS;
+}
+
+initng_err_t initng_flush(int fd)
+{
+        struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
+        struct msghdr mh;
+        struct iovec iov;
+        int r;
+
+        if (!thisconn) {
+                return INITNG_ERR_CONN_NOT_FOUND;
+        }
+
+        memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+
+	iov.iov_base = thisconn->sendbuf;
+	iov.iov_len = thisconn->sendlen;
+	mh.msg_control = thisconn->sendctrllen ? thisconn->sendctrlbuf : NULL;
+	mh.msg_controllen = thisconn->sendctrllen;
+
+	if ((r = sendmsg(thisconn->fd, &mh, 0)) == -1)
+		return INITNG_ERR_SYSCALL;
+	if (r == 0)
+		return INITNG_ERR_BROKEN_CONN;
+	memmove(thisconn->sendbuf, thisconn->sendbuf + r, r);
+	thisconn->sendlen -= r;
+	/* XXX - close FDs that have been sent */
+	memmove(thisconn->sendctrlbuf, thisconn->sendctrlbuf + mh.msg_controllen, mh.msg_controllen);
+	thisconn->sendctrllen -= mh.msg_controllen;
+
+	if (thisconn->sendlen > 0 || thisconn->sendctrllen > 0)
+		return INITNG_ERR_AGAIN;
+	
+	thisconn->sendbuf = realloc(thisconn->sendbuf, 0);
+	thisconn->sendctrlbuf = realloc(thisconn->sendctrlbuf, 0);
+	return INITNG_ERR_SUCCESS;
+}
+
+initng_err_t initng_recvmsg(int fd, initng_msg_cb cb, void *cookie)
+{
+        struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
+	struct initng_ipc_packet *p;
+        struct msghdr mh;
+        struct iovec iov;
+	char **datav, *fdstr = NULL;
+	size_t pl;
+        int r;
+
+        if (!thisconn) {
+                return INITNG_ERR_CONN_NOT_FOUND;
+        }
+
+        memset(&mh, 0, sizeof(mh));
+        mh.msg_iov = &iov;
+        mh.msg_iovlen = 1;
+
+	thisconn->recvbuf = realloc(thisconn->recvbuf, thisconn->recvlen + 16*1024);
+	thisconn->recvctrlbuf = realloc(thisconn->recvctrlbuf, thisconn->recvlen + 4*1024);
+
+	iov.iov_base = thisconn->recvbuf + thisconn->recvlen;
+	iov.iov_len = 16*1024;
+	mh.msg_control = thisconn->recvctrlbuf + thisconn->recvctrllen;
+	mh.msg_controllen = 4*1024;
+
+	if ((r = recvmsg(thisconn->fd, &mh, 0)) == -1)
+		return INITNG_ERR_SYSCALL;
+	if (r == 0)
+		return INITNG_ERR_BROKEN_CONN;
+	if (mh.msg_flags & MSG_CTRUNC)
+		return INITNG_ERR_RECVMSG_CTRUNC;
+	thisconn->recvlen += r;
+	thisconn->recvctrllen += mh.msg_controllen;
+
+start_over:
+        p = thisconn->recvbuf;
+        if (thisconn->recvlen < sizeof(struct initng_ipc_packet))
+                return INITNG_ERR_AGAIN;
+        if (sizeof(struct initng_ipc_packet) >= p->p_len)
+		return INITNG_ERR_BROKEN_CONN;
+        if (thisconn->recvlen < p->p_len)
+                return INITNG_ERR_AGAIN;
+
+	datav = lstring2vdup(p->p_data, p->p_len - sizeof(struct initng_ipc_packet));
+
+	if (strcmp(datav[0], "addFD") == 0) {
+		struct cmsghdr *cm = thisconn->recvctrlbuf;
+		int cml = CMSG_LEN(sizeof(int));
+
+		if (cm->cmsg_len != cml || cm->cmsg_level != SOL_SOCKET || cm->cmsg_type != SCM_RIGHTS) { 
+			fprintf(stderr, "bogus ancillary data recieved");
+			return INITNG_ERR_BROKEN_CONN;
+		}
+		asprintf(&fdstr, "%d", *((int*)CMSG_DATA(cm)));
+		datav[3] = fdstr;
+		memmove(thisconn->recvctrlbuf, thisconn->recvctrlbuf + cml, thisconn->recvctrllen - cml);
+        	thisconn->recvctrllen -= cml;
+	}
+	cb(fd, datav[0], &(datav[1]), cookie);
+
+	if (fdstr)
+		free(fdstr);
+	free(datav[0]);
+	free(datav);
+
+	pl = p->p_len;
+	memmove(thisconn->recvbuf, thisconn->recvbuf + pl, thisconn->recvlen - pl);
+        thisconn->recvlen -= pl;
+
+	if (thisconn->recvlen > 0 && thisconn->recvctrllen > 0)
+		goto start_over;
+
+	thisconn->recvbuf = realloc(thisconn->recvbuf, 0);
+	thisconn->recvctrlbuf = realloc(thisconn->recvctrlbuf, 0);
+	return INITNG_ERR_SUCCESS;
+}
+
+initng_err_t initng_sendmsg(int fd, char *command, ...)
+{
+	initng_err_t r;
+	va_list ap;
+	va_start(ap, command);
+	r = initng_sendmsgv(fd, command, ap);
+	va_end(ap);
 	return r;
 }
 
-void initng_jobinfo_free(initng_jobinfo_t j)
+initng_err_t initng_msg(int fd, char *command, ...)
 {
-	free(j);
-}
-
-bool initng_jobinfo_set_UserName(initng_jobinfo_t j, char *u)
-{
-	struct passwd *pwe = getpwnam(u);
-
-	if (!pwe)
-		return false;
-
-	return initng_jobinfo_set_data(j, &pwe->pw_uid, sizeof(uid_t), INITNG_SET_UID);
-}
-
-bool initng_jobinfo_set_GroupName(initng_jobinfo_t j, char *g)
-{
-	struct group *gre = getgrnam(g);
-
-	if (!gre)
-		return false;
-
-	return initng_jobinfo_set_data(j, &gre->gr_gid, sizeof(gid_t), INITNG_SET_GID);
-}
-
-bool initng_jobinfo_set_EnvironmentVariables(initng_jobinfo_t j, char *envp[])
-{
-	return initng_jobinfo_set_multiple_strings(j, envp, INITNG_SET_ENV);
-}
-
-bool initng_jobinfo_set_Enabled(initng_jobinfo_t j, bool e)
-{
-	return initng_jobinfo_set_data(j, &e, sizeof(bool), INITNG_SET_FLAG_ENABLED);
-}
-
-bool initng_jobinfo_set_LaunchOnce(initng_jobinfo_t j, bool lo)
-{
-	return initng_jobinfo_set_data(j, &lo, sizeof(bool), INITNG_SET_FLAG_LAUNCH_ONCE);
-}
-
-bool initng_jobinfo_set_OnDemand(initng_jobinfo_t j, bool od)
-{
-	return initng_jobinfo_set_data(j, &od, sizeof(bool), INITNG_SET_FLAG_ON_DEMAND);
-}
-
-bool initng_jobinfo_set_Batch(initng_jobinfo_t j, bool b)
-{
-	return initng_jobinfo_set_data(j, &b, sizeof(bool), INITNG_SET_FLAG_BATCH);
-}
-
-bool initng_jobinfo_set_ServiceIPC(initng_jobinfo_t j, bool sipc)
-{
-	return initng_jobinfo_set_data(j, &sipc, sizeof(bool), INITNG_SET_FLAG_SUPPORTS_MGMT);
-}
-
-bool initng_jobinfo_set_inetdSingleThreaded(initng_jobinfo_t j, bool st)
-{
-	return initng_jobinfo_set_data(j, &st, sizeof(bool), INITNG_SET_FLAG_INETD_SINGLE_THREADED);
-}
-
-bool initng_jobinfo_set_PeriodicSeconds(initng_jobinfo_t j, unsigned int ps)
-{
-	return initng_jobinfo_set_data(j, &ps, sizeof(ps), INITNG_SET_PERIODIC);
-}
-
-bool initng_jobinfo_set_Program(initng_jobinfo_t j, char *pr)
-{
-	return initng_jobinfo_set_string(j, pr, INITNG_SET_PROGRAM);
-}
-
-bool initng_jobinfo_set_ProgramArguments(initng_jobinfo_t j, char *argv[])
-{
-	return initng_jobinfo_set_multiple_strings(j, argv, INITNG_SET_ARGV);
-}
-
-bool initng_jobinfo_set_ServiceDescription(initng_jobinfo_t j, char *sd)
-{
-	return initng_jobinfo_set_string(j, sd, INITNG_SET_DESCRIPTION);
-}
-
-bool initng_jobinfo_set_MachServiceNames(initng_jobinfo_t j, char *msn[])
-{
-	return initng_jobinfo_set_multiple_strings(j, msn, INITNG_SET_MACH_SERVICE_NAMES);
-}
-
-bool initng_jobinfo_add_Socket(initng_jobinfo_t j, struct addrinfopp *ai)
-{
-	struct addrinfo *res, *res0 = NULL;
-	int fd;
-	int error;
-	bool r = false;
-	union {
-		struct cmsghdr cm;
-		char control[CMSG_SPACE(sizeof(int))];
-	} control_un;
-
-	error = getaddrinfo(ai->nodename, ai->servname, &ai->hints, &res0);
-	if (error) {
-		fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(error));
-		if (res0)
-			goto out;
-		return false;
-	}
-
-	for (res = res0; res; res = res->ai_next) {
-		if ((fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1) {
-			goto out;
-		}
-		if (bind(fd, res->ai_addr, res->ai_addrlen) == -1) {
-			close(fd);
-			goto out;
-		}
-		if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
-				&& listen(fd, SOMAXCONN) == -1) {
-			close(fd);
-			goto out;
-		}
-		control_un.cm.cmsg_len = CMSG_LEN(sizeof(int));
-		control_un.cm.cmsg_level = SOL_SOCKET;
-		control_un.cm.cmsg_type = SCM_RIGHTS;
-		*((int*)CMSG_DATA(&control_un.cm)) = fd;
-		r = initng_jobinfo_set_data_with_ancillary(j, ai, sizeof(struct addrinfopp), INITNG_ADD_FD,
-				&control_un, sizeof(control_un));
-		close(fd);
-		if (r == false)
-			goto out;
-	}
-out:
-	freeaddrinfo(res0);
+	initng_err_t r;
+	va_list ap;
+	va_start(ap, command);
+	r = initng_msgv(fd, command, ap);
+	va_end(ap);
 	return r;
 }
 
-static bool initng_jobinfo_set_string(initng_jobinfo_t j, char *s, int command)
+initng_err_t initng_sendmsgv(int fd, char *command, va_list ap)
 {
-	return initng_jobinfo_set_data(j, s, strlen(s) + 1, command);
+	initng_err_t r;
+	va_list origap = ap;
+	size_t c = 0;
+	char **v, **vt;
+	while (va_arg(ap, char*))
+		c++;
+	ap = origap;
+	v = vt = malloc((c + 1) * sizeof(char*));
+	v[c] = NULL;
+	while ((*vt = va_arg(ap, char *)))
+		vt++;
+	r = initng_sendmsga(fd, command, v);
+	free(v);
+	return r;
 }
 
-static bool initng_jobinfo_set_data(initng_jobinfo_t j, void *d, size_t dl, int command)
+initng_err_t initng_msgv(int fd, char *command, va_list ap)
 {
-	return initng_jobinfo_set_data_with_ancillary(j, d, dl, command, NULL, 0);
+	initng_err_t r;
+	va_list origap = ap;
+	size_t c = 0;
+	char **v, **vt;
+	while (va_arg(ap, char*))
+		c++;
+	ap = origap;
+	v = vt = malloc((c + 1) * sizeof(char*));
+	v[c] = NULL;
+	while ((*vt = va_arg(ap, char *)))
+		vt++;
+	r = initng_msga(fd, command, v);
+	free(v);
+	return r;
 }
 
-static bool initng_jobinfo_set_data_with_ancillary(initng_jobinfo_t j, void *d, size_t dl, int command, void *c, size_t cl)
+static initng_err_t __initng_sendmsga(int fd, char *command, char *data[], struct cmsghdr *cm, size_t cml)
 {
-	struct msghdr mh;
-	struct initng_ipc_packet p;
-	struct iovec iov[2] = { { (void*)&p, sizeof(p) }, { d, dl } };
-	ssize_t wr, rr;
-
-	memset(&mh, 0, sizeof(mh));
-	mh.msg_iov = iov;
-	mh.msg_iovlen = 2;
-	mh.msg_control = c;
-	mh.msg_controllen = cl;
-
-	p.version = INITNG_PROTOCOL_VERSION;
-	p.command = command;
-	memcpy(&p.uuid, j->uuid, 16);
-	p.data_len = dl;
-
-	if ((wr = sendmsg(initng_fd, &mh, 0)) != (ssize_t)(sizeof(p) + dl)) {
-		fprintf(stderr, "sendmsg(): %s\n", strerror(errno));
-		return false;
-	}
-	if ((rr = read(initng_fd, &p, sizeof(p))) != (ssize_t)sizeof(p)) {
-		fprintf(stderr, "read(): %s\n", strerror(errno));
-		return false;
-	}
-	if (p.return_code == 0)
-		return true;
-	else
-		return false;
-}
-
-static bool initng_jobinfo_set_multiple_strings(initng_jobinfo_t j, char *sa[], int command)
-{
-	char *lsa, *lsat;
-	size_t lsa_len = 0;
+	struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
 	char **tmp;
-	bool r;
+	char *lsa, *lsat;
+	size_t lsa_len = strlen(command) + 1;
+	struct initng_ipc_packet *p;
 
-	for (tmp = sa; *tmp; tmp++)
+	if (!thisconn)
+		return INITNG_ERR_CONN_NOT_FOUND;
+
+	for (tmp = data; *tmp; tmp++)
 		lsa_len += strlen(*tmp) + 1;
 
-	lsa = lsat = malloc(lsa_len);
+	p = malloc(lsa_len + sizeof(struct initng_ipc_packet));
+	p->p_len = sizeof(p) + lsa_len;
+	lsa = lsat = p->p_data;
 
-	for (tmp = sa; *tmp; tmp++) {
+	strcpy(lsat, command);
+	lsat += strlen(command) + 1;
+	for (tmp = data; *tmp; tmp++) {
 		strcpy(lsat, *tmp);
 		lsat += strlen(*tmp) + 1;
 	}
 
-	r = initng_jobinfo_set_data(j, lsa, lsa_len, command);
-	free(lsa);
-	return r;
+	thisconn->sendbuf = realloc(thisconn->sendbuf, thisconn->sendlen + p->p_len);
+	memcpy(thisconn->sendbuf + thisconn->sendlen, p, p->p_len);
+	thisconn->sendlen += p->p_len;
+	free(p);
+
+	if (cm) {
+		thisconn->sendctrlbuf = realloc(thisconn->sendctrlbuf, thisconn->sendctrllen + cml);
+		memcpy(thisconn->sendctrlbuf + thisconn->sendctrllen, cm, cml);
+		thisconn->sendctrllen += cml;
+	}
+
+	return initng_flush(fd);
+}
+
+static void simple_msg_cb(int fd, char *command, char *data[], void *cookie)
+{
+	char **r = cookie;
+	*r = strdup(*data);
+}
+
+initng_err_t initng_msga(int fd, char *command, char *data[])
+{
+	initng_err_t ingerr;
+	char *result = NULL;
+
+	ingerr = initng_sendmsga(fd, command, data);
+	if (ingerr != INITNG_ERR_SUCCESS)
+		goto out;
+	ingerr = initng_recvmsg(fd, simple_msg_cb, &result);
+	if (ingerr != INITNG_ERR_SUCCESS)
+		goto out;
+	if (!strcmp(result, "success"))
+		ingerr = INITNG_ERR_SUCCESS;
+	else {
+		ingerr = -1;
+		fprintf(stderr, "d'oh: %s\n", result);
+	}
+out:
+	if (result)
+		free(result);
+	return ingerr;
+}
+
+initng_err_t initng_sendmsga(int fd, char *command, char *data[])
+{
+	initng_err_t r = INITNG_ERR_SUCCESS;
+	char *tmpa[3] = { data[0], NULL, NULL };
+	char *tmp;
+
+	if (strcmp(command, "setUserName") == 0) {
+		struct passwd *pwe = getpwnam(data[1]);
+		if (!pwe)
+			return INITNG_ERR_DIRECTORY_LOOKUP;
+		asprintf(&tmp, "%d", pwe->pw_uid);
+		tmpa[1] = tmp;
+		r = __initng_sendmsga(fd, "setUID", tmpa, NULL, 0);
+		free(tmp);
+		return r;
+	} else if (strcmp(command, "setGroupName") == 0) {
+		struct group *gre = getgrnam(data[1]);
+		if (!gre)
+			return INITNG_ERR_DIRECTORY_LOOKUP;
+		asprintf(&tmp, "%d", gre->gr_gid);
+		tmpa[1] = tmp;
+		r = __initng_sendmsga(fd, "setGID", tmpa, NULL, 0);
+		free(tmp);
+		return r;
+	} else if (strcmp(command, "addGetaddrinfoSockets") == 0) {
+		struct addrinfo hints, *res, *res0 = NULL;
+		int sfd;
+		char *n = NULL, *s = NULL;
+		char *realmsgdata[4];
+		char *fdstr;
+
+		/* addGetaddrinfoSockets
+		 *
+		 * joblabel, socklabel, socknodename, sockservname, sockfamily,
+		 * socktype, sockprotocol, sockpassive, NULL
+		 */
+		                
+		/* XXX - sort out arguments */
+		memset(&hints, 0, sizeof(hints));
+		if (strlen(data[2]) > 0)	/* nodename */
+			n = data[2];
+		if (strlen(data[3]) > 0)	/* servname */
+			s = data[3];
+		if (strlen(data[4]) > 0)	/* family */
+			fprintf(stderr, "family parsing not yet implemented\n");
+		if (strlen(data[5]) > 0) {	/* socktype */
+			if (!strcmp(data[5], "SOCK_STREAM"))
+				hints.ai_socktype = SOCK_STREAM;
+			else if (!strcmp(data[5], "SOCK_DGRAM"))
+				hints.ai_socktype = SOCK_DGRAM;
+			else
+				fprintf(stderr, "unknown socket type\n");
+		}
+		if (strlen(data[6]) > 0)	/* protocol */
+			fprintf(stderr, "protocol parsing not yet implemented\n");
+		if (strlen(data[7]) > 0) {	/* passive */
+			if (!strcmp(data[7], "true"))
+				hints.ai_flags |= AI_PASSIVE;
+		}
+
+		if (getaddrinfo(n, s, &hints, &res0))
+			return INITNG_ERR_DIRECTORY_LOOKUP;
+
+		realmsgdata[0] = data[0];
+		realmsgdata[1] = data[1];
+		realmsgdata[3] = NULL;
+
+		for (res = res0; res; res = res->ai_next) {
+			int sock_opt = 1;
+			if ((sfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1)
+				goto res_walk_out_bad;
+			if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1)
+				goto res_walk_out_bad;
+			if (hints.ai_flags & AI_PASSIVE) {
+			       	if (bind(sfd, res->ai_addr, res->ai_addrlen) == -1)
+					goto res_walk_out_bad;
+			} else if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1)
+					goto res_walk_out_bad;
+			if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
+					&& listen(sfd, SOMAXCONN) == -1)
+				goto res_walk_out_bad;
+			asprintf(&fdstr, "%d", sfd);
+			realmsgdata[2] = fdstr;
+			r = initng_sendmsga(fd, "addFD", realmsgdata);
+			close(sfd);
+			free(fdstr);
+			if (r != INITNG_ERR_SUCCESS)
+				goto res_walk_out_bad;
+			continue;
+res_walk_out_bad:
+			freeaddrinfo(res0);
+			return INITNG_ERR_SYSCALL;
+		}
+
+		freeaddrinfo(res0);
+		return r;
+	} else if (strcmp(command, "addFD") == 0) {
+		union {
+			struct cmsghdr cm;
+			char control[CMSG_SPACE(sizeof(int))];
+		} control_un;
+
+		control_un.cm.cmsg_len = CMSG_LEN(sizeof(int));
+		control_un.cm.cmsg_level = SOL_SOCKET;
+		control_un.cm.cmsg_type = SCM_RIGHTS;
+
+		*((int*)CMSG_DATA(&control_un.cm)) = dup(strtol(data[2], NULL, 10));
+
+		return __initng_sendmsga(fd, command, data, &(control_un.cm), sizeof(control_un));
+	}
+	return __initng_sendmsga(fd, command, data, NULL, 0);
+}
+
+static void create_ipc_conn(int fd)
+{
+        struct initng_ipc_conn *c;
+
+        c = calloc(1, sizeof(struct initng_ipc_conn));
+        c->fd = fd;
+        c->sendbuf = malloc(0);
+        c->sendctrlbuf = malloc(0);
+        c->recvbuf = malloc(0);
+        c->recvctrlbuf = malloc(0);
+        TAILQ_INSERT_TAIL(&theconnections, c, tqe);
+}
+
+static struct initng_ipc_conn *find_conn_with_fd(int fd)
+{
+	struct initng_ipc_conn *var;
+	TAILQ_FOREACH(var, &theconnections, tqe) {
+		if (var->fd == fd)
+			return var;
+	}
+	return NULL;
+}
+
+initng_err_t initng_close(int fd)
+{
+	struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
+
+	if (!thisconn)
+		return INITNG_ERR_CONN_NOT_FOUND;
+
+	TAILQ_REMOVE(&theconnections, thisconn, tqe);
+	free(thisconn->sendbuf);
+	free(thisconn->sendctrlbuf);
+	free(thisconn->recvbuf);
+	free(thisconn->recvctrlbuf);
+	close(thisconn->fd);
+	free(thisconn);
+
+	return INITNG_ERR_SUCCESS;
+}
+
+const char *initng_strerror(initng_err_t error)
+{
+	const char *const errs[] = {
+		[INITNG_ERR_SUCCESS] =		"Success",
+		[INITNG_ERR_AGAIN] =		"Resource temporarily unavailable",
+		[INITNG_ERR_CONN_NOT_FOUND] =	"Connection for FD not found",
+		[INITNG_ERR_SYSCALL] =		"System call failure",
+		[INITNG_ERR_RECVMSG_CTRUNC] =	"Whoops, we underbudgeted the ancillary data buffer size",
+		[INITNG_ERR_DIRECTORY_LOOKUP] =	"Directory lookup failure",
+		[INITNG_ERR_BROKEN_CONN] =	"The connection broke",
+	};
+
+	if (error >= (sizeof(errs) / sizeof(char *)) || errs[error] == NULL) {
+		return "Unknown initng error";
+	}
+	if (error == INITNG_ERR_SYSCALL)
+		fprintf(stderr, "INITNG_ERR_SYSCALL: %s\n", strerror(errno));
+	return errs[error];
+}
+
+static char **lstring2vdup(void *data, size_t data_len)
+{
+        char *tmp = malloc(data_len);
+        char *lastseenstring = NULL;
+        char **r;
+        size_t argc = 0;
+        unsigned int i, j = 0;
+
+        memcpy(tmp, data, data_len);
+
+        for (i = 0; i < data_len; i++) {
+                if (tmp[i] == NULL)
+                        argc++;
+        }
+        r = malloc((argc * sizeof(char*)) + 1);
+        r[argc] = NULL;
+        lastseenstring = tmp;
+        for (i = 0; i < data_len; i++) {
+                if (tmp[i] == NULL) {
+                        r[j] = lastseenstring;
+                        j++;
+                        lastseenstring = &(tmp[i]) + 1;
+                }
+        }
+        return r;
 }

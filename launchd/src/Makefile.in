@@ -74,11 +74,11 @@ VERSION = @VERSION@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare -Wunreachable-code
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
 sbin_SCRIPTS = service
 
-sbin_PROGRAMS = SystemStarter init mach_init initctl initngd
+sbin_PROGRAMS = SystemStarter init mach_init initctl initngd wait4mount
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
 
@@ -96,11 +96,13 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 	Log.c TextDisplay.c main.c SafeBootPrivate.c
 
 
+wait4mount_SOURCES = wait4mount.c
+
 init_SOURCES = init.c
 
 initctl_SOURCES = libinitng.c initctl.c
 
-initngd_SOURCES = initngd.c
+initngd_SOURCES = libinitng.c initngd.c
 
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 
@@ -117,7 +119,7 @@ libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
 	register_mach_bootstrap_servers$(EXEEXT) \
 	StartupItemContext$(EXEEXT)
 sbin_PROGRAMS = SystemStarter$(EXEEXT) init$(EXEEXT) mach_init$(EXEEXT) \
-	initctl$(EXEEXT) initngd$(EXEEXT)
+	initctl$(EXEEXT) initngd$(EXEEXT) wait4mount$(EXEEXT)
 PROGRAMS = $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 
 ConsoleMessage_SOURCES = ConsoleMessage.c
@@ -144,7 +146,7 @@ am_initctl_OBJECTS = libinitng.$(OBJEXT) initctl.$(OBJEXT)
 initctl_OBJECTS = $(am_initctl_OBJECTS)
 initctl_LDADD = $(LDADD)
 initctl_DEPENDENCIES =
-am_initngd_OBJECTS = initngd.$(OBJEXT)
+am_initngd_OBJECTS = libinitng.$(OBJEXT) initngd.$(OBJEXT)
 initngd_OBJECTS = $(am_initngd_OBJECTS)
 initngd_LDADD = $(LDADD)
 initngd_DEPENDENCIES =
@@ -162,6 +164,11 @@ register_mach_bootstrap_servers_OBJECTS = \
 	register_mach_bootstrap_servers.$(OBJEXT)
 register_mach_bootstrap_servers_LDADD = $(LDADD)
 register_mach_bootstrap_servers_DEPENDENCIES =
+am_wait4mount_OBJECTS = wait4mount.$(OBJEXT)
+wait4mount_OBJECTS = $(am_wait4mount_OBJECTS)
+wait4mount_LDADD = $(LDADD)
+wait4mount_DEPENDENCIES =
+wait4mount_LDFLAGS =
 SCRIPTS = $(sbin_SCRIPTS)
 
 
@@ -184,7 +191,8 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/libinitng.Po ./$(DEPDIR)/lists.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/main.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/rpc_services.Po
+@AMDEP_TRUE@	./$(DEPDIR)/rpc_services.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/wait4mount.Po
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
@@ -193,14 +201,14 @@ CFLAGS = @CFLAGS@
 DIST_SOURCES = ConsoleMessage.c StartupItemContext.c \
 	$(SystemStarter_SOURCES) $(init_SOURCES) $(initctl_SOURCES) \
 	$(initngd_SOURCES) $(mach_init_SOURCES) \
-	register_mach_bootstrap_servers.c
+	register_mach_bootstrap_servers.c $(wait4mount_SOURCES)
 
 NROFF = nroff
 MANS = $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 DIST_COMMON = Makefile.am Makefile.in config.h.in
-SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(init_SOURCES) $(initctl_SOURCES) $(initngd_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c
+SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(init_SOURCES) $(initctl_SOURCES) $(initngd_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4mount_SOURCES)
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -301,6 +309,9 @@ mach_init$(EXEEXT): $(mach_init_OBJECTS) $(mach_init_DEPENDENCIES)
 register_mach_bootstrap_servers$(EXEEXT): $(register_mach_bootstrap_servers_OBJECTS) $(register_mach_bootstrap_servers_DEPENDENCIES) 
 	@rm -f register_mach_bootstrap_servers$(EXEEXT)
 	$(LINK) $(register_mach_bootstrap_servers_LDFLAGS) $(register_mach_bootstrap_servers_OBJECTS) $(register_mach_bootstrap_servers_LDADD) $(LIBS)
+wait4mount$(EXEEXT): $(wait4mount_OBJECTS) $(wait4mount_DEPENDENCIES) 
+	@rm -f wait4mount$(EXEEXT)
+	$(LINK) $(wait4mount_LDFLAGS) $(wait4mount_OBJECTS) $(wait4mount_LDADD) $(LIBS)
 sbinSCRIPT_INSTALL = $(INSTALL_SCRIPT)
 install-sbinSCRIPTS: $(sbin_SCRIPTS)
 	@$(NORMAL_INSTALL)
@@ -347,6 +358,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/register_mach_bootstrap_servers.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rpc_services.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wait4mount.Po@am__quote@
 
 distclean-depend:
 	-rm -rf ./$(DEPDIR)
