@@ -224,6 +224,7 @@ static void job_add(launch_data_t ajob)
 			Tcl_CreateCommand(j->tcli, "StartJob", _start_job, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "StopJob", _stop_job, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "CallBackInterval", _callback_interval, (void *)j, NULL);
+			Tcl_CreateCommand(j->tcli, "CallBackDate", _callback_interval, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "WatchPath", _watch_path, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "CancelAllCallBacks", _cancel_all_callbacks, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "syslog", _syslog, (void *)j, NULL);
@@ -394,19 +395,26 @@ static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int arg
 {
 	struct jobcb *j = (struct jobcb *)clientData;
 	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
-        int  interval;
+        double interval;
 	CFRunLoopTimerContext rlcont;
+	bool use_interval = true;
+
+	if (!strcmp(argv[0], "CallBackDate"))
+		use_interval = false;
 
 	memset(&rlcont, 0, sizeof(rlcont));
 	
 	rlcont.info = j; 
 
         if (argc < 2 || argc > 3) {
-            Tcl_SetStringObj(tcl_result, "Wrong # args. CallbackInterval i ", -1);
+            Tcl_SetStringObj(tcl_result, "Wrong # args. Callback i ", -1);
             return TCL_ERROR;
         }
 
-        interval = atoi(argv[1]);
+        interval = atof(argv[1]);
+
+	if (!use_interval)
+		interval -= kCFAbsoluteTimeIntervalSince1970;
 
 	if (j->rlt) {
 		CFRunLoopTimerInvalidate(j->rlt);
@@ -416,8 +424,13 @@ static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int arg
 		j->_event = NULL;
 	}
 
+	fprintf(stderr, "@@@@@ %f\n", interval);
+
 	if (interval > 0) {
-		j->rlt = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, interval, 0, 0, tcl_timer_callback, &rlcont);
+		if (use_interval)
+			j->rlt = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, interval, 0, 0, tcl_timer_callback, &rlcont);
+		else
+			j->rlt = CFRunLoopTimerCreate(kCFAllocatorDefault, interval , 0, 0, 0, tcl_timer_callback, &rlcont);
 		if (j->rlt) {
 			CFRunLoopAddTimer(CFRunLoopGetCurrent(), j->rlt, kCFRunLoopDefaultMode);
 		} else {
