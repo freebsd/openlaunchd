@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
 	open(_PATH_DEVNULL, O_WRONLY);
 	open(_PATH_DEVNULL, O_WRONLY);
 
-	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_DAEMON);
+	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
 	update_lm();
 
 	if (getpid() == 1) {
