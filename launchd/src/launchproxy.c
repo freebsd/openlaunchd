@@ -25,36 +25,43 @@ static int kq = 0;
 
 static void find_fds(launch_data_t o, const char *key, void *context __attribute__((unused)))
 {
+	static bool subtree_is_rendezvous = false;
         struct kevent kev;
         size_t i;
 	int fd;
 
-	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD)) {
-		struct timeval timeout = { 0, 0 };
-		int rz = launch_data_get_fd(o);
-		fd_set rfds;
-		FD_ZERO(&rfds);
-		FD_SET(rz, &rfds);
-		switch (select(rz + 1, &rfds, NULL, NULL, &timeout)) {
-		case -1:
-			syslog(LOG_WARNING, "select(): %m");
-			break;
-		default:
-			syslog(LOG_WARNING, "mDNSResponder sent data to a job that will never read it!");
-		case 0:
-			break;
-		}
-		close(rz);
-		return;
+	if (subtree_is_rendezvous == false && key && !strcmp(key, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD)) {
+		subtree_is_rendezvous = true;
+		find_fds(o, key, NULL);
+		subtree_is_rendezvous = false;
 	}
 
         switch (launch_data_get_type(o)) {
         case LAUNCH_DATA_FD:
-                fd = launch_data_get_fd(o);
-		fcntl(fd, F_SETFD, 1);
-                EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-                if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
-                        syslog(LOG_DEBUG, "kevent(): %m");
+		if (subtree_is_rendezvous) {
+			struct timeval timeout = { 0, 0 };
+			int rz = launch_data_get_fd(o);
+			fd_set rfds;
+			FD_ZERO(&rfds);
+			FD_SET(rz, &rfds);
+			switch (select(rz + 1, &rfds, NULL, NULL, &timeout)) {
+			case -1:
+				syslog(LOG_WARNING, "select(): %m");
+				break;
+			default:
+				syslog(LOG_WARNING, "mDNSResponder sent data to a job that will never read it!");
+			case 0:
+				break;
+			}
+			close(rz);
+			return;
+		} else {
+			fd = launch_data_get_fd(o);
+			fcntl(fd, F_SETFD, 1);
+			EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+			if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
+				syslog(LOG_DEBUG, "kevent(): %m");
+		}
                 break;
         case LAUNCH_DATA_ARRAY:
                 for (i = 0; i < launch_data_array_get_count(o); i++)

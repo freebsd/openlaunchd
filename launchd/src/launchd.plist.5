@@ -237,9 +237,10 @@ This optional key implies SockFamily is set to "Unix". It specifies the path to
 or
 .Xr bind 2
 to.
-.It Sy Rendezvous <boolean>
+.It Sy Rendezvous <boolean or string or array of strings>
 This optional key can be used to request that the service be registered with the
 .Xr mDNSResponder 8 .
+If the value is boolean, the service name is inferred from the SockServiceName.
 .El
 .El
 .Pp

@@ -38,6 +38,7 @@ static void update_plist(CFPropertyListRef, const char *, bool);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
 static void wait4path(const char *path);
+static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
 
 static int lctl_tcl_cmd(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
 
@@ -573,7 +574,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 		launch_data_set_fd(val, sfd);
 		launch_data_dict_insert(tmp, val, LAUNCH_JOBSOCKETKEY_FD);
 	} else {
-		launch_data_t ai_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
+		launch_data_t rnames, ai_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
 		const char *node = NULL, *serv = NULL;
 		char servnbuf[50];
 		struct addrinfo hints, *res0, *res;
@@ -606,9 +607,12 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 			if (!strcasecmp("TCP", launch_data_get_string(val)))
 				hints.ai_protocol = IPPROTO_TCP;
 		}
-		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_RENDEZVOUS))) {
-			if (launch_data_get_bool(val))
-				rendezvous = true;
+		if ((rnames = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_RENDEZVOUS))) {
+			rendezvous = true;
+			if (LAUNCH_DATA_BOOL == launch_data_get_type(rnames)) {
+				rendezvous = launch_data_get_bool(rnames);
+				rnames = NULL;
+			}
 		}
 
 		if ((gerr = getaddrinfo(node, serv, &hints, &res0)) != 0) {
@@ -617,7 +621,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 		}
 
 		for (res = res0; res; res = res->ai_next) {
-			int rvs_fd = -1;
+			launch_data_t rvs_fd = NULL;
 			if ((sfd = _fd(socket(res->ai_family, res->ai_socktype, res->ai_protocol))) == -1) {
 				fprintf(stderr, "socket(): %s\n", strerror(errno));
 				return;
@@ -638,29 +642,20 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 				}
 				if (rendezvous && (res->ai_family == AF_INET || res->ai_family == AF_INET6) &&
 						(res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_DGRAM)) {
-					DNSServiceRef service;
-					DNSServiceErrorType error;
-					char rvs_buf[200];
-					short port;
+					if (NULL == rnames) {
+						rvs_fd = do_rendezvous_magic(res, serv);
+					} else if (LAUNCH_DATA_STRING == launch_data_get_type(rnames)) {
+						rvs_fd = do_rendezvous_magic(res, launch_data_get_string(rnames));
+					} else if (LAUNCH_DATA_ARRAY == launch_data_get_type(rnames)) {
+						size_t rn_i, rn_ac = launch_data_array_get_count(rnames);
 
-					sprintf(rvs_buf, "_%s._%s.", serv, res->ai_socktype == SOCK_STREAM ? "tcp" : "udp");
-
-					if (res->ai_family == AF_INET)
-						port = ((struct sockaddr_in *)res->ai_addr)->sin_port;
-					else
-						port = ((struct sockaddr_in6 *)res->ai_addr)->sin6_port;
-
-					error = DNSServiceRegister(&service, 0, 0, NULL, rvs_buf, NULL, NULL, port, 0, NULL, NULL, NULL);
-
-					if (error == kDNSServiceErr_NoError) {
-						rvs_fd = DNSServiceRefSockFD(service);
-						/* <rdar://problem/3964648> Launchd should not register the same service more than once */
-						/* <rdar://problem/3965154> Switch to DNSServiceRegisterAddrInfo() */
-						rendezvous = false;
-					} else {
-						fprintf(stderr, "DNSServiceRegister(\"%s\"): %d\n", serv, error);
+						rvs_fd = launch_data_alloc(LAUNCH_DATA_ARRAY);
+						
+						for (rn_i = 0; rn_i < rn_ac; rn_i++) {
+							launch_data_t rn_tmp = launch_data_array_get_index(rnames, rn_i);
+							launch_data_array_set_index(rvs_fd, do_rendezvous_magic(res, launch_data_get_string(rn_tmp)), rn_i);
+						}
 					}
-
 				}
 			} else {
 				if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1) {
@@ -669,12 +664,39 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 				}
 			}
 			val = create_launch_data_addrinfo_fd(res, sfd);
-			if (rvs_fd != -1)
-				launch_data_dict_insert(val, launch_data_new_fd(rvs_fd), LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD);
+			if (rvs_fd) {
+				launch_data_dict_insert(val, rvs_fd, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD);
+				/* <rdar://problem/3964648> Launchd should not register the same service more than once */
+				/* <rdar://problem/3965154> Switch to DNSServiceRegisterAddrInfo() */
+				rendezvous = false;
+			}
 			launch_data_array_set_index(ai_array, val, launch_data_array_get_count(ai_array));
 		}
 		launch_data_dict_insert(tmp, ai_array, LAUNCH_JOBSOCKETKEY_ADDRINFORESULTS);
 	}
+}
+
+static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv)
+{
+	DNSServiceRef service;
+	DNSServiceErrorType error;
+	char rvs_buf[200];
+	short port;
+
+	sprintf(rvs_buf, "_%s._%s.", serv, res->ai_socktype == SOCK_STREAM ? "tcp" : "udp");
+
+	if (res->ai_family == AF_INET)
+		port = ((struct sockaddr_in *)res->ai_addr)->sin_port;
+	else
+		port = ((struct sockaddr_in6 *)res->ai_addr)->sin6_port;
+
+	error = DNSServiceRegister(&service, 0, 0, NULL, rvs_buf, NULL, NULL, port, 0, NULL, NULL, NULL);
+
+	if (error == kDNSServiceErr_NoError)
+		return launch_data_new_fd(DNSServiceRefSockFD(service));
+
+	fprintf(stderr, "DNSServiceRegister(\"%s\"): %d\n", serv, error);
+	return NULL;
 }
 
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
