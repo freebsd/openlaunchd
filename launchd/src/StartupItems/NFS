@@ -15,7 +15,7 @@ StartService ()
     ##
     # Set up NFS client.
     ##
-    ConsoleMessage "Starting network file system"
+    echo "Starting network file system"
 
     # nsfiod is the NFS asynchronous block I/O daemon, which implements
     # NFS read-ahead and write-behind caching on NFS clients.
@@ -72,7 +72,7 @@ StartService ()
     rm -f /var/db/mountdtab
 
     if [ "${exports}" -gt 0 ]; then
-	ConsoleMessage "Starting Network File System server"
+	echo "Starting Network File System server"
 	mountd
 
 	# If the NetInfo config/nfsd directory contains startup args for nfsd, use those.

@@ -64,8 +64,8 @@ static void usage()
                      "\t-s: mark a specific service as successful\n"
                      "\t-f: mark a specific service as failed\n"
                      "\t-q: query a configuration setting\n"
-                     "\t-b: load the display bundle at the specified path\n"
-                     "\t-u: unload the display bundle\n");
+                     "\t-b: (ignored)\n"
+                     "\t-u: (ignored)\n");
     exit(1);
 }
 
@@ -74,8 +74,6 @@ enum {
     kActionSuccess,
     kActionFailure,
     kActionQuery,
-    kActionLoadDisplayBundle,
-    kActionUnloadDisplayBundle
 };
 
 int main (int argc, char *argv[])
@@ -93,49 +91,36 @@ int main (int argc, char *argv[])
         char c;
         while ((c = getopt(argc, argv, "?vSFs:f:q:b:u")) != -1) {
             switch (c) {
-		/* Usage */
                 case '?':
                     usage();
                     break;
-                    
                 case 'v':
                     aVerboseFlag = 1;
                     break;
-                
                 case 'S':
                     anAction  = kActionSuccess;
                     anArgCStr = NULL;
                     break;
-
                 case 'F':
                     anAction  = kActionFailure;
                     anArgCStr = NULL;
                     break;
-                    
                 case 's':
                     anAction  = kActionSuccess;
                     anArgCStr = optarg;
                     break;
-
                 case 'f':
                     anAction  = kActionFailure;
                     anArgCStr = optarg;
                     break;
-                    
                 case 'q':
                     anAction  = kActionQuery;
                     anArgCStr = optarg;
                     break;
-                    
                 case 'b':
-                    anAction  = kActionLoadDisplayBundle;
-                    anArgCStr = optarg;
-                    break;
-                
                 case 'u':
-                    anAction  = kActionUnloadDisplayBundle;
+		    exit(EXIT_SUCCESS);
                     break;
-                    
                 default:
                     fprintf(stderr, "ignoring unknown option '-%c'\n", c);
                     break;
@@ -145,12 +130,10 @@ int main (int argc, char *argv[])
 	argv += optind;
     }
 
-    if ((anAction == kActionConsoleMessage                         && argc != 1) ||
-        (anAction == kActionSuccess                                && argc != 0) ||
-        (anAction == kActionFailure                                && argc != 0) ||
-        (anAction == kActionQuery                                  && argc != 0) ||
-        (anAction == kActionLoadDisplayBundle                      && argc != 0) ||
-        (anAction == kActionUnloadDisplayBundle                    && argc != 0) )
+    if ((anAction == kActionConsoleMessage	&& argc != 1) ||
+        (anAction == kActionSuccess		&& argc != 0) ||
+        (anAction == kActionFailure		&& argc != 0) ||
+        (anAction == kActionQuery		&& argc != 0) )
       {
         usage();
       }
@@ -191,15 +174,6 @@ int main (int argc, char *argv[])
               {
                 CFDictionarySetValue(anIPCMessage, kIPCMessageKey, kIPCQueryMessage);
                 CFDictionarySetValue(anIPCMessage, kIPCConfigSettingKey, anArg);
-              }
-            else if (anAction == kActionLoadDisplayBundle && anArg)
-              {
-                CFDictionarySetValue(anIPCMessage, kIPCMessageKey, kIPCLoadDisplayBundleMessage);
-                CFDictionarySetValue(anIPCMessage, kIPCDisplayBundlePathKey, anArg);
-              }
-            else if (anAction == kActionUnloadDisplayBundle)
-              {
-                CFDictionarySetValue(anIPCMessage, kIPCMessageKey, kIPCUnloadDisplayBundleMessage);
               }
             else if (anAction == kActionConsoleMessage)
               {

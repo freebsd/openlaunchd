@@ -16,7 +16,7 @@ StartService ()
     # sure a network will show up eventually.
     ##
     if [ -d /System/Library/Extensions/SharedIP.kext -a `uname -p` = "powerpc" ]; then
-	ConsoleMessage "Loading Shared IP extension"
+	echo "Loading Shared IP extension"
 	kextload -v /System/Library/Extensions/SharedIP.kext
     fi
 

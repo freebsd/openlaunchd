@@ -10,7 +10,7 @@ StartService ()
 {
     if [ ! -f /var/db/volinfo.database ]; then Uninitialized_VSDB=-YES-; fi
 
-    ConsoleMessage "Checking disks"
+    echo "Checking disks"
     /sbin/autodiskmount -va
 
     if [ "${Uninitialized_VSDB:=-NO-}" = "-YES-" ]; then

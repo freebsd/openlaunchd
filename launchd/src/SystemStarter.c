@@ -236,7 +236,6 @@ int system_starter (Action anAction, CFStringRef aService)
                                                                                  &kCFTypeDictionaryValueCallBacks);
         aStartupContext->aServicesCount = 0;
         aStartupContext->aRunningCount = 0;
-        aStartupContext->aQuitOnNotification = gQuitOnNotification && aStartupContext->aDisplayContext;
 
         if (aService)
           {
@@ -319,14 +318,7 @@ int system_starter (Action anAction, CFStringRef aService)
     /*  Display final message and wait if necessary  */
     {
       CFStringRef aLocalizedString = NULL;
-      if (aStartupContext->aQuitOnNotification)
-        {
-          aLocalizedString = LocalizedString(aStartupContext->aResourcesBundlePath, kLoginWindowKey);
-        }
-      else
-        {
-          aLocalizedString = LocalizedString(aStartupContext->aResourcesBundlePath, kStartupCompleteKey);
-        }
+      aLocalizedString = LocalizedString(aStartupContext->aResourcesBundlePath, kStartupCompleteKey);
 
       if (aLocalizedString)
         {
@@ -334,12 +326,6 @@ int system_starter (Action anAction, CFStringRef aService)
           CFRelease(aLocalizedString);
         }
     }
-
-    /* sit and wait for a message from ConsoleMessage to quit */
-    if (aStartupContext->aQuitOnNotification)
-      {
-        CFRunLoopRun();
-      }
 
     /*  clean up  */
     if (anActivityTimer              ) CFRelease(anActivityTimer);

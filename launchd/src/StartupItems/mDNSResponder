@@ -9,7 +9,7 @@ StartService ()
         if pid=$(GetPID mDNSResponder); then
             return 0
         else
-            ConsoleMessage "Starting Multicast DNS Responder"
+            echo "Starting Multicast DNS Responder"
             /usr/sbin/mDNSResponder
         fi
     fi
@@ -18,10 +18,10 @@ StartService ()
 StopService ()
 {
     if pid=$(GetPID mDNSResponder); then
-	ConsoleMessage "Stopping Multicast DNS Responder"
+	echo "Stopping Multicast DNS Responder"
 	kill -TERM "${pid}"
     else
-	ConsoleMessage "Multicast DNS Responder is not running."
+	echo "Multicast DNS Responder is not running."
     fi
 }
 

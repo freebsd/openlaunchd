@@ -9,14 +9,14 @@
 StartService ()
 {
     if [ "${WEBSERVER:=-NO-}" = "-YES-" ]; then
-        ConsoleMessage "Starting Apache web server"
+        echo "Starting Apache web server"
         if [ ! -e /etc/httpd/httpd.conf ] ; then
                 cp -p /etc/httpd/httpd.conf.default /etc/httpd/httpd.conf
         fi
         apachectl start
         if [ "${WEBPERFCACHESERVER:=-NO-}" = "-YES-" ]; then
             if [ -x /usr/sbin/webperfcachectl ]; then
-                ConsoleMessage "Starting web performance cache server"
+                echo "Starting web performance cache server"
                 /usr/sbin/webperfcachectl start
             fi
         fi
@@ -26,21 +26,21 @@ StartService ()
 StopService ()
 {
     if [ -x /usr/sbin/webperfcachectl ]; then
-        ConsoleMessage "Stopping web performance cache server"
+        echo "Stopping web performance cache server"
         /usr/sbin/webperfcachectl stop
     fi
-    ConsoleMessage "Stopping Apache web server"
+    echo "Stopping Apache web server"
     apachectl stop 
 }
 
 RestartService ()
 {
     if [ "${WEBSERVER:=-NO-}" = "-YES-" ]; then
-        ConsoleMessage "Restarting Apache web server"
+        echo "Restarting Apache web server"
         apachectl restart
         if [ "${WEBPERFCACHESERVER:=-NO-}" = "-YES-" ]; then
             if [ -x /usr/sbin/webperfcachectl ]; then
-                ConsoleMessage "Restarting web performance cache server"
+                echo "Restarting web performance cache server"
                 /usr/sbin/webperfcachectl restart
             fi
         fi

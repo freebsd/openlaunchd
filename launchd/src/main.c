@@ -37,10 +37,9 @@
 
 /* Command line options */
 int gDebugFlag     = 0;
-int gVerboseFlag   = 1;
+int gVerboseFlag   = 0;
 int gSafeBootFlag  = 0;
 int gNoRunFlag     = 0;
-int gQuitOnNotification = 0;
 
 static void __attribute__((__noreturn__)) usage(const char *aProgram)
 {
@@ -48,8 +47,8 @@ static void __attribute__((__noreturn__)) usage(const char *aProgram)
 		"\t<action>: action to take (start|stop|restart); default is start\n"
 		"\t<item>  : name of item to act on; default is all items\n"
 		"options:\n"
-		"\t-g: graphical startup\n"
-		"\t-r: do not quit when done, keep running until notified from ConsoleMessage\n"
+		"\t-g: (ignored)\n"
+		"\t-r: (ignored)\n"
 		"\t-v: verbose (text mode) startup\n"
 		"\t-x: safe mode startup\n"
 		"\t-d: print debugging output\n"
@@ -75,24 +74,15 @@ int main (int argc, char *argv[])
         char c;
         while ((c = getopt(argc, argv, "gvxirdDqn?")) != -1) {
             switch (c) {
-	        /* Options from init */
-                case 'g':
-                    gVerboseFlag  = 0;
-                    break;
-                    
                 case 'v':
                     gVerboseFlag   = 1;
                     break;
-                
                 case 'x':
                     gSafeBootFlag = 1;
                     break;
-
+                case 'g':
                 case 'r':
-                    gQuitOnNotification = 1;
                     break;
-
-		/* Debugging Options */
                 case 'd':
                     gDebugFlag    = 1;
                     break;
@@ -105,8 +95,6 @@ int main (int argc, char *argv[])
                 case 'n':
                     gNoRunFlag    = 1;
                     break;
-
-		/* Usage */
                 case '?':
                     usage(aProgram);
                     break;

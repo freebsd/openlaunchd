@@ -9,7 +9,7 @@
 StartService ()
 {
     if [ "${AUTHSERVER:=-NO-}" = "-YES-" ]; then
-	ConsoleMessage "Starting Authentication Server"
+	echo "Starting Authentication Server"
 	tim
     fi
 }
@@ -17,7 +17,7 @@ StartService ()
 StopService ()
 {
     if [ "${AUTHSERVER:=-NO-}" = "-YES-" ]; then
-        ConsoleMessage "Stopping Authentication Server"
+        echo "Stopping Authentication Server"
     fi
     killall -TERM tim > /dev/null 2>&1
 }

@@ -31,7 +31,7 @@ StartService ()
 
         VARYP=/var/yp
 
-        ConsoleMessage "Starting Network Information Service"
+        echo "Starting Network Information Service"
 
         echo "Setting NIS domainname to ${NISDOMAIN}"
         domainname "${NISDOMAIN}"
@@ -52,7 +52,7 @@ StartService ()
 
 StopService ()
 {
-    ConsoleMessage "Stopping Network Information Service"
+    echo "Stopping Network Information Service"
     killall -TERM ypbind > /dev/null 2>&1
     killall -TERM rpc.yppasswdd > /dev/null 2>&1
 
@@ -63,7 +63,7 @@ StopService ()
 
 RestartService ()
 {
-    ConsoleMessage "Restarting Network Information Service"
+    echo "Restarting Network Information Service"
     killall -TERM ypbind > /dev/null 2>&1
     killall -TERM rpc.yppasswdd > /dev/null 2>&1
 

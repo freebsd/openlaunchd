@@ -9,14 +9,14 @@
 StartService ()
 {
     if [ -f /var/account/acct ]; then
-	ConsoleMessage "Starting accounting"
+	echo "Starting accounting"
 	accton /var/account/acct
     fi
 }
 
 StopService ()
 {
-    ConsoleMessage "Stopping accounting"
+    echo "Stopping accounting"
     accton
 }
 

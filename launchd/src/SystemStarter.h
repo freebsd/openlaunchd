@@ -36,7 +36,6 @@
 #define kStartupCompleteKey     CFSTR("Startup complete.")
 #define kResourcesBundleName    CFSTR("SystemStarterResources")
 #define kSafeBootKey            CFSTR("Safe Boot")
-#define kLoginWindowKey         CFSTR("Login Window starting")
 
 #define LocalizedString(bundlePath,string) StartupItemCreateLocalizedStringWithPath((bundlePath),(string))
 
@@ -50,7 +49,6 @@ typedef struct StartupContextStorage {
     int                         aServicesCount;
     int                         aRunningCount;
     CFStringRef                 aResourcesBundlePath;
-    int                         aQuitOnNotification;
 } *StartupContext;
 
 /* Action types */

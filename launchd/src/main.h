@@ -39,6 +39,5 @@ extern int   gDebugFlag;
 extern int   gVerboseFlag;
 extern int   gSafeBootFlag;
 extern int   gNoRunFlag;
-extern int   gQuitOnNotification;
 
 #endif /* _MAIN_H_ */

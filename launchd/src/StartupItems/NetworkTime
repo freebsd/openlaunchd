@@ -17,7 +17,7 @@ StartService ()
 	touch /var/run/NetworkTime.StartupItem
 
 
-	ConsoleMessage "Starting network time synchronization"
+	echo "Starting network time synchronization"
 
 	# Synchronize our clock to the network's time,
 	# then fire off ntpd to keep the clock in sync.
@@ -29,7 +29,7 @@ StartService ()
 StopService ()
 {
     if pid=$(GetPID ntpd); then
-	ConsoleMessage "Stopping network time synchronization"
+	echo "Stopping network time synchronization"
 	kill -TERM "${pid}"
     else
 	echo "ntpd is not running."

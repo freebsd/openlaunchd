@@ -11,7 +11,7 @@ StartService ()
     ##
     # Internet super-server.
     ##
-    ConsoleMessage "Starting internet services"
+    echo "Starting internet services"
     xinetd -inetd_compat -pidfile /var/run/xinetd.pid 
 
     ##
@@ -19,7 +19,7 @@ StartService ()
     ##
     if [ -a /etc/com.apple.named.conf.proxy ]
     then
-		ConsoleMessage "Starting Internet address sharing"
+		echo "Starting Internet address sharing"
 		/usr/libexec/InternetSharing
 	fi
 }

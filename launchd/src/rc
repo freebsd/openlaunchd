@@ -65,7 +65,7 @@ case $? in
 2) 
 	# Request was made (via SIGQUIT, ^\) to complete fsck
 	# but prevent going multi-user.
-	ConsoleMessage "Request to remain single-user received"
+	echo "Request to remain single-user received"
 	fsckerror=1
 	;;
 4)
@@ -74,34 +74,35 @@ case $? in
 	# ensure that the filesystem versions of everything fsck fixed
 	# are preserved, rather than being overwritten when in-memory
 	# buffers are flushed.
-	ConsoleMessage "Root filesystem fixed - rebooting"
+	echo "Root filesystem fixed - rebooting"
 	reboot -q -n
 	;;
 8)
 	# Serious problem was found.
-	ConsoleMessage "Reboot failed - serious errors"
+	echo "Reboot failed - serious errors"
 	fsckerror=1
 	;;
 12)
 	# fsck was interrupted by SIGINT (^C)
-	ConsoleMessage "Reboot interrupted"
+	echo "Reboot interrupted"
 	fsckerror=1
 	;;
 *)
 	# Some other error condition ocurred.
-	ConsoleMessage "Unknown error while checking disks"
+	echo "Unknown error while checking disks"
 	fsckerror=1
 	;;
 esac
 
 ##
-# Try fsck -y and reboot if the above fails horribly.
+# Try fsck -fy and reboot if the above fails horribly.
 # This may create a neverending cycle if your root disk is unrecoverably
 #  frobbed, and the only recourse them is to power down or boot single
 #  user and hope you know what you're doing.
 ##
 if [ ${fsckerror} -ne 0 ]; then
-	fsck -y && reboot
+	fsck -fy
+	reboot
 fi
 
 }
@@ -117,7 +118,6 @@ if [ "${FsckSlash}" = "-F" ]; then
 	fsck_slash
 fi
 
-
 # Mount essential local filesystems (according to /etc/fstab).
 echo "Mounting local filesystems"
 
@@ -125,139 +125,6 @@ mount_fdesc -o union fdesc /dev
 mkdir -p -m 0555 /.vol
 mount_volfs /.vol
 mount -vat nonfs
-
-if [ -f /etc/rc.installer_cleanup ]; then
-	/etc/rc.installer_cleanup multiuser
-fi
-
-    ConsoleMessage "Resetting files and devices"
-
-    ##
-    # Attempt to recover the passwd file, if needed.  This procedure is
-    # primarily historical and makes sense only when the passwd file is edited
-    # using the vipw command.  
-    ##
-    if [ -s /etc/ptmp ]; then
-	if [ -s /etc/passwd ]; then
-	    echo -n "Passwd file conflict with ptmp: "
-	    ls -l /etc/passwd /etc/ptmp
-	    echo "Moving ptmp to ptmp.save"
-	    mv -f /etc/ptmp /etc/ptmp.save
-	else
-	    echo "Passwd file recovered from ptmp"
-	    mv /etc/ptmp /etc/passwd
-	fi
-    elif [ -r /etc/ptmp ]; then
-	echo "Removing passwd lock file"
-	rm -f /etc/ptmp
-    fi
-
-    ConsoleMessage "Cleaning up"
-    echo -n "    "
-
-    ##
-    # If the shutdown command was used to shut the system down, the file
-    # /etc/nologin may have been created to prevent users from logging in.  
-    # Remove it so that logins are enabled when the system comes up.
-    ##
-    echo -n " /etc/nologin"
-    rm -f /etc/nologin
-
-    # Clean out /private/tmp.
-    if [ -d /private/tmp ]; then
-        # blow away any _tmp_ in case it exists as well
-        if [ -e /private/_tmp_ ]; then
-            chflags -R nouchg /private/_tmp_ && rm -rf /private/_tmp_
-        fi
-    echo -n " /private/tmp"
-    mv /private/tmp /private/_tmp_
-    (chflags -R nouchg /private/_tmp_ && rm -rf /private/_tmp_) &
-    fi
-	mkdir -p -m 01777 /private/var/tmp
-	mkdir -p -m 01777 /private/tmp
-
-    # Clear /private/Network (created by automount).
-    if [ -d /private/Network ]; then
-        # blow away any _Network_ in case it exists as well
-        if [ -e /private/_Network_ ]; then
-            chflags -R nouchg /private/_Network_ && rm -rf /private/_Network_
-        fi
-
-        echo -n " /private/Network"
-        mv /private/Network /private/_Network_
-        {
-            find /private/_Network_ -x -exec sh -c "chflags -R nouchg {} && rm -f -- {}" \; \
-                >/dev/null 2>&1;
-            find -d /private/_Network_ -x -type d -exec rmdir -- {} \; \
-                >/dev/null 2>&1;
-            rmdir /private/_Network_ >/dev/null 2>&1;
-        } &
-    fi
-
-
-    # Move /var/run out of the way
-    if [ -d /var/run ]; then
-        # blow away any _run_ in case it exists as well
-        if [ -e /var/_run_ ]; then
-            chflags -R nouchg /var/_run_ && rm -rf /var/_run_
-        fi
-        mv /var/run /var/_run_
-    fi
-
-    # Make new /var/run
-    mkdir -m 775 /var/run
-    chown root:daemon /var/run
-    mkdir -m 775 /var/run/StartupItems
-    chown root:daemon /var/run/StartupItems
-    mkdir -m 755 /var/run/proxy
-    chown www:www /var/run/proxy
-    mkdir -m 775 /var/run/davlocks
-    chown www:www /var/run/davlocks
-
-    # Move sudo back to /var/run, touch the contents of /var/run/sudo/* back to the epoch
-    if [ -d /var/_run_/sudo ]; then
-        mv /var/_run_/sudo /var/run/sudo
-        touch -t 198501010000 /var/run/sudo/*
-    fi
-
-    # Clear utmp (who is logged on).
-    touch /var/run/utmp /var/run/utmpx
-
-    # purge the _run_ directory if it exists
-    if [ -d /var/_run_ ]; then
-        (chflags -R nouchg /var/_run_ && rm -rf /var/_run_) &
-    fi
-
-    # Clear /var/spool/lock
-    purgedir /var/spool/lock
-
-
-    # if "/Desktop Folder" exists and has contents, make sure there is a
-    #   "/Desktop (Mac OS 9)" symlink to it
-    # if "/Desktop Folder" does not exist, exists but has no contents, or exists
-    #   and has only a single file, ".DS_Store" then there should be no
-    #   "/Desktop (Mac OS 9)" symlink
-    # if there is some other file or directory with the name "/Desktop (Mac OS 9)"
-    #   then just exit
-    needlink=0
-    if [ -d "/Desktop Folder" ]; then
-        needlink=$(ls -a1 "/Desktop Folder" | wc -l)
-        if [ "${needlink}" -eq 3 ]; then
-            if [ -f "/Desktop Folder/.DS_Store" ]; then
-                needlink=0
-            fi
-        fi
-    fi
-
-    if [ "${needlink}" -lt 3 ]; then
-        if [ -h "/Desktop (Mac OS 9)" ]; then
-            rm -f "/Desktop (Mac OS 9)"
-        fi
-    else
-        if ! [ -e "/Desktop (Mac OS 9)" ]; then
-            ln -s "/Desktop Folder" "/Desktop (Mac OS 9)"
-        fi
-    fi
 
 BootCacheControl=/System/Library/Extensions/BootCache.kext/Contents/Resources/BootCacheControl
 if [ ! -f $BootCacheControl ]; then
@@ -287,6 +154,135 @@ sysctl -w kern.sysv.shmmax=4194304 kern.sysv.shmmin=1 kern.sysv.shmmni=32 kern.s
 # is first needed.
 /usr/sbin/syslogd -s -m 0
 
+if [ -f /etc/rc.installer_cleanup ]; then
+	/etc/rc.installer_cleanup multiuser
+fi
+
+echo "Resetting files and devices"
+
+RMRF_ITEMS=""
+##
+# Attempt to recover the passwd file, if needed.  This procedure is
+# primarily historical and makes sense only when the passwd file is edited
+# using the vipw command.  
+##
+if [ -s /etc/ptmp ]; then
+	if [ -s /etc/passwd ]; then
+		echo -n "Passwd file conflict with ptmp: "
+		ls -l /etc/passwd /etc/ptmp
+		echo "Moving ptmp to ptmp.save"
+		mv -f /etc/ptmp /etc/ptmp.save
+	else
+		echo "Passwd file recovered from ptmp"
+		mv /etc/ptmp /etc/passwd
+	fi
+elif [ -r /etc/ptmp ]; then
+	echo "Removing passwd lock file"
+	RMRF_ITEMS="$RMRF_ITEMS /etc/ptmp"
+fi
+
+##
+# If the shutdown command was used to shut the system down, the file
+# /etc/nologin may have been created to prevent users from logging in.  
+# Remove it so that logins are enabled when the system comes up.
+##
+RMRF_ITEMS="$RMRF_ITEMS /etc/nologin"
+
+# Clean out /private/tmp.
+if [ -d /private/tmp ]; then
+	# blow away any _tmp_ in case it exists as well
+	if [ -e /private/_tmp_ ]; then
+		chflags -R nouchg /private/_tmp_
+		rm -rf /private/_tmp_
+	fi
+	echo -n " /private/tmp"
+	mv /private/tmp /private/_tmp_
+	chflags -R nouchg /private/_tmp_
+	RMRF_ITEMS="$RMRF_ITEMS /private/_tmp_"
+fi
+mkdir -p -m 01777 /private/var/tmp /private/tmp
+
+# Clear /private/Network (created by automount).
+if [ -d /private/Network ]; then
+	# blow away any _Network_ in case it exists as well
+	if [ -e /private/_Network_ ]; then
+		chflags -R nouchg /private/_Network_
+		rm -rf /private/_Network_
+	fi
+
+	echo -n " /private/Network"
+	mv /private/Network /private/_Network_
+	find -x /private/_Network_ -exec sh -c "chflags -R nouchg {} && rm -f -- {}" \; >/dev/null 2>&1;
+	find -xd /private/_Network_ -type d -exec rmdir -- {} \; >/dev/null 2>&1;
+	rmdir /private/_Network_ >/dev/null 2>&1;
+fi
+
+# Move /var/run out of the way
+if [ -d /var/run ]; then
+	# blow away any _run_ in case it exists as well
+	if [ -e /var/_run_ ]; then
+		chflags -R nouchg /var/_run_
+		rm -rf /var/_run_
+	fi
+	mv /var/run /var/_run_
+fi
+
+# Make new /var/run
+mkdir -m 775 /var/run
+mkdir -m 775 /var/run/StartupItems /var/run/davlocks
+mkdir -m 755 /var/run/proxy
+chown root:daemon /var/run /var/run/StartupItems
+chown www:www /var/run/proxy /var/run/davlocks
+
+# Move sudo back to /var/run, touch the contents of /var/run/sudo/* back to the epoch
+if [ -d /var/_run_/sudo ]; then
+	mv /var/_run_/sudo /var/run/sudo
+	touch -t 198501010000 /var/run/sudo/*
+fi
+
+# Clear utmp (who is logged on).
+touch /var/run/utmp /var/run/utmpx
+
+# purge the _run_ directory if it exists
+if [ -d /var/_run_ ]; then
+	chflags -R nouchg /var/_run_
+	RMRF_ITEMS="$RMRF_ITEMS /var/_run_"
+fi
+
+# Clear /var/spool/lock
+purgedir /var/spool/lock
+
+
+# if "/Desktop Folder" exists and has contents, make sure there is a
+#   "/Desktop (Mac OS 9)" symlink to it
+# if "/Desktop Folder" does not exist, exists but has no contents, or exists
+#   and has only a single file, ".DS_Store" then there should be no
+#   "/Desktop (Mac OS 9)" symlink
+# if there is some other file or directory with the name "/Desktop (Mac OS 9)"
+#   then just exit
+needlink=0
+if [ -d "/Desktop Folder" ]; then
+	needlink=$(ls -a1 "/Desktop Folder" | wc -l)
+	if [ "${needlink}" -eq 3 ]; then
+		if [ -f "/Desktop Folder/.DS_Store" ]; then
+			needlink=0
+		fi
+	fi
+fi
+
+if [ "${needlink}" -lt 3 ]; then
+	if [ -h "/Desktop (Mac OS 9)" ]; then
+		rm -f "/Desktop (Mac OS 9)"
+	fi
+else
+	if ! [ -e "/Desktop (Mac OS 9)" ]; then
+		ln -s "/Desktop Folder" "/Desktop (Mac OS 9)"
+	fi
+fi
+
+echo Removing $RMRF_ITEMS
+rm -rf $RMRF_ITEMS
+
 # Create mach symbol file
 rm -f /mach.sym
 sysctl -n kern.symfile
@@ -307,8 +303,14 @@ else
     kextd
 fi
 
+if [  "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
+    ${BootCacheControl} tag
+fi
+
 # Load [ideally on demand] Mach bootstrap based services
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
+
+function bgboot {
 
 # We hope to launch portmap on demand in the next major release of Mac OS X,
 # but until then, we need to inline in here for reasons not worth going into in
@@ -412,10 +414,11 @@ if [ ! -d ${appprofiledir} ]; then
 	chown root:wheel ${appprofiledir}
 fi
 
+SystemStarter ${VerboseFlag} ${SafeBoot}
 
-if [  "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
-    ${BootCacheControl} tag
-fi
+}
+
+bgboot &
 
 # Set language from CDIS.custom - assumes this is parse-able by sh
 if [ -f /var/log/CDIS.custom ]; then
@@ -443,7 +446,5 @@ if [ ! -s "/var/log/CDIS.custom" ]; then
 fi
 
 export LANGUAGE
-
-SystemStarter -g ${VerboseFlag} ${SafeBoot}
 
 exit 0

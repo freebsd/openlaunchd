@@ -1,4 +1,4 @@
-SUBDIRS = . QuartzDisplay SafeBoot SystemStarterResources
+SUBDIRS = . SafeBoot SystemStarterResources
 
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
@@ -72,11 +72,10 @@ man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_in
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
-	mkdir -p $@/Resources/English.lproj
+	mkdir -p $@
 	cp $(srcdir)/StartupItems/$(notdir $@) $@
 	chmod 755 $@/$(notdir $@)
 	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
-	cp $(srcdir)/StartupItems/$(notdir $@).strings $@/Resources/English.lproj/Localizable.strings
 
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 

@@ -327,7 +327,6 @@ static void loadDisplayBundle (StartupContext aStartupContext, CFDictionaryRef a
  **/
 static void unloadDisplayBundle (StartupContext aStartupContext, CFDictionaryRef anIPCMessage __attribute__((unused)))
 {
-    aStartupContext->aQuitOnNotification = 0;
     if (!gVerboseFlag && aStartupContext)
       {
         extern void UnloadDisplayPlugIn();

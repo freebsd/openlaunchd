@@ -9,7 +9,7 @@
 StartService ()
 {
     if [ "${AFPSERVER:=-NO-}" = "-YES-" ]; then
-	ConsoleMessage "Starting Apple File Service"
+	echo "Starting Apple File Service"
 	/usr/sbin/AppleFileServer
     fi
 }

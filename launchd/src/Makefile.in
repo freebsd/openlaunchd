@@ -75,7 +75,7 @@ VERSION = @VERSION@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
-SUBDIRS = . QuartzDisplay SafeBoot SystemStarterResources
+SUBDIRS = . SafeBoot SystemStarterResources
 
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
@@ -857,11 +857,10 @@ launchd.c:: liblaunch.1.dylib
 launchproxy.c:: liblaunch.1.dylib
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
-	mkdir -p $@/Resources/English.lproj
+	mkdir -p $@
 	cp $(srcdir)/StartupItems/$(notdir $@) $@
 	chmod 755 $@/$(notdir $@)
 	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
-	cp $(srcdir)/StartupItems/$(notdir $@).strings $@/Resources/English.lproj/Localizable.strings
 
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 
