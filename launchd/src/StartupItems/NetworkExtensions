@@ -19,9 +19,6 @@ StartService ()
 	ConsoleMessage "Loading Shared IP extension"
 	kextload -v /System/Library/Extensions/SharedIP.kext
     fi
-    if [ -d /System/Library/Extensions/IPFirewall.kext ]; then
-	ConsoleMessage "Loading IP Firewall extension"
-	kextload -v /System/Library/Extensions/IPFirewall.kext
 
 	fwHelper=/System/Library/PrivateFrameworks/NetworkConfig.framework/Resources/firewalltool
 	fwConfig=/Library/Preferences/com.apple.sharing.firewall.plist
@@ -29,7 +26,7 @@ StartService ()
 	if [ -x "${fwHelper}" -a -f "${fwConfig}" ]; then
 	    ${fwHelper}
 	fi
-    fi
+
     if [ "${VPNSERVER:=-NO-}" = "-YES-" ]; then
 	    vpnd
     fi
