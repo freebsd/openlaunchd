@@ -1,5 +1,0 @@
-{
-  Description     = "login window";
-  Provides        = ("Multiuser Login Prompt");
-  Requires        = ("Disks", "SecurityServer");
-}
