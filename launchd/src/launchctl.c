@@ -33,7 +33,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key);
 static launch_data_t CF2launch_data(CFTypeRef);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
-static void readcfg(const char *, bool load, bool editondisk);
+static bool readcfg(const char *, bool load, bool editondisk);
 static void update_plist(CFPropertyListRef, const char *, bool);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
@@ -309,7 +309,7 @@ static void update_plist(CFPropertyListRef plist, const char *where, bool load)
 	WriteMyPropertyListToFile(plist, where);
 }
 
-static void readcfg(const char *what, bool load, bool editondisk)
+static bool readcfg(const char *what, bool load, bool editondisk)
 {
 	launch_data_t resp, msg, tmp, tmpe, tmpd, tmpa, id_plist;
 	CFPropertyListRef plist;
@@ -321,14 +321,14 @@ static void readcfg(const char *what, bool load, bool editondisk)
 	int e;
 
 	if (stat(what, &sb) == -1)
-		return;
+		return false;
 
 	if (S_ISREG(sb.st_mode) && !(sb.st_mode & S_IWOTH)) {
 		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		plist = CreateMyPropertyListFromFile(what);
 		if (!plist) {
 			fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), what);
-			return;
+			return false;
 		}
 
 		if (editondisk)
@@ -348,7 +348,10 @@ static void readcfg(const char *what, bool load, bool editondisk)
 		if (job_disabled || !load) {
 			unloadjob(id_plist);
 			launch_data_free(id_plist);
-			return;
+			if (!load)
+				return true;
+			else
+				return false;
 		}
 		distill_config_file(id_plist);
 		launch_data_dict_insert(msg, id_plist, LAUNCH_KEY_SUBMITJOB);
@@ -385,7 +388,7 @@ static void readcfg(const char *what, bool load, bool editondisk)
 		if (launch_data_array_get_count(tmpa) == 0) {
 			launch_data_free(tmpa);
 			launch_data_free(msg);
-			return;
+			return false;
 		}
 		launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_SUBMITJOB);
 	}
@@ -401,6 +404,7 @@ static void readcfg(const char *what, bool load, bool editondisk)
 	} else {
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 	}
+	return true;
 }
 
 static void distill_config_file(launch_data_t id_plist)
@@ -832,9 +836,9 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 	}
 
 	for (i = 0; i < argc; i++) {
-		readcfg(argv[i], lflag, wflag);
+		bool r = readcfg(argv[i], lflag, wflag);
 		/* <rdar://problem/3956518> mDNSResponder needs to go native with launchd */
-		if (!strcmp(argv[i], "/System/Library/LaunchDaemons/com.apple.mDNSResponder.plist") && lflag)
+		if (r && !strcmp(argv[i], "/System/Library/LaunchDaemons/com.apple.mDNSResponder.plist") && lflag)
 			wait4path("/var/run/mDNSResponder");
 	}
 
