@@ -1202,9 +1202,11 @@ static void job_callback(void *obj, struct kevent *kev)
 		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
 			syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
 			job_remove(j);
+			goto out;
 		} else if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
 			syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
 			job_remove(j);
+			goto out;
 		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			job_watch_fds(j->ldj, &j->kqjob_callback);
 			goto out;
