@@ -138,7 +138,7 @@ int main(int argc, char *argv[])
 	struct timespec timeout = { 30, 0 };
 	struct kevent kev;
 	size_t i;
-	bool sflag = false, xflag = false, dflag = false, vflag = false;
+	bool sflag = false, xflag = false, vflag = false;
 	int ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
@@ -147,9 +147,8 @@ int main(int argc, char *argv[])
 	if (getpid() == 1)
 		workaround3048875(argc, argv);
 	
-	while ((ch = getopt(argc, argv, "dhsvx")) != -1) {
+	while ((ch = getopt(argc, argv, "hsvx")) != -1) {
 		switch (ch) {
-		case 'd': dflag = true;   break;
 		case 's': sflag = true;   break;
 		case 'x': xflag = true;   break;
 		case 'v': vflag = true; break;

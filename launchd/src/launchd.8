@@ -6,7 +6,7 @@
 .Nd System wide and per-user daemon/agent manager
 .Sh SYNOPSIS
 .Nm
-.Op Fl dvsx
+.Op Fl vsx
 .\" .Op Ar action Op Ar service
 .Sh DESCRIPTION
 .Nm 
@@ -17,12 +17,7 @@ directories specified in the FILES section.
 During boot 
 .Nm
 is invoked by the kernel to run as the first process on the system and to further bootstrap the rest of the system.
-.Sh OPTIONS
-.Bl -tag -width -indent
-.It Fl d
-Enable debugging mode and output.
-.El
-.Sh EXTRA OPTIONS WHEN RUN AS PID 1
+.Sh OPTIONS WHEN RUN AS PID 1
 .Bl -tag -width -indent
 .It Fl s
 Single user mode. Instructs
@@ -42,11 +37,6 @@ Startup Item.
 .Pp
 At some point in the future, we hope to completely phase out the use of
 .Nm rc .
-.Pp
-.Bl -tag -width "SIGUSR1" -compact
-.It Sy SIGUSR1
-Toggles the debug mode as if the -d option was passed or not.
-.El
 .Sh FILES
 .Bl -tag -width "/System/Library/LaunchDaemons" -compact
 .It Pa ~/Library/LaunchAgents
