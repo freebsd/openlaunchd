@@ -6,7 +6,7 @@ noinst_LIBRARIES = liblaunch.a
 
 bin_PROGRAMS = launchctl wait4path
 
-sbin_PROGRAMS = launchd SystemStarter mach_init launchdebugd
+sbin_PROGRAMS = launchd SystemStarter launchdebugd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
@@ -19,8 +19,6 @@ ConsoleMessage_LDFLAGS = -framework CoreFoundation
 launchctl_LDFLAGS = -framework CoreFoundation
 
 launchd_LDFLAGS = -lbsm
-
-mach_init_LDFLAGS = -lbsm
 
 launchdebugd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
@@ -36,10 +34,6 @@ launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
-mach_init_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-
-mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
-
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
 
 bootstrap.c:: bootstrap.h
@@ -51,7 +45,7 @@ man1_MANS = wait4path.1 launchctl.1
 
 man5_MANS = launchd.conf.5
 
-man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8 rc.8 launchd.8 service.8
+man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8
 
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 
