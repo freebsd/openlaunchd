@@ -63,9 +63,11 @@ launchd.c:: liblaunch.1.dylib
 
 launchproxy.c:: liblaunch.1.dylib
 
-man1_MANS = wait4path.1
+man1_MANS = wait4path.1 launchctl.1
 
-man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8 rc.8
+man5_MANS = launchd.conf.5
+
+man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8 rc.8 launchd.8
 
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 

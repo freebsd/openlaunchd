@@ -125,9 +125,11 @@ mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServ
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.1.dylib
 
-man1_MANS = wait4path.1
+man1_MANS = wait4path.1 launchctl.1
 
-man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8 rc.8
+man5_MANS = launchd.conf.5
+
+man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8 rc.8 launchd.8
 
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 subdir = src
@@ -236,7 +238,7 @@ DIST_SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c \
 	register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
 NROFF = nroff
-MANS = $(man1_MANS) $(man8_MANS)
+MANS = $(man1_MANS) $(man5_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 
@@ -496,6 +498,49 @@ uninstall-man1:
 	  rm -f $(DESTDIR)$(man1dir)/$$inst; \
 	done
 
+man5dir = $(mandir)/man5
+install-man5: $(man5_MANS) $(man_MANS)
+	@$(NORMAL_INSTALL)
+	$(mkinstalldirs) $(DESTDIR)$(man5dir)
+	@list='$(man5_MANS) $(dist_man5_MANS) $(nodist_man5_MANS)'; \
+	l2='$(man_MANS) $(dist_man_MANS) $(nodist_man_MANS)'; \
+	for i in $$l2; do \
+	  case "$$i" in \
+	    *.5*) list="$$list $$i" ;; \
+	  esac; \
+	done; \
+	for i in $$list; do \
+	  if test -f $(srcdir)/$$i; then file=$(srcdir)/$$i; \
+	  else file=$$i; fi; \
+	  ext=`echo $$i | sed -e 's/^.*\\.//'`; \
+	  case "$$ext" in \
+	    5*) ;; \
+	    *) ext='5' ;; \
+	  esac; \
+	  inst=`echo $$i | sed -e 's/\\.[0-9a-z]*$$//'`; \
+	  inst=`echo $$inst | sed -e 's/^.*\///'`; \
+	  inst=`echo $$inst | sed '$(transform)'`.$$ext; \
+	  echo " $(INSTALL_DATA) $$file $(DESTDIR)$(man5dir)/$$inst"; \
+	  $(INSTALL_DATA) $$file $(DESTDIR)$(man5dir)/$$inst; \
+	done
+uninstall-man5:
+	@$(NORMAL_UNINSTALL)
+	@list='$(man5_MANS) $(dist_man5_MANS) $(nodist_man5_MANS)'; \
+	l2='$(man_MANS) $(dist_man_MANS) $(nodist_man_MANS)'; \
+	for i in $$l2; do \
+	  case "$$i" in \
+	    *.5*) list="$$list $$i" ;; \
+	  esac; \
+	done; \
+	for i in $$list; do \
+	  ext=`echo $$i | sed -e 's/^.*\\.//'`; \
+	  inst=`echo $$i | sed -e 's/\\.[0-9a-z]*$$//'`; \
+	  inst=`echo $$inst | sed -e 's/^.*\///'`; \
+	  inst=`echo $$inst | sed '$(transform)'`.$$ext; \
+	  echo " rm -f $(DESTDIR)$(man5dir)/$$inst"; \
+	  rm -f $(DESTDIR)$(man5dir)/$$inst; \
+	done
+
 man8dir = $(mandir)/man8
 install-man8: $(man8_MANS) $(man_MANS)
 	@$(NORMAL_INSTALL)
@@ -697,7 +742,7 @@ all-am: Makefile $(LIBRARIES) $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) \
 		config.h
 installdirs: installdirs-recursive
 installdirs-am:
-	$(mkinstalldirs) $(DESTDIR)$(bindir) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
+	$(mkinstalldirs) $(DESTDIR)$(bindir) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man5dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
 
 install: install-recursive
 install-exec: install-exec-recursive
@@ -751,7 +796,7 @@ install-exec-am: install-binPROGRAMS install-libexecPROGRAMS \
 
 install-info: install-info-recursive
 
-install-man: install-man1 install-man8
+install-man: install-man1 install-man5 install-man8
 
 installcheck-am:
 
@@ -769,7 +814,7 @@ uninstall-am: uninstall-binPROGRAMS uninstall-info-am \
 
 uninstall-info: uninstall-info-recursive
 
-uninstall-man: uninstall-man1 uninstall-man8
+uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 
 .PHONY: $(RECURSIVE_TARGETS) GTAGS all all-am check check-am clean \
 	clean-binPROGRAMS clean-generic clean-libexecPROGRAMS \
@@ -781,7 +826,7 @@ uninstall-man: uninstall-man1 uninstall-man8
 	install-data-recursive install-exec install-exec-am \
 	install-exec-recursive install-info install-info-am \
 	install-info-recursive install-libexecPROGRAMS install-man \
-	install-man1 install-man8 install-recursive \
+	install-man1 install-man5 install-man8 install-recursive \
 	install-sbinPROGRAMS install-sbinSCRIPTS install-strip \
 	install-sysconfDATA installcheck installcheck-am installdirs \
 	installdirs-am installdirs-recursive maintainer-clean \
@@ -790,9 +835,9 @@ uninstall-man: uninstall-man1 uninstall-man8
 	tags tags-recursive uninstall uninstall-am \
 	uninstall-binPROGRAMS uninstall-info-am \
 	uninstall-info-recursive uninstall-libexecPROGRAMS \
-	uninstall-man uninstall-man1 uninstall-man8 uninstall-recursive \
-	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
-	uninstall-sysconfDATA
+	uninstall-man uninstall-man1 uninstall-man5 uninstall-man8 \
+	uninstall-recursive uninstall-sbinPROGRAMS \
+	uninstall-sbinSCRIPTS uninstall-sysconfDATA
 
 
 bootstrap.c:: bootstrap.h

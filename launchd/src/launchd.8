@@ -1,0 +1,61 @@
+.Dd September 30, 2004
+.Dt launchd 8 
+.Os Darwin
+.Sh NAME
+.Nm launchd
+.Nd System wide and per-user daemon/agent manager
+.Sh SYNOPSIS
+.Nm
+.Op Fl dvsx
+.\" .Op Ar action Op Ar service
+.Sh DESCRIPTION
+.Nm 
+manages daemons, both for the system as a whole and for individual users. Ideal daemons can launch
+on demand based on criteria specified in their respective XML property lists located in one of the
+directories specified in the FILES section.
+.Pp
+During boot 
+.Nm
+is invoked by the kernel to run as the first process on the system and to further bootstrap the rest of the system.
+.Sh OPTIONS
+.Bl -tag -width -indent
+.It Fl d
+.El
+enable debugging mode and output
+.Sh EXTRA OPTIONS WHEN RUN AS PID 1
+.Bl -tag -width -indent
+.It Fl s
+single user mode
+.It Fl v
+verbose boot
+.It Fl x
+safe mode boot (only do the minimum necessary to boot)
+.El
+.Sh NOTES
+In Darwin it is preferable to have your daemon launch via launchd insteaad of modifying
+.Nm rc
+or creating a
+.Nm SystemStarter
+Startup Item.
+.Pp
+At some point in the future, we hope to complete phase out the use of
+.Nm rc .
+.Pp
+.Bl -tag -width "SIGUSR1" -compact
+.It Sy SIGUSR1
+Toggles the debug mode as if the -d option was passed or not.
+.El
+.Sh FILES
+.Bl -tag -width "/System/Library/LaunchDaemons" -compact
+.It Pa ~/Library/LaunchAgents/
+Per-user agents provided by the user.
+.It Pa /System/Library/LaunchAgents/
+Per-user agents provided by the system.
+.It Pa /System/Library/LaunchDaemons/
+Mac OS X System wide daemons.
+.El
+.Sh SEE ALSO 
+.Xr launchctl 1 ,
+.Xr launchd.conf 5 ,
+.Xr rc 8 ,
+.Xr SystemStarter 8

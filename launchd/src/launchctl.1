@@ -1,0 +1,36 @@
+.Dd September 30, 2004
+.Dt launchctl 1
+.Os Darwin
+.Sh NAME
+.Nm launchctl
+.Nd Used to interface with launchd
+.Sh SYNOPSIS
+.Nm
+.Op Fl l Ar xmlfile
+.Op Fl u Ar xmlfile
+.Sh DESCRIPTION
+.Nm 
+interfaces with
+.Nm launchd
+to load and unload daemons and agents.
+.Sh OPTIONS
+.Bl -tag -width -indent
+.It Fl l Ar xmlfile
+Load the daemon/agent described in the XML property list into
+.Nm launchd .
+.It Fl u Ar xmlfile
+Unload the daemon/agent described in the XML property list from
+.Nm launchd .
+.El
+.Sh FILES
+.Bl -tag -width -/System/Library/LaunchDaemons -compact
+.It Pa ~/Library/LaunchAgents/
+Per-user agents provided by the user.
+.It Pa /System/Library/LaunchAgents/
+Per-User agents provided by the system.
+.It Pa /System/Library/LaunchDaemons/
+Mac OS X System wide daemons.
+.El
+.Sh SEE ALSO 
+.Xr launchd 8 ,
+.Xr launchd.conf 5
