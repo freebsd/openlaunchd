@@ -401,26 +401,37 @@ static bool launchd_server_init(bool create_session)
 	setegid(0);
 
 	if (mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH) == -1) {
-		if (errno == EROFS)
-			return false;
-		if (errno != EEXIST) {
+		if (errno == EROFS) {
+			goto out_bad;
+		} else if (errno == EEXIST) {
+			struct stat sb;
+			stat(LAUNCHD_SOCK_PREFIX, &sb);
+			if (!S_ISDIR(sb.st_mode)) {
+				errno = EEXIST;
+				syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+				goto out_bad;
+			}
+		} else {
 			syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
-			exit(EXIT_FAILURE);
+			goto out_bad;
 		}
 	}
 
 	unlink(ourdir);
 	if (mkdir(ourdir, S_IRWXU) == -1) {
 		if (errno == EROFS) {
-			return false;
+			goto out_bad;
 		} else if (errno == EEXIST) {
 			struct stat sb;
 			stat(ourdir, &sb);
-			if (!S_ISDIR(sb.st_mode))
-				return false;
+			if (!S_ISDIR(sb.st_mode)) {
+				errno = EEXIST;
+				syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+				goto out_bad;
+			}
 		} else {
 			syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
-			exit(EXIT_FAILURE);
+			goto out_bad;
 		}
 	}
 	if (chown(ourdir, getuid(), getgid()) == -1)
@@ -429,7 +440,7 @@ static bool launchd_server_init(bool create_session)
 	ourdirfd = _fd(open(ourdir, O_RDONLY));
 	if (ourdirfd == -1) {
 		syslog(LOG_ERR, "open(\"%s\"): %m", ourdir);
-		exit(EXIT_FAILURE);
+		goto out_bad;
 	}
 
 	if (flock(ourdirfd, LOCK_EX|LOCK_NB) == -1) {
@@ -437,7 +448,7 @@ static bool launchd_server_init(bool create_session)
 			exit(EXIT_SUCCESS);
 		} else {
 			syslog(LOG_ERR, "flock(\"%s\"): %m", ourdir);
-			exit(EXIT_FAILURE);
+			goto out_bad;
 		}
 	}
 
@@ -461,9 +472,6 @@ static bool launchd_server_init(bool create_session)
 	if (chown(sun.sun_path, getuid(), getgid()) == -1)
 		syslog(LOG_WARNING, "chown(\"thesocket\"): %m");
 
-	setegid(getgid());
-	seteuid(getuid());
-
 	if (listen(fd, SOMAXCONN) == -1) {
 		syslog(LOG_ERR, "listen(\"thesocket\"): %m");
 		goto out_bad;
@@ -481,13 +489,17 @@ static bool launchd_server_init(bool create_session)
 
 	atexit(launchd_clean_up);
 
-	return true;
 out_bad:
-	if (fd != -1)
-		close(fd);
-	if (ourdirfd != -1)
-		close(ourdirfd);
-	return false;
+	setegid(getgid());
+	seteuid(getuid());
+
+	if (!launchd_inited) {
+		if (fd != -1)
+			close(fd);
+		if (ourdirfd != -1)
+			close(ourdirfd);
+	}
+	return launchd_inited;
 }
 
 static long long job_get_integer(launch_data_t j, const char *key)
