@@ -166,6 +166,8 @@ info: info-am
 info-am:
 
 install-data-am:
+	@$(NORMAL_INSTALL)
+	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
 
 install-exec-am:
 
@@ -193,6 +195,9 @@ uninstall-am: uninstall-info-am
 	maintainer-clean maintainer-clean-generic mostlyclean \
 	mostlyclean-generic uninstall uninstall-am uninstall-info-am
 
+install-data-hook:
+	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
+	cp $(srcdir)/com.apple.launchdebugd.xml $(DESTDIR)/System/Library/LaunchDaemons
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
