@@ -119,8 +119,6 @@ static bool single_user_mode = false;
 static bool run_runcom = true;
 static pid_t single_user_pid = 0;
 static pid_t runcom_pid = 0;
-static pid_t single_user_status = 0;
-static pid_t runcom_status = 0;
 
 static void setctty(const char *, int);
 
@@ -158,7 +156,6 @@ typedef struct init_session {
 	time_t	se_started;		/* used to avoid thrashing */
 	int	se_flags;		/* status of session */
 	char	*se_device;		/* filename of port */
-	int	se_wstatus;		/* wait status results */
 	se_cmd_t se_getty;		/* what to run on that port */
 	se_cmd_t se_onerror;		/* See SE_ONERROR above */
 	se_cmd_t se_onoption;		/* See SE_ONOPTION above */
@@ -392,30 +389,34 @@ single_user(void)
 static void
 single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
-	switch (single_user_pid ? waitpid(single_user_pid, &single_user_status, 0) : 1) {
-	case -1:
-		syslog(LOG_ERR, "single_user_callback(): waitpid(): %m");
+	int status, r = single_user_pid;
+
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+	status = pid1_child_exit_status;
+#else
+	r = waitpid(single_user_pid, &status, 0);
+#endif
+
+	if (r != single_user_pid) {
+		if (r == -1)
+			syslog(LOG_ERR, "single_user_callback(): waitpid(): %m");
+		if (r == 0)
+			syslog(LOG_ERR, "single_user_callback(): waitpid() returned 0");
 		return;
-	case 0:
-		syslog(LOG_ERR, "single_user_callback(): waitpid() returned 0");
-		return;
-	default:
-		break;
 	}
 
-	if (WIFEXITED(single_user_status) && WEXITSTATUS(single_user_status) == EXIT_SUCCESS) {
+	if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
 		syslog(LOG_INFO, "single user shell terminated, restarting");
 		run_runcom = true;
 		single_user_mode = false;
 	} else {
 		syslog(LOG_INFO, "single user shell terminated.");
 		run_runcom = false;
-		if (WTERMSIG(single_user_status) != SIGKILL)
+		if (WTERMSIG(status) != SIGKILL)
 			single_user_mode = true;
 	}
 
 	single_user_pid = 0;
-	single_user_status = 0;
 }
 
 static struct timeval runcom_start_tv = { 0, 0 };
@@ -484,9 +485,10 @@ runcom(void)
 static void
 runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
-	int status = runcom_status;
+	int status;
 	struct timeval runcom_end_tv, runcom_total_tv;
 	double sec;
+	pid_t r = runcom_pid;
 
 	gettimeofday(&runcom_end_tv, NULL);
 	timersub(&runcom_end_tv, &runcom_start_tv, &runcom_total_tv);
@@ -494,18 +496,22 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 	sec += (double)runcom_total_tv.tv_usec / (double)1000000;
 	syslog(LOG_INFO, "%s finished in: %.3f seconds", _PATH_RUNCOM, sec);
 
-	runcom_status = 0;
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+	status = pid1_child_exit_status;
+#else
+	r = waitpid(runcom_pid, &status, 0);
+#endif
 
-	if (runcom_pid) {
-		pid_t r = waitpid(runcom_pid, &status, 0);
-		if (r == runcom_pid) {
-			runcom_pid = 0;
-		} else if (r == -1) {
-			syslog(LOG_ERR, "wait for %s on %s failed: %m; going to single user mode",
-					_PATH_BSHELL, _PATH_RUNCOM);
-			single_user_mode = true;
-			return;
-		}
+	if (r == runcom_pid) {
+		runcom_pid = 0;
+	} else {
+		if (r == -1)
+			syslog(LOG_ERR, "waitpid() for '%s %s' failed: %m", _PATH_BSHELL, _PATH_RUNCOM);
+		if (r == 0)
+			syslog(LOG_ERR, "waitpid() for '%s %s' returned 0", _PATH_BSHELL, _PATH_RUNCOM);
+		syslog(LOG_ERR, "going to single user mode");
+		single_user_mode = true;
+		return;
 	}
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
@@ -736,29 +742,32 @@ session_callback(void *obj, struct kevent *kev __attribute__((unused)))
 static void
 session_reap(session_t s)
 {
-	char *line;
 	pid_t pr = s->se_process;
+	char *line;
+	int status;
 
-	if (s->se_wstatus == 0)
-		pr = waitpid(s->se_process, &s->se_wstatus, 0);
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+	status = pid1_child_exit_status;
+#else
+	pr = waitpid(s->se_process, &status, 0);
+#endif
 
 	switch (pr) {
 	case -1:
-		syslog(LOG_DEBUG, "waitpid(): %m");
+		syslog(LOG_ERR, "waitpid(): %m");
 		return;
 	case 0:
-		syslog(LOG_DEBUG, "waitpid() == 0");
+		syslog(LOG_ERR, "waitpid() == 0");
 		return;
 	default:
-		if (WIFSIGNALED(s->se_wstatus)) {
+		if (WIFSIGNALED(status)) {
 			s->se_flags |= SE_ONERROR; 
-		} else if (WEXITSTATUS(s->se_wstatus) == REALLY_EXIT_TO_CONSOLE) {
-			/* WIFEXITED(s->se_wstatus) assumed */
+		} else if (WEXITSTATUS(status) == REALLY_EXIT_TO_CONSOLE) {
+			/* WIFEXITED(status) assumed */
 			s->se_flags |= SE_ONOPTION;
 		} else {
 			s->se_flags |= SE_ONERROR;
 		}       
-		s->se_wstatus = 0;
 		s->se_process = 0;
 		line = s->se_device + sizeof(_PATH_DEV) - 1;
 		if (logout(line))
@@ -855,7 +864,8 @@ death(void)
 	syslog(LOG_WARNING, "some processes would not die; ps axl advised");
 }
 
-bool init_check_pid(pid_t p, int status)
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+__private_extern__ bool init_check_pid(pid_t p)
 {
 	struct kevent kev;
 	session_t s;
@@ -863,22 +873,18 @@ bool init_check_pid(pid_t p, int status)
 	TAILQ_FOREACH(s, &sessions, tqe) {
 		if (s->se_process == p) {
 			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, s);
-			s->se_wstatus = status;
 			s->se_callback(s, &kev);
 			return true;
 		}
 	}
 	if (single_user_pid == p) {
-		single_user_pid = 0;
-		single_user_status = status;
 		single_user_callback(NULL, NULL);
 		return true;
 	}
 	if (runcom_pid == p) {
-		runcom_pid = 0;
-		runcom_status = status;
 		runcom_callback(NULL, NULL);
 		return true;
 	}
 	return false;
 }
+#endif

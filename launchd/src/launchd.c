@@ -45,7 +45,6 @@ struct jobcb {
 	TAILQ_ENTRY(jobcb) tqe;
 	launch_data_t ldj;
 	pid_t p;
-	int wstatus;
 	struct timeval start_time;
 	size_t failed_exits;
 	struct conncb *c;
@@ -94,8 +93,10 @@ static void ipc_close(struct conncb *c);
 static void ipc_callback(void *, struct kevent *);
 static void ipc_readmsg(launch_data_t msg, void *context);
 
+#ifdef PID1_REAP_ADOPTED_CHILDREN
 static void pid1waitpid(void);
-static bool launchd_check_pid(pid_t p, int status);
+static bool launchd_check_pid(pid_t p);
+#endif
 static void launchd_server_init(void);
 
 static void *mach_demand_loop(void *);
@@ -279,12 +280,16 @@ int main(int argc, char *argv[])
 			break;
 		}
 
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+		// <rdar://problem/3632556> Please automatically reap processes reparented to PID 1
 		if (getpid() == 1)
 			pid1waitpid();
+#endif
 	}
 }
 
-static bool launchd_check_pid(pid_t p, int status)
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+static bool launchd_check_pid(pid_t p)
 {
 	struct kevent kev;
 	struct jobcb *j;
@@ -292,14 +297,13 @@ static bool launchd_check_pid(pid_t p, int status)
 	TAILQ_FOREACH(j, &jobs, tqe) {
 		if (j->p == p) {
 			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, j);
-			j->p = 0;
-			j->wstatus = status;
 			j->kqjob_callback(j, &kev);
 			return true;
 		}
 	}
 	return false;
 }
+#endif
 
 static void launchd_remove_all_jobs(void)
 {
@@ -819,8 +823,10 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 	int pthr_r, pfds[2];
 
 	if (filter != EVFILT_MACHPORT) {
+#ifdef PID1_REAP_ADOPTED_CHILDREN
 		if (filter == EVFILT_PROC && getpid() == 1)
 			return 0;
+#endif
 		EV_SET(&kev, ident, filter, flags, fflags, data, udata);
 		return kevent(mainkq, &kev, 1, NULL, 0, NULL);
 	}
@@ -900,21 +906,26 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 static void job_reap(struct jobcb *j)
 {
 	bool bad_exit = false;
-	
-	if (j->p)
-		waitpid(j->p, &j->wstatus, 0);
+	int status;
 
-	if (WIFEXITED(j->wstatus) && WEXITSTATUS(j->wstatus) != 0) {
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+	if (getpid() == 1)
+		status = pid1_child_exit_status;
+	else
+#endif
+		waitpid(j->p, &status, 0);
+
+	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
 		syslog(LOG_WARNING, "%s[%d] exited with exit code %d",
-				job_get_argv0(j->ldj), j->p, WEXITSTATUS(j->wstatus));
+				job_get_argv0(j->ldj), j->p, WEXITSTATUS(status));
 		bad_exit = true;
 	}
 
-	if (WIFSIGNALED(j->wstatus)) {
-		int s = WTERMSIG(j->wstatus);
+	if (WIFSIGNALED(status)) {
+		int s = WTERMSIG(status);
 		if (s != SIGKILL && s != SIGTERM) {
 			syslog(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
-					job_get_argv0(j->ldj), j->p, WTERMSIG(j->wstatus));
+					job_get_argv0(j->ldj), j->p, WTERMSIG(status));
 			bad_exit = true;
 		}
 	}
@@ -926,7 +937,6 @@ static void job_reap(struct jobcb *j)
 
 	j->c = NULL;
 	j->p = 0;
-	j->wstatus = 0;
 	j->checkedin = false;
 }
 
@@ -1115,16 +1125,18 @@ static void job_launch(struct jobcb *j)
 	}
 }
 
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+__private_extern__ int pid1_child_exit_status = 0;
 static void pid1waitpid(void)
 {
-	int status;
 	pid_t p;
 
-	while ((p = waitpid(-1, &status, WNOHANG)) > 0) {
-		if (!launchd_check_pid(p, status))
-			init_check_pid(p, status);
+	while ((p = waitpid(-1, &pid1_child_exit_status, WNOHANG)) > 0) {
+		if (!launchd_check_pid(p))
+			init_check_pid(p);
 	}
 }
+#endif
 
 static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
