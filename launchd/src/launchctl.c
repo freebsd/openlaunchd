@@ -268,6 +268,12 @@ static void unloadjob(launch_data_t job)
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmp = launch_data_alloc(LAUNCH_DATA_STRING);
 	tmps = launch_data_dict_lookup(job, LAUNCH_JOBKEY_LABEL);
+
+	if (!tmps) {
+		fprintf(stderr, "%s: Error: Missing Key: %s\n", getprogname(), LAUNCH_JOBKEY_LABEL);
+		return;
+	}
+
 	launch_data_set_string(tmp, launch_data_get_string(tmps));
 	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_REMOVEJOB);
 	resp = launch_msg(msg);
