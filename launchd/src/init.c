@@ -86,7 +86,6 @@
 #include <paths.h>
 #include <util.h>
 #include <libgen.h>
-#include <pwd.h>
 #include <paths.h>
 #include <termios.h>
 
@@ -307,38 +306,6 @@ setctty(const char *name, int flags)
 }
 
 static void
-do_security_check(void)
-{
-	struct ttyent *typ;
-	struct passwd *pp;
-	static const char banner[] = "Enter root password, or ^D to go multi-user\n";
-	char *clear, *password;
-
-	/*
-	 * Check the root password.
-	 * We don't care if the console is 'on' by default;
-	 * it's the only tty that can be 'off' and 'secure'.
-	 */
-	typ = getttynam("console");
-	pp = getpwnam("root");
-	if (typ && (typ->ty_status & TTY_SECURE) == 0 && pp) {
-		write(STDERR_FILENO, banner, sizeof(banner) - 1);
-		for (;;) {
-			clear = getpass("Password:");
-			if (clear == 0 || *clear == '\0')
-				exit(EXIT_SUCCESS);
-			password = crypt(clear, pp->pw_passwd);
-			memset(clear, 0, _PASSWORD_LEN);
-			if (strcmp(password, pp->pw_passwd) == 0)
-				break;
-			syslog(LOG_NOTICE, "single-user login failed");
-		}
-	}
-	endttyent();
-	endpwent();
-}
-
-static void
 single_user(void)
 {
 	char *argv[2];
@@ -351,8 +318,6 @@ single_user(void)
 		return;
 	} else if (single_user_pid == 0) {
 		setctty(_PATH_CONSOLE, O_POPUP);
-
-		do_security_check();
 
                 setenv("TERM", "vt100", 1);
 		setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
