@@ -19,6 +19,7 @@ static void myEnvpCallback(const void *key, const void *value, char **where);
 static void usage(FILE *where) __attribute__((noreturn));
 static void loadcfg(char *what);
 static void monitor_initngd(void);
+static void removeJob(char *joblabel);
 
 int main(int argc, char *argv[])
 {
@@ -33,13 +34,16 @@ int main(int argc, char *argv[])
 
 	argv0 = argv[0];
 
-	while ((ch = getopt(argc, argv, "mhl:")) != -1) {
+	while ((ch = getopt(argc, argv, "mhl:r:")) != -1) {
 		switch (ch) {
 		case 'm':
 			monitor_initngd();
 			break;
 		case 'l':
 			loadcfg(optarg);
+			break;
+		case 'r':
+			removeJob(optarg);
 			break;
 		case 'h':
 			usage(stdout);
@@ -87,6 +91,17 @@ static void monitor_initngd(void)
 			break;
 	}
 	exit(EXIT_FAILURE);
+}
+
+static void removeJob(char *joblabel)
+{
+	initng_err_t ingerr;
+
+	ingerr = initng_msg(thefd, "removeJob", joblabel, NULL);
+	if (ingerr != INITNG_ERR_SUCCESS) {
+		fprintf(stderr, "removeJob failed: %s\n", initng_strerror(ingerr));
+		exit(EXIT_FAILURE);
+	}
 }
 
 static void loadcfg(char *what)
@@ -241,13 +256,16 @@ static void handleConfigFile(const char *file)
 		if (msga) {
 			msga[0] = joblabel;
 			ingerr = initng_msga(thefd, cf_file_options[i].command, msga);
-			if (ingerr != INITNG_ERR_SUCCESS)
+			if (ingerr != INITNG_ERR_SUCCESS) {
 				fprintf(stderr, "%s failed: %s\n", cf_file_options[i].command, initng_strerror(ingerr));
+				return;
+			}
 			for (msgatmp = msga + 1; *msgatmp; msgatmp++)
 				free(*msgatmp);
 			free(msga);
 		} else {
 			fprintf(stderr, "no msga!?!\n");
+			return;
 		}
 	}
 
@@ -261,6 +279,7 @@ static void handleConfigFile(const char *file)
 		char socklabel[1024] = { 0 };
 		char socknodename[1024] = { 0 };
 		char sockservname[1024] = { 0 };
+		char sockpathname[1024] = { 0 };
 		char sockfamily[1024] = { 0 };
 		char socktype[1024] = { 0 };
 		char sockprotocol[1024] = { 0 };
@@ -276,32 +295,46 @@ static void handleConfigFile(const char *file)
 		CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
 		strcpy(socklabel, buf);
 
-		if (CFDictionaryContainsKey(tv, CFSTR("SockNodeName"))) {
-			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockNodeName"))))
+		if (CFDictionaryContainsKey(tv, CFSTR("SockPathName"))) {
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockPathName"))))
 				goto socket_out;
 			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
-			strcpy(socknodename, buf);
-		}
+			strcpy(sockpathname, buf);
 
-		if (!CFDictionaryContainsKey(tv, CFSTR("SockServiceName")))
-			goto socket_out;
-		if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockServiceName"))))
-			goto socket_out;
-		CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
-		strcpy(sockservname, buf);
-
-		if (CFDictionaryContainsKey(tv, CFSTR("SockFamily"))) {
-			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockFamily"))))
+			if (!CFDictionaryContainsKey(tv, CFSTR("SockType")))
 				goto socket_out;
-			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
-			strcpy(sockfamily, buf);
-		}
-
-		if (CFDictionaryContainsKey(tv, CFSTR("SockType"))) {
 			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockType"))))
 				goto socket_out;
 			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
 			strcpy(socktype, buf);
+		} else {
+			if (CFDictionaryContainsKey(tv, CFSTR("SockNodeName"))) {
+				if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockNodeName"))))
+					goto socket_out;
+				CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+				strcpy(socknodename, buf);
+			}
+
+			if (!CFDictionaryContainsKey(tv, CFSTR("SockServiceName")))
+				goto socket_out;
+			if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockServiceName"))))
+				goto socket_out;
+			CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+			strcpy(sockservname, buf);
+
+			if (CFDictionaryContainsKey(tv, CFSTR("SockFamily"))) {
+				if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockFamily"))))
+					goto socket_out;
+				CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+				strcpy(sockfamily, buf);
+			}
+
+			if (CFDictionaryContainsKey(tv, CFSTR("SockType"))) {
+				if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockType"))))
+					goto socket_out;
+				CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
+				strcpy(socktype, buf);
+			}
 		}
 
 		if (CFDictionaryContainsKey(tv, CFSTR("SockProtocol"))) {
@@ -318,14 +351,26 @@ static void handleConfigFile(const char *file)
 				strcpy(sockpassive, "true");
 		}
 
-		ingerr = initng_msg(thefd, "addGetaddrinfoSockets", joblabel, socklabel, socknodename, sockservname,
-				sockfamily, socktype, sockprotocol, sockpassive, NULL);
-		if (ingerr != INITNG_ERR_SUCCESS)
-			fprintf(stderr, "addSocket failed: %s\n", initng_strerror(ingerr));
+		if (strlen(sockpathname) > 0) {
+			ingerr = initng_msg(thefd, "addUnixSocket", joblabel, socklabel, sockpathname,
+					 socktype, sockprotocol, sockpassive, NULL);
+			if (ingerr != INITNG_ERR_SUCCESS) {
+				fprintf(stderr, "addUnixSocket failed: %s\n", initng_strerror(ingerr));
+				return;
+			}
+		} else {
+			ingerr = initng_msg(thefd, "addGetaddrinfoSockets", joblabel, socklabel, socknodename, sockservname,
+					sockfamily, socktype, sockprotocol, sockpassive, NULL);
+			if (ingerr != INITNG_ERR_SUCCESS) {
+				fprintf(stderr, "addGetaddrinfoSockets failed: %s\n", initng_strerror(ingerr));
+				return;
+			}
+		}
 
 		continue;
 socket_out:
 		fprintf(stderr, "failed to add Socket at index %d\n", ti);
+		return;
 	}
 
 	if (CFDictionaryContainsKey(plist, CFSTR("Disabled"))) {
