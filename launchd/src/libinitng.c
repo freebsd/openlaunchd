@@ -106,6 +106,7 @@ initng_err_t initng_server_accept(int *cfd, int lfd)
 initng_err_t initng_flush(int fd)
 {
         struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
+	struct cmsghdr *cm;
         struct msghdr mh;
         struct iovec iov;
         int r;
@@ -127,11 +128,20 @@ initng_err_t initng_flush(int fd)
 		return INITNG_ERR_SYSCALL;
 	if (r == 0)
 		return INITNG_ERR_BROKEN_CONN;
+
 	memmove(thisconn->sendbuf, thisconn->sendbuf + r, r);
 	thisconn->sendlen -= r;
-	/* XXX - close FDs that have been sent */
-	memmove(thisconn->sendctrlbuf, thisconn->sendctrlbuf + mh.msg_controllen, mh.msg_controllen);
-	thisconn->sendctrllen -= mh.msg_controllen;
+
+	while (mh.msg_controllen > 0) {
+		cm = thisconn->sendctrlbuf;
+		if (cm->cmsg_len == CMSG_LEN(sizeof(int)) &&
+				cm->cmsg_level == SOL_SOCKET &&
+				cm->cmsg_type == SCM_RIGHTS)
+	                close(*((int*)CMSG_DATA(cm)));
+		mh.msg_controllen -= cm->cmsg_len;
+		thisconn->sendctrllen -= cm->cmsg_len;
+		memmove(thisconn->sendctrlbuf, thisconn->sendctrlbuf + cm->cmsg_len, cm->cmsg_len);
+	}
 
 	if (thisconn->sendlen > 0 || thisconn->sendctrllen > 0)
 		return INITNG_ERR_AGAIN;
