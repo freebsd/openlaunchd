@@ -76,7 +76,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 	struct kevent kev;
 	int r, ec = EXIT_FAILURE;
 	launch_data_t tmp, resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
-	const char *prog = NULL;
+	const char *prog = argv[1];
 	bool w = false, dupstdout = true, dupstderr = true;
 
 	launch_data_set_string(msg, LAUNCH_KEY_CHECKIN);
@@ -139,7 +139,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 				dup2(kev.ident, STDOUT_FILENO);
 			if (dupstderr)
 				dup2(kev.ident, STDERR_FILENO);
-			execv(prog ? prog : argv[1], argv + 1);
+			execv(prog, argv + 1);
 			syslog(LOG_ERR, "execv(): %m");
 			exit(EXIT_FAILURE);
 		}
@@ -160,9 +160,9 @@ int main(int argc __attribute__((unused)), char *argv[])
 					NI_NUMERICHOST | NI_NUMERICSERV);
 
 			if (gni_r) {
-				syslog(LOG_WARNING, "getnameinfo(): %s", gai_strerror(gni_r));
+				syslog(LOG_WARNING, "%s: getnameinfo(): %s", prog, gai_strerror(gni_r));
 			} else {
-				syslog(LOG_INFO, "Connection from: %s on port: %s", fromhost, fromport);
+				syslog(LOG_INFO, "%s: Connection from: %s on port: %s", prog, fromhost, fromport);
 			}
 
 			switch (fork()) {
@@ -180,9 +180,9 @@ int main(int argc __attribute__((unused)), char *argv[])
 				if (SessionCreate) {
 					OSStatus scr = SessionCreate(0, 0);
 					if (scr != noErr)
-						syslog(LOG_NOTICE, "%s: SessionCreate() failed: %d", prog ? prog : argv[1], scr);
+						syslog(LOG_NOTICE, "%s: SessionCreate() failed: %d", prog, scr);
 				} else {
-					syslog(LOG_NOTICE, "%s: SessionCreate == NULL!", prog ? prog : argv[1]);
+					syslog(LOG_NOTICE, "%s: SessionCreate == NULL!", prog);
 				}
 			}
 			fcntl(r, F_SETFL, 0);
@@ -192,7 +192,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 			if (dupstderr)
 				dup2(r, STDERR_FILENO);
 			signal(SIGCHLD, SIG_DFL);
-			execv(prog ? prog : argv[1], argv + 1);
+			execv(prog, argv + 1);
 			syslog(LOG_ERR, "execv(): %m");
 			exit(EXIT_FAILURE);
 		}
