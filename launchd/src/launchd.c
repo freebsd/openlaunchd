@@ -59,7 +59,7 @@ struct jobcb {
 	pid_t p;
 	struct timeval start_time;
 	size_t failed_exits;
-	int checkedin:1, futureflags:31;
+	unsigned int checkedin:1, firstborn:1, futureflags:30;
 };
 
 struct conncb {
@@ -100,6 +100,7 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 static void job_watch_fds(launch_data_t o, void *cookie);
 static void job_ignore_fds(launch_data_t o, void *cookie);
 static void job_start(struct jobcb *j);
+static void job_start_child(struct jobcb *j);
 static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
@@ -116,7 +117,8 @@ static void pid1waitpid(void);
 static bool launchd_check_pid(pid_t p);
 #endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
-static bool launchd_server_init(void);
+static bool launchd_server_init(bool create_session);
+static void launch_firstborn(char *argv[]);
 
 static void *mach_demand_loop(void *);
 
@@ -129,8 +131,10 @@ static void loopback_setup(void);
 static void workaround3048875(int argc, char *argv[]);
 static void reload_launchd_config(void);
 
+static size_t total_children = 0;
 static pid_t readcfg_pid = 0;
-static int thesocket = -1;
+static bool launchd_inited = false;
+static bool shutdown_in_progress = false;
 static pthread_t mach_server_loop_thread;
 mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 sigset_t blocked_signals = 0;
@@ -139,17 +143,34 @@ static char *pending_stderr = NULL;
 
 int main(int argc, char *argv[])
 {
-	struct timespec timeout = { 30, 0 };
-	struct kevent kev;
-	size_t i;
-	bool sflag = false, xflag = false, vflag = false;
-	int ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
+	static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
+	void testfd_or_openfd(int fd, const char *path, int flags) {
+		int tmpfd;
+
+		if (-1 != (tmpfd = dup(fd))) {
+			close(tmpfd);
+		} else {
+			if (-1 == (tmpfd = open(path, flags))) {
+				syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
+			} else if (tmpfd != fd) {
+				dup2(tmpfd, fd);
+				close(tmpfd);
+			}
+		}
+	};
+	struct kevent kev;
+	size_t i;
+	bool sflag = false, xflag = false, vflag = false;
+	int ch;
 
 	if (getpid() == 1)
 		workaround3048875(argc, argv);
+
+	setegid(getgid());
+	seteuid(getuid());
 	
 	while ((ch = getopt(argc, argv, "hsvx")) != -1) {
 		switch (ch) {
@@ -163,13 +184,12 @@ int main(int argc, char *argv[])
 			break;
 		}
 	}
+	argc -= optind;
+	argv += optind;
 
-	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
-	open(_PATH_DEVNULL, O_RDONLY);
-	open(_PATH_DEVNULL, O_WRONLY);
-	open(_PATH_DEVNULL, O_WRONLY);
+	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
+	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
+	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
 
 	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(LOG_NOTICE));
@@ -195,25 +215,36 @@ int main(int argc, char *argv[])
 	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
 		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
 
-	if (setsid() == -1)
-		syslog(LOG_ERR, "setsid(): %m");
-
-	if (chdir("/") == -1)
-		syslog(LOG_ERR, "chdir(\"/\"): %m");
-
 	if (getpid() == 1) {
 		pid1_magic_init(sflag, vflag, xflag);
-	} else if (!launchd_server_init()) {
-		exit(EXIT_FAILURE);
+	} else {
+		launchd_bootstrap_port = bootstrap_port;
+		if (!launchd_server_init(argv[0] ? true : false))
+			exit(EXIT_FAILURE);
 	}
 
 	reload_launchd_config();
 
-	for (;;) {
-		if (getpid() == 1 && readcfg_pid == 0)
-			init_pre_kevent();
+	if (argv[0])
+		launch_firstborn(argv);
 
-		switch (kevent(mainkq, NULL, 0, &kev, 1, (TAILQ_EMPTY(&jobs) && getpid() != 1) ? &timeout : NULL)) {
+	for (;;) {
+		static struct timespec timeout = { 30, 0 };
+		struct timespec *timeoutp = NULL;
+
+		if (getpid() == 1) {
+			if (readcfg_pid == 0)
+				init_pre_kevent();
+		} else {
+			if (TAILQ_EMPTY(&jobs)) {
+				/* launched on demand */
+				timeoutp = &timeout;
+			} else if (shutdown_in_progress && total_children == 0) {
+				exit(EXIT_SUCCESS);
+			}
+		}
+
+		switch (kevent(mainkq, NULL, 0, &kev, 1, timeoutp)) {
 		case -1:
 			syslog(LOG_DEBUG, "kevent(): %m");
 			break;
@@ -221,7 +252,7 @@ int main(int argc, char *argv[])
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			break;
 		case 0:
-			if (TAILQ_EMPTY(&jobs) && getpid() != 1)
+			if (timeoutp)
 				exit(EXIT_SUCCESS);
 			else
 				syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
@@ -245,6 +276,12 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 	int pthr_r;
 		
 	setpriority(PRIO_PROCESS, 0, -1);
+
+	if (setsid() == -1)
+		syslog(LOG_ERR, "setsid(): %m");
+
+	if (chdir("/") == -1)
+		syslog(LOG_ERR, "chdir(\"/\"): %m");
 
 	if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
 		syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "hw.physmem");
@@ -317,15 +354,24 @@ static bool launchd_check_pid(pid_t p)
 }
 #endif
 
-static void launchd_remove_all_jobs(void)
-{
-	struct jobcb *j;
+static char *sockdir = NULL;
+static char *sockpath = NULL;
 
-	while ((j = TAILQ_FIRST(&jobs)))
-		job_remove(j);
+static void launchd_clean_up(void)
+{
+	seteuid(0);
+	setegid(0);
+
+	if (-1 == unlink(sockpath))
+		syslog(LOG_WARNING, "unlink(\"%s\"): %m", sockpath);
+	else if (-1 == rmdir(sockdir))
+		syslog(LOG_WARNING, "rmdir(\"%s\"): %m", sockdir);
+
+	setegid(getgid());
+	seteuid(getuid());
 }
 
-static bool launchd_server_init(void)
+static bool launchd_server_init(bool create_session)
 {
 	struct sockaddr_un sun;
 	mode_t oldmask;
@@ -335,8 +381,17 @@ static bool launchd_server_init(void)
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 
-	snprintf(ourdir, sizeof(ourdir), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
-	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u/sock", LAUNCHD_SOCK_PREFIX, getuid());
+	if (create_session) {
+		snprintf(ourdir, sizeof(ourdir), "%s/%u.%u", LAUNCHD_SOCK_PREFIX, getuid(), getpid());
+		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u.%u/sock", LAUNCHD_SOCK_PREFIX, getuid(), getpid());
+		setenv(LAUNCHD_SOCKET_ENV, sun.sun_path, 1);
+	} else {
+		snprintf(ourdir, sizeof(ourdir), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
+		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u/sock", LAUNCHD_SOCK_PREFIX, getuid());
+	}
+
+	seteuid(0);
+	setegid(0);
 
 	if (mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH) == -1) {
 		if (errno == EROFS)
@@ -398,6 +453,10 @@ static bool launchd_server_init(void)
 	}
 	if (chown(sun.sun_path, getuid(), getgid()) == -1)
 		syslog(LOG_WARNING, "chown(\"thesocket\"): %m");
+
+	setegid(getgid());
+	seteuid(getuid());
+
 	if (listen(fd, SOMAXCONN) == -1) {
 		syslog(LOG_ERR, "listen(\"thesocket\"): %m");
 		goto out_bad;
@@ -408,9 +467,12 @@ static bool launchd_server_init(void)
 		goto out_bad;
 	}
 
-	thesocket = fd;
-	setgid(getgid());
-	setuid(getuid());
+	launchd_inited = true;
+
+	sockdir = strdup(ourdir);
+	sockpath = strdup(sun.sun_path);
+
+	atexit(launchd_clean_up);
 
 	return true;
 out_bad:
@@ -1047,7 +1109,10 @@ static void job_reap(struct jobcb *j)
 		status = pid1_child_exit_status;
 	else
 #endif
-		waitpid(j->p, &status, 0);
+	if (-1 == waitpid(j->p, &status, 0)) {
+		syslog(LOG_WARNING, "waitpid(%p, ...): %m", j->p);
+		return;
+	}
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
 		syslog(LOG_WARNING, "%s[%d] exited with exit code %d",
@@ -1069,6 +1134,7 @@ static void job_reap(struct jobcb *j)
 	else
 		j->failed_exits = 0;
 
+	total_children--;
 	j->p = 0;
 	j->checkedin = false;
 }
@@ -1076,50 +1142,45 @@ static void job_reap(struct jobcb *j)
 static void job_callback(void *obj, struct kevent *kev)
 {
 	struct jobcb *j = obj;
+	bool checkin_check = j->checkedin;
 
-	if (kev->filter == EVFILT_PROC) {
-		bool checkin_check = j->checkedin;
+	if (kev->filter != EVFILT_PROC) {
+		job_start(j);
 
-		job_reap(j);
-
-		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
-			syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
-			job_remove(j);
-			return;
-		}
-
-		if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
-			syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
-			job_remove(j);
-			return;
-		}
-
-		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
-			job_watch_fds(j->ldj, &j->kqjob_callback);
-			return;
-		}
+		if (j == helperd && batch_disabler_count > 0)
+			kill(helperd->p, SIGSTOP);
+		return;
 	}
 
-	job_start(j);
+	job_reap(j);
 
-	if (j == helperd && batch_disabler_count > 0)
-		kill(helperd->p, SIGSTOP);
+	if (j->firstborn)
+		do_shutdown();
+	else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
+		syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
+		job_remove(j);
+	} else if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
+		syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
+		job_remove(j);
+	} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
+		job_watch_fds(j->ldj, &j->kqjob_callback);
+	}
 }
 
 static void job_start(struct jobcb *j)
 {
 	struct timeval tvd, last_start_time = j->start_time;
 	int spair[2];
-	bool sipc, inetcompat;
+	bool sipc;
+	char nbuf[64];
 	pid_t c;
 
 	if (j->p)
 		return;
 
 	sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
-	inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
 
-	if (inetcompat)
+	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY))
 		sipc = true;
 
 	if (sipc)
@@ -1134,129 +1195,24 @@ static void job_start(struct jobcb *j)
 		j->failed_exits = 0;
 	}
 	
-	if ((c = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
+	switch (c = fork_with_bootstrap_port(launchd_bootstrap_port)) {
+	case -1:
 		syslog(LOG_WARNING, "fork(): %m");
 		if (sipc) {
 			close(spair[0]);
 			close(spair[1]);
 		}
-		return;
-	} else if (c == 0) {
-		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-		launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
-		launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
-		size_t i, argv_cnt;
-		const char **argv;
-		char nbuf[64];
-		const struct {
-			const char *key;
-			int val;
-		} limits[] = {
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
-			{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
-		};
+		break;
+	case 0:
+		setpgid(getpid(), getpid());
+		if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
+			syslog(LOG_WARNING, "tcsetpgrp(): %m");
 
-		argv_cnt = launch_data_array_get_count(ldpa);
-		argv = alloca((argv_cnt + 2) * sizeof(char *));
-		for (i = 0; i < argv_cnt; i++)
-			argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
-		argv[argv_cnt + 1] = NULL;
-
-		if (inetcompat)
-			argv[0] = "/usr/libexec/launchproxy";
-		else
-			argv++;
-
-		if (sipc)
+		if (sipc) {
 			close(spair[0]);
-
-		setpriority(PRIO_PROCESS, 0, job_get_integer(j->ldj, LAUNCH_JOBKEY_NICE));
-
-		if (srl || hrl) {
-			for (i = 0; i < (sizeof(limits) / sizeof(limits[0])); i++) {
-				struct rlimit rl;
-
-				if (getrlimit(limits[i].val, &rl) == -1)
-					syslog(LOG_NOTICE, "getrlimit(): %m");
-
-				if (hrl)
-					rl.rlim_max = job_get_integer(hrl, limits[i].key);
-				if (srl)
-					rl.rlim_cur = job_get_integer(srl, limits[i].key);
-
-				if (setrlimit(limits[i].val, &rl) == -1)
-					syslog(LOG_NOTICE, "setrlimit(): %m");
-			}
-		}
-
-		if (!inetcompat && job_get_bool(j->ldj, LAUNCH_JOBKEY_SESSIONCREATE))
-			launchd_SessionCreate(job_get_argv0(j->ldj));
-
-		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
-			const char *u = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME);
-			struct passwd *pwe;
-
-			if (u == NULL) {
-				syslog(LOG_NOTICE, "\"%s\" requires \"%s\"", LAUNCH_JOBKEY_INITGROUPS, LAUNCH_JOBKEY_USERNAME);
-			} else if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_GID)) {
-				initgroups(u, job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
-			} else if ((pwe = getpwnam(u))) {
-				initgroups(u, pwe->pw_gid);
-			} else {
-				syslog(LOG_NOTICE, "Could not find base group in order to call initgroups()");
-			}
-		}
-		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_LOWPRIORITYIO)) {
-			int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
-			int val = 1;
-
-			if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
-				syslog(LOG_NOTICE, "sysctl(\"%s\"): %m", "kern.proc_low_pri_io");
-		}
-		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))
-			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY));
-		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_GID) != getgid())
-			setgid(job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
-		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UID) != getuid())
-			setuid(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID));
-		if (job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY))
-			chdir(job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY));
-		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
-			umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
-		if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH)) {
-			int sofd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
-			if (sofd == -1) {
-				syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH));
-			} else {
-				dup2(sofd, STDOUT_FILENO);
-				close(sofd);
-			}
-		}
-		if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH)) {
-			int sefd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
-			if (sefd == -1) {
-				syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH));
-			} else {
-				dup2(sefd, STDERR_FILENO);
-				close(sefd);
-			}
-		}
-		if (sipc)
 			sprintf(nbuf, "%d", spair[1]);
-		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))
-			launch_data_dict_iterate(launch_data_dict_lookup(j->ldj,
-						LAUNCH_JOBKEY_ENVIRONMENTVARIABLES),
-					setup_job_env, NULL);
-		if (sipc)
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
-		setsid();
+		}
 		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
 			/* Only punish short daemon life if the last exit was "bad." */
 			if (j->failed_exits > 0) {
@@ -1265,24 +1221,138 @@ static void job_start(struct jobcb *j)
 				sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
 			}
 		}
-                if (execvp(inetcompat ? argv[0] : job_get_argv0(j->ldj), (char *const*)argv) == -1)
-			syslog(LOG_ERR, "execvp(\"%s\", ...): %m", inetcompat ? argv[0] : job_get_argv0(j->ldj));
-		exit(EXIT_FAILURE);
+		job_start_child(j);
+		break;
+	default:
+		if (sipc) {
+			close(spair[1]);
+			ipc_open(_fd(spair[0]), j);
+		}
+		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
+			syslog(LOG_WARNING, "kevent(): %m");
+		} else {
+			j->p = c;
+			total_children++;
+			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+				job_ignore_fds(j->ldj, j->kqjob_callback);
+		}
+		break;
+	}
+}
+
+static void job_start_child(struct jobcb *j)
+{
+	launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+	launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
+	launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
+	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
+	size_t i, argv_cnt;
+	const char **argv;
+	static const struct {
+		const char *key;
+		int val;
+	} limits[] = {
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
+	};
+
+	argv_cnt = launch_data_array_get_count(ldpa);
+	argv = alloca((argv_cnt + 2) * sizeof(char *));
+	for (i = 0; i < argv_cnt; i++)
+		argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
+	argv[argv_cnt + 1] = NULL;
+
+	if (inetcompat)
+		argv[0] = "/usr/libexec/launchproxy";
+	else
+		argv++;
+
+	setpriority(PRIO_PROCESS, 0, job_get_integer(j->ldj, LAUNCH_JOBKEY_NICE));
+
+	if (srl || hrl) {
+		for (i = 0; i < (sizeof(limits) / sizeof(limits[0])); i++) {
+			struct rlimit rl;
+
+			if (getrlimit(limits[i].val, &rl) == -1)
+				syslog(LOG_NOTICE, "getrlimit(): %m");
+
+			if (hrl)
+				rl.rlim_max = job_get_integer(hrl, limits[i].key);
+			if (srl)
+				rl.rlim_cur = job_get_integer(srl, limits[i].key);
+
+			if (setrlimit(limits[i].val, &rl) == -1)
+				syslog(LOG_NOTICE, "setrlimit(): %m");
+		}
 	}
 
-	if (sipc) {
-		close(spair[1]);
-		ipc_open(_fd(spair[0]), j);
-	}
+	if (!inetcompat && job_get_bool(j->ldj, LAUNCH_JOBKEY_SESSIONCREATE))
+		launchd_SessionCreate(job_get_argv0(j->ldj));
 
-	if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
-		syslog(LOG_WARNING, "kevent(): %m");
-		return;
-	} else {
-		j->p = c;
-		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
-			job_ignore_fds(j->ldj, j->kqjob_callback);
+	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
+		const char *u = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME);
+		struct passwd *pwe;
+
+		if (u == NULL) {
+			syslog(LOG_NOTICE, "\"%s\" requires \"%s\"", LAUNCH_JOBKEY_INITGROUPS, LAUNCH_JOBKEY_USERNAME);
+		} else if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_GID)) {
+			initgroups(u, job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
+		} else if ((pwe = getpwnam(u))) {
+			initgroups(u, pwe->pw_gid);
+		} else {
+			syslog(LOG_NOTICE, "Could not find base group in order to call initgroups()");
+		}
 	}
+	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_LOWPRIORITYIO)) {
+		int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
+		int val = 1;
+
+		if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
+			syslog(LOG_NOTICE, "sysctl(\"%s\"): %m", "kern.proc_low_pri_io");
+	}
+	if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))
+		chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY));
+	if (job_get_integer(j->ldj, LAUNCH_JOBKEY_GID) != getgid())
+		setgid(job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
+	if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UID) != getuid())
+		setuid(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID));
+	if (job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY))
+		chdir(job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY));
+	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
+		umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
+	if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH)) {
+		int sofd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+		if (sofd == -1) {
+			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH));
+		} else {
+			dup2(sofd, STDOUT_FILENO);
+			close(sofd);
+		}
+	}
+	if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH)) {
+		int sefd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+		if (sefd == -1) {
+			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH));
+		} else {
+			dup2(sefd, STDERR_FILENO);
+			close(sefd);
+		}
+	}
+	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))
+		launch_data_dict_iterate(launch_data_dict_lookup(j->ldj,
+					LAUNCH_JOBKEY_ENVIRONMENTVARIABLES),
+				setup_job_env, NULL);
+	setsid();
+	if (execvp(inetcompat ? argv[0] : job_get_argv0(j->ldj), (char *const*)argv) == -1)
+		syslog(LOG_ERR, "execvp(\"%s\", ...): %m", inetcompat ? argv[0] : job_get_argv0(j->ldj));
+	_exit(EXIT_FAILURE);
 }
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
@@ -1300,12 +1370,19 @@ static void pid1waitpid(void)
 
 static void do_shutdown(void)
 {
-	launchd_remove_all_jobs();
+	struct jobcb *j;
+
+	shutdown_in_progress = true;
+
+	TAILQ_FOREACH(j, &jobs, tqe) {
+	        launch_data_t od = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
+		launch_data_set_bool(od, false);
+		job_stop(j);
+	}
+
 	if (getpid() == 1) {
 		catatonia();
 		mach_start_shutdown(SIGTERM);
-	} else {
-		exit(EXIT_SUCCESS);
 	}
 }
 
@@ -1372,8 +1449,8 @@ static void fs_callback(void)
 		}
 	}
 
-	if (thesocket == -1)
-		launchd_server_init();
+	if (!launchd_inited)
+		launchd_server_init(false);
 }
 
 static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
@@ -1385,7 +1462,10 @@ static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *k
 		status = pid1_child_exit_status;
 	else
 #endif
-		waitpid(readcfg_pid, &status, 0);
+	if (-1 == waitpid(readcfg_pid, &status, 0)) {
+		syslog(LOG_WARNING, "waitpid(readcfg_pid, ...): %m");
+		return;
+	}
 
 	readcfg_pid = 0;
 
@@ -1500,8 +1580,8 @@ static void reload_launchd_config(void)
 			dup2(fd, STDIN_FILENO);
 			close(fd);
 			execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL);
-			syslog(LOG_ERR, "execl(): %m");
-			exit(EXIT_FAILURE);
+			syslog(LOG_ERR, "execl(\"%s\", ...): %m", LAUNCHCTL_PATH);
+			_exit(EXIT_FAILURE);
 		} else if (readcfg_pid == -1) {
 			close(spair[0]);
 			close(spair[1]);
@@ -1511,21 +1591,48 @@ static void reload_launchd_config(void)
 			close(spair[1]);
 			ipc_open(_fd(spair[0]), NULL);
 			if (kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) == -1)
-				syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqreadcfg_callback): %m");
+				syslog(LOG_ERR, "kevent_mod(EVFILT_PROC, &kqreadcfg_callback): %m");
 		}
 	}
 }
 
+static void launch_firstborn(char *argv[])
+{
+	launch_data_t r, d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_t args = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	launch_data_t l = launch_data_new_string("com.apple.launchd.firstborn");
+	size_t i;
+
+	for (i = 0; *argv; argv++)
+		launch_data_array_set_index(args, launch_data_new_string(*argv), i);
+
+	launch_data_dict_insert(d, args, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+	launch_data_dict_insert(d, l, LAUNCH_JOBKEY_LABEL);
+
+	r = load_job(d);
+
+	launch_data_free(r);
+	launch_data_free(d);
+
+	TAILQ_FIRST(&jobs)->firstborn = true;
+	job_start(TAILQ_FIRST(&jobs));
+
+}
+
 static void loopback_setup(void)
 {
-	int s = socket(AF_INET, SOCK_DGRAM, 0);
-	int s6 = socket(AF_INET6, SOCK_DGRAM, 0);
 	struct ifaliasreq ifra;
 	struct in6_aliasreq ifra6;
 	struct ifreq ifr;
+	int s, s6;
 
 	memset(&ifr, 0, sizeof(ifr));
 	strcpy(ifr.ifr_name, "lo0");
+
+	if (-1 == (s = socket(AF_INET, SOCK_DGRAM, 0)))
+		syslog(LOG_ERR, "%s: socket(%s, ...): %m", __PRETTY_FUNCTION__, "AF_INET");
+	if (-1 == (s6 = socket(AF_INET6, SOCK_DGRAM, 0)))
+		syslog(LOG_ERR, "%s: socket(%s, ...): %m", __PRETTY_FUNCTION__, "AF_INET6");
 
 	if (ioctl(s, SIOCGIFFLAGS, &ifr) == -1) {
 		syslog(LOG_ERR, "ioctl(SIOCGIFFLAGS): %m");

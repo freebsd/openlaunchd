@@ -7,11 +7,22 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl vsx
+.Op Ar command Op Ar args ...
 .Sh DESCRIPTION
 .Nm 
 manages daemons, both for the system as a whole and for individual users. Ideal daemons can launch
 on demand based on criteria specified in their respective XML property lists located in one of the
 directories specified in the FILES section.
+.Pp
+When run with a command, a specific instance of
+.Nm
+is created and the command is implicitly added to the list of jobs maintained by
+.Nm .
+If the command exits, that instance of
+.Nm
+will clean up all jobs maintained by itself and exit. All children of the command will use that
+instance of
+.Nm .
 .Pp
 During boot 
 .Nm
