@@ -5,7 +5,7 @@
 	<key>Disabled</key>
 	<true/>
 	<key>Label</key>
-	<string>com.apple.ftpd</string>
+	<string>com.apple.rlogind</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/usr/libexec/rlogind</string>
