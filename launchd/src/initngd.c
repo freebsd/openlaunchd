@@ -35,6 +35,7 @@ struct initng_job {
 	unsigned int enabled:1, on_demand:1, batch:1, launch_once:1,
 		supports_mgmt:1, running:1, compat_inetd_wait:1,
 		compat_inetd_nowait:1;
+	int setup_conn;
 	pid_t p;
 	uid_t u;
 	gid_t g;
@@ -78,7 +79,7 @@ int main(int argc, char *argv[])
 {
 	const char *thesockpath = NULL;
 	struct kevent kev;
-	struct initng_job *j;
+	struct initng_job *j, *ji;
 	initng_err_t ingerr;
 	int r, fd, ch, debug = 0;
 
@@ -177,6 +178,10 @@ int main(int argc, char *argv[])
 			if (ingerr != INITNG_ERR_SUCCESS && ingerr != INITNG_ERR_AGAIN) {
 				if (ingerr != INITNG_ERR_BROKEN_CONN)
 					initngd_debug(LOG_DEBUG, "initng_recvmsg(): %s", initng_strerror(ingerr));
+				TAILQ_FOREACH(ji, &thejobs, tqe) {
+					if ((int)kev.ident == ji->setup_conn)
+						job_remove_cleanup(ji);
+				}
 				initng_close(kev.ident);
 			}
 		} else if (kev.filter == EVFILT_WRITE) {
@@ -187,6 +192,10 @@ int main(int argc, char *argv[])
 				continue;
 			} else {
 				initngd_debug(LOG_DEBUG, "initng_flush(): %s", initng_strerror(ingerr));
+				TAILQ_FOREACH(ji, &thejobs, tqe) {
+					if ((int)kev.ident == ji->setup_conn)
+						job_remove_cleanup(ji);
+				}
 				initng_close(kev.ident);
 			}
 		}
@@ -197,6 +206,7 @@ static void launch_job_st(struct initng_job *j, int tfd)
 {
 	struct sockaddr_storage sas;
 	socklen_t sl = sizeof(sas);
+	char **tmp, *tmps;
 	int fd;
 	pid_t c;
 
@@ -210,6 +220,14 @@ static void launch_job_st(struct initng_job *j, int tfd)
 		close(fd);
 		return;
 	} else {
+		for (tmp = j->env; *tmp; tmp++) {
+			tmps = strchr(*tmp, '=');
+			if (tmps) {
+				*tmps = '\0';
+				tmps++;
+				setenv(*tmp, tmps, 1);
+			}
+		}
 		if (dup2(fd, STDIN_FILENO) == -1)
 			initngd_debug(LOG_DEBUG, "child dup2(fd, 0): %m");
 		if (dup2(fd, STDOUT_FILENO) == -1)
@@ -230,6 +248,7 @@ static void launch_job(struct initng_job *j)
 {
 	pid_t c;
 	char *rdata[] = { j->label, NULL, NULL };
+	char **tmp, *tmps;
 
 	runloop_ignore(j);
 
@@ -244,6 +263,14 @@ static void launch_job(struct initng_job *j)
 			goto out_bad;
 		}
 	} else {
+		for (tmp = j->env; *tmp; tmp++) {
+			tmps = strchr(*tmp, '=');
+			if (tmps) {
+				*tmps = '\0';
+				tmps++;
+				setenv(*tmp, tmps, 1);
+			}
+		}
 		setenv("INITNG_JOB_LABEL", j->label, 1);
 		setgid(j->g);
 		setuid(j->u);
@@ -390,6 +417,7 @@ static void parse_packet(int fd, char *command, char *data[], void *cookie)
 		j = calloc(1, sizeof(struct initng_job));
 		j->label = strdup(*data);
 		TAILQ_INIT(&j->thefds);
+		j->setup_conn = fd;
 		TAILQ_INSERT_TAIL(&thejobs, j, tqe);
 		goto out;
 	} else if (!j) {
@@ -399,6 +427,7 @@ static void parse_packet(int fd, char *command, char *data[], void *cookie)
 	} else if (!strcmp(command, "removeJob")) {
 		job_remove_cleanup(j);
 	} else if (!strcmp(command, "enableJob")) {
+		j->setup_conn = 0;
 		if (!strcmp(data[1], "true"))
 			j->enabled = 1;
 		else
