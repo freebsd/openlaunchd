@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
 	struct kevent kev;
 	struct initng_job *j, *ji;
 	initng_err_t ingerr;
-	int r, fd, ch, debug = 0;
+	int tmpfd, r, fd, ch, debug = 0;
 
 	argv0 = argv[0];
 
@@ -108,11 +108,20 @@ int main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if ((kq = _fd(kqueue())) == -1)
-		initngd_panic("kqueue(): %m");
+	openlog((const char*)basename(argv0), LOG_CONS|(debug ? LOG_PERROR : 0), LOG_DAEMON);
 
 	if (!debug) {
-		int tmpfd = open("/dev/null", O_RDWR);
+		if (getpid() > 1) {
+			switch (fork()) {
+			case -1:
+				initngd_panic("fork(): %m");
+			default:
+				exit(EXIT_SUCCESS);
+			case 0:
+				break;
+			}
+		}
+		tmpfd = open("/dev/null", O_RDWR);
 		dup2(tmpfd, STDIN_FILENO);
 		dup2(tmpfd, STDOUT_FILENO);
 		dup2(tmpfd, STDERR_FILENO);
@@ -140,6 +149,9 @@ int main(int argc, char *argv[])
 	chdir("/");
 	setsid();
 
+	if ((kq = _fd(kqueue())) == -1)
+		initngd_panic("kqueue(): %m");
+
 	openlog((const char*)basename(argv0), LOG_CONS|(debug ? LOG_PERROR : 0), LOG_DAEMON);
 
 	if ((ingerr = initng_server_init(&thesocket, thesockpath)) != INITNG_ERR_SUCCESS)
@@ -158,7 +170,7 @@ int main(int argc, char *argv[])
 			reap_job(j);
 		} else if (j) {
 			if (kev.filter == EVFILT_READ && kev.flags & EV_EOF && kev.data == 0) {
-				initngd_debug(LOG_WARNING, "one of %s's connections died, removing job", j->program);
+				initngd_debug(LOG_WARNING, "one of %s's connections died, removing job", j->label);
 				job_remove_cleanup(j);
 			} else if (j->compat_inetd_nowait) {
 				launch_job_st(j, kev.ident);
@@ -352,6 +364,8 @@ static void job_remove_cleanup(struct initng_job *j)
 		free(jfd->label);
 		free(jfd);
 	}
+	if (j->label)
+		free(j->label);
 	if (j->description)
 		free(j->description);
 	if (j->program)
@@ -468,7 +482,7 @@ out:
 	if (!dodump) {
 		ingerr = initng_sendmsg(fd, "commandACK", r, NULL);
 		if (ingerr != INITNG_ERR_SUCCESS)
-			initngd_debug(LOG_DEBUG, "fd %d: failed to send command acknowledgement: %s", fd, initng_strerror(ingerr));
+			initngd_debug(LOG_DEBUG, "fd %d: failed to send ack for %s: %s", fd, command, initng_strerror(ingerr));
 	}
 	initng_sendmsga2sniffers(command, data);
 	if (dodump)
