@@ -91,8 +91,8 @@ struct conncb {
 
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
-static struct jobcb *helperd = NULL;
 static int mainkq = 0;
+static int asynckq = 0;
 static int batch_disabler_count = 0;
 
 static launch_data_t load_job(launch_data_t pload);
@@ -103,12 +103,14 @@ static void batch_job_enable(bool e, struct conncb *c);
 static void do_shutdown(void);
 
 static void listen_callback(void *, struct kevent *);
+static void async_callback(void);
 static void signal_callback(void *, struct kevent *);
 static void fs_callback(void);
 static void simple_zombie_reaper(void *, struct kevent *);
 static void readcfg_callback(void *, struct kevent *);
 
 static kq_callback kqlisten_callback = listen_callback;
+static kq_callback kqasync_callback = (kq_callback)async_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqreadcfg_callback = readcfg_callback;
@@ -148,8 +150,6 @@ static kq_callback kqmach_callback = mach_callback;
 
 static void usage(FILE *where);
 static int _fd(int fd);
-
-static void notify_helperd(void);
 
 static void loopback_setup(void);
 static void workaround3048875(int argc, char *argv[]);
@@ -225,7 +225,17 @@ int main(int argc, char *argv[])
 
 	if ((mainkq = kqueue()) == -1) {
 		syslog(LOG_EMERG, "kqueue(): %m");
-		exit(EXIT_FAILURE);
+		abort();
+	}
+
+	if ((asynckq = kqueue()) == -1) {
+		syslog(LOG_ERR, "kqueue(): %m");
+		abort();
+	}
+	
+	if (kevent_mod(asynckq, EVFILT_READ, EV_ADD, 0, 0, &kqasync_callback) == -1) {
+		syslog(LOG_ERR, "kevent_mod(asynckq, EVFILT_READ): %m");
+		abort();
 	}
 
 	sigemptyset(&blocked_signals);
@@ -890,10 +900,6 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(j->label, launch_data_get_string(data))) {
-				if (!strcmp(launch_data_get_string(data), HELPERD))
-					helperd = NULL;
-				if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
-					notify_helperd();
 				job_remove(j);
 				resp = launch_data_new_errno(0);
 			}
@@ -1019,15 +1025,11 @@ static void batch_job_enable(bool e, struct conncb *c)
 	if (e && c->disabled_batch) {
 		batch_disabler_count--;
 		c->disabled_batch = 0;
-		if (batch_disabler_count == 0 && helperd && helperd->p) {
-			syslog(LOG_INFO, "Batch jobs enabled. Restarting: launchd_helperd");
-			kill(helperd->p, SIGCONT);
-		}
+		if (batch_disabler_count == 0)
+			kevent_mod(asynckq, EVFILT_READ, EV_ENABLE, 0, 0, &kqasync_callback);
 	} else if (!e && !c->disabled_batch) {
-		if (batch_disabler_count == 0 && helperd && helperd->p) {
-			syslog(LOG_INFO, "Batch jobs disabled. Stopping: launchd_helperd");
-			kill(helperd->p, SIGSTOP);
-		}
+		if (batch_disabler_count == 0)
+			kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback);
 		batch_disabler_count++;
 		c->disabled_batch = 1;
 	}
@@ -1141,16 +1143,11 @@ static launch_data_t load_job(launch_data_t pload)
 
 	}
 	
-	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
+	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 		job_watch(j);
-		notify_helperd();
-	}
 
 	if (startnow)
 		job_start(j);
-
-	if (!strcmp(label, HELPERD))
-		helperd = j;
 
 	resp = launch_data_new_errno(0);
 out:
@@ -1215,11 +1212,15 @@ static void mach_callback(void *obj __attribute__((unused)), struct kevent *kev 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
+	int q = mainkq;
 #ifdef EVFILT_MACH_IMPLEMENTED
 	kern_return_t kr;
 	pthread_attr_t attr;
 	int pthr_r, pfds[2];
 #endif
+
+	if (EVFILT_TIMER == filter || EVFILT_VNODE == filter)
+		q = asynckq;
 
 	if (flags & EV_ADD && NULL == udata) {
 		syslog(LOG_ERR, "%s(): kev.udata == NULL!!!", __func__);
@@ -1237,7 +1238,7 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 			return 0;
 #endif
 		EV_SET(&kev, ident, filter, flags, fflags, data, udata);
-		return kevent(mainkq, &kev, 1, NULL, 0, NULL);
+		return kevent(q, &kev, 1, NULL, 0, NULL);
 #ifdef EVFILT_MACH_IMPLEMENTED
 	}
 
@@ -1434,10 +1435,6 @@ static void job_callback(void *obj, struct kevent *kev)
 
 	job_start(j);
 
-	if (j == helperd && batch_disabler_count > 0) {
-		job_log(j, LOG_DEBUG, "restarted helperd while batch jobs are disabled, stopping helperd");
-		kill(helperd->p, SIGSTOP);
-	}
 out:
 	if (d) {
 		job_log(j, LOG_DEBUG, "restoring original log mask");
@@ -2026,12 +2023,6 @@ static void workaround3048875(int argc, char *argv[])
 	execv(newargv[0], newargv);
 }
 
-static void notify_helperd(void)
-{
-	if (helperd && helperd->p && helperd->checkedin)
-		kill(helperd->p, SIGHUP);
-}
-
 static launch_data_t adjust_rlimits(launch_data_t in)
 {
 	static struct rlimit *l = NULL;
@@ -2241,4 +2232,22 @@ static void job_log(struct jobcb *j, int pri, const char *msg, ...)
 	vsyslog(pri, newmsg, ap);
 
 	va_end(ap);
+}
+
+static void async_callback(void)
+{
+	struct timespec timeout = { 0, 0 };
+	struct kevent kev;
+
+	switch (kevent(asynckq, NULL, 0, &kev, 1, &timeout)) {
+	case -1:
+		syslog(LOG_DEBUG, "kevent(): %m");
+		break;
+	case 1:
+		(*((kq_callback *)kev.udata))(kev.udata, &kev);
+	case 0:
+		break;
+	default:
+		syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
+	}
 }

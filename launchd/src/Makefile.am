@@ -5,7 +5,7 @@ sbin_SCRIPTS = service
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 bin_PROGRAMS = launchctl wait4path
-sbin_PROGRAMS = launchd SystemStarter launchd_debugd launchd_helperd
+sbin_PROGRAMS = launchd SystemStarter launchd_debugd
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
@@ -28,9 +28,6 @@ SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-launchd_helperd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-launchd_helperd_LDFLAGS = -framework CoreFoundation -framework IOKit -ltcl
-
 launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
@@ -46,9 +43,9 @@ bootstrap.h bootstrapServer.c bootstrapUser.c: $(srcdir)/bootstrap.defs
 
 man1_MANS = wait4path.1 launchctl.1
 
-man5_MANS = launchd.plist.5 launchd.conf.5 launch_Tcl.5
+man5_MANS = launchd.plist.5 launchd.conf.5
 
-man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8 launchproxy.8 launchd_debugd.8 launchd_helperd.8
+man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8 launchproxy.8 launchd_debugd.8
 
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 

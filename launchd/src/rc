@@ -260,6 +260,8 @@ else
 	SystemStarter ${VerboseFlag}
 fi
 
+/usr/sbin/update
+
 if [ "${NetBoot}" = "-N" ]; then
     sh /etc/rc.netboot setup_computername
 fi
