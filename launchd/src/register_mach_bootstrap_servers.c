@@ -10,8 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static const char *argv0 = NULL;
-
 static void regServ(uid_t u, bool on_demand, bool is_kunc, const char *serv_name, const char *serv_cmd);
 static void handleConfigFile(const char *file);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile);
@@ -23,10 +21,8 @@ int main(int argc, char *argv[])
 	struct stat sb;
 	uid_t u = geteuid();
 
-	argv0 = argv[0];
-
 	if (argc != 2) {
-		fprintf(stderr, "usage: %s: <configdir|configfile>\n", argv0);
+		fprintf(stderr, "usage: %s: <configdir|configfile>\n", getprogname());
 		exit(EXIT_FAILURE);
 	}
 
@@ -52,7 +48,7 @@ int main(int argc, char *argv[])
 	}
 
 	if ((d = opendir(argv[1])) == NULL) {
-		fprintf(stderr, "%s: opendir() failed to open the directory\n", argv0);
+		fprintf(stderr, "%s: opendir() failed to open the directory\n", getprogname());
 		exit(EXIT_FAILURE);
 	}
 
@@ -88,7 +84,7 @@ static void handleConfigFile(const char *file)
 			if ((pwe = getpwnam(usr))) {
 				u = pwe->pw_uid;
 			} else {
-			     fprintf(stderr, "%s: user not found\n", argv0);
+			     fprintf(stderr, "%s: user not found\n", getprogname());
 			     goto out;
 			}
 		}
@@ -118,11 +114,11 @@ static void handleConfigFile(const char *file)
 		regServ(u, on_demand, is_kunc, serv_name, serv_cmd);
 		goto out_good;
 out:
-		fprintf(stdout, "%s: failed to register: %s\n", argv0, file);
+		fprintf(stdout, "%s: failed to register: %s\n", getprogname(), file);
 out_good:
 		CFRelease(plist);
 	} else {
-		fprintf(stderr, "%s: no plist was returned for: %s\n", argv0, file);
+		fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), file);
 	}
 }
 
@@ -132,17 +128,17 @@ static void regServ(uid_t u, bool on_demand, bool is_kunc, const char *serv_name
 	mach_port_t msr, msv, mhp;
 
 	if ((kr = bootstrap_create_server(bootstrap_port, (char*)serv_cmd, u, on_demand, &msr)) != KERN_SUCCESS) {
-		fprintf(stderr, "%s: bootstrap_create_server(): %d\n", argv0, kr);
+		fprintf(stderr, "%s: bootstrap_create_server(): %d\n", getprogname(), kr);
 		return;
 	}
 	if ((kr = bootstrap_create_service(msr, (char*)serv_name, &msv)) != KERN_SUCCESS) {
-		fprintf(stderr, "%s: bootstrap_register(): %d\n", argv0, kr);
+		fprintf(stderr, "%s: bootstrap_register(): %d\n", getprogname(), kr);
 		return;
 	}
 	if (is_kunc) {
 		mhp = mach_host_self();
 		if ((kr = host_set_UNDServer(mhp, msv)) != KERN_SUCCESS) {
-			fprintf(stderr, "%s: host_set_UNDServer(): %s\n", argv0, mach_error_string(kr));
+			fprintf(stderr, "%s: host_set_UNDServer(): %s\n", getprogname(), mach_error_string(kr));
 			return;
 		}
 		mach_port_deallocate(mach_task_self(), mhp);
@@ -159,12 +155,12 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
 
 	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, posixfile, strlen(posixfile), false);
 	if (!fileURL)
-		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", argv0, posixfile);
+		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", getprogname(), posixfile);
 	if (!CFURLCreateDataAndPropertiesFromResource(kCFAllocatorDefault, fileURL, &resourceData, NULL, NULL, &errorCode))
-		fprintf(stderr, "%s: CFURLCreateDataAndPropertiesFromResource(%s) failed: %d\n", argv0, posixfile, (int)errorCode);
+		fprintf(stderr, "%s: CFURLCreateDataAndPropertiesFromResource(%s) failed: %d\n", getprogname(), posixfile, (int)errorCode);
 	propertyList = CFPropertyListCreateFromXMLData(kCFAllocatorDefault, resourceData, kCFPropertyListImmutable, &errorString);
 	if (!propertyList) {
-		fprintf(stderr, "%s: propertyList is NULL\n", argv0);
+		fprintf(stderr, "%s: propertyList is NULL\n", getprogname());
 		if (errorString)
 			CFRelease(errorString);
         }
