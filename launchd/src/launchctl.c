@@ -627,12 +627,12 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 
 					error = DNSServiceRegister(&service, 0, 0, NULL, rvs_buf, NULL, NULL, port, 0, NULL, NULL, NULL);
 
-					if (error != kDNSServiceErr_NoError) {
+					if (error == kDNSServiceErr_NoError) {
+						rvs_fd = DNSServiceRefSockFD(service);
+					} else {
 						fprintf(stderr, "DNSServiceRegister(): %d\n", error);
-						return;
 					}
 
-					rvs_fd = DNSServiceRefSockFD(service);
 				}
 			} else {
 				if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1) {
