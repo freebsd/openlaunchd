@@ -426,16 +426,23 @@ initng_err_t initng_sendmsga(int fd, char *command, char *data[])
 			int sock_opt = 1;
 			if ((sfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1)
 				goto res_walk_out_bad;
-			if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1)
-				goto res_walk_out_bad;
 			if (hints.ai_flags & AI_PASSIVE) {
+				if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1)
+					goto res_walk_out_bad;
 			       	if (bind(sfd, res->ai_addr, res->ai_addrlen) == -1)
 					goto res_walk_out_bad;
-			} else if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1)
+				if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
+						&& listen(sfd, SOMAXCONN) == -1)
 					goto res_walk_out_bad;
-			if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
-					&& listen(sfd, SOMAXCONN) == -1)
-				goto res_walk_out_bad;
+			} else {
+				if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1) {
+					if (res->ai_next) {
+						close(sfd);
+						continue;
+					} else
+						goto res_walk_out_bad;
+				}
+			}
 			asprintf(&fdstr, "%d", sfd);
 			realmsgdata[2] = fdstr;
 			r = initng_sendmsga(fd, "addFD", realmsgdata);
@@ -443,7 +450,10 @@ initng_err_t initng_sendmsga(int fd, char *command, char *data[])
 			free(fdstr);
 			if (r != INITNG_ERR_SUCCESS)
 				goto res_walk_out_bad;
-			continue;
+			if (hints.ai_flags & AI_PASSIVE)
+				continue;
+			else
+				break;
 res_walk_out_bad:
 			freeaddrinfo(res0);
 			return INITNG_ERR_SYSCALL;
