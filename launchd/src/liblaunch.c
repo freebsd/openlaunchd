@@ -387,6 +387,8 @@ launch_t launchd_fdopen(int fd)
 
         c->fd = fd;
 
+	fcntl(fd, F_SETFL, O_NONBLOCK);
+
         if ((c->sendbuf = malloc(0)) == NULL)
 		goto out_bad;
         if ((c->sendfds = malloc(0)) == NULL)
@@ -781,10 +783,8 @@ bool launchd_batch_query(void)
 
 static int _fd(int fd)
 {
-	if (fd >= 0) {
+	if (fd >= 0)
 		fcntl(fd, F_SETFD, 1);
-		fcntl(fd, F_SETFL, O_NONBLOCK);
-	}
 	return fd;
 }
 
