@@ -62,11 +62,11 @@ static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
 static mode_t ourmask = 0;
 static int mainkq = 0;
-static bool batch_suspended = false;
+static bool batch_enabled = true;
 
 static launch_data_t load_job(launch_data_t pload);
 static launch_data_t get_jobs(void);
-static launch_data_t batch_job_disable(bool e);
+static launch_data_t batch_job_enable(bool e);
 
 static void listen_callback(void *, struct kevent *);
 static void signal_callback(void *, struct kevent *);
@@ -637,11 +637,11 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		resp = get_jobs();
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
-		resp = batch_job_disable(launch_data_get_bool(tmp));
+		resp = batch_job_enable(launch_data_get_bool(tmp));
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_BATCHQUERY)) {
 		resp = launch_data_alloc(LAUNCH_DATA_BOOL);
-		launch_data_set_bool(resp, !batch_suspended);
+		launch_data_set_bool(resp, batch_enabled);
 	} else {	
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		launch_data_set_string(resp, LAUNCH_RESPONSE_UNKNOWNCOMMAND);
@@ -658,7 +658,7 @@ out:
 	launch_data_free(resp);
 }
 
-static launch_data_t batch_job_disable(bool e)
+static launch_data_t batch_job_enable(bool e)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_STRING);
 	struct jobcb *j;
@@ -666,23 +666,23 @@ static launch_data_t batch_job_disable(bool e)
 	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 
 	if (e) {
-		batch_suspended = true;
-		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_BATCH) && !j->suspended) {
-				j->suspended = true;
-				job_ignore_fds(j->ldj, &j->kqjob_callback);
-				if (j->p)
-					kill(j->p, SIGSTOP);
-			}
-		}
-	} else {
-		batch_suspended = false;
+		batch_enabled = true;
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_BATCH) && j->suspended) {
 				j->suspended = false;
 				job_watch_fds(j->ldj, &j->kqjob_callback);
 				if (j->p)
 					kill(j->p, SIGCONT);
+			}
+		}
+	} else {
+		batch_enabled = false;
+		TAILQ_FOREACH(j, &jobs, tqe) {
+			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_BATCH) && !j->suspended) {
+				j->suspended = true;
+				job_ignore_fds(j->ldj, &j->kqjob_callback);
+				if (j->p)
+					kill(j->p, SIGSTOP);
 			}
 		}
 	}
@@ -923,7 +923,7 @@ static int _fd(int fd)
 
 static void ipc_close(struct conncb *c)
 {
-	launch_data_free(batch_job_disable(false));
+	launch_data_free(batch_job_enable(true));
 
 	TAILQ_REMOVE(&connections, c, tqe);
 	launchd_close(c->conn);
