@@ -631,8 +631,8 @@ static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONS
 	} else if (wp == NULL) {
 		wp = calloc(1, sizeof(struct watchpathcb));
 
-		if ((wp->fd = open(wp->path, O_EVTONLY)) == -1) {
-			syslog(LOG_ERR, "open(\"%s\"): %m", wp->path);
+		if ((wp->fd = open(argv[0], O_EVTONLY)) == -1) {
+			syslog(LOG_ERR, "open(\"%s\"): %m", argv[0]);
 			free(wp);
 			Tcl_SetStringObj(tcl_result, "Couldn't open dir", -1);
 			return TCL_ERROR;
