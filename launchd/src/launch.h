@@ -21,6 +21,7 @@
 #define LAUNCH_JOBKEY_UID			"UID"
 #define LAUNCH_JOBKEY_GROUPNAME			"GroupName"
 #define LAUNCH_JOBKEY_GID			"GID"
+#define LAUNCH_JOBKEY_INITGROUPS		"InitGroups"
 #define LAUNCH_JOBKEY_SOCKETS			"Sockets"
 #define LAUNCH_JOBKEY_EVENTSOURCES		"EventSources"
 #define LAUNCH_JOBKEY_INETDCOMPATIBILITY	"inetdCompatibility"

@@ -27,6 +27,7 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <paths.h>
+#include <pwd.h>
 
 #include "launch.h"
 #include "launch_priv.h"
@@ -1028,6 +1029,22 @@ static void job_launch(struct jobcb *j)
 
 				if (setrlimit(limits[i].val, &rl) == -1)
 					syslog(LOG_NOTICE, "setrlimit(): %m");
+			}
+		}
+
+
+		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
+			const char *u = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME);
+			struct passwd *pwe;
+
+			if (u == NULL) {
+				syslog(LOG_NOTICE, "\"%s\" requires \"%s\"", LAUNCH_JOBKEY_INITGROUPS, LAUNCH_JOBKEY_USERNAME);
+			} else if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_GID)) {
+				initgroups(u, job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
+			} else if ((pwe = getpwnam(u))) {
+				initgroups(u, pwe->pw_gid);
+			} else {
+				syslog(LOG_NOTICE, "Could not find base group in order to call initgroups()");
 			}
 		}
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))

@@ -135,11 +135,16 @@ before running the job.
 This optional key specifies whether the job participates in advanced communication with
 .Nm launchd .
 The default is true.
+.It Sy InitGroups <boolean>
+This optional key specifies whether the job should have
+.Xr initgroups 3
+should be called before running the job.
+The default is false.
 .It Sy Tcl <string>
 This optional key specifies
 .Nm Tcl
 code that will be executed at the time that the job is loaded. Additional documentation is located in the
-.Xr launchd_Tcl
+.Xr launch_Tcl 5
 man page.
 .It Sy StandardOutPath <string>
 This optional key specifies what file should be used for data being sent to stdout when using
@@ -267,4 +272,5 @@ Mac OS X System wide daemons.
 .Sh SEE ALSO 
 .Xr launchctl 1 ,
 .Xr launch 3 ,
+.Xr launch_Tcl 5 ,
 .Xr launchd 8
