@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/fcntl.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -30,6 +31,7 @@ static void set_launchd_env(char *);
 static void unset_launchd_env(char *);
 static void set_launchd_envkv(char *, char *);
 static void update_plist(CFPropertyListRef, const char *, bool);
+static int _fd(int);
 
 int main(int argc, char *argv[])
 {
@@ -400,7 +402,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 
 		strncpy(sun.sun_path, launch_data_get_string(val), sizeof(sun.sun_path));
 	
-		if ((sfd = socket(AF_UNIX, st, 0)) == -1)
+		if ((sfd = _fd(socket(AF_UNIX, st, 0))) == -1)
 			return;
 
 		if (passive) {                  
@@ -465,7 +467,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 		}
 
 		for (res = res0; res; res = res->ai_next) {
-			if ((sfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1) {
+			if ((sfd = _fd(socket(res->ai_family, res->ai_socktype, res->ai_protocol))) == -1) {
 				fprintf(stderr, "socket(): %s\n", strerror(errno));
 				return;
 			}
@@ -622,4 +624,11 @@ static void usage(FILE *where)
 		exit(EXIT_SUCCESS);
 	else
 		exit(EXIT_FAILURE);
+}
+
+static int _fd(int fd)
+{
+	if (fd >= 0)
+		fcntl(fd, F_SETFD, 1);
+	return fd;
 }

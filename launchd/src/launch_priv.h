@@ -2,7 +2,7 @@
 #define _LAUNCH_PRIV_H_
 
 #define LAUNCHD_SOCKET_ENV		"LAUNCHD_SOCKET"
-#define LAUNCHD_DEFAULT_SOCK_PATH	"/var/launchd.socket"
+#define LAUNCHD_SOCK_PREFIX		"/var/launchd"
 #define LAUNCHD_TRUSTED_FD_ENV		"__LAUNCHD_FD"
 #define LAUNCHD_ASYNC_MSG_KEY		"_AsyncMessage"
 #define LAUNCH_KEY_BATCHCONTROL		"BatchControl"

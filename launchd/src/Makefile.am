@@ -85,3 +85,6 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
+
+install-exec-hook:
+	chmod u+s $(DESTDIR)/$(sbindir)/launchd

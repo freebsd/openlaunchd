@@ -3,6 +3,7 @@
 #include <sys/fcntl.h>
 #include <sys/un.h>
 #include <sys/uio.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
@@ -60,23 +61,26 @@ static void launch_client_init(void)
 		}
 	}
 	if (lfd == -1) {
-		if (!where)
-			where = LAUNCHD_DEFAULT_SOCK_PATH;
-
 		memset(&sun, 0, sizeof(sun));
 		sun.sun_family = AF_UNIX;
-
-		strncpy(sun.sun_path, where, sizeof(sun.sun_path));
+		
+		if (where)
+			strncpy(sun.sun_path, where, sizeof(sun.sun_path));
+		else
+			snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
 
 		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
 			goto out_bad;
 
 		for (tries = 0; tries < 10; tries++) {
 			r = connect(lfd, (struct sockaddr *)&sun, sizeof(sun));
-			if (r == -1)
+			if (r == -1) {
+				if (getuid() != 0 && fork() == 0)
+					execl("/sbin/launchd", "/sbin/launchd", NULL);
 				sleep(1);
-			else
+			} else {
 				break;
+			}
 		}
 		if (r == -1) {
 			close(lfd);

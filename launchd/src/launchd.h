@@ -5,7 +5,6 @@
 
 typedef void (*kq_callback)(void *, struct kevent *);
 
-extern int mainkq;
 extern kq_callback kqsimple_zombie_reaper;
 extern mach_port_t launchd_bootstrap_port;
 
