@@ -246,7 +246,7 @@ fi
 
 # Clear /var/spool/lock
 if [ -d /var/spool/lock ]; then
-	purgedir /var/spool/lock
+	find /var/spool/lock -not -type d -print0 | xargs -0 rm -f
 fi
 
 

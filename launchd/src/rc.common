@@ -87,34 +87,6 @@ RunService ()
     esac
 }
 
-
-##
-# purgedir - delete contents of directory, but leave directory structure alone
-##
-purgedir() {
-    local dir file
-
-    if [ $# -eq 0 ]; then
-        purgedir .
-    else
-        for dir
-        do
-        (
-            cd "$dir" && for file in .* *
-            do
-                [ ."$file" = .. -o ."$file" = ... ] && continue
-                if [ -d "$file" -a ! -L "$file" ]
-                then
-                    purgedir "$file"
-                else
-                    rm -f -- "$file"
-                fi
-            done
-        )
-        done
-    fi
-}
-
 ##########################
 # Get host configuration #
 ##########################
