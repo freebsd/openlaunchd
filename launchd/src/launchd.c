@@ -54,14 +54,6 @@
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 #define VOLFSDIR "/.vol"
 
-/* until 4016657 is in a kernel */
-#ifndef NOTE_SECONDS
-#define NOTE_SECONDS	0x00000001
-#define NOTE_USECONDS	0x00000002
-#define NOTE_NSECONDS	0x00000004
-#define NOTE_ABSOLUTE	0x00000008
-#endif
-
 extern char **environ;
 
 struct jobcb {
