@@ -1,8 +1,10 @@
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
+#ifdef EVFILT_MACH_IMPLEMENTED
 #include <mach/mach_error.h>
 #include <mach/port.h>
+#endif
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
@@ -88,13 +90,11 @@ static void listen_callback(void *, struct kevent *);
 static void signal_callback(void *, struct kevent *);
 static void fs_callback(void);
 static void simple_zombie_reaper(void *, struct kevent *);
-static void mach_callback(void *, struct kevent *);
 static void readcfg_callback(void *, struct kevent *);
 
 static kq_callback kqlisten_callback = listen_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
-static kq_callback kqmach_callback = mach_callback;
 static kq_callback kqreadcfg_callback = readcfg_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
@@ -121,7 +121,11 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
 static void launchd_server_init(bool create_session);
 static void conceive_firstborn(char *argv[]);
 
+#ifdef EVFILT_MACH_IMPLEMENTED
 static void *mach_demand_loop(void *);
+static void mach_callback(void *, struct kevent *);
+static kq_callback kqmach_callback = mach_callback;
+#endif
 
 static void usage(FILE *where);
 static int _fd(int fd);
@@ -1024,6 +1028,7 @@ static void usage(FILE *where)
 		exit(EXIT_SUCCESS);
 }
 
+#ifdef EVFILT_MACH_IMPLEMENTED
 static void **machcbtable = NULL;
 static size_t machcbtable_cnt = 0;
 static int machcbreadfd = -1;
@@ -1042,13 +1047,16 @@ static void mach_callback(void *obj __attribute__((unused)), struct kevent *kev 
 
 	(*((kq_callback *)mkev.udata))(mkev.udata, &mkev);
 }
+#endif
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
+#ifdef EVFILT_MACH_IMPLEMENTED
 	kern_return_t kr;
 	pthread_attr_t attr;
 	int pthr_r, pfds[2];
+#endif
 
 	if (flags & EV_ADD && NULL == udata) {
 		syslog(LOG_ERR, "%s(): kev.udata == NULL!!!", __func__);
@@ -1058,13 +1066,16 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 		return -1;
 	}
 
+#ifdef EVFILT_MACH_IMPLEMENTED
 	if (filter != EVFILT_MACHPORT) {
+#endif
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 		if (filter == EVFILT_PROC && getpid() == 1)
 			return 0;
 #endif
 		EV_SET(&kev, ident, filter, flags, fflags, data, udata);
 		return kevent(mainkq, &kev, 1, NULL, 0, NULL);
+#ifdef EVFILT_MACH_IMPLEMENTED
 	}
 
 	if (machcbtable == NULL) {
@@ -1115,6 +1126,7 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 	}
 
 	return 0;
+#endif
 }
 
 static int _fd(int fd)
@@ -1582,6 +1594,7 @@ static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *k
 	}
 }
 
+#ifdef EVFILT_MACH_IMPLEMENTED
 static void *mach_demand_loop(void *arg __attribute__((unused)))
 {
 	mach_msg_empty_rcv_t dummy;
@@ -1653,6 +1666,7 @@ static void *mach_demand_loop(void *arg __attribute__((unused)))
 
 	return NULL;
 }
+#endif
 
 static void reload_launchd_config(void)
 {
