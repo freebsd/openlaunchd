@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2003 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1999-2004 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -33,6 +33,9 @@
 #import <mach/mach_error.h>
 #import <syslog.h>
 #import <string.h>
+
+#import <bsm/audit.h>
+#import <bsm/libbsm.h>
 
 #import "bootstrap_internal.h"
 #import "lists.h"
@@ -75,11 +78,14 @@ x_bootstrap_create_server(
 	cmd_t server_cmd,
 	uid_t server_uid,
 	boolean_t on_demand,
-	security_token_t sectoken,
+	audit_token_t client_audit_token,
 	mach_port_t *server_portp)
 {
 	server_t *serverp;
+	struct auditinfo audit_info;
 	bootstrap_info_t *bootstrap;
+
+	uid_t client_euid;
 
 	bootstrap = lookup_bootstrap_by_port(bootstrapport);
 	syslog(LOG_DEBUG, "Server create attempt: \"%s\" bootstrap %x",
@@ -92,17 +98,29 @@ x_bootstrap_create_server(
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	/* only same uid (or root client) */
-	if (sectoken.val[0] && sectoken.val[0] != server_uid) {
-		syslog(LOG_NOTICE, "Server create: \"%s\": invalid security token (%d != %d)",
-			server_cmd, sectoken.val[0], server_uid);
+	/* get the identity of the requestor and set up audit_info of server */
+	audit_token_to_au32(client_audit_token,
+			    &audit_info.ai_auid,
+			    &client_euid,
+			    NULL /* egid */,
+			    NULL /* ruid */,
+			    NULL /* rgid */,
+			    NULL /* pid */,
+			    &audit_info.ai_asid,
+			    &audit_info.ai_termid);
+
+	if (client_euid != 0 && client_euid != server_uid) {
+		syslog(LOG_NOTICE, "Server create: \"%s\": insufficient privilege for specified uid (euid-%d != requested-%d)",
+			server_cmd, client_euid, server_uid);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
+
 	serverp = new_server(
 					bootstrap,
 					server_cmd,
 					server_uid,
-					(on_demand) ? DEMAND : RESTARTABLE);
+					(on_demand) ? DEMAND : RESTARTABLE,
+					audit_info);
 	setup_server(serverp);
 
 	syslog(LOG_INFO, "New server %x in bootstrap %x: \"%s\"",

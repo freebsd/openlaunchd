@@ -95,7 +95,9 @@ ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
 launchctl_LDFLAGS = -framework CoreFoundation liblaunch.1.dylib
 
-launchd_LDFLAGS = liblaunch.1.dylib
+launchd_LDFLAGS = liblaunch.1.dylib -lbsm
+
+mach_init_LDFLAGS = -lbsm
 
 launchdebugd_LDFLAGS = liblaunch.1.dylib
 
@@ -179,7 +181,6 @@ am_mach_init_OBJECTS = mach_init.$(OBJEXT) bootstrap.$(OBJEXT) \
 mach_init_OBJECTS = $(am_mach_init_OBJECTS)
 mach_init_LDADD = $(LDADD)
 mach_init_DEPENDENCIES =
-mach_init_LDFLAGS =
 register_mach_bootstrap_servers_SOURCES = \
 	register_mach_bootstrap_servers.c
 register_mach_bootstrap_servers_OBJECTS = \

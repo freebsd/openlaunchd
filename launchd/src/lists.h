@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2002 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1999-2004 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -33,6 +33,8 @@
 #import <mach/mach.h>
 #import <mach/boolean.h>
 #import <servers/bootstrap_defs.h>
+
+#import <bsm/audit.h>
 
 #ifndef NULL
 #define	NULL	((void *)0)
@@ -89,6 +91,7 @@ struct server {
 	servertype_t	servertype;
 	cmd_t		cmd;		/* server command to exec */
 	uid_t		uid;		/* uid to exec server with */
+	auditinfo_t	auinfo;		/* server's audit information */
 	mach_port_t	port;		/* server's priv bootstrap port */
 	mach_port_t	task_port;	/* server's task port */
 	pid_t		pid;		/* server's pid */
@@ -105,7 +108,8 @@ extern server_t *new_server(
 	bootstrap_info_t 	*bootstrap,
 	const char			*cmd,
 	uid_t					uid,
-	servertype_t		servertype);
+	servertype_t		servertype,
+	auditinfo_t		auinfo);
 
 extern service_t 		*new_service(
 	bootstrap_info_t	*bootstrap,

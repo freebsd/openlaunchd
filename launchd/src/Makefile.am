@@ -18,7 +18,9 @@ ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
 launchctl_LDFLAGS = -framework CoreFoundation liblaunch.1.dylib
 
-launchd_LDFLAGS = liblaunch.1.dylib
+launchd_LDFLAGS = liblaunch.1.dylib -lbsm
+
+mach_init_LDFLAGS = -lbsm
 
 launchdebugd_LDFLAGS = liblaunch.1.dylib
 

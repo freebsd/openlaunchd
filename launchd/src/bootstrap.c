@@ -59,6 +59,10 @@
 #include <libc.h>
 #include <paths.h>
 #include <syslog.h>
+#import <pwd.h>
+
+#include <bsm/audit.h>
+#include <bsm/libbsm.h>
 
 #include "bootstrap.h"
 #include "bootstrap_internal.h"
@@ -68,6 +72,7 @@
 /* Mig should produce a declaration for this,  but doesn't */
 extern boolean_t bootstrap_server(mach_msg_header_t *InHeadP, mach_msg_header_t *OutHeadP);
 
+auditinfo_t inherited_audit;
 mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 bool forward_ok = false;
 bool debugging = false;
@@ -162,6 +167,7 @@ mach_port_t mach_init_init(void)
 
 	bootstrap_self = mach_task_self();
 	inherited_uid = getuid();
+	getaudit(&inherited_audit);
 	init_lists();
 	init_ports();
 
@@ -579,6 +585,30 @@ exec_server(server_t *serverp)
 	 */
 	argv = argvize(serverp->cmd);
 	closelog();
+
+	/*
+	 * Set up the audit state for the user (if necessesary).
+	 */
+	if (inherited_uid == 0 &&
+	    (serverp->auinfo.ai_auid != inherited_uid ||
+	     serverp->auinfo.ai_asid != inherited_audit.ai_asid)) {
+		struct passwd *pwd = NULL;
+
+		pwd = getpwuid(serverp->auinfo.ai_auid);
+		if (pwd == NULL) {
+			panic("Disabled server %x bootstrap %x: \"%s\": getpwuid(%d) failed",
+				 serverp->port, serverp->bootstrap->bootstrap_port,
+				 serverp->cmd, serverp->auinfo.ai_auid);
+
+		} else if (au_user_mask(pwd->pw_name, &serverp->auinfo.ai_mask) != 0) {
+			panic("Disabled server %x bootstrap %x: \"%s\": au_user_mask(%s) failed",
+				 serverp->port, serverp->bootstrap->bootstrap_port,
+				 serverp->cmd, pwd->pw_name);
+		} else if (setaudit(&serverp->auinfo) != 0)
+			panic("Disabled server %x bootstrap %x: \"%s\": setaudit()",
+				 serverp->port, serverp->bootstrap->bootstrap_port,
+				 serverp->cmd);
+	}
 
 	if (serverp->uid != inherited_uid)
 		if (setuid(serverp->uid) < 0)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2003 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1999-2004 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -35,6 +35,8 @@
 #import <stdlib.h>
 #import <string.h>
 #import <syslog.h>
+
+#import <bsm/audit.h>
 
 #import "bootstrap_internal.h"
 #import "lists.h"
@@ -75,7 +77,8 @@ new_server(
 	bootstrap_info_t	*bootstrap,
 	const char		*cmd,
 	uid_t			uid,
-	servertype_t		servertype)
+	servertype_t		servertype,
+	auditinfo_t		auinfo)
 {
 	server_t *serverp;
 
@@ -93,7 +96,9 @@ new_server(
 
 		serverp->pid = NO_PID;
 		serverp->task_port = MACH_PORT_NULL;
+
 		serverp->uid = uid;
+		serverp->auinfo = auinfo;
 
 		serverp->port = MACH_PORT_NULL;
 		serverp->servertype = servertype;
