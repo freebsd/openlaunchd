@@ -76,9 +76,12 @@ am__quote = @am__quote@
 install_sh = @install_sh@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
-sbin_SCRIPTS = service
+#sbin_SCRIPTS = service
+noinst_SCRIPTS = service
 
-sbin_PROGRAMS = SystemStarter init mach_init initctl initngd wait4mount helloworldd
+sbin_PROGRAMS = initctl initngd wait4mount 
+
+noinst_PROGRAMS = SystemStarter init mach_init helloworldd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
 
@@ -120,10 +123,10 @@ CONFIG_CLEAN_FILES =
 libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
 	register_mach_bootstrap_servers$(EXEEXT) \
 	StartupItemContext$(EXEEXT)
-sbin_PROGRAMS = SystemStarter$(EXEEXT) init$(EXEEXT) mach_init$(EXEEXT) \
-	initctl$(EXEEXT) initngd$(EXEEXT) wait4mount$(EXEEXT) \
-	helloworldd$(EXEEXT)
-PROGRAMS = $(libexec_PROGRAMS) $(sbin_PROGRAMS)
+noinst_PROGRAMS = SystemStarter$(EXEEXT) init$(EXEEXT) \
+	mach_init$(EXEEXT) helloworldd$(EXEEXT)
+sbin_PROGRAMS = initctl$(EXEEXT) initngd$(EXEEXT) wait4mount$(EXEEXT)
+PROGRAMS = $(libexec_PROGRAMS) $(noinst_PROGRAMS) $(sbin_PROGRAMS)
 
 ConsoleMessage_SOURCES = ConsoleMessage.c
 ConsoleMessage_OBJECTS = ConsoleMessage.$(OBJEXT)
@@ -177,7 +180,7 @@ wait4mount_OBJECTS = $(am_wait4mount_OBJECTS)
 wait4mount_LDADD = $(LDADD)
 wait4mount_DEPENDENCIES =
 wait4mount_LDFLAGS =
-SCRIPTS = $(sbin_SCRIPTS)
+SCRIPTS = $(noinst_SCRIPTS)
 
 
 DEFS = @DEFS@
@@ -269,6 +272,9 @@ uninstall-libexecPROGRAMS:
 
 clean-libexecPROGRAMS:
 	-test -z "$(libexec_PROGRAMS)" || rm -f $(libexec_PROGRAMS)
+
+clean-noinstPROGRAMS:
+	-test -z "$(noinst_PROGRAMS)" || rm -f $(noinst_PROGRAMS)
 sbinPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 install-sbinPROGRAMS: $(sbin_PROGRAMS)
 	@$(NORMAL_INSTALL)
@@ -323,26 +329,6 @@ register_mach_bootstrap_servers$(EXEEXT): $(register_mach_bootstrap_servers_OBJE
 wait4mount$(EXEEXT): $(wait4mount_OBJECTS) $(wait4mount_DEPENDENCIES) 
 	@rm -f wait4mount$(EXEEXT)
 	$(LINK) $(wait4mount_LDFLAGS) $(wait4mount_OBJECTS) $(wait4mount_LDADD) $(LIBS)
-sbinSCRIPT_INSTALL = $(INSTALL_SCRIPT)
-install-sbinSCRIPTS: $(sbin_SCRIPTS)
-	@$(NORMAL_INSTALL)
-	$(mkinstalldirs) $(DESTDIR)$(sbindir)
-	@list='$(sbin_SCRIPTS)'; for p in $$list; do \
-	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
-	  if test -f $$d$$p; then \
-	    f=`echo "$$p" | sed 's|^.*/||;$(transform)'`; \
-	    echo " $(sbinSCRIPT_INSTALL) $$d$$p $(DESTDIR)$(sbindir)/$$f"; \
-	    $(sbinSCRIPT_INSTALL) $$d$$p $(DESTDIR)$(sbindir)/$$f; \
-	  else :; fi; \
-	done
-
-uninstall-sbinSCRIPTS:
-	@$(NORMAL_UNINSTALL)
-	@list='$(sbin_SCRIPTS)'; for p in $$list; do \
-	  f=`echo "$$p" | sed 's|^.*/||;$(transform)'`; \
-	  echo " rm -f $(DESTDIR)$(sbindir)/$$f"; \
-	  rm -f $(DESTDIR)$(sbindir)/$$f; \
-	done
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT) core *.core
@@ -516,7 +502,7 @@ check: check-am
 all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) config.h
 
 installdirs:
-	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
+	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
 
 install: install-am
 install-exec: install-exec-am
@@ -545,8 +531,8 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-generic clean-libexecPROGRAMS clean-sbinPROGRAMS \
-	mostlyclean-am
+clean-am: clean-generic clean-libexecPROGRAMS clean-noinstPROGRAMS \
+	clean-sbinPROGRAMS mostlyclean-am
 
 distclean: distclean-am
 
@@ -566,7 +552,7 @@ install-data-am: install-man
 	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
 
 install-exec-am: install-libexecPROGRAMS install-sbinPROGRAMS \
-	install-sbinSCRIPTS install-sysconfDATA
+	install-sysconfDATA
 
 install-info: install-info-am
 
@@ -583,25 +569,23 @@ mostlyclean: mostlyclean-am
 mostlyclean-am: mostlyclean-compile mostlyclean-generic
 
 uninstall-am: uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
-	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
-	uninstall-sysconfDATA
+	uninstall-sbinPROGRAMS uninstall-sysconfDATA
 
 uninstall-man: uninstall-man8
 
 .PHONY: GTAGS all all-am check check-am clean clean-generic \
-	clean-libexecPROGRAMS clean-sbinPROGRAMS distclean \
-	distclean-compile distclean-depend distclean-generic \
+	clean-libexecPROGRAMS clean-noinstPROGRAMS clean-sbinPROGRAMS \
+	distclean distclean-compile distclean-depend distclean-generic \
 	distclean-hdr distclean-tags distdir dvi dvi-am info info-am \
 	install install-am install-data install-data-am install-exec \
 	install-exec-am install-info install-info-am \
 	install-libexecPROGRAMS install-man install-man8 \
-	install-sbinPROGRAMS install-sbinSCRIPTS install-strip \
-	install-sysconfDATA installcheck installcheck-am installdirs \
-	maintainer-clean maintainer-clean-generic mostlyclean \
-	mostlyclean-compile mostlyclean-generic tags uninstall \
-	uninstall-am uninstall-info-am uninstall-libexecPROGRAMS \
-	uninstall-man uninstall-man8 uninstall-sbinPROGRAMS \
-	uninstall-sbinSCRIPTS uninstall-sysconfDATA
+	install-sbinPROGRAMS install-strip install-sysconfDATA \
+	installcheck installcheck-am installdirs maintainer-clean \
+	maintainer-clean-generic mostlyclean mostlyclean-compile \
+	mostlyclean-generic tags uninstall uninstall-am \
+	uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
+	uninstall-man8 uninstall-sbinPROGRAMS uninstall-sysconfDATA
 
 
 bootstrap.c:: bootstrap.h
