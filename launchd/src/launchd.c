@@ -61,6 +61,7 @@ struct jobcb {
 	TAILQ_ENTRY(jobcb) tqe;
 	launch_data_t ldj;
 	pid_t p;
+	int execfd;
 	time_t start_time;
 	size_t failed_exits;
 	int *vnodes;
@@ -111,7 +112,7 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_start(struct jobcb *j);
-static void job_start_child(struct jobcb *j);
+static void job_start_child(struct jobcb *j, int execfd);
 static void job_setup_attributes(struct jobcb *j);
 static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
@@ -810,6 +811,8 @@ static void job_remove(struct jobcb *j)
 			job_stop(j);
 		}
 	}
+	if (j->execfd)
+		close(j->execfd);
 	launch_data_close_fds(j->ldj);
 	launch_data_free(j->ldj);
 	for (i = 0; i < j->vnodes_cnt; i++)
@@ -1318,6 +1321,11 @@ static void job_reap(struct jobcb *j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
+	if (j->execfd) {
+		close(j->execfd);
+		j->execfd = 0;
+	}
+
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 	if (getpid() == 1)
 		status = pid1_child_exit_status;
@@ -1357,6 +1365,7 @@ static void job_callback(void *obj, struct kevent *kev)
 	time_t td, now;
 	bool checkin_check = j->checkedin;
 	bool d = j->debug;
+	bool startnow = true;
 	int oldmask = 0;
 
 	if (d) {
@@ -1373,18 +1382,20 @@ static void job_callback(void *obj, struct kevent *kev)
 		if (j->firstborn) {
 			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
 			do_shutdown();
-			goto out;
+			startnow = false;
 		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
 			job_log(j, LOG_WARNING, "failed to checkin");
 			job_remove(j);
-			goto out;
+			j = NULL;
+			startnow = false;
 		} else if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
 			job_log(j, LOG_WARNING, "too many failures in a row");
 			job_remove(j);
-			goto out;
+			j = NULL;
+			startnow = false;
 		} else if (shutdown_in_progress || job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			job_watch(j);
-			goto out;
+			startnow = false;
 		} else if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
 			/* If the job lived long enough, let's reward it.
 			 * This lets infrequent bugs not cause the job to be removed. */
@@ -1399,11 +1410,10 @@ static void job_callback(void *obj, struct kevent *kev)
 						&j->kqjob_callback)) {
 				job_log_error(j, LOG_WARNING, "failed to setup timer callback!, starting now!");
 			} else {
-				goto out;
+				startnow = false;
 			}
 		}
-	} else if (kev->filter == EVFILT_TIMER && kev->flags & EV_ONESHOT) {
-		if (kev->ident != (uintptr_t)j)
+	} else if (kev->filter == EVFILT_TIMER && kev->fflags & NOTE_ABSOLUTE) {
 			job_set_alarm(j);
 	} else if (kev->filter == EVFILT_VNODE) {
 		size_t i;
@@ -1438,23 +1448,41 @@ static void job_callback(void *obj, struct kevent *kev)
 					job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", thepath);
 				} else if (0 == dcc_r) {
 					job_log(j, LOG_DEBUG, "spurious wake up, directory empty: %s", thepath);
-					goto out;
+					startnow = false;
 				}
 			}
 		}
 		/* if we get here, then the vnodes either wasn't a qdir, or if it was, it has entries in it */
-	} else if (kev->filter == EVFILT_READ && kev->flags & EV_EOF && kev->data == 0) {
-		/* Busted FD with no data/listeners pending. Revoke the fd and start the job. */
-		job_log(j, LOG_WARNING, "revoking busted FD %d", kev->ident);
-		close(kev->ident);
-		launch_data_revoke_fds(j->ldj, NULL, &kev->ident);
+	} else if (kev->filter == EVFILT_READ) {
+		if ((int)kev->ident == j->execfd) {
+			if (kev->data > 0) {
+				int e;
+
+				read(j->execfd, &e, sizeof(e));
+				errno = e;
+				job_log_error(j, LOG_ERR, "execve()");
+				job_remove(j);
+				j = NULL;
+				startnow = false;
+			} else {
+				close(j->execfd);
+				j->execfd = 0;
+			}
+		} else if (kev->flags & EV_EOF && kev->data == 0) {
+			/* Busted FD with no data/listeners pending. Revoke the fd and start the job. */
+			job_log(j, LOG_WARNING, "revoking busted FD %d", kev->ident);
+			close(kev->ident);
+			launch_data_revoke_fds(j->ldj, NULL, &kev->ident);
+		}
 	}
 
-	job_start(j);
+	if (startnow)
+		job_start(j);
 
-out:
 	if (d) {
-		job_log(j, LOG_DEBUG, "restoring original log mask");
+		/* the job might have been removed */
+		if (j)
+			job_log(j, LOG_DEBUG, "restoring original log mask");
 		setlogmask(oldmask);
 	}
 }
@@ -1462,6 +1490,7 @@ out:
 static void job_start(struct jobcb *j)
 {
 	int spair[2];
+	int execspair[2];
 	bool sipc;
 	char nbuf[64];
 	pid_t c;
@@ -1481,16 +1510,26 @@ static void job_start(struct jobcb *j)
 	if (sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
+	socketpair(AF_UNIX, SOCK_STREAM, 0, execspair);
+
 	time(&j->start_time);
+
 	switch (c = fork_with_bootstrap_port(launchd_bootstrap_port)) {
 	case -1:
-		job_log_error(j, LOG_ERR, "fork()");
+		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
+		close(execspair[0]);
+		close(execspair[1]);
 		if (sipc) {
 			close(spair[0]);
 			close(spair[1]);
 		}
+		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+			job_ignore(j);
 		break;
 	case 0:
+		close(execspair[0]);
+		/* wait for our parent to say they've attached a kevent to us */
+		read(_fd(execspair[1]), &c, sizeof(c));
 		if (j->firstborn) {
 			setpgid(getpid(), getpid());
 			if (isatty(STDIN_FILENO)) {
@@ -1504,26 +1543,34 @@ static void job_start(struct jobcb *j)
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
-		job_start_child(j);
+		job_start_child(j, execspair[1]);
 		break;
 	default:
+		close(execspair[1]);
+		j->execfd = _fd(execspair[0]);
 		if (sipc) {
 			close(spair[1]);
 			ipc_open(_fd(spair[0]), j);
 		}
+		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1)
+			job_log_error(j, LOG_ERR, "kevent_mod(j->execfd): %m");
 		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
 			job_log_error(j, LOG_ERR, "kevent()");
+			job_reap(j);
 		} else {
 			j->p = c;
 			total_children++;
 			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 				job_ignore(j);
 		}
+		/* this unblocks the child and avoids a race
+		 * between the above fork() and the kevent_mod() */
+		write(j->execfd, &c, sizeof(c));
 		break;
 	}
 }
 
-static void job_start_child(struct jobcb *j)
+static void job_start_child(struct jobcb *j, int execfd)
 {
 	launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
@@ -1545,8 +1592,11 @@ static void job_start_child(struct jobcb *j)
 		file2exec = job_get_file2exec(j->ldj);
 	}
 
-	if (-1 == execvp(file2exec, (char *const*)argv))
+	if (-1 == execvp(file2exec, (char *const*)argv)) {
+		int e = errno; /* errno is a macro that expands, best not to take the address of it */
+		write(execfd, &e, sizeof(e));
 		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", file2exec);
+	}
 	_exit(EXIT_FAILURE);
 }
 

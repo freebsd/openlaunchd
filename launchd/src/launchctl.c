@@ -114,7 +114,8 @@ int main(int argc, char *const argv[])
 		free(l);
 	}
 
-	fputc('\n', stdout);
+	if (istty)
+		fputc('\n', stdout);
 
 	exit(EXIT_SUCCESS);
 }
