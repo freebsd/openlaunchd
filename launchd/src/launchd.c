@@ -161,8 +161,7 @@ int main(int argc, char *argv[])
 	openlog(basename(argv[0]),
 			(getpid() == 1 ? LOG_CONS : LOG_PID)|(debug ? LOG_PERROR : 0),
 			LOG_DAEMON);
-	/* this seems to not work as advertised */
-	/* setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO)); */
+	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
 
 	if ((mainkq = kqueue()) == -1) {
 		syslog(LOG_EMERG, "kqueue(): %m");
