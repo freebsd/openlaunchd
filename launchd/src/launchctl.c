@@ -635,11 +635,15 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 					} else if (LAUNCH_DATA_ARRAY == launch_data_get_type(rnames)) {
 						size_t rn_i, rn_ac = launch_data_array_get_count(rnames);
 
-						rvs_fd = launch_data_alloc(LAUNCH_DATA_ARRAY);
 						
 						for (rn_i = 0; rn_i < rn_ac; rn_i++) {
 							launch_data_t rn_tmp = launch_data_array_get_index(rnames, rn_i);
-							launch_data_array_set_index(rvs_fd, do_rendezvous_magic(res, launch_data_get_string(rn_tmp)), rn_i);
+							launch_data_t magic_r = do_rendezvous_magic(res, launch_data_get_string(rn_tmp));
+							if (magic_r) {
+								if (NULL == rvs_fd)
+									rvs_fd = launch_data_alloc(LAUNCH_DATA_ARRAY);
+								launch_data_array_set_index(rvs_fd, magic_r, launch_data_array_get_count(rvs_fd));
+							}
 						}
 					}
 				}
