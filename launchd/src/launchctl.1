@@ -6,6 +6,7 @@
 .Nd Interfaces with launchd
 .Sh SYNOPSIS
 .Nm
+.Op Fl w
 .Op Fl l Ar xmlfile
 .Op Fl u Ar xmlfile
 .Sh DESCRIPTION
@@ -15,9 +16,12 @@ interfaces with
 to load and unload daemons and agents.
 .Sh OPTIONS
 .Bl -tag -width -indent
+.It Fl w
+Write to the XML property list. This updates the disabled boolean at the same time as a load or unload command given to this tool.
 .It Fl l Ar xmlfile
 Load the daemon/agent described in the XML property list into
 .Nm launchd .
+This ignores daemons/agents marked as disabled in the XML property list.
 .It Fl u Ar xmlfile
 Unload the daemon/agent described in the XML property list from
 .Nm launchd .

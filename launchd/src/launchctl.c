@@ -17,27 +17,27 @@
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
 
-static const char *argv0 = NULL;
-
 static void distill_config_file(launch_data_t);
 static void sock_dict_cb(launch_data_t what, const char *key, void *context);
+static void sock_dict_edit_entry(launch_data_t tmp, const char *key);
 static launch_data_t CF2launch_data(CFTypeRef);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
+static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
 static void usage(FILE *) __attribute__((noreturn));
-static void loadcfg(const char *);
-static void unloadcfg(const char *);
+static void readcfg(const char *, bool load, bool editondisk);
 static void get_launchd_env(void);
 static void set_launchd_env(char *);
 static void unset_launchd_env(char *);
 static void set_launchd_envkv(char *, char *);
+static void update_plist(CFPropertyListRef, const char *, bool);
 
 int main(int argc, char *argv[])
 {
 	int ch;
+	bool wflag = false, lflag = true;
+	char *what = NULL;
 
-	argv0 = argv[0];
-
-	while ((ch = getopt(argc, argv, "U:ES:hl:u:")) != -1) {
+	while ((ch = getopt(argc, argv, "U:ES:hl:u:w")) != -1) {
 		switch (ch) {
 		case 'U':
 			unset_launchd_env(optarg);
@@ -48,11 +48,15 @@ int main(int argc, char *argv[])
 		case 'S':
 			set_launchd_env(optarg);
 			break;
+		case 'w':
+			wflag = true;
+			break;
 		case 'l':
-			loadcfg(optarg);
+			what = optarg;
 			break;
 		case 'u':
-			unloadcfg(optarg);
+			what = optarg;
+			lflag = false;
 			break;
 		case 'h':
 			usage(stdout);
@@ -63,6 +67,8 @@ int main(int argc, char *argv[])
 			break;
 		}
 	}
+
+	readcfg(what, lflag, wflag);
 
 	exit(EXIT_SUCCESS);
 }
@@ -145,20 +151,14 @@ static void get_launchd_env(void)
 	}
 }
 
-static void unloadcfg(const char *what)
+static void unloadjob(launch_data_t job)
 {
-	CFPropertyListRef plist = CreateMyPropertyListFromFile(what);
-	launch_data_t resp, tmp, tmps, msg, id_plist;
-	if (!plist) {
-		fprintf(stderr, "%s: no plist was returned for: %s\n", argv0, what);
-		return;
-	}
-	id_plist = CF2launch_data(plist);
+	launch_data_t resp, tmp, tmps, msg;
+
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmp = launch_data_alloc(LAUNCH_DATA_STRING);
-	tmps = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL);
+	tmps = launch_data_dict_lookup(job, LAUNCH_JOBKEY_LABEL);
 	launch_data_set_string(tmp, launch_data_get_string(tmps));
-	launch_data_free(id_plist);
 	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_REMOVEJOB);
 	resp = launch_msg(msg);
 	launch_data_free(msg);
@@ -169,7 +169,19 @@ static void unloadcfg(const char *what)
 	launch_data_free(resp);
 }
 
-static void loadcfg(const char *what)
+static void update_plist(CFPropertyListRef plist, const char *where, bool load)
+{
+	if (load) {
+		CFDictionaryRemoveValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED));
+		CFDictionaryRemoveValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_ENABLED));
+	} else {
+		CFDictionarySetValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED), kCFBooleanTrue);
+	}
+
+	WriteMyPropertyListToFile(plist, where);
+}
+
+static void readcfg(const char *what, bool load, bool editondisk)
 {
 	CFPropertyListRef plist;
 	DIR *d;
@@ -186,9 +198,13 @@ static void loadcfg(const char *what)
 		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		plist = CreateMyPropertyListFromFile(what);
 		if (!plist) {
-			fprintf(stderr, "%s: no plist was returned for: %s\n", argv0, what);
+			fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), what);
 			return;
 		}
+
+		if (editondisk)
+			update_plist(plist, what, load);
+
 		id_plist = CF2launch_data(plist);
 
 		tmpe = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_ENABLED);
@@ -200,25 +216,8 @@ static void loadcfg(const char *what)
 		else
 			job_disabled = false;
 
-		if (job_disabled) {
-			if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_LABEL))) {
-				tmpa = launch_data_alloc(LAUNCH_DATA_STRING);
-				launch_data_set_string(tmpa, launch_data_get_string(tmp));
-				launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_REMOVEJOB);
-				resp = launch_msg(msg);
-				if (resp && launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
-					if (strcasecmp(launch_data_get_string(resp),
-								LAUNCH_RESPONSE_SUCCESS) &&
-							strcasecmp(launch_data_get_string(resp),
-								LAUNCH_RESPONSE_JOBNOTFOUND)) {
-						fprintf(stderr, "%s\n",
-								launch_data_get_string(resp));
-					}
-				} else if (resp) {
-					launch_data_free(resp);
-				}
-			}
-			launch_data_free(msg);
+		if (job_disabled || !load) {
+			unloadjob(id_plist);
 			launch_data_free(id_plist);
 			return;
 		}
@@ -228,7 +227,7 @@ static void loadcfg(const char *what)
 		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		tmpa = launch_data_alloc(LAUNCH_DATA_ARRAY);
 		if ((d = opendir(what)) == NULL) {
-			fprintf(stderr, "%s: opendir() failed to open the directory\n", argv0);
+			fprintf(stderr, "%s: opendir() failed to open the directory\n", getprogname());
 			exit(EXIT_FAILURE);
 		}
 
@@ -238,7 +237,7 @@ static void loadcfg(const char *what)
 			asprintf(&foo, "%s/%s", what, de->d_name);
 			plist = CreateMyPropertyListFromFile(foo);
 			if (!plist) {
-				fprintf(stderr, "%s: no plist was returned for: %s\n", argv0, foo);
+				fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), foo);
 				free(foo);
 				continue;
 			}
@@ -272,8 +271,7 @@ static void loadcfg(const char *what)
 
 static void distill_config_file(launch_data_t id_plist)
 {
-	launch_data_t tmp, oldargs, newargs, tmps;
-	size_t i;
+	launch_data_t tmp;
 
 	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_USERNAME))) {
 		struct passwd *pwe = getpwnam(launch_data_get_string(tmp));
@@ -295,34 +293,6 @@ static void distill_config_file(launch_data_t id_plist)
 
 	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_SOCKETS)))
 		launch_data_dict_iterate(tmp, sock_dict_cb, id_plist);
-
-	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_INETDCOMPATWAIT))) {
-		oldargs = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-		newargs = launch_data_alloc(LAUNCH_DATA_ARRAY);
-		tmps = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(tmps, "/usr/libexec/launchproxy");
-		launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
-		tmps = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(tmps, launch_data_get_bool(tmp) ? "--inetd_mt" : "--inetd_st");
-		launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
-		if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_PROGRAM))) {
-			tmps = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmps, "--program");
-			launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
-			tmps = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmps, launch_data_get_string(tmp));
-			launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
-		}
-		tmps = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(tmps, "--");
-		launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
-		for (i = 0; i < launch_data_array_get_count(oldargs); i++) {
-			tmps = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(tmps, launch_data_get_string(launch_data_array_get_index(oldargs, i)));
-			launch_data_array_set_index(newargs, tmps, launch_data_array_get_count(newargs));
-		}
-		launch_data_dict_insert(id_plist, newargs, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-	}
 }
 
 static launch_data_t create_launch_data_addrinfo_fd(struct addrinfo *ai, int fd)
@@ -372,147 +342,157 @@ static launch_data_t create_launch_data_addrinfo_fd(struct addrinfo *ai, int fd)
 	return d;
 }
 
+
 static void sock_dict_cb(launch_data_t what, const char *key, void *context __attribute__((unused)))
 {
-	launch_data_t a, tmp, val;
-	size_t i;
+	if (launch_data_get_type(what) == LAUNCH_DATA_DICTIONARY) {
+		sock_dict_edit_entry(what, key);
+	} else if (launch_data_get_type(what) == LAUNCH_DATA_ARRAY) {
+		launch_data_t tmp;
+		size_t i;
 
-	for (i = 0; i < launch_data_array_get_count(what); i++) {
-		int sfd, st = SOCK_STREAM;
-		bool passive = true;
+		for (i = 0; i < launch_data_array_get_count(what); i++) {
+			tmp = launch_data_array_get_index(what, i);
+			sock_dict_edit_entry(tmp, key);
+		}
+	}
+}
 
-		tmp = launch_data_array_get_index(what, i);
+static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
+{
+	launch_data_t a, val;
+	int sfd, st = SOCK_STREAM;
+	bool passive = true;
 
-		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_TYPE))) {
-			if (!strcasecmp(launch_data_get_string(val), "stream")) {
-				st = SOCK_STREAM;
-			} else if (!strcasecmp(launch_data_get_string(val), "dgram")) {
-				st = SOCK_DGRAM;
-			} else if (!strcasecmp(launch_data_get_string(val), "seqpacket")) {
-				st = SOCK_SEQPACKET;
+	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_TYPE))) {
+		if (!strcasecmp(launch_data_get_string(val), "stream")) {
+			st = SOCK_STREAM;
+		} else if (!strcasecmp(launch_data_get_string(val), "dgram")) {
+			st = SOCK_DGRAM;
+		} else if (!strcasecmp(launch_data_get_string(val), "seqpacket")) {
+			st = SOCK_SEQPACKET;
+		}
+	}
+
+	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PASSIVE)))
+		passive = launch_data_get_bool(val);
+
+	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SECUREWITHKEY))) {
+		char secdir[sizeof(LAUNCH_SECDIR)], buf[1024];
+
+		strcpy(secdir, LAUNCH_SECDIR);
+
+		mkdtemp(secdir);
+
+		sprintf(buf, "%s/%s", secdir, key);
+
+		a = launch_data_alloc(LAUNCH_DATA_STRING);
+		launch_data_set_string(a, buf);
+		launch_data_dict_insert(tmp, a, LAUNCH_JOBSOCKETKEY_PATHNAME);
+	}
+		
+	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHNAME))) {
+		struct sockaddr_un sun;
+
+		memset(&sun, 0, sizeof(sun));
+
+		sun.sun_family = AF_UNIX;
+
+		strncpy(sun.sun_path, launch_data_get_string(val), sizeof(sun.sun_path));
+	
+		if ((sfd = socket(AF_UNIX, st, 0)) == -1)
+			return;
+
+		if (passive) {                  
+			if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
+				close(sfd);     
+				return;
 			}
-		}
-
-		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PASSIVE)))
-			passive = launch_data_get_bool(val);
-
-		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SECUREWITHKEY))) {
-			char secdir[sizeof(LAUNCH_SECDIR)], buf[1024];
-
-			strcpy(secdir, LAUNCH_SECDIR);
-
-			mkdtemp(secdir);
-
-			sprintf(buf, "%s/%s", secdir, key);
-
-			a = launch_data_alloc(LAUNCH_DATA_STRING);
-			launch_data_set_string(a, buf);
-			launch_data_dict_insert(tmp, a, LAUNCH_JOBSOCKETKEY_PATHNAME);
-		}
-		
-		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHNAME))) {
-			struct sockaddr_un sun;
-
-			memset(&sun, 0, sizeof(sun));
-
-			sun.sun_family = AF_UNIX;
-
-			strncpy(sun.sun_path, launch_data_get_string(val), sizeof(sun.sun_path));
-		
-			if ((sfd = socket(AF_UNIX, st, 0)) == -1)
-				continue;
-
-			if (passive) {                  
-				if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
-					close(sfd);     
-					continue;
-				}
-				if (bind(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
-					close(sfd);
-					continue;
-				}
-				if ((st == SOCK_STREAM || st == SOCK_SEQPACKET)
-						&& listen(sfd, SOMAXCONN) == -1) {
-					close(sfd);
-					continue;
-				}
-			} else if (connect(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+			if (bind(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
 				close(sfd);
-				continue;
+				return;
 			}
-
-			val = launch_data_alloc(LAUNCH_DATA_FD);
-			launch_data_set_fd(val, sfd);
-			launch_data_dict_insert(tmp, val, LAUNCH_JOBSOCKETKEY_FD);
-		} else {
-			launch_data_t ai_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
-			const char *node = NULL, *serv = NULL;
-			char servnbuf[50];
-			struct addrinfo hints, *res0, *res;
-			int gerr, sock_opt = 1;
-
-			memset(&hints, 0, sizeof(hints));
-
-			hints.ai_socktype = st;
-			if (passive)
-				hints.ai_flags |= AI_PASSIVE;
-
-			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_NODENAME)))
-				node = launch_data_get_string(val);
-			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SERVICENAME))) {
-				if (LAUNCH_DATA_INTEGER == launch_data_get_type(val)) {
-					sprintf(servnbuf, "%lld", launch_data_get_integer(val));
-					serv = servnbuf;
-				} else {
-					serv = launch_data_get_string(val);
-				}
+			if ((st == SOCK_STREAM || st == SOCK_SEQPACKET)
+					&& listen(sfd, SOMAXCONN) == -1) {
+				close(sfd);
+				return;
 			}
-			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_FAMILY))) {
-				if (!strcasecmp("IPv4", launch_data_get_string(val)))
-					hints.ai_family = AF_INET;
-				else if (!strcasecmp("IPv6", launch_data_get_string(val)))
-					hints.ai_family = AF_INET6;
-			}
-			if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PROTOCOL))) {
-				if (!strcasecmp("TCP", launch_data_get_string(val)))
-					hints.ai_protocol = IPPROTO_TCP;
-			}
-
-			if ((gerr = getaddrinfo(node, serv, &hints, &res0)) != 0) {
-				fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(gerr));
-				continue;
-			}
-
-			for (res = res0; res; res = res->ai_next) {
-				if ((sfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1) {
-					fprintf(stderr, "socket(): %s\n", strerror(errno));
-					continue;
-				}
-				if (hints.ai_flags & AI_PASSIVE) {
-					if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
-						fprintf(stderr, "socket(): %s\n", strerror(errno));
-						continue;
-					}
-					if (bind(sfd, res->ai_addr, res->ai_addrlen) == -1) {
-						fprintf(stderr, "bind(): %s\n", strerror(errno));
-						continue;
-					}
-					if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
-							&& listen(sfd, SOMAXCONN) == -1) {
-						fprintf(stderr, "listen(): %s\n", strerror(errno));
-						continue;
-					}
-				} else {
-					if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1) {
-						fprintf(stderr, "connect(): %s\n", strerror(errno));
-						continue;
-					}
-				}
-				val = create_launch_data_addrinfo_fd(res, sfd);
-				launch_data_array_set_index(ai_array, val, launch_data_array_get_count(ai_array));
-			}
-			launch_data_dict_insert(tmp, ai_array, LAUNCH_JOBSOCKETKEY_ADDRINFORESULTS);
+		} else if (connect(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+			close(sfd);
+			return;
 		}
+
+		val = launch_data_alloc(LAUNCH_DATA_FD);
+		launch_data_set_fd(val, sfd);
+		launch_data_dict_insert(tmp, val, LAUNCH_JOBSOCKETKEY_FD);
+	} else {
+		launch_data_t ai_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
+		const char *node = NULL, *serv = NULL;
+		char servnbuf[50];
+		struct addrinfo hints, *res0, *res;
+		int gerr, sock_opt = 1;
+
+		memset(&hints, 0, sizeof(hints));
+
+		hints.ai_socktype = st;
+		if (passive)
+			hints.ai_flags |= AI_PASSIVE;
+
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_NODENAME)))
+			node = launch_data_get_string(val);
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SERVICENAME))) {
+			if (LAUNCH_DATA_INTEGER == launch_data_get_type(val)) {
+				sprintf(servnbuf, "%lld", launch_data_get_integer(val));
+				serv = servnbuf;
+			} else {
+				serv = launch_data_get_string(val);
+			}
+		}
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_FAMILY))) {
+			if (!strcasecmp("IPv4", launch_data_get_string(val)))
+				hints.ai_family = AF_INET;
+			else if (!strcasecmp("IPv6", launch_data_get_string(val)))
+				hints.ai_family = AF_INET6;
+		}
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PROTOCOL))) {
+			if (!strcasecmp("TCP", launch_data_get_string(val)))
+				hints.ai_protocol = IPPROTO_TCP;
+		}
+
+		if ((gerr = getaddrinfo(node, serv, &hints, &res0)) != 0) {
+			fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(gerr));
+			return;
+		}
+
+		for (res = res0; res; res = res->ai_next) {
+			if ((sfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) == -1) {
+				fprintf(stderr, "socket(): %s\n", strerror(errno));
+				return;
+			}
+			if (hints.ai_flags & AI_PASSIVE) {
+				if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
+					fprintf(stderr, "socket(): %s\n", strerror(errno));
+					return;
+				}
+				if (bind(sfd, res->ai_addr, res->ai_addrlen) == -1) {
+					fprintf(stderr, "bind(): %s\n", strerror(errno));
+					return;
+				}
+				if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
+						&& listen(sfd, SOMAXCONN) == -1) {
+					fprintf(stderr, "listen(): %s\n", strerror(errno));
+					return;
+				}
+			} else {
+				if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1) {
+					fprintf(stderr, "connect(): %s\n", strerror(errno));
+					return;
+				}
+			}
+			val = create_launch_data_addrinfo_fd(res, sfd);
+			launch_data_array_set_index(ai_array, val, launch_data_array_get_count(ai_array));
+		}
+		launch_data_dict_insert(tmp, ai_array, LAUNCH_JOBSOCKETKEY_ADDRINFORESULTS);
 	}
 }
 
@@ -526,14 +506,30 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
 
 	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, posixfile, strlen(posixfile), false);
 	if (!fileURL)
-		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", argv0, posixfile);
+		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", getprogname(), posixfile);
 	if (!CFURLCreateDataAndPropertiesFromResource(kCFAllocatorDefault, fileURL, &resourceData, NULL, NULL, &errorCode))
-		fprintf(stderr, "%s: CFURLCreateDataAndPropertiesFromResource(%s) failed: %d\n", argv0, posixfile, (int)errorCode);
-	propertyList = CFPropertyListCreateFromXMLData(kCFAllocatorDefault, resourceData, kCFPropertyListImmutable, &errorString);
+		fprintf(stderr, "%s: CFURLCreateDataAndPropertiesFromResource(%s) failed: %d\n", getprogname(), posixfile, (int)errorCode);
+	propertyList = CFPropertyListCreateFromXMLData(kCFAllocatorDefault, resourceData, kCFPropertyListMutableContainers, &errorString);
 	if (!propertyList)
-		fprintf(stderr, "%s: propertyList is NULL\n", argv0);
+		fprintf(stderr, "%s: propertyList is NULL\n", getprogname());
 
 	return propertyList;
+}
+
+static void WriteMyPropertyListToFile(CFPropertyListRef plist, const char *posixfile)
+{
+	CFDataRef	resourceData;
+	CFURLRef	fileURL;
+	SInt32		errorCode;
+
+	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, posixfile, strlen(posixfile), false);
+	if (!fileURL)
+		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", getprogname(), posixfile);
+	resourceData = CFPropertyListCreateXMLData(kCFAllocatorDefault, plist);
+	if (resourceData == NULL)
+		fprintf(stderr, "%s: CFPropertyListCreateXMLData(%s) failed", getprogname(), posixfile);
+	if (!CFURLWriteDataAndPropertiesToResource(fileURL, resourceData, NULL, &errorCode))
+		fprintf(stderr, "%s: CFURLWriteDataAndPropertiesToResource(%s) failed: %d\n", getprogname(), posixfile, (int)errorCode);
 }
 
 void myCFDictionaryApplyFunction(const void *key, const void *value, void *context)
@@ -614,7 +610,8 @@ static launch_data_t CF2launch_data(CFTypeRef cfr)
 
 static void usage(FILE *where)
 {
-	fprintf(where, "usage: %s\n", argv0);
+	fprintf(where, "usage: %s\n", getprogname());
+	fprintf(where, "\t-w Write to the service. Updates the Disabled boolean.\n");
 	fprintf(where, "\t-l <xmlfile>\tLoad a given service.\n");
 	fprintf(where, "\t-u <xmlfile>\tUnload a given service.\n");
 	fprintf(where, "\t-S FOO=bar\tSet per-user environmental variable 'FOO' to value 'bar'.\n");

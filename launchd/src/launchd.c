@@ -1011,6 +1011,7 @@ static void job_launch(struct jobcb *j)
         } else if (c == 0) {
 		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 		size_t i, argv_cnt;
+		char *a0;
 
 		argv_cnt = launch_data_array_get_count(ldpa);
 		argv = alloca((argv_cnt + 1) * sizeof(char *));
@@ -1053,7 +1054,11 @@ static void job_launch(struct jobcb *j)
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
                 setsid();
 		setpriority(PRIO_PROCESS, 0, 0);
-                if (execvp(job_get_argv0(j->ldj), (char *const*)argv) == -1)
+		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY))
+			a0 = "/usr/libexec/launchproxy";
+		else
+			a0 = job_get_argv0(j->ldj);
+                if (execvp(a0, (char *const*)argv) == -1)
 			syslog(LOG_ERR, "child execvp(): %m");
                 exit(EXIT_FAILURE);
         }
