@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
 	pthread_attr_t attr;
 	struct kevent kev;
 	size_t i;
-	bool sflag = false, xflag = false, bflag = false;
+	bool sflag = false, xflag = false;
 	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
@@ -136,27 +136,13 @@ int main(int argc, char *argv[])
 	ourmask = umask(0);
 	umask(ourmask);
 
-	while ((ch = getopt(argc, argv, "dhsvxb")) != -1) {
+	while ((ch = getopt(argc, argv, "dhsvx")) != -1) {
 		switch (ch) {
-		case 'd':
-			debug = true;
-			break;
-		case 's':
-			sflag = true;
-			break;
-		case 'v':
-			verbose = true;
-			break;
-		case 'x':
-			xflag = true;
-			break;
-		case 'b':
-			bflag = true;
-			break;
-		case 'h':
-			usage(stdout);
-			break;
-		case '?':
+		case 'd': debug = true;   break;
+		case 's': sflag = true;   break;
+		case 'x': xflag = true;   break;
+		case 'v': verbose = true; break;
+		case 'h': usage(stdout);  break;
 		default:
 			syslog(LOG_WARNING, "ignoring unknown arguments");
 			usage(stderr);
@@ -251,7 +237,7 @@ int main(int argc, char *argv[])
 
 		pthread_attr_destroy(&attr);
 
-		init_boot(sflag, verbose, xflag, bflag);
+		init_boot(sflag, verbose, xflag);
 	}
 
 	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
@@ -845,7 +831,6 @@ static void usage(FILE *where)
 {
 	fprintf(where, "%s:\n", getprogname());
 	fprintf(where, "\t-d\tdebug mode\n");
-	fprintf(where, "\t-S sock\talternate socket to use\n");
 	fprintf(where, "\t-h\tthis usage statement\n");
 
 	if (where == stdout)

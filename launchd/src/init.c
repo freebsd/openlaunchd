@@ -110,7 +110,6 @@ static kq_callback kqruncom_callback = runcom_callback;
 static void single_user(void);
 static void runcom(void);
 
-static bool runcom_boot = true;		/* Run the rc.boot script */
 static bool runcom_verbose = false;
 static bool runcom_safe = false;
 static bool runcom_fsck = true;
@@ -176,7 +175,7 @@ static int getsecuritylevel(void);
 static int setupargv(session_t, struct ttyent *);
 
 void
-init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
+init_boot(bool sflag, bool vflag, bool xflag)
 {
 	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
 	uint64_t nb = 0;
@@ -186,8 +185,6 @@ init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
 		single_user_mode = true;
 		run_runcom = false;
 	}
-	if (bflag)
-		runcom_boot = false;
 	if (vflag)
 		runcom_verbose = true;
 	if (xflag)
