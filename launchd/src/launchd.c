@@ -67,7 +67,9 @@ static bool batch_enabled = true;
 
 static launch_data_t load_job(launch_data_t pload);
 static launch_data_t get_jobs(const char *which);
+static launch_data_t setstdio(launch_data_t d);
 static void batch_job_enable(bool e);
+static void do_shutdown(void);
 
 static void listen_callback(void *, struct kevent *);
 static void signal_callback(void *, struct kevent *);
@@ -700,6 +702,14 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			launch_data_set_string(resp, LAUNCH_RESPONSE_NOTRUNNINGFROMLAUNCHD);
 		}
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_RELOADTTYS)) {
+		update_ttys();
+		resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_SHUTDOWN)) {
+		do_shutdown();
+		resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(NULL);
 		launch_data_revoke_fds(resp);
@@ -710,6 +720,9 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOBWITHHANDLES))) {
 		resp = get_jobs(launch_data_get_string(tmp));
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDIO))) {
+		resp = setstdio(tmp);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
 		batch_job_enable(launch_data_get_bool(tmp));
@@ -735,6 +748,20 @@ out:
 		}
 	}
 	launch_data_free(resp);
+}
+
+static launch_data_t setstdio(launch_data_t d)
+{
+	launch_data_t tmp, resp = launch_data_new_string(LAUNCH_RESPONSE_SUCCESS);
+
+	if ((tmp = launch_data_dict_lookup(d, LAUNCH_STDIOKEY_IN)))
+		dup2(launch_data_get_fd(tmp), STDIN_FILENO);
+	if ((tmp = launch_data_dict_lookup(d, LAUNCH_STDIOKEY_OUT)))
+		dup2(launch_data_get_fd(tmp), STDOUT_FILENO);
+	if ((tmp = launch_data_dict_lookup(d, LAUNCH_STDIOKEY_ERROR)))
+		dup2(launch_data_get_fd(tmp), STDERR_FILENO);
+
+	return resp;
 }
 
 static void batch_job_enable(bool e)
@@ -1190,6 +1217,17 @@ static void pid1waitpid(void)
 }
 #endif
 
+static void do_shutdown(void)
+{
+	launchd_remove_all_jobs();
+	if (getpid() == 1) {
+		catatonia();
+		mach_start_shutdown(SIGTERM);
+	} else {
+		exit(EXIT_SUCCESS);
+	}
+}
+
 static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
 	switch (kev->ident) {
@@ -1197,13 +1235,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 		update_ttys();
 		break;
 	case SIGTERM:
-		launchd_remove_all_jobs();
-		if (getpid() == 1) {
-			catatonia();
-			mach_start_shutdown(SIGTERM);
-		} else {
-			exit(EXIT_SUCCESS);
-		}
+		do_shutdown();
 		break;
 	case SIGUSR1:
 		debug = !debug;

@@ -51,16 +51,6 @@ if [ "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
 	${BootCacheControl} start
 fi
 
-# System tuning
-if [ -f /etc/rc.env ]; then
-	OLDPATH="$PATH"
-	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/rc.env | while read
-	do
-		launchctl -S ${REPLY}
-	done
-	eval `launchctl -E`
-	export PATH="$OLDPATH"
-fi
 if [ -f /etc/sysctl-macosxserver.conf ]; then
 	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/sysctl-macosxserver.conf | while read
 	do
@@ -74,9 +64,9 @@ if [ -f /etc/sysctl.conf ]; then
 	done
 fi
 
-[ -f /etc/rc.local_tuning ] && . /etc/rc.local_tuning
-
 sysctl -w kern.sysv.shmmax=4194304 kern.sysv.shmmin=1 kern.sysv.shmmni=32 kern.sysv.shmseg=8 kern.sysv.shmall=1024
+
+[ -f /etc/rc.local_tuning ] && . /etc/rc.local_tuning
 
 if [ -f /var/account/acct ]; then
 	accton /var/account/acct
@@ -267,12 +257,15 @@ if [ -f /etc/security/rc.audit ]; then
 	. /etc/security/rc.audit
 fi
 
+# Configure launchd before life gets interesting
+[ -f /etc/launchd.conf ]  && launchctl < /etc/launchd.conf
+
 # Load [ideally on demand] daemons
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
 if [ "${SafeBoot}" = "-x" ]; then
-	launchctl -l /System/Library/LaunchDaemons
+	launchctl load /System/Library/LaunchDaemons
 else
-	launchctl -l /Library/LaunchDaemons -l /System/Library/LaunchDaemons
+	launchctl load /Library/LaunchDaemons /System/Library/LaunchDaemons
 	SystemStarter ${VerboseFlag}
 fi
 

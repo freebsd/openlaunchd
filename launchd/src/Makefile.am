@@ -12,7 +12,7 @@ sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
-launchctl_LDFLAGS = -framework CoreFoundation
+launchctl_LDFLAGS = -framework CoreFoundation -ltcl -ledit
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 

@@ -13,6 +13,9 @@
 #include <pwd.h>
 #include <grp.h>
 #include <netdb.h>
+#include <readline/readline.h>
+#include <readline/history.h>
+#include <tcl.h>
 
 #include "launch.h"
 
@@ -24,51 +27,137 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key);
 static launch_data_t CF2launch_data(CFTypeRef);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
-static void usage(FILE *) __attribute__((noreturn));
 static void readcfg(const char *, bool load, bool editondisk);
-static void get_launchd_env(void);
-static void set_launchd_env(char *);
-static void unset_launchd_env(char *);
-static void set_launchd_envkv(char *, char *);
 static void update_plist(CFPropertyListRef, const char *, bool);
 static int _fd(int);
+static int demux_cmd(int argc, char *const argv[]);
 
-int main(int argc, char *argv[])
+static int lctl_tcl_cmd(ClientData clientData, Tcl_Interp *interp, int argc, CONST char *argv[]);
+
+static int load_and_unload_cmd(int argc, char *const argv[]);
+//static int reload_cmd(int argc, char *const argv[]);
+static int start_and_stop_cmd(int argc, char *const argv[]);
+static int list_cmd(int argc, char *const argv[]);
+
+static int setenv_cmd(int argc, char *const argv[]);
+static int unsetenv_cmd(int argc, char *const argv[]);
+static int getenv_cmd(int argc, char *const argv[]);
+
+//static int limit_cmd(int argc, char *const argv[]);
+static int setstdio_cmd(int argc, char *const argv[]);
+static int fyi_cmd(int argc, char *const argv[]);
+
+static int help_cmd(int argc, char *const argv[]);
+
+static const struct {
+	const char *name;
+	int (*func)(int argc, char *const argv[]);
+	const char *desc;
+} cmds[] = {
+	{ "load",	load_and_unload_cmd,	"Load configuration files and/or directories" },
+	{ "unload",	load_and_unload_cmd,	"Unload configuration files and/or directories" },
+//	{ "reload",	reload_cmd,		"Reload configuration files and/or directories" },
+	{ "start",	start_and_stop_cmd,	"Start specified jobs" },
+	{ "stop",	start_and_stop_cmd,	"Stop specified jobs" },
+	{ "list",	list_cmd,		"List jobs and information about jobs" },
+	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
+	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
+	{ "getenv",	getenv_cmd,		"Get environmental variables from launchd" },
+//	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
+	{ "setstdio",	setstdio_cmd,		"Redirect launchd's standard in, out and error" },
+	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
+	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
+	{ "help",	help_cmd,		"This help output" },
+};
+
+int main(int argc, char *const argv[])
 {
+	Tcl_Interp *interp;
+	char *l;
 	int ch;
-	bool wflag = false;
+	size_t i;
+	bool wflag = false, legacymode = false;
 
-	while ((ch = getopt(argc, argv, "U:ES:hl:u:w")) != -1) {
+	while ((ch = getopt(argc, argv, "l:u:w")) != -1) {
+		legacymode = true;
 		switch (ch) {
-		case 'U':
-			unset_launchd_env(optarg);
-			break;
-		case 'E':
-			get_launchd_env();
-			break;
-		case 'S':
-			set_launchd_env(optarg);
-			break;
 		case 'w':
 			wflag = true;
 			break;
 		case 'l':
+			fprintf(stderr, "%s usage: \"-l\" is deprecated, please use \"load\"\n", getprogname());
 			readcfg(optarg, true, wflag);
 			break;
 		case 'u':
+			fprintf(stderr, "%s usage: \"-u\" is deprecated, please use \"unload\"\n", getprogname());
 			readcfg(optarg, false, wflag);
 			break;
-		case 'h':
-			usage(stdout);
-			break;
-		case '?':
 		default:
-			usage(stderr);
-			break;
+			help_cmd(0, NULL);
+			exit(EXIT_FAILURE);
 		}
 	}
 
+	if (legacymode)
+		exit(EXIT_SUCCESS);
+
+	argc -= optind;
+	argv += optind;
+
+	if (argc > 0) {
+		exit(demux_cmd(argc, argv));
+	}
+
+	interp = Tcl_CreateInterp();
+
+	if (interp == NULL) {
+		fprintf(stderr, "Tcl_CreateInterp() failed\n");
+		exit(EXIT_FAILURE);
+	}
+
+	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++)
+		Tcl_CreateCommand(interp, cmds[i].name, lctl_tcl_cmd, 0, 0);
+
+	if (isatty(STDIN_FILENO)) {
+		while ((l = readline("launchd % "))) {
+			if (Tcl_Eval(interp, l) != TCL_OK)
+				fprintf(stderr, "%s at line %d: %s\n", getprogname(), interp->errorLine, interp->result);
+			free(l);
+		}
+	} else if (Tcl_EvalFile(interp, "/dev/stdin") != TCL_OK) {
+		fprintf(stderr, "%s at line %d: %s\n", getprogname(), interp->errorLine, interp->result);
+	}
+
+	Tcl_DeleteInterp(interp);
+
 	exit(EXIT_SUCCESS);
+}
+
+static int demux_cmd(int argc, char *const argv[])
+{
+	size_t i;
+
+	optind = 1;
+	optreset = 1;
+
+	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
+		if (!strcmp(cmds[i].name, argv[0]))
+			return cmds[i].func(argc, argv);
+	}
+
+	fprintf(stderr, "%s: unknown subcommand \"%s\"\n", getprogname(), argv[0]);
+	return 1;
+}
+
+static int lctl_tcl_cmd(ClientData clientData __attribute__((unused)), Tcl_Interp *interp, int argc, CONST char *argv[])
+{
+	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
+	int r = demux_cmd(argc, (char *const *)argv);
+
+	Tcl_SetIntObj(tcl_result, r);
+	if (r)
+		return TCL_ERROR;
+	return TCL_OK;
 }
 
 static void print_launchd_env(launch_data_t obj, const char *key, void *context)
@@ -79,67 +168,75 @@ static void print_launchd_env(launch_data_t obj, const char *key, void *context)
 		fprintf(stdout, "%s=%s; export %s;\n", key, launch_data_get_string(obj), key);
 }
 
-static void unset_launchd_env(char *arg)
+static int unsetenv_cmd(int argc, char *const argv[])
 {
-	launch_data_t resp, tmp, req = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_t resp, tmp, msg;
 
-	tmp = launch_data_alloc(LAUNCH_DATA_STRING);
-	launch_data_set_string(tmp, arg);
-	launch_data_dict_insert(req, tmp, LAUNCH_KEY_UNSETUSERENVIRONMENT);
+	if (argc != 2) {
+		fprintf(stderr, "%s usage: unsetenv <key>\n", getprogname());
+		return 1;
+	}
 
-	resp = launch_msg(req);
+	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	launch_data_free(req);
+	tmp = launch_data_new_string(argv[1]);
+	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_UNSETUSERENVIRONMENT);
+
+	resp = launch_msg(msg);
+
+	launch_data_free(msg);
 
 	if (resp) {
 		launch_data_free(resp);
 	} else {
-		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_UNSETUSERENVIRONMENT "\"): %s\n", strerror(errno));
+		fprintf(stderr, "launch_msg(\"%s\"): %s\n", LAUNCH_KEY_UNSETUSERENVIRONMENT, strerror(errno));
 	}
+
+	return 0;
 }
 
-static void set_launchd_env(char *arg)
+static int setenv_cmd(int argc, char *const argv[])
 {
-	char *key = arg, *val = strchr(arg, '=');
+	launch_data_t resp, tmp, tmpv, msg;
 
-	if (val) {
-		*val = '\0';
-		val++;
-	} else
-		val = "";
+	if (argc != 3) {
+		fprintf(stderr, "%s usage: setenv <key> <value>\n", getprogname());
+		return 1;
+	}
 
-	set_launchd_envkv(key, val);
-}
-
-static void set_launchd_envkv(char *key, char *val)
-{
-	launch_data_t resp, tmp, tmpv, req = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-
+	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	tmpv = launch_data_alloc(LAUNCH_DATA_STRING);
-	launch_data_set_string(tmpv, val);
-	launch_data_dict_insert(tmp, tmpv, key);
-	launch_data_dict_insert(req, tmp, LAUNCH_KEY_SETUSERENVIRONMENT);
 
-	resp = launch_msg(req);
+	tmpv = launch_data_new_string(argv[2]);
+	launch_data_dict_insert(tmp, tmpv, argv[1]);
+	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETUSERENVIRONMENT);
 
-	launch_data_free(req);
+	resp = launch_msg(msg);
+	launch_data_free(msg);
 
 	if (resp) {
 		launch_data_free(resp);
 	} else {
-		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_SETUSERENVIRONMENT "\"): %s\n", strerror(errno));
+		fprintf(stderr, "launch_msg(\"%s\"): %s\n", LAUNCH_KEY_SETUSERENVIRONMENT, strerror(errno));
 	}
+
+	return 0;
 }
 
-static void get_launchd_env(void)
+static int getenv_cmd(int argc, char *const argv[] __attribute__((unused)))
 {
-	launch_data_t resp, req = launch_data_alloc(LAUNCH_DATA_STRING);
+	launch_data_t resp, msg;
 	char *s = getenv("SHELL");
 
-	launch_data_set_string(req, LAUNCH_KEY_GETUSERENVIRONMENT);
+	if (argc != 1) {
+		fprintf(stderr, "%s usage: getenv\n", getprogname());
+		return 1;
+	}
 
-	resp = launch_msg(req);
+	msg = launch_data_new_string(LAUNCH_KEY_GETUSERENVIRONMENT);
+
+	resp = launch_msg(msg);
+	launch_data_free(msg);
 
 	if (resp) {
 		launch_data_dict_iterate(resp, print_launchd_env, s ? strstr(s, "csh") : NULL);
@@ -147,6 +244,7 @@ static void get_launchd_env(void)
 	} else {
 		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_GETUSERENVIRONMENT "\"): %s\n", strerror(errno));
 	}
+	return 0;
 }
 
 static void unloadjob(launch_data_t job)
@@ -611,20 +709,25 @@ static launch_data_t CF2launch_data(CFTypeRef cfr)
 	return r;
 }
 
-static void usage(FILE *where)
+static int help_cmd(int argc, char *const argv[])
 {
-	fprintf(where, "usage: %s\n", getprogname());
-	fprintf(where, "\t-w Write to the service. Updates the Disabled boolean.\n");
-	fprintf(where, "\t-l <xmlfile>\tLoad a given service.\n");
-	fprintf(where, "\t-u <xmlfile>\tUnload a given service.\n");
-	fprintf(where, "\t-S FOO=bar\tSet per-user environmental variable 'FOO' to value 'bar'.\n");
-	fprintf(where, "\t-U FOO\t\tUnset per-user environmental variable 'FOO'.\n");
-	fprintf(where, "\t-E\t\tGet the per-user environmental variables.\n");
-	fprintf(where, "\t-h\t\tThis help statement.\n");
-	if (where == stdout)
-		exit(EXIT_SUCCESS);
-	else
-		exit(EXIT_FAILURE);
+	FILE *where = stdout;
+	int l, cmdwidth = 0;
+	size_t i;
+	
+	if (argc == 0 || argv == NULL)
+		where = stderr;
+
+	fprintf(where, "usage: %s <subcommand>\n", getprogname());
+	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
+		l = strlen(cmds[i].name);
+		if (l > cmdwidth)
+			cmdwidth = l;
+	}
+	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++)
+		fprintf(where, "\t%-*s\t%s\n", cmdwidth, cmds[i].name, cmds[i].desc);
+
+	return 0;
 }
 
 static int _fd(int fd)
@@ -632,4 +735,221 @@ static int _fd(int fd)
 	if (fd >= 0)
 		fcntl(fd, F_SETFD, 1);
 	return fd;
+}
+
+static int load_and_unload_cmd(int argc, char *const argv[])
+{
+	int i, ch;
+	bool wflag = false;
+	bool lflag = false;
+
+	if (!strcmp(argv[0], "load"))
+		lflag = true;
+
+	while ((ch = getopt(argc, argv, "w")) != -1) {
+		switch (ch) {
+		case 'w':
+			wflag = true;
+			break;
+		default:
+			fprintf(stderr, "usage: %s load [-w] paths...\n", getprogname());
+			return 1;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc == 0) {
+		fprintf(stderr, "usage: %s load [-w] paths...\n", getprogname());
+		return 1;
+	}
+
+	for (i = 0; i < argc; i++) {
+		readcfg(argv[i], lflag, wflag);
+	}
+
+	return 0;
+}
+
+static int start_and_stop_cmd(int argc, char *const argv[])
+{
+	launch_data_t resp, msg;
+	const char *lmsgcmd = LAUNCH_KEY_STOPJOB;
+	int r = 0;
+
+	if (!strcmp(argv[0], "start"))
+		lmsgcmd = LAUNCH_KEY_STARTJOB;
+
+	if (argc != 2) {
+		fprintf(stderr, "usage: %s %s <job label>\n", getprogname(), argv[0]);
+		return 1;
+	}
+
+	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_dict_insert(msg, launch_data_new_string(argv[1]), lmsgcmd);
+
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+		if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS)) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+			r = 1;
+		}
+	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	}
+
+	launch_data_free(resp);
+	return r;
+}
+
+static void print_jobs(launch_data_t j __attribute__((unused)), const char *label, void *context __attribute__((unused)))
+{
+	fprintf(stdout, "%s\n", label);
+}
+
+static int list_cmd(int argc, char *const argv[])
+{
+	launch_data_t resp, msg;
+	int ch, r = 0;
+	bool vflag = false;
+
+	while ((ch = getopt(argc, argv, "v")) != -1) {
+		switch (ch) {
+		case 'v':
+			vflag = true;
+			break;
+		default:
+			fprintf(stderr, "usage: %s list [-v]\n", getprogname());
+			return 1;
+		}
+	}
+
+	if (vflag) {
+		fprintf(stderr, "usage: %s list: \"-v\" flag not implemented yet\n", getprogname());
+		return 1;
+	}
+
+	msg = launch_data_new_string(LAUNCH_KEY_GETJOBS);
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
+		launch_data_dict_iterate(resp, print_jobs, NULL);
+	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	}
+
+	launch_data_free(resp);
+
+	return r;
+}
+
+static int setstdio_cmd(int argc, char *const argv[])
+{
+	launch_data_t resp, msg, msgd;
+	int ch, fd = -1, r = 0;
+	bool i = false, o = false, e = false;
+
+	while ((ch = getopt(argc, argv, "ioe")) != -1) {
+		switch (ch) {
+		case 'i': i = true; break;
+		case 'o': o = true; break;
+		case 'e': e = true; break;
+		default:
+			fprintf(stderr, "usage: %s setstdio [-i] [-o] [-e] [path]\n", getprogname());
+			return 1;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+
+	if (!(i || o || e))
+		i = o = e = true;
+
+	if (argc > 1) {
+		fprintf(stderr, "usage: %s setstdio [-i] [-o] [-e] [path]\n", getprogname());
+		return 1;
+	} else if (argc == 1) {
+		fd = open(argv[0], O_CREAT|O_APPEND|O_RDWR, DEFFILEMODE);
+	}
+
+	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	msgd = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	if (i)
+		launch_data_dict_insert(msgd, launch_data_new_fd(fd != -1 ? fd : STDIN_FILENO), LAUNCH_STDIOKEY_IN);
+	if (o)
+		launch_data_dict_insert(msgd, launch_data_new_fd(fd != -1 ? fd : STDOUT_FILENO), LAUNCH_STDIOKEY_OUT);
+	if (e)
+		launch_data_dict_insert(msgd, launch_data_new_fd(fd != -1 ? fd : STDERR_FILENO), LAUNCH_STDIOKEY_ERROR);
+
+	launch_data_dict_insert(msg, msgd, LAUNCH_KEY_SETSTDIO);
+
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+		if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS)) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+			r = 1;
+		}
+	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	}
+
+	if (fd != -1)
+		close(fd);
+
+	launch_data_free(resp);
+
+	return r;
+}
+
+static int fyi_cmd(int argc, char *const argv[])
+{
+	launch_data_t resp, msg;
+	const char *lmsgk = LAUNCH_KEY_RELOADTTYS;
+	int r = 0;
+
+	if (argc != 1) {
+		fprintf(stderr, "usage: %s %s\n", getprogname(), argv[0]);
+		return 1;
+	}
+
+	if (!strcmp(argv[0], "shutdown"))
+		lmsgk = LAUNCH_KEY_SHUTDOWN;
+
+	msg = launch_data_new_string(lmsgk);
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
+		if (strcmp(launch_data_get_string(resp), LAUNCH_RESPONSE_SUCCESS)) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
+			r = 1;
+		}
+	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	}
+
+	launch_data_free(resp);
+
+	return r;
 }
