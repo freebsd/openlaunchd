@@ -535,7 +535,8 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 	mh.msg_iov = &iov;
         mh.msg_iovlen = 1;
 
-	make_msg_and_cmsg(d, &lh->sendbuf, &lh->sendlen, &lh->sendfds, &lh->sendfdcnt);
+	if (d)
+		make_msg_and_cmsg(d, &lh->sendbuf, &lh->sendlen, &lh->sendfds, &lh->sendfdcnt);
 
 	if (lh->sendfdcnt > 0) {
 		sentctrllen = mh.msg_controllen = CMSG_SPACE(lh->sendfdcnt * sizeof(int));
@@ -616,8 +617,12 @@ launch_data_t launch_msg(launch_data_t d)
 
 	pthread_mutex_lock(&_lc->mtx);
 
-	if (d && launchd_msg_send(_lc->l, d) == -1)
-		goto out;
+	if (d && launchd_msg_send(_lc->l, d) == -1) {
+		do {
+			if (errno != EAGAIN)
+				goto out;
+		} while (launchd_msg_send(_lc->l, NULL) == -1);
+	}
        
 	while (resp == NULL) {
 		if (d == NULL && launch_data_array_get_count(_lc->async_resp) > 0) {
