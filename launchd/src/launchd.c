@@ -2230,12 +2230,14 @@ static void job_set_alarm(struct jobcb *j)
 	latertm.tm_sec = 0;
 	latertm.tm_isdst = -1;
 
-	otherlatertm = latertm;
 
 	if (j->start_cal_interval->tm_min)
 		latertm.tm_min = j->start_cal_interval->tm_min;
 	if (j->start_cal_interval->tm_hour)
 		latertm.tm_hour = j->start_cal_interval->tm_hour;
+
+	otherlatertm = latertm;
+
 	if (j->start_cal_interval->tm_mday)
 		latertm.tm_mday = j->start_cal_interval->tm_mday;
 	if (j->start_cal_interval->tm_mon)
