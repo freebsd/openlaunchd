@@ -91,10 +91,3 @@ RunService ()
 # Get host configuration #
 ##########################
 . /etc/hostconfig
-
-##
-# Enable coredumps if requested.
-##
-if [ "${COREDUMPS:=-NO-}" = "-YES-" ]; then
-    ulimit -c unlimited
-fi
