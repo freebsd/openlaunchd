@@ -54,6 +54,14 @@
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 #define VOLFSDIR "/.vol"
 
+/* until 4016657 is in a kernel */
+#ifndef NOTE_SECONDS
+#define NOTE_SECONDS	0x00000001
+#define NOTE_USECONDS	0x00000002
+#define NOTE_NSECONDS	0x00000004
+#define NOTE_ABSOLUTE	0x00000008
+#endif
+
 extern char **environ;
 
 struct jobcb {
@@ -61,12 +69,14 @@ struct jobcb {
 	TAILQ_ENTRY(jobcb) tqe;
 	launch_data_t ldj;
 	pid_t p;
-	struct timeval start_time;
+	time_t start_time;
 	size_t failed_exits;
 	int *vnodes;
 	size_t vnodes_cnt;
 	int *qdirs;
 	size_t qdirs_cnt;
+	unsigned int start_interval;
+	struct tm *start_cal_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, futureflags:29;
 };
 
@@ -110,6 +120,7 @@ static void job_start_child(struct jobcb *j);
 static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
+static void job_set_alarm(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 
 static void ipc_open(int fd, struct jobcb *j);
@@ -799,6 +810,12 @@ static void job_remove(struct jobcb *j)
 			close(j->qdirs[i]);
 	if (j->qdirs)
 		free(j->qdirs);
+	if (j->start_interval)
+		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+	if (j->start_cal_interval) {
+		kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+		free(j->start_cal_interval);
+	}
 	free(j);
 }
 
@@ -1066,6 +1083,37 @@ static launch_data_t load_job(launch_data_t pload)
 		}
 
 	}
+
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTINTERVAL))) {
+		j->start_interval = launch_data_get_integer(tmp);
+
+		if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, &j->kqjob_callback))
+			syslog(LOG_ERR, "%s: adding kevent timer: %m", launch_data_get_string(label));
+	}
+
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTCALENDARINTERVAL))) {
+		launch_data_t tmp_k;
+
+		j->start_cal_interval = calloc(1, sizeof(struct tm));
+
+		if (LAUNCH_DATA_DICTIONARY == launch_data_get_type(tmp)) {
+			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_MINUTE)))
+				j->start_cal_interval->tm_min = launch_data_get_integer(tmp_k);
+			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_HOUR)))
+				j->start_cal_interval->tm_hour = launch_data_get_integer(tmp_k);
+			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_DAY)))
+				j->start_cal_interval->tm_mday = launch_data_get_integer(tmp_k);
+			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_WEEKDAY))) {
+				j->start_cal_interval->tm_wday = launch_data_get_integer(tmp_k);
+				if (j->start_cal_interval->tm_wday == 0)
+					j->start_cal_interval->tm_wday = 7;
+			}
+			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_MONTH)))
+				j->start_cal_interval->tm_mon = launch_data_get_integer(tmp_k);
+		}
+
+		job_set_alarm(j);
+	}
 	
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS))) {
 		size_t i;
@@ -1328,6 +1376,8 @@ static void job_callback(void *obj, struct kevent *kev)
 			job_watch(j);
 			goto out;
 		}
+	} else if (kev->filter == EVFILT_TIMER && kev->flags & EV_ONESHOT) {
+		job_set_alarm(j);
 	} else if (kev->filter == EVFILT_VNODE) {
 		size_t i;
 		const char *thepath = NULL;
@@ -1388,7 +1438,7 @@ out:
 
 static void job_start(struct jobcb *j)
 {
-	struct timeval tvd, last_start_time = j->start_time;
+	time_t td, last_start_time = j->start_time;
 	int spair[2];
 	bool sipc;
 	char nbuf[64];
@@ -1410,10 +1460,10 @@ static void job_start(struct jobcb *j)
 	if (sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
-	gettimeofday(&j->start_time, NULL);
-	timersub(&j->start_time, &last_start_time, &tvd);
+	time(&j->start_time);
+	td = j->start_time - last_start_time;
 
-	if (tvd.tv_sec >= LAUNCHD_REWARD_JOB_RUN_TIME) {
+	if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
 		/* If the job lived long enough, let's reward it.
 		 * This lets infrequent bugs not cause the job to be removed. */
 		syslog(LOG_DEBUG, "[%s]: lived longer than %d seconds, rewarding", job_get_argv0(j->ldj), LAUNCHD_REWARD_JOB_RUN_TIME);
@@ -1442,12 +1492,12 @@ static void job_start(struct jobcb *j)
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
-		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
+		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && td < LAUNCHD_MIN_JOB_RUN_TIME) {
 			/* Only punish short daemon life if the last exit was "bad." */
 			if (j->failed_exits > 0) {
 				syslog(LOG_NOTICE, "%s respawning too quickly! Sleeping %d seconds",
-						job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
-				sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+						job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - td);
+				sleep(LAUNCHD_MIN_JOB_RUN_TIME - td);
 			}
 		}
 		job_start_child(j);
@@ -2079,3 +2129,75 @@ static int dir_has_files(const char *path)
 	return r;
 }
 
+static void job_set_alarm(struct jobcb *j)
+{
+	struct tm otherlatertm, latertm, *nowtm;
+	time_t later, otherlater = 0, now = time(NULL);
+
+	nowtm = localtime(&now);
+
+	latertm = *nowtm;
+
+	latertm.tm_sec = 0;
+	latertm.tm_isdst = -1;
+
+	otherlatertm = latertm;
+
+	if (j->start_cal_interval->tm_min)
+		latertm.tm_min = j->start_cal_interval->tm_min;
+	if (j->start_cal_interval->tm_hour)
+		latertm.tm_hour = j->start_cal_interval->tm_hour;
+	if (j->start_cal_interval->tm_mday)
+		latertm.tm_mday = j->start_cal_interval->tm_mday;
+	if (j->start_cal_interval->tm_mon)
+		latertm.tm_mon = j->start_cal_interval->tm_mon;
+
+	/* cron semantics are fun */
+	if (j->start_cal_interval->tm_wday) {
+		int delta, realwday = j->start_cal_interval->tm_wday;
+
+		if (realwday == 7)
+			realwday = 0;
+		
+		delta = realwday - nowtm->tm_wday;
+		
+		/* Now Later Delta Desired
+		 *   0     6     6       6
+		 *   6     0    -6  7 + -6
+		 *   1     5     4       4
+		 *   5     1    -4  7 + -4
+		 */
+		if (delta > 0)
+			otherlatertm.tm_mday += delta;
+		else if (delta < 0)
+			otherlatertm.tm_mday += 7 + delta;
+		else if (otherlatertm.tm_hour < nowtm->tm_hour)
+			otherlatertm.tm_mday += 7;
+		else if (otherlatertm.tm_min < nowtm->tm_min)
+			otherlatertm.tm_hour++;
+		else
+			otherlatertm.tm_min++;
+
+		otherlater = mktime(&otherlatertm);
+	}
+
+	if (latertm.tm_mon < nowtm->tm_mon) {
+		latertm.tm_year++;
+	} else if (latertm.tm_mday < nowtm->tm_mday) {
+		latertm.tm_mon++;
+	} else if (latertm.tm_hour < nowtm->tm_hour) {
+		latertm.tm_mday++;
+	} else if (latertm.tm_min < nowtm->tm_min) {
+		latertm.tm_hour++;
+	} else {
+		latertm.tm_min++;
+	}
+
+	later = mktime(&latertm);
+
+	if (otherlater)
+		later = later < otherlater ? later : otherlater;
+
+	if (-1 == kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, &j->kqjob_callback))
+		syslog(LOG_ERR, "%s: adding kevent alarm: %m", job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL));
+}
