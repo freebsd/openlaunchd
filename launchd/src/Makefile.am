@@ -87,6 +87,8 @@ install-data-hook: install-startupitems
 	ln -s liblaunch.1.dylib $(DESTDIR)/usr/lib/liblaunch.dylib
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
+	mkdir -p $(DESTDIR)/usr/local/include
+	cp $(srcdir)/launch_priv.h $(DESTDIR)/usr/local/include
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
