@@ -25,22 +25,22 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+	stat(argv[1], &sb);
+
+	if (S_ISREG(sb.st_mode)) {
+		handleConfigFile(argv[1]);
+		exit(EXIT_SUCCESS);
+	}
+
 	if (getenv("SECURITYSESSIONID")) {
 		if (fork() == 0) {
 			const char *h = getenv("HOME");
 			struct passwd *pwe = getpwuid(getuid());
 			char *buf;
 			asprintf(&buf, "%s/%s", h ? h : pwe->pw_dir, "Library/LaunchAgents");
-			execlp("launchctl", "launchctl", "-l", buf, "-l", "/Library/LaunchAgents", "-l", "/System/Library/LaunchAgents", NULL);
+			execlp("launchctl", "launchctl", "load", buf, "/Library/LaunchAgents", "/System/Library/LaunchAgents", NULL);
 			exit(EXIT_SUCCESS);
 		}
-	}
-
-	stat(argv[1], &sb);
-
-	if (S_ISREG(sb.st_mode)) {
-		handleConfigFile(argv[1]);
-		exit(EXIT_SUCCESS);
 	}
 
 	if ((d = opendir(argv[1])) == NULL) {
