@@ -16,17 +16,13 @@ SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
-launchctl_LDFLAGS = -framework CoreFoundation liblaunch.1.dylib
+launchctl_LDFLAGS = -framework CoreFoundation
 
-launchd_LDFLAGS = liblaunch.1.dylib -lbsm
+launchd_LDFLAGS = -lbsm
 
 mach_init_LDFLAGS = -lbsm
 
 launchdebugd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-
-launchdebugd_LDFLAGS = liblaunch.1.dylib
-
-launchproxy_LDFLAGS = liblaunch.1.dylib
 
 liblaunch_a_SOURCES = liblaunch.c
 
@@ -44,23 +40,12 @@ mach_init_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.1.dylib
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
 
 bootstrap.c:: bootstrap.h
 
 bootstrap.h bootstrapServer.c bootstrapUser.c: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
-
-liblaunch.1.dylib: liblaunch.o
-	libtool -dynamic -o liblaunch.1.dylib -install_name /usr/lib/liblaunch.1.dylib -compatibility_version 1 -current_version 1 liblaunch.o -lSystem
-
-launchctl.c:: liblaunch.1.dylib
-
-launchdebugd.c:: liblaunch.1.dylib
-
-launchd.c:: liblaunch.1.dylib
-
-launchproxy.c:: liblaunch.1.dylib
 
 man1_MANS = wait4path.1 launchctl.1
 
@@ -83,10 +68,6 @@ install-data-hook: install-startupitems
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
-	mkdir -p $(DESTDIR)/usr/lib
-	strip -S liblaunch.1.dylib
-	cp liblaunch.1.dylib $(DESTDIR)/usr/lib
-	ln -s liblaunch.1.dylib $(DESTDIR)/usr/lib/liblaunch.dylib
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/usr/local/include
