@@ -159,7 +159,7 @@ int main(int argc, char *argv[])
 	open(_PATH_DEVNULL, O_WRONLY);
 
 	openlog(basename(argv[0]),
-			(getpid() == 1 ? LOG_CONS : LOG_PID)|(debug ? LOG_PERROR : 0),
+			LOG_CONS|(getpid() != 1 ? LOG_PID : 0)|(debug ? LOG_PERROR : 0),
 			LOG_DAEMON);
 	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
 
@@ -1013,15 +1013,15 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 		catatonia();
 		break;
 	case SIGUSR1:
+		debug = !debug;
+		/* fall through to SIGUSR2 */
+	case SIGUSR2:
 		closelog();
 		openlog(basename(getprogname()),
 				LOG_NDELAY|LOG_CONS|(debug ? LOG_PERROR : 0)|(getpid() > 1 ? LOG_PID : 0),
 				LOG_DAEMON);
-		syslog(LOG_INFO, "reopened syslog connection");
-		break;
-	case SIGUSR2:
-		debug = !debug;
 		setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
+		syslog(LOG_INFO, "reopened syslog connection: debug == %s", debug ? "true" : "false");
 		break;
 	default:
 		break;
