@@ -379,11 +379,61 @@ initng_err_t initng_sendmsga(int fd, char *command, char *data[])
 		r = __initng_sendmsga(fd, "setGID", tmpa, NULL, 0);
 		free(tmp);
 		return r;
+	} else if (strcmp(command, "addUnixSocket") == 0) {
+		char *realmsgdata[4] = { data[0], data[1], NULL, NULL };
+		struct sockaddr_un sun;
+		int socktype;
+		bool passive = false;
+		int sfd;
+		char *fdstr;
+
+		memset(&sun, 0, sizeof(sun));
+
+		sun.sun_family = AF_UNIX;
+		strncpy(sun.sun_path, data[2], sizeof(sun.sun_path));
+		if (!strcmp(data[3], "SOCK_STREAM")) {
+			socktype = SOCK_STREAM;
+		} else if (!strcmp(data[3], "SOCK_DGRAM")) {
+			socktype = SOCK_DGRAM;
+		} else {
+			fprintf(stderr, "unknown socket type\n");
+			return INITNG_ERR_DIRECTORY_LOOKUP;
+		}
+		if (!strcmp(data[5], "true"))
+			passive = true;
+
+		if ((sfd = socket(AF_UNIX, socktype, 0)) == -1)
+			return INITNG_ERR_SYSCALL;
+		if (passive) {
+			if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
+				close(sfd);
+				return INITNG_ERR_SYSCALL;
+			}
+			if (bind(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+				close(sfd);
+				return INITNG_ERR_SYSCALL;
+			}
+			if ((socktype == SOCK_STREAM || socktype == SOCK_SEQPACKET)
+					&& listen(sfd, SOMAXCONN) == -1) {
+				close(sfd);
+				return INITNG_ERR_SYSCALL;
+			}
+		} else if (connect(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+			close(sfd);
+			return INITNG_ERR_SYSCALL;
+		}
+
+		asprintf(&fdstr, "%d", sfd);
+		realmsgdata[2] = fdstr;
+		r = initng_sendmsga(fd, "addFD", realmsgdata);
+		close(sfd);
+		free(fdstr);
+		return r;
 	} else if (strcmp(command, "addGetaddrinfoSockets") == 0) {
+		char *realmsgdata[4] = { data[0], data[1], NULL, NULL };
 		struct addrinfo hints, *res, *res0 = NULL;
 		int sfd;
 		char *n = NULL, *s = NULL;
-		char *realmsgdata[4];
 		char *fdstr;
 
 		/* addGetaddrinfoSockets
@@ -417,10 +467,6 @@ initng_err_t initng_sendmsga(int fd, char *command, char *data[])
 
 		if (getaddrinfo(n, s, &hints, &res0))
 			return INITNG_ERR_DIRECTORY_LOOKUP;
-
-		realmsgdata[0] = data[0];
-		realmsgdata[1] = data[1];
-		realmsgdata[3] = NULL;
 
 		for (res = res0; res; res = res->ai_next) {
 			int sock_opt = 1;
