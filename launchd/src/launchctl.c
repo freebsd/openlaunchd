@@ -15,6 +15,7 @@
 #include <netdb.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <dns_sd.h>
 #include <tcl.h>
 
 #include "launch.h"
@@ -552,6 +553,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 		char servnbuf[50];
 		struct addrinfo hints, *res0, *res;
 		int gerr, sock_opt = 1;
+		bool rendezvous = false;
 
 		memset(&hints, 0, sizeof(hints));
 
@@ -579,6 +581,10 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 			if (!strcasecmp("TCP", launch_data_get_string(val)))
 				hints.ai_protocol = IPPROTO_TCP;
 		}
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_RENDEZVOUS))) {
+			if (launch_data_get_bool(val))
+				rendezvous = true;
+		}
 
 		if ((gerr = getaddrinfo(node, serv, &hints, &res0)) != 0) {
 			fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(gerr));
@@ -586,6 +592,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 		}
 
 		for (res = res0; res; res = res->ai_next) {
+			int rvs_fd = -1;
 			if ((sfd = _fd(socket(res->ai_family, res->ai_socktype, res->ai_protocol))) == -1) {
 				fprintf(stderr, "socket(): %s\n", strerror(errno));
 				return;
@@ -604,6 +611,29 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 					fprintf(stderr, "listen(): %s\n", strerror(errno));
 					return;
 				}
+				if (rendezvous && (res->ai_family == AF_INET || res->ai_family == AF_INET6) &&
+						(res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_DGRAM)) {
+					DNSServiceRef service;
+					DNSServiceErrorType error;
+					char rvs_buf[200];
+					short port;
+
+					sprintf(rvs_buf, "_%s._%s.", serv, res->ai_socktype == SOCK_STREAM ? "tcp" : "udp");
+
+					if (res->ai_family == AF_INET)
+						port = ((struct sockaddr_in *)res->ai_addr)->sin_port;
+					else
+						port = ((struct sockaddr_in6 *)res->ai_addr)->sin6_port;
+
+					error = DNSServiceRegister(&service, 0, 0, NULL, rvs_buf, NULL, NULL, port, 0, NULL, NULL, NULL);
+
+					if (error != kDNSServiceErr_NoError) {
+						fprintf(stderr, "DNSServiceRegister(): %d\n", error);
+						return;
+					}
+
+					rvs_fd = DNSServiceRefSockFD(service);
+				}
 			} else {
 				if (connect(sfd, res->ai_addr, res->ai_addrlen) == -1) {
 					fprintf(stderr, "connect(): %s\n", strerror(errno));
@@ -611,6 +641,8 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key)
 				}
 			}
 			val = create_launch_data_addrinfo_fd(res, sfd);
+			if (rvs_fd != -1)
+				launch_data_dict_insert(val, launch_data_new_fd(rvs_fd), LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD);
 			launch_data_array_set_index(ai_array, val, launch_data_array_get_count(ai_array));
 		}
 		launch_data_dict_insert(tmp, ai_array, LAUNCH_JOBSOCKETKEY_ADDRINFORESULTS);

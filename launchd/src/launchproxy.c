@@ -17,11 +17,16 @@
 
 static int kq = 0;
 
-static void find_fds(launch_data_t o)
+static void find_fds(launch_data_t o, const char *key, void *context __attribute__((unused)))
 {
         struct kevent kev;
         size_t i;
 	int fd;
+
+	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD)) {
+		close(launch_data_get_fd(o));
+		return;
+	}
 
         switch (launch_data_get_type(o)) {
         case LAUNCH_DATA_FD:
@@ -33,10 +38,10 @@ static void find_fds(launch_data_t o)
                 break;
         case LAUNCH_DATA_ARRAY:
                 for (i = 0; i < launch_data_array_get_count(o); i++)
-                        find_fds(launch_data_array_get_index(o, i));
+                        find_fds(launch_data_array_get_index(o, i), NULL, NULL);
                 break;
         case LAUNCH_DATA_DICTIONARY:
-                launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))find_fds, NULL);
+                launch_data_dict_iterate(o, find_fds, NULL);
                 break;
         default:
                 break;
@@ -69,7 +74,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 	tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SOCKETS);
 	if (tmp) {
-		find_fds(tmp);
+		find_fds(tmp, NULL, NULL);
 	} else {
 		syslog(LOG_ERR, "No FDs found to answer requests on!");
 		goto out;
