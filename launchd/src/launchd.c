@@ -760,7 +760,7 @@ static void job_watch(struct jobcb *j)
 			launch_data_t ld_idx = launch_data_array_get_index(ld_vnodes, i);
 			const char *thepath = launch_data_get_string(ld_idx);
 
-			if (-1 == (j->vnodes[i] = open(thepath, O_EVTONLY)))
+			if (-1 == (j->vnodes[i] = _fd(open(thepath, O_EVTONLY))))
 				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
 		}
 		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_ADD|EV_CLEAR,
@@ -1081,7 +1081,7 @@ static launch_data_t load_job(launch_data_t pload)
 		for (i = 0; i < j->qdirs_cnt; i++) {
 			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
 
-			if (-1 == (j->qdirs[i] = open(thepath, O_EVTONLY)))
+			if (-1 == (j->qdirs[i] = _fd(open(thepath, O_EVTONLY))))
 				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
 		}
 
@@ -1129,7 +1129,7 @@ static launch_data_t load_job(launch_data_t pload)
 		for (i = 0; i < j->vnodes_cnt; i++) {
 			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
 
-			if (-1 == (j->vnodes[i] = open(thepath, O_EVTONLY)))
+			if (-1 == (j->vnodes[i] = _fd(open(thepath, O_EVTONLY))))
 				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
 		}
 
