@@ -25,7 +25,6 @@ int initng_msga(int fd, char *command, char *data[]);
 /* asynchronous APIs */
 
 typedef struct {
-	pid_t	ic_pid;
 	uid_t	ic_uid;
 	gid_t	ic_gid;
 } initng_cred_t;

@@ -8,6 +8,7 @@
 #include <sys/param.h>
 #include <sys/fcntl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,7 +66,7 @@ static void job_observe(struct initngd_job *j);
 static void job_ignore(struct initngd_job *j);
 static void job_remove(struct initngd_job *j);
 static void job_dump_state(struct initngd_job *j, int fd);
-static struct initngd_job *job_find(const char *label);
+static struct initngd_job *job_find(uid_t u, const char *label);
 static struct initngd_jobfd *job_fd_find(struct initngd_job *j, const char *label);
 static void initngd_internal_wn(struct initngd_job *j, struct kevent *kev);
 
@@ -92,6 +93,8 @@ int main(int argc, char *argv[])
 
 	argv0 = argv[0];
 
+	umask(077);
+
 	thejob = calloc(1, sizeof(struct initngd_job));
 	thejob->label = "__initngd__";
 	thejob->enabled = 1;
@@ -100,6 +103,7 @@ int main(int argc, char *argv[])
 	thejob->u = getuid();
 	thejob->g = getgid();
 	thejob->p = getpid();
+	thejob->um = 077;
 	thejob->argv = argv;
 	thejob->env = environ;
 	thejob->wn = initngd_internal_wn;
@@ -270,10 +274,13 @@ static void job_launch(struct initngd_job *j, struct kevent *kev)
 			sprintf(fdlabelkey, "__INITNG_FD_%d", jfd->fd);
 			setenv(fdlabelkey, jfd->label, 1);
 		}
-		setgid(j->g);
-		setuid(j->u);
+		if (thejob->g != j->g)
+			setgid(j->g);
+		if (thejob->u != j->u)
+			setuid(j->u);
+		if (thejob->um != j->um)
+			umask(j->um);
 		setsid();
-		umask(j->um);
 		if (execve(j->program, j->argv, environ) == -1)
 			initngd_debug(LOG_DEBUG, "child execve(): %m");
 		_exit(EXIT_FAILURE);
@@ -336,12 +343,12 @@ static void job_observe(struct initngd_job *j)
 	}
 }
 
-static struct initngd_job *job_find(const char *label)
+static struct initngd_job *job_find(uid_t u, const char *label)
 {
 	struct initngd_job *j;
 
 	TAILQ_FOREACH(j, &thejobs, tqe) {
-		if (!strcmp(j->label, label))
+		if (j->u == u && !strcmp(j->label, label))
 			return j;
 	}
 	return NULL;
@@ -399,7 +406,7 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 	};
 
 	if (*data)
-		j = job_find(*data);
+		j = job_find(cred->ic_uid, *data);
 
 	if (j && j->is_initngd) {
 		r = -1;
@@ -424,6 +431,8 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 		TAILQ_INIT(&j->fds);
 		j->setup_conn = fd;
 		j->um = 077;
+		j->u = cred->ic_uid;
+		j->g = cred->ic_gid;
 		j->wn = job_launch;
 		j->on_demand = 1;
 		TAILQ_INSERT_TAIL(&thejobs, j, tqe);
@@ -443,9 +452,21 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 			job_ignore(j);
 		}
 	} else if (check_args("setUID", 2)) {
-		j->u = (uid_t)strtol(data[1], NULL, 10);
+		if (cred->ic_uid == 0) {
+			j->u = (uid_t)strtol(data[1], NULL, 10);
+		} else {
+			r = -1;
+			e = EPERM;
+			goto out;
+		}
 	} else if (check_args("setGID", 2)) {
-		j->g = (gid_t)strtol(data[1], NULL, 10);
+		if (cred->ic_uid == 0) {
+			j->g = (gid_t)strtol(data[1], NULL, 10);
+		} else {
+			r = -1;
+			e = EPERM;
+			goto out;
+		}
 	} else if (check_args("setProgram", 2)) {
 		j->program = strdup(data[1]);
 	} else if (check_args("setUmask", 2)) {

@@ -3,6 +3,8 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <sys/un.h>
+#include <sys/ucred.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -31,6 +33,7 @@ struct initng_ipc_packet {
 struct initng_ipc_conn {
 	TAILQ_ENTRY(initng_ipc_conn) tqe;
 	unsigned int monitoring;
+	initng_cred_t cred;
 	int     fd;
 	void    *sendbuf;
 	size_t  sendlen;
@@ -43,6 +46,7 @@ struct initng_ipc_conn {
 };
 
 static TAILQ_HEAD(initng_ipc_connections, initng_ipc_conn) theconnections = TAILQ_HEAD_INITIALIZER(theconnections);
+
 
 int initng_open(void)
 {
@@ -70,36 +74,43 @@ int initng_server_init(const char *thepath)
 {
 	struct sockaddr_un sun;
 	char *where = getenv(INITNG_SOCKET_ENV);
+	mode_t oldmask = 0;
 	int fd;
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 	strncpy(sun.sun_path, thepath ? thepath : where ? where : INITNG_SOCKET_DEFAULT, sizeof(sun.sun_path));
 
-        if (unlink(sun.sun_path) == -1 && errno != ENOENT)
-                return -1;
+	if (!thepath && !where)
+		oldmask = umask(0);
+
+	if (unlink(sun.sun_path) == -1 && errno != ENOENT)
+		return -1;
 	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-                return -1;
-        if (bind(fd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+		return -1;
+	if (bind(fd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
 		close(fd);
-                return -1;
+		return -1;
 	}
-        if (listen(fd, SOMAXCONN) == -1) {
+	if (listen(fd, SOMAXCONN) == -1) {
 		close(fd);
-                return -1;
+		return -1;
 	}
 
-        return fd;
+	if (!thepath && !where)
+		umask(oldmask);
+
+	return fd;
 }
 
 int initng_server_accept(int lfd)
 {
-        struct sockaddr_un sun;
-        socklen_t sl = sizeof(sun);
+	struct sockaddr_un sun;
+	socklen_t sl = sizeof(sun);
 	int cfd;
 
-        if ((cfd = accept(lfd, (struct sockaddr *)&sun, &sl)) == -1)
-                return -1;
+	if ((cfd = accept(lfd, (struct sockaddr *)&sun, &sl)) == -1)
+		return -1;
 
 	create_ipc_conn(cfd);
 
@@ -108,19 +119,19 @@ int initng_server_accept(int lfd)
 
 int initng_flush(int fd)
 {
-        struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
+	struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
 	struct cmsghdr *cm;
-        struct msghdr mh;
-        struct iovec iov;
-        int r = 0;
+	struct msghdr mh;
+	struct iovec iov;
+	int r = 0;
 
-        if (!thisconn) {
+	if (!thisconn) {
 		errno = EINVAL;
-                return -1;
-        }
+		return -1;
+	}
 
-        memset(&mh, 0, sizeof(mh));
-        mh.msg_iov = &iov;
+	memset(&mh, 0, sizeof(mh));
+	mh.msg_iov = &iov;
         mh.msg_iovlen = 1;
 
 	iov.iov_base = thisconn->sendbuf;
@@ -232,7 +243,7 @@ start_over:
         	thisconn->recvctrllen -= cml;
 	}
 
-	cb(fd, datav[0], &(datav[1]), cookie, NULL);
+	cb(fd, datav[0], &(datav[1]), cookie, &thisconn->cred);
 
 	if (fdstr)
 		free(fdstr);
@@ -365,7 +376,7 @@ static int __initng_sendmsga(int fd, char *command, char *data[], struct cmsghdr
 	return initng_flush(fd);
 }
 
-static void simple_msg_cb(int fd, char *command, char *data[], void *cookie, initng_cred_t *cred)
+static void simple_msg_cb(int fd __attribute__((unused)), char *command __attribute__((unused)), char *data[], void *cookie, initng_cred_t *cred __attribute__((unused)))
 {
 	int *r = cookie;
 	*r = strtol(data[0], NULL, 10);
@@ -585,6 +596,8 @@ int initng_fdcheckin(initng_fdcheckin_cb cb, void *cookie)
 static void create_ipc_conn(int fd)
 {
         struct initng_ipc_conn *c;
+	struct xucred cr;
+	int crlen = sizeof(cr);
 
         c = calloc(1, sizeof(struct initng_ipc_conn));
         c->fd = fd;
@@ -592,6 +605,15 @@ static void create_ipc_conn(int fd)
         c->sendctrlbuf = malloc(0);
         c->recvbuf = malloc(0);
         c->recvctrlbuf = malloc(0);
+
+	if (getsockopt(fd,  LOCAL_PEERCRED, 1, &cr, &crlen) == -1) {
+		c->cred.ic_uid = -1;
+		c->cred.ic_gid = -1;
+	} else {
+		c->cred.ic_uid = cr.cr_uid;
+		c->cred.ic_gid = cr.cr_groups[0];
+	}
+
         TAILQ_INSERT_TAIL(&theconnections, c, tqe);
 }
 
@@ -633,14 +655,14 @@ static char **lstring2vdup(char *data, size_t data_len)
         unsigned int i, j = 0;
 
         for (i = 0; i < data_len; i++) {
-                if (data[i] == NULL)
+                if (data[i] == '\0')
                         argc++;
         }
         r = malloc((argc * sizeof(char*)) + 1);
         r[argc] = NULL;
         lastseenstring = data;
         for (i = 0; i < data_len; i++) {
-                if (data[i] == NULL) {
+                if (data[i] == '\0') {
                         r[j] = lastseenstring;
                         j++;
                         lastseenstring = &(data[i]) + 1;
