@@ -5,10 +5,10 @@
 	<key>Disabled</key>
 	<true/>
 	<key>Label</key>
-	<string>com.apple.launchdebugd</string>
+	<string>com.apple.launchd_debugd</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>launchdebugd</string>
+		<string>launchd_debugd</string>
 	</array>
 	<key>Sockets</key>
 	<dict>

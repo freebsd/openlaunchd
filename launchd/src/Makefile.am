@@ -5,7 +5,7 @@ sbin_SCRIPTS = service
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 bin_PROGRAMS = launchctl wait4path
-sbin_PROGRAMS = launchd SystemStarter launchdebugd launchd_helperd
+sbin_PROGRAMS = launchd SystemStarter launchd_debugd launchd_helperd
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
@@ -16,7 +16,8 @@ launchctl_LDFLAGS = -framework CoreFoundation
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
-launchdebugd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+launchd_debugd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+launchd_debugd_SOURCES = launchdebugd.c
 
 liblaunch_a_SOURCES = liblaunch.c
 
