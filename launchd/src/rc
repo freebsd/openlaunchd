@@ -260,47 +260,16 @@ fi
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
 launchctl -l /System/Library/LaunchDaemons
 
-# We hope to launch portmap on demand in the next major release of Mac OS X,
-# but until then, we need to inline in here for reasons not worth going into in
-# this file. Static reasons to run portmap today include:
-#
-# - if there are NFS exports, or
-# - if NFS locking is on (NFSLOCKS=-YES-), or
-# - if there are NetInfo domains other than "local", or
-# - if the local domain has any non-loopback values for "trusted_networks".
-# - if xinetd has a portmap based service
-#
-# Explicitly setting NETINFOSERVER=-YES- forces portmap to run.
-#
-# If portmap is not started now, it will be started later if
-# NFSLOCKS=-AUTOMATIC- and an NFS locking request is made.
-##
-if [ "${RPCSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
-	RPCSERVER=-YES-
-	nfs_exports_ni=$(nicl -raw /var/db/netinfo/local.nidb -list /exports 2> /dev/null | wc -w)
-	nfs_exports_etc=$(grep -v '^[[:space:]]*\(#\|$\)' /etc/exports 2> /dev/null | wc -l)
-	nfs_exports=$(($nfs_exports_ni + $nfs_exports_etc))
+# nibindd is required if there are NetInfo domains other than "local", or
+# if the local domain has any non-loopback values for "trusted_networks".
+if [ "${NETINFOSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
+	NETINFOSERVER=-YES-
 	ni_not_local=$(/bin/ls -1d /var/db/netinfo/*.nidb | sed 's:/var/db/netinfo/local.nidb::' | wc -w)
 	ni_local_export=$(nicl -raw /var/db/netinfo/local.nidb -read / trusted_networks 2>&1 | sed 's/trusted_networks://' | sed 's/127[^ ]*//g' | wc -w)
-	total=$(($nfs_exports + $ni_not_local + $ni_local_export))
-	[ "${total}" -eq 0 ] && RPCSERVER=-NO-
-	[ "${NFSLOCKS:=-AUTOMATIC-}" = "-YES-" ] && RPCSERVER=-YES-
-	[ "${NETINFOSERVER:=-NO-}" = "-YES-" ] && RPCSERVER=-YES-
-	[ "${NISDOMAIN:=-NO-}" != "-NO-" ] && RPCSERVER=-YES-
-
-	# nibindd is required if there are NetInfo domains other than "local", or
-	# if the local domain has any non-loopback values for "trusted_networks".
-	if [ "${NETINFOSERVER:=-AUTOMATIC-}" = "-AUTOMATIC-" ]; then
-		NETINFOSERVER=-YES-
-		total=$(($ni_not_local + $ni_local_export))
-		if [ "${total}" -eq 0 ]; then
-			NETINFOSERVER=-NO-
-		fi
+	total=$(($ni_not_local + $ni_local_export))
+	if [ "${total}" -eq 0 ]; then
+		NETINFOSERVER=-NO-
 	fi
-fi
-
-if [ "${RPCSERVER}" = "-YES-" ]; then
-	portmap
 fi
 
 # We would also like to start "netinfo" on demand too, but we can't for various
