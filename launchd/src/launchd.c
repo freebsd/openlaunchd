@@ -1087,7 +1087,9 @@ static launch_data_t load_job(launch_data_t pload)
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTINTERVAL))) {
 		j->start_interval = launch_data_get_integer(tmp);
 
-		if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, &j->kqjob_callback))
+		if (j->start_interval == 0)
+			syslog(LOG_WARNING, "%s: StartInterval is zero, ignoring", launch_data_get_string(label));
+		else if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, &j->kqjob_callback))
 			syslog(LOG_ERR, "%s: adding kevent timer: %m", launch_data_get_string(label));
 	}
 
