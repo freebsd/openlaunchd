@@ -1025,6 +1025,16 @@ static void job_launch(struct jobcb *j)
 			chdir(job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY));
 		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK) != ourmask)
 			umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
+		if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH)) {
+			int sofd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH), O_WRONLY|O_APPEND|O_CREAT, 0666);
+			dup2(sofd, STDOUT_FILENO);
+			close(sofd);
+		}
+		if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH)) {
+			int sefd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH), O_WRONLY|O_APPEND|O_CREAT, 0666);
+			dup2(sefd, STDERR_FILENO);
+			close(sefd);
+		}
 		if (sipc)
 			sprintf(nbuf, "%d", spair[1]);
 #ifdef FIXME

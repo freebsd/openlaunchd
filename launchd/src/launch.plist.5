@@ -134,6 +134,12 @@ before running the job.
 This optional key specifies whether the job participates in advanced communication with
 .Nm launchd .
 The default is true.
+.It Sy StandardOutPath <string>
+This optional key specifies what file should be used for data being sent to stdout when using
+.Xr stdio 3 .
+.It Sy StandardErrorPath <string>
+This optional key specifies what file should be used for data being sent to stderr when using
+.Xr stdio 3 .
 .It Sy Nice <integer>
 This optional key specifies what
 .Xr nice 3
