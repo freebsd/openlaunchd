@@ -490,6 +490,10 @@ fork_with_bootstrap_port(mach_port_t p)
 		 * condition bugs, given that some programs assume that the PID
 		 * 1's bootstrap port is constant. This function clearly
 		 * demonstrates that is no longer true.
+		 *
+		 * Those programs should be calling bootstrap_parent(), and not
+		 * task_for_pid(1) followed by a call to get the bootstrap port
+		 * on the task.
 		 */
 		result = task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
 		if (result != KERN_SUCCESS)
