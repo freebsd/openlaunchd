@@ -22,6 +22,7 @@
 #include <netinet/in_var.h>
 #include <netinet6/nd6.h>
 #include <unistd.h>
+#include <signal.h>
 #include <errno.h>
 #include <syslog.h>
 #include <libgen.h>
