@@ -135,6 +135,10 @@ before running the job.
 This optional key specifies whether the job participates in advanced communication with
 .Nm launchd .
 The default is false.
+.It Sy TimeOut <integer>
+The recommended time out to pass to the job. If no value is specified, a default time out will be supplied by
+.Nm launchd
+for use by the job at check in time.
 .It Sy InitGroups <boolean>
 This optional key specifies whether the job should have
 .Xr initgroups 3

@@ -718,6 +718,10 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_CHECKIN)) {
 		if (c->j) {
 			resp = launch_data_copy(c->j->ldj);
+			if (NULL == launch_data_dict_lookup(resp, LAUNCH_JOBKEY_TIMEOUT)) {
+				launch_data_t to = launch_data_new_integer(LAUNCHD_MIN_JOB_RUN_TIME);
+				launch_data_dict_insert(resp, to, LAUNCH_JOBKEY_TIMEOUT);
+			}
 			c->j->checkedin = true;
 		} else {
 			resp = launch_data_new_errno(EACCES);
