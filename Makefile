@@ -10,6 +10,8 @@ ifeq ($(RC_ProjectName),launchd_libs)
 	-find -d $(DSTROOT) -type l | grep -v /usr/local/lib/system | xargs rm
 	-find -d $(DSTROOT) -type d | grep -v /usr/local/lib/system | xargs rmdir
 else
+	mkdir -p $(DSTROOT)/Library/StartupItems
+	chmod 755 $(DSTROOT)/Library/StartupItems
 	mkdir -p $(DSTROOT)/private/etc/xinetd.d
 	chmod 755 $(DSTROOT)/private/etc/xinetd.d
 	install -m 644 xinetd.d/* $(DSTROOT)/private/etc/xinetd.d
