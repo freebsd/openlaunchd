@@ -57,6 +57,8 @@
  * SUCH DAMAGE.
  */
 
+#include <mach/port.h>
+
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/param.h>
