@@ -113,10 +113,12 @@ static int _fd(int fd);
 static void dummysignalhandler(int sig);
 
 static void loopback_setup(void);
+static void update_lm(void);
 
 static int thesocket = -1;
 static char *thesockpath = NULL;
 static bool debug = false;
+static bool verbose = false;
 static pthread_t mach_server_loop_thread;
 mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 
@@ -125,7 +127,7 @@ int main(int argc, char *argv[])
 	pthread_attr_t attr;
 	struct kevent kev;
 	size_t i;
-	bool sflag = false, vflag = false, xflag = false, bflag = false;
+	bool sflag = false, xflag = false, bflag = false;
 	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 		SIGURG, SIGTSTP, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
@@ -142,7 +144,7 @@ int main(int argc, char *argv[])
 			sflag = true;
 			break;
 		case 'v':
-			vflag = true;
+			verbose = true;
 			break;
 		case 'x':
 			xflag = true;
@@ -171,10 +173,8 @@ int main(int argc, char *argv[])
 	open(_PATH_DEVNULL, O_WRONLY);
 	open(_PATH_DEVNULL, O_WRONLY);
 
-	openlog(basename(argv[0]),
-			LOG_CONS|(getpid() != 1 ? LOG_PID : 0)|(debug ? LOG_PERROR : 0),
-			LOG_DAEMON);
-	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
+	openlog(basename(argv[0]), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_DAEMON);
+	update_lm();
 	
 	if (getpid() == 1) {
 		int memmib[2] = { CTL_HW, HW_PHYSMEM };
@@ -232,6 +232,7 @@ int main(int argc, char *argv[])
 
 	launchd_bootstrap_port = mach_init_init();
 	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
+	bootstrap_port = MACH_PORT_NULL;
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
@@ -244,7 +245,7 @@ int main(int argc, char *argv[])
 
 	pthread_attr_destroy(&attr);
 
-	init_boot(sflag, vflag, xflag, bflag);
+	init_boot(sflag, verbose, xflag, bflag);
 
 	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
 		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
@@ -789,7 +790,7 @@ static void proc_callback(void *obj __attribute__((unused)), struct kevent *kev 
 	wait_pass_results_t wpr;
 
 	if (read(proccbreadfd, &wpr, sizeof(wpr)) == -1) {
-		syslog(LOG_DEBUG, "read(wpr): %m");
+		syslog(LOG_ERR, "read(wpr): %m");
 		return;
 	}
 
@@ -1081,16 +1082,34 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 		break;
 	case SIGUSR1:
 		debug = !debug;
-		closelog();
-		openlog(basename(getprogname()),
-				LOG_NDELAY|LOG_CONS|(debug ? LOG_PERROR : 0)|(getpid() > 1 ? LOG_PID : 0),
-				LOG_DAEMON);
-		setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
-		syslog(LOG_INFO, "reopened syslog connection: debug == %s", debug ? "true" : "false");
+		update_lm();
+		break;
+	case SIGUSR2:
+		verbose = !verbose;
+		update_lm();
 		break;
 	default:
 		break;
 	}
+}
+
+static void update_lm(void)
+{
+	int oldlm, lm = LOG_UPTO(LOG_NOTICE);
+	const char *lstr = "verbose";
+	const char *e_vs_d = "disabled";
+	if (verbose) {
+		lm = LOG_UPTO(LOG_INFO);
+		e_vs_d = "enabled";
+	}
+	if (debug) {
+		lm = LOG_UPTO(LOG_DEBUG);
+		lstr = "debug";
+		e_vs_d = "enabled";
+	}
+	oldlm = setlogmask(lm);
+	if (lm != oldlm)
+		syslog(LOG_NOTICE, "%s logging %s", lstr, e_vs_d);
 }
 
 static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
