@@ -1,5 +1,7 @@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks
 
+sbin_SCRIPTS = service
+
 sbin_PROGRAMS = SystemStarter init mach_init
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
