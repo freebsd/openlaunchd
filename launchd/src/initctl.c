@@ -201,6 +201,7 @@ static struct cf_file_option {
 	{ "UserName", "setUserName", getcfstring },
 	{ "GroupName", "setGroupName", getcfstring },
 	{ "Program", "setProgram", getcfstring },
+	{ "Umask", "setUmask", getcfstring },
 	{ "ServiceDescription", "setServiceDescription", getcfstring },
 	{ "ProgramArguments", "setProgramArguments", getcfstringarray },
 	{ "EnvironmentVariables", "setEnvironmentVariables", getcfstringenv },

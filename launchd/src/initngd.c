@@ -40,6 +40,7 @@ struct initngd_job {
 	pid_t p;
 	uid_t u;
 	gid_t g;
+	mode_t um;
 	char *label;
 	char *description;
 	char *program;
@@ -309,6 +310,7 @@ static void job_launch(struct initngd_job *j, struct kevent *kev)
 		setgid(j->g);
 		setuid(j->u);
 		setsid();
+		umask(j->um);
 		if (execve(j->program, j->argv, environ) == -1)
 			initngd_debug(LOG_DEBUG, "child execve(): %m");
 		_exit(EXIT_FAILURE);
@@ -459,6 +461,7 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 		j->label = strdup(data[0]);
 		TAILQ_INIT(&j->fds);
 		j->setup_conn = fd;
+		j->um = 077;
 		j->wn = job_launch;
 		j->on_demand = 1;
 		TAILQ_INSERT_TAIL(&thejobs, j, tqe);
@@ -501,6 +504,14 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 		j->g = (gid_t)strtol(data[1], NULL, 10);
 	} else if (check_args("setProgram", 2)) {
 		j->program = strdup(data[1]);
+	} else if (check_args("setUmask", 2)) {
+		mode_t tum = strtol(data[1], NULL, 8);
+		if (tum == 0 && errno == EINVAL) {
+			r = -1;
+			e = EINVAL;
+			goto out;
+		}
+		j->um = tum;
 	} else if (check_args("setServiceDescription", 2)) {
 		j->description = strdup(data[1]);
 	} else if (check_args("setProgramArguments", -1)) {
@@ -575,6 +586,7 @@ static void initngd_do_web_feedback(int lfd)
 	fprintf(F, "<td>PID</td>");
 	fprintf(F, "<td>UID</td>");
 	fprintf(F, "<td>GID</td>");
+	fprintf(F, "<td>umask</td>");
 	fprintf(F, "<td>Flags</td>");
 	fprintf(F, "<td>argv</td>");
 	fprintf(F, "<td>env</td>");
@@ -589,6 +601,7 @@ static void initngd_do_web_feedback(int lfd)
 		fprintf(F, "<td>%d</td>", j->p);
 		fprintf(F, "<td>%d</td>", j->u);
 		fprintf(F, "<td>%d</td>", j->g);
+		fprintf(F, "<td>0%o</td>", j->um);
 		fprintf(F, "<td>");
 		fprintf(F, "%s ", j->enabled ? "enabled" : "");
 		fprintf(F, "%s ", j->on_demand ? "on_demand" : "");
