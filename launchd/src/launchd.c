@@ -1,3 +1,4 @@
+#include <mach/mach_error.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
@@ -14,12 +15,15 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdbool.h>
+#include <pthread.h>
 #include <paths.h>
 
 #include "launch.h"
 #include "launch_priv.h"
 
 #include "launchd.h"
+
+#include "bootstrap_internal.h"
 
 extern char **environ;
 
@@ -67,10 +71,13 @@ static struct userjobs *find_jobq(uid_t u);
 static void listen_callback(void *, struct kevent *);
 static void signal_callback(void *, struct kevent *);
 static void fs_callback(void *, struct kevent *);
+static void simple_zombie_reaper(void *, struct kevent *);
+static void mach_callback(void *, struct kevent *);
 
 static kq_callback kqlisten_callback = listen_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = fs_callback;
+static kq_callback kqmach_callback = mach_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static void job_watch_fds(launch_data_t o, void *cookie);
@@ -87,6 +94,8 @@ static void ipc_readmsg(launch_data_t msg, void *context);
 static bool launchd_check_pid(pid_t p, int status);
 static int launchd_server_init(char *);
 
+static void *mach_demand_loop(void *);
+
 static void usage(FILE *where);
 static int _fd(int fd);
 
@@ -95,13 +104,16 @@ static void dummysignalhandler(int sig);
 static int thesocket = -1;
 static char *thesockpath = NULL;
 static bool debug = false;
+static pthread_t mach_server_loop_thread;
+mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 
 int main(int argc, char *argv[])
 {
+	pthread_attr_t attr;
 	struct kevent kev;
 	size_t i;
 	bool sflag = false, vflag = false, xflag = false, bflag = false;
-	int ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
+	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 		SIGURG, SIGTSTP, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
 
@@ -142,14 +154,15 @@ int main(int argc, char *argv[])
 	close(STDIN_FILENO);
 	close(STDOUT_FILENO);
 	close(STDERR_FILENO);
-	open(_PATH_DEVNULL, O_RDWR);
-	open(_PATH_DEVNULL, O_RDWR);
-	open(_PATH_DEVNULL, O_RDWR);
+	open(_PATH_DEVNULL, O_RDONLY);
+	open(_PATH_DEVNULL, O_WRONLY);
+	open(_PATH_DEVNULL, O_WRONLY);
 
 	openlog(basename(argv[0]),
 			(getpid() == 1 ? LOG_CONS : LOG_PID)|(debug ? LOG_PERROR : 0),
 			LOG_DAEMON);
-	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
+	/* this seems to not work as advertised */
+	/* setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO)); */
 
 	if ((mainkq = kqueue()) == -1) {
 		syslog(LOG_EMERG, "kqueue(): %m");
@@ -157,7 +170,7 @@ int main(int argc, char *argv[])
 	}
 
 	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
-		if (__kevent(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
+		if (kevent_mod(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 			syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", sigigns[i]);
 		signal(sigigns[i], dummysignalhandler);
 	}
@@ -175,52 +188,57 @@ int main(int argc, char *argv[])
 	if (chdir("/") == -1)
 		syslog(LOG_ERR, "chdir(\"/\"): %m");
 
+	launchd_bootstrap_port = mach_init_init();
+	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
+
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+	pthr_r = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
+	if (pthr_r != 0) {
+		syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(pthr_r));
+		exit(EXIT_FAILURE);
+	}
+
+	pthread_attr_destroy(&attr);
+
 	init_boot(sflag, vflag, xflag, bflag);
 
-	if (__kevent(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
-		syslog(LOG_ERR, "__kevent(EVFILT_FS, &kqfs_callback): %m");
+	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
+		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
 
 	for (;;) {
-		struct timespec timeout = { 1, 0 };
-
 		init_pre_kevent();
 
-		switch (kevent(mainkq, NULL, 0, &kev, 1, getpid() == 1 ? &timeout : NULL)) {
+		switch (kevent(mainkq, NULL, 0, &kev, 1, NULL)) {
 		case -1:
 			syslog(LOG_DEBUG, "kevent(): %m");
-			continue;
+			break;
 		case 1:
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			break;
 		case 0:
-			if (getpid() != 1)
-				syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
+			syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
 			break;
 		default:
 			syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
 			break;
-		}
-
-		if (getpid() == 1) for (;;) {
-			int status;
-			pid_t p = waitpid(-1, &status, WNOHANG);
-			if (p <= 0)
-				break;
-			if (!launchd_check_pid(p, status))
-				init_check_pid(p, status);
 		}
 	}
 }
 
 static bool launchd_check_pid(pid_t p, int status)
 {
+	struct kevent kev;
 	struct usercb *u;
 	struct jobcb *j;
 
 	TAILQ_FOREACH(u, &users, tqe) {
 		TAILQ_FOREACH(j, &u->ujobs, tqe) {
 			if (j->p == p) {
+				EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, j);
 				j->wstatus = status;
+				j->kqjob_callback(j, &kev);
 				return true;
 			}
 		}
@@ -336,10 +354,10 @@ static void ipc_open(int fd, struct jobcb *j)
         c->conn = launchd_fdopen(fd);
         c->j = j;
 	TAILQ_INSERT_TAIL(&connections, c, tqe);
-	__kevent(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
+	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
 
-void simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
+static void simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
 {
 	waitpid(kev->ident, NULL, 0);
 }
@@ -362,8 +380,6 @@ static void ipc_callback(void *obj, struct kevent *kev)
 	struct conncb *c = obj;
 	int r;
 
-	syslog(LOG_DEBUG, "%s()", __func__);
-
 	if (kev->filter == EVFILT_READ) {
 		if (launchd_msg_recv(c->conn, ipc_readmsg, c) == -1 && errno != EAGAIN) {
 			if (errno != ECONNRESET)
@@ -378,7 +394,7 @@ static void ipc_callback(void *obj, struct kevent *kev)
 				ipc_close(c);
 			}
 		} else if (r == 0) {
-			__kevent(launchd_getfd(c->conn), EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+			kevent_mod(launchd_getfd(c->conn), EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
 		}
 	} else {
 		syslog(LOG_DEBUG, "%s(): unknown filter type!", __func__);
@@ -431,7 +447,7 @@ static void job_ignore_fds(launch_data_t o, void *cookie)
 			job_ignore_fds(launch_data_array_get_index(o, i), cookie);
 		break;
 	case LAUNCH_DATA_FD:
-		__kevent(launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, cookie);
+		kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_DELETE, 0, 0, cookie);
 		break;
 	default:
 		break;
@@ -456,7 +472,7 @@ static void job_watch_fds(launch_data_t o, void *cookie)
 			job_watch_fds(launch_data_array_get_index(o, i), cookie);
 		break;
 	case LAUNCH_DATA_FD:
-		__kevent(launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
+		kevent_mod(launch_data_get_fd(o), EVFILT_READ, EV_ADD, 0, 0, cookie);
 		break;
 	default:
 		break;
@@ -467,7 +483,7 @@ static void job_remove(struct jobcb *j)
 {
 	TAILQ_REMOVE(find_jobq(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID)), j, tqe);
         if (j->p) {
-        	if (__kevent(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
+        	if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
         		job_reap(j);
 		} else {
 			kill(j->p, SIGTERM);
@@ -554,7 +570,7 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 out:
 	if (launchd_msg_send(c->conn, resp) == -1) {
 		if (errno == EAGAIN) {
-			__kevent(launchd_getfd(c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &c->kqconn_callback);
+			kevent_mod(launchd_getfd(c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &c->kqconn_callback);
 		} else {
 			syslog(LOG_DEBUG, "launchd_msg_send() == -1: %m");
 			ipc_close(c);
@@ -685,11 +701,145 @@ static void usage(FILE *where)
 		exit(EXIT_SUCCESS);
 }
 
-int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, kq_callback *cback)
+static void **machcbtable = NULL;
+static size_t machcbtable_cnt = 0;
+static int machcbreadfd = -1;
+static int machcbwritefd = -1;
+static mach_port_t mach_demand_port_set = MACH_PORT_NULL;
+static pthread_t waitpid_demand_thread;
+static pthread_t mach_demand_thread;
+
+static void mach_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
+{
+	struct kevent mkev;
+	mach_port_t mp;
+
+	read(machcbreadfd, &mp, sizeof(mp));
+
+	EV_SET(&mkev, mp, EVFILT_MACHPORT, 0, 0, 0, machcbtable[MACH_PORT_INDEX(mp)]);
+
+	(*((kq_callback *)mkev.udata))(mkev.udata, &mkev);
+}
+
+static int proccbreadfd = -1;
+static int proccbwritefd = -1;
+typedef struct {
+	pid_t p;
+	int status;
+} wait_pass_results_t;
+
+static void proc_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
+{
+	wait_pass_results_t wpr;
+
+	if (read(proccbreadfd, &wpr, sizeof(wpr)) == -1) {
+		syslog(LOG_DEBUG, "read(wpr): %m");
+		return;
+	}
+
+	if (!launchd_check_pid(wpr.p, wpr.status))
+		init_check_pid(wpr.p, wpr.status);
+}
+
+static kq_callback kqproc_callback = proc_callback;
+
+static void *waitpid_demand_loop(void *arg __attribute__((unused)))
+{
+	wait_pass_results_t wpr;
+
+	for (;;) {
+		wpr.p = waitpid(-1, &wpr.status, 0);
+		if (wpr.p == -1) {
+			syslog(LOG_DEBUG, "waitpid(): %m");
+			continue;
+		}
+		if (write(proccbwritefd, &wpr, sizeof(wpr)) == -1)
+			syslog(LOG_DEBUG, "write(wpr): %m");
+	}
+}
+
+int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
-	EV_SET(&kev, ident, filter, flags, fflags, data, cback);
-	return kevent(mainkq, &kev, 1, NULL, 0, NULL);
+	kern_return_t kr;
+	pthread_attr_t attr;
+	int pthr_r, pfds[2];
+
+	if (filter == EVFILT_PROC && getpid() == 1) {
+		if (proccbreadfd > 0)
+			return 0;
+		pthread_attr_init(&attr);
+		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+		pthr_r = pthread_create(&waitpid_demand_thread, &attr, waitpid_demand_loop, NULL);
+		if (pthr_r != 0) {
+			syslog(LOG_ERR, "pthread_create(waitpid_demand_loop): %s", strerror(pthr_r));
+			exit(EXIT_FAILURE);
+		}
+
+		pthread_attr_destroy(&attr);
+
+		pipe(pfds);
+
+		proccbwritefd = _fd(pfds[1]);
+		proccbreadfd = _fd(pfds[0]);
+
+		kevent_mod(proccbreadfd, EVFILT_READ, EV_ADD, 0, 0, &kqproc_callback);
+
+		return 0;
+	} else if (filter != EVFILT_MACHPORT) {
+		EV_SET(&kev, ident, filter, flags, fflags, data, udata);
+		return kevent(mainkq, &kev, 1, NULL, 0, NULL);
+	}
+
+	if (machcbtable == NULL) {
+		pthread_attr_init(&attr);
+		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+		pthr_r = pthread_create(&mach_demand_thread, &attr, mach_demand_loop, NULL);
+		if (pthr_r != 0) {
+			syslog(LOG_ERR, "pthread_create(mach_demand_loop): %s", strerror(pthr_r));
+			exit(EXIT_FAILURE);
+		}
+
+		pthread_attr_destroy(&attr);
+
+		machcbtable = malloc(0);
+		pipe(pfds);
+		machcbwritefd = _fd(pfds[1]);
+		machcbreadfd = _fd(pfds[0]);
+		kevent_mod(machcbreadfd, EVFILT_READ, EV_ADD, 0, 0, &kqmach_callback);
+		kr = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &mach_demand_port_set);
+		if (kr != KERN_SUCCESS) {
+			syslog(LOG_ERR, "mach_port_allocate(demand_port_set): %s", mach_error_string(kr));
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	if (flags & EV_ADD) {
+		kr = mach_port_move_member(mach_task_self(), ident, mach_demand_port_set);
+		if (kr != KERN_SUCCESS) {
+			syslog(LOG_ERR, "mach_port_move_member(): %s", mach_error_string(kr));
+			exit(EXIT_FAILURE);
+		}
+
+		if (MACH_PORT_INDEX(ident) > machcbtable_cnt)
+			machcbtable = realloc(machcbtable, MACH_PORT_INDEX(ident) * sizeof(void *));
+
+		machcbtable[MACH_PORT_INDEX(ident)] = udata;
+	} else if (flags & EV_DELETE) {
+		kr = mach_port_move_member(mach_task_self(), ident, MACH_PORT_NULL);
+		if (kr != KERN_SUCCESS) {
+			syslog(LOG_ERR, "mach_port_move_member(): %s", mach_error_string(kr));
+			exit(EXIT_FAILURE);
+		}
+	} else {
+		syslog(LOG_DEBUG, "kevent_mod(EVFILT_MACHPORT) with flags: %d", flags);
+		errno = EINVAL;
+		return -1;
+	}
+
+	return 0;
 }
 
 static int _fd(int fd)
@@ -794,7 +944,7 @@ static void job_launch(struct jobcb *j)
 	if (sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
-        if ((c = fork()) == -1) {
+        if ((c = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
                 syslog(LOG_WARNING, "fork(): %m");
                 return;
         } else if (c == 0) {
@@ -841,7 +991,7 @@ static void job_launch(struct jobcb *j)
 		ipc_open(spair[0], j);
 	}
 
-        if (__kevent(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
+        if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
                 syslog(LOG_WARNING, "kevent(): %m");
                 return;
         } else {
@@ -853,8 +1003,6 @@ static void job_launch(struct jobcb *j)
 
 static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
-	syslog(LOG_DEBUG, "signal %d received", kev->ident);
-
 	switch (kev->ident) {
 	case SIGHUP:
 		update_ttys();
@@ -885,8 +1033,8 @@ static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __
 {       
 	if (thesocket == -1) {
 		if ((thesocket = _fd(launchd_server_init(thesockpath))) > 0) {
-			if (__kevent(thesocket, EVFILT_READ, EV_ADD, 0, 0, &kqlisten_callback) == -1)
-				syslog(LOG_ERR, "__kevent(\"thesocket\", EVFILT_READ): %m");
+			if (kevent_mod(thesocket, EVFILT_READ, EV_ADD, 0, 0, &kqlisten_callback) == -1)
+				syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
 			setenv(LAUNCHD_SOCKET_ENV, thesockpath, 1);
 		}
 	}
@@ -894,4 +1042,77 @@ static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __
 
 static void dummysignalhandler(int sig __attribute__((unused)))
 {
+}
+
+
+static void *mach_demand_loop(void *arg __attribute__((unused)))
+{
+	mach_msg_empty_rcv_t dummy;
+	kern_return_t kr;
+	mach_port_name_array_t members;
+	mach_msg_type_number_t membersCnt;
+	mach_port_status_t status;
+	mach_msg_type_number_t statusCnt;
+	unsigned int i;
+
+	for (;;) {
+
+		/*
+		 * Receive indication of message on demand service
+		 * ports without actually receiving the message (we'll
+		 * let the actual server do that.
+		 */
+		kr = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE,
+				0, 0, mach_demand_port_set, 0, MACH_PORT_NULL);
+		if (kr != MACH_RCV_TOO_LARGE) {
+			syslog(LOG_WARNING, "%s(): mach_msg(): %s", __func__, mach_error_string(kr));
+			continue;
+		}
+
+		/*
+		 * Some port(s) now have messages on them, find out
+		 * which ones (there is no indication of which port
+		 * triggered in the MACH_RCV_TOO_LARGE indication).
+		 */
+		kr = mach_port_get_set_status(mach_task_self(),
+				mach_demand_port_set, &members, &membersCnt);
+		if (kr != KERN_SUCCESS) {
+			syslog(LOG_WARNING, "%s(): mach_port_get_set_status(): %s", __func__, mach_error_string(kr));
+			continue;
+		}
+
+		for (i = 0; i < membersCnt; i++) {
+			statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
+			kr = mach_port_get_attributes(mach_task_self(), members[i],
+					MACH_PORT_RECEIVE_STATUS, (mach_port_info_t)&status, &statusCnt);
+			if (kr != KERN_SUCCESS) {
+				syslog(LOG_WARNING, "%s(): mach_port_get_attributes(): %s", __func__, mach_error_string(kr));
+				continue;
+			}
+
+			/*
+			 * For each port with messages, take it out of the
+			 * demand service portset, and inform the main thread
+			 * that it might have to start the server responsible
+			 * for it.
+			 */
+			if (status.mps_msgcount) {
+				kr = mach_port_move_member(mach_task_self(), members[i], MACH_PORT_NULL);
+				if (kr != KERN_SUCCESS) {
+					syslog(LOG_WARNING, "%s(): mach_port_move_member(): %s", __func__, mach_error_string(kr));
+					continue;
+				}
+				write(machcbwritefd, &(members[i]), sizeof(members[i]));
+			}
+		}
+
+		kr = vm_deallocate(mach_task_self(), (vm_address_t) members,
+				(vm_size_t) membersCnt * sizeof(mach_port_name_t));
+		if (kr != KERN_SUCCESS) {
+			syslog(LOG_WARNING, "%s(): vm_deallocate(): %s", __func__, mach_error_string(kr));
+			continue;
+		}
+	}
+
+	return NULL;
 }

@@ -34,10 +34,10 @@
 
 #import <stdlib.h>
 #import <string.h>
+#import <syslog.h>
 
 #import "bootstrap_internal.h"
 #import "lists.h"
-#import "error_log.h"
 
 /*
  * Exports
@@ -79,7 +79,7 @@ new_server(
 {
 	server_t *serverp;
 
-	debug("adding new server \"%s\" with uid %d\n", cmd, uid);	
+	syslog(LOG_DEBUG, "adding new server \"%s\" with uid %d\n", cmd, uid);	
 	serverp = NEW(server_t, 1);
 	if (serverp != NULL) {
 		/* Doubly linked list */
@@ -241,17 +241,17 @@ delete_service(service_t *servicep)
 	unlink_service(servicep);
 	switch (servicep->servicetype) {
 	case REGISTERED:
-		info("Registered service %s deleted", servicep->name);
+		syslog(LOG_INFO, "Registered service %s deleted", servicep->name);
 		mach_port_deallocate(mach_task_self(), servicep->port);
 		break;
 	case DECLARED:
-		info("Declared service %s now unavailable", servicep->name);
+		syslog(LOG_INFO, "Declared service %s now unavailable", servicep->name);
 		mach_port_deallocate(mach_task_self(), servicep->port);
 		mach_port_mod_refs(mach_task_self(), servicep->port,
 				   MACH_PORT_RIGHT_RECEIVE, -1);
 		break;
 	default:
-		error("unknown service type %d\n", servicep->servicetype);
+		syslog(LOG_ERR, "unknown service type %d\n", servicep->servicetype);
 		break;
 	}
 	free(servicep);
@@ -352,7 +352,7 @@ delete_server(server_t *serverp)
 	service_t *servicep;
 	service_t *next;
 
-	info("Deleting server %s", serverp->cmd);
+	syslog(LOG_INFO, "Deleting server %s", serverp->cmd);
 	ASSERT(serverp->prev->next == serverp);
 	ASSERT(serverp->next->prev == serverp);
 	serverp->prev->next = serverp->next;
@@ -430,7 +430,7 @@ deactivate_bootstrap(bootstrap_info_t *bootstrap)
 		bootstrap = deactivating_bootstraps;
 		deactivating_bootstraps = bootstrap->deactivate;
 
-		info("deactivating bootstrap %x", bootstrap->bootstrap_port);
+		syslog(LOG_INFO, "deactivating bootstrap %x", bootstrap->bootstrap_port);
 
 		delete_bootstrap_services(bootstrap);
 		
@@ -469,8 +469,10 @@ ckmalloc(unsigned nbytes)
 {
 	void *cp;
 	
-	if ((cp = malloc(nbytes)) == NULL)
-		fatal("Out of memory");
+	if ((cp = malloc(nbytes)) == NULL) {
+		syslog(LOG_EMERG, "malloc(): %m");
+		exit(EXIT_FAILURE);
+	}
 	return cp;
 }
 

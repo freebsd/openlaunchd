@@ -39,11 +39,11 @@ launchdebugd_SOURCES = launchdebugd.c
 
 launchctl_SOURCES = launchctl.c
 
-launchd_SOURCES = launchd.c init.c
+launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
 launchproxy_SOURCES = launchproxy.c
 
-mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
+mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.1.dylib
 
@@ -52,7 +52,7 @@ bootstrap.c:: bootstrap.h
 bootstrap.h bootstrapServer.c bootstrapUser.c: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
-liblaunch.1.dylib:
+liblaunch.1.dylib: liblaunch.o
 	libtool -dynamic -o liblaunch.1.dylib -install_name /usr/lib/liblaunch.1.dylib -compatibility_version 1 -current_version 1 liblaunch.o -lSystem
 
 launchctl.c:: liblaunch.1.dylib

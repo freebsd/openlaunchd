@@ -29,9 +29,10 @@
  * bootstrap_internal.h -- global internal data definitions
  */
 
-#import <mach/mach.h>
-#import <mach/boolean.h>
-#import <mach/notify.h>
+#include <mach/mach.h>
+#include <mach/notify.h>
+#include <sys/types.h>
+#include <stdbool.h>
 
 #define BASEPRI_USER	31	/* AOF 20/02/2002 */
 
@@ -40,14 +41,21 @@
 
 #define DEMAND_REQUEST	MACH_NOTIFY_LAST	/* demand service messaged */
 
+void mach_start_shutdown(int);
+mach_port_t mach_init_init(void);
+void *mach_server_loop(void*);
+pid_t fork_with_bootstrap_port(mach_port_t);
+
 extern mach_port_t lookup_only_port;
 extern mach_port_t inherited_bootstrap_port;
 extern mach_port_t self_port;		/* Compatability hack */
-extern boolean_t forward_ok;
-extern boolean_t debugging;
+extern bool forward_ok;
+extern bool debugging;
 extern mach_port_t bootstrap_port_set;
 extern mach_port_t demand_port_set;
 extern mach_port_t notify_port;
 extern mach_port_t backup_port;
-extern boolean_t canReceive(mach_port_t port);
-extern boolean_t canSend(mach_port_t port);
+extern bool canReceive(mach_port_t);
+extern bool canSend(mach_port_t);
+extern bool register_self;
+extern const char *register_name;

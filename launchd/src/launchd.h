@@ -5,9 +5,9 @@ typedef void (*kq_callback)(void *, struct kevent *);
 
 extern int mainkq;
 extern kq_callback kqsimple_zombie_reaper;
+extern mach_port_t launchd_bootstrap_port;
 
-int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, kq_callback *cback);
-void simple_zombie_reaper(void *, struct kevent *);
+int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 
 void init_boot(bool sflag, bool vflag, bool xflag, bool bflag); 
 void init_pre_kevent(void);

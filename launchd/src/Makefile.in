@@ -117,11 +117,11 @@ launchdebugd_SOURCES = launchdebugd.c
 
 launchctl_SOURCES = launchctl.c
 
-launchd_SOURCES = launchd.c init.c
+launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
 launchproxy_SOURCES = launchproxy.c
 
-mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
+mach_init_SOURCES = mach_init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.1.dylib
 
@@ -167,7 +167,9 @@ am_launchctl_OBJECTS = launchctl.$(OBJEXT)
 launchctl_OBJECTS = $(am_launchctl_OBJECTS)
 launchctl_LDADD = $(LDADD)
 launchctl_DEPENDENCIES =
-am_launchd_OBJECTS = launchd.$(OBJEXT) init.$(OBJEXT)
+am_launchd_OBJECTS = launchd.$(OBJEXT) init.$(OBJEXT) \
+	bootstrap.$(OBJEXT) lists.$(OBJEXT) rpc_services.$(OBJEXT) \
+	bootstrapServer.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
@@ -179,8 +181,8 @@ am_launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_OBJECTS = $(am_launchproxy_OBJECTS)
 launchproxy_LDADD = $(LDADD)
 launchproxy_DEPENDENCIES =
-am_mach_init_OBJECTS = bootstrap.$(OBJEXT) lists.$(OBJEXT) \
-	error_log.$(OBJEXT) rpc_services.$(OBJEXT) \
+am_mach_init_OBJECTS = mach_init.$(OBJEXT) bootstrap.$(OBJEXT) \
+	lists.$(OBJEXT) rpc_services.$(OBJEXT) \
 	bootstrapServer.$(OBJEXT)
 mach_init_OBJECTS = $(am_mach_init_OBJECTS)
 mach_init_LDADD = $(LDADD)
@@ -213,12 +215,12 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/StartupItems.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/TextDisplay.Po ./$(DEPDIR)/bootstrap.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/bootstrapServer.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/error_log.Po ./$(DEPDIR)/init.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/bootstrapServer.Po ./$(DEPDIR)/init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po ./$(DEPDIR)/launchd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchdebugd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/lists.Po ./$(DEPDIR)/main.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/lists.Po ./$(DEPDIR)/mach_init.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/main.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/rpc_services.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/wait4path.Po
@@ -421,7 +423,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/TextDisplay.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrapServer.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/error_log.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd.Po@am__quote@
@@ -429,6 +430,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lists.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mach_init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/register_mach_bootstrap_servers.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/rpc_services.Po@am__quote@
@@ -798,7 +800,7 @@ bootstrap.c:: bootstrap.h
 bootstrap.h bootstrapServer.c bootstrapUser.c: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
-liblaunch.1.dylib:
+liblaunch.1.dylib: liblaunch.o
 	libtool -dynamic -o liblaunch.1.dylib -install_name /usr/lib/liblaunch.1.dylib -compatibility_version 1 -current_version 1 liblaunch.o -lSystem
 
 launchctl.c:: liblaunch.1.dylib

@@ -82,6 +82,7 @@
 #include <paths.h>
 
 #include "launchd.h"
+#include "bootstrap_internal.h"
 
 #define _PATH_RUNCOM            "/etc/rc"
 #define _PATH_RUNCOM_BOOT       _PATH_RUNCOM ".boot"
@@ -112,6 +113,8 @@ static bool single_user_mode = false;
 static bool run_runcom = true;
 static pid_t single_user_pid = 0;
 static pid_t runcom_pid = 0;
+static pid_t single_user_status = 0;
+static pid_t runcom_status = 0;
 
 static void setctty(const char *, int);
 
@@ -172,7 +175,7 @@ static int setupargv(session_t, struct ttyent *);
 
 static int fwexecv(int *status, const char *path, char * const *argv)
 {
-	pid_t p = fork();
+	pid_t p = fork_with_bootstrap_port(launchd_bootstrap_port);
 
 	if (p == -1) {
 		return -1;
@@ -358,7 +361,7 @@ single_user(void)
 	if (getsecuritylevel() > 0)
 		setsecuritylevel(0);
 
-	if ((single_user_pid = fork()) == -1) {
+	if ((single_user_pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_ERR, "can't fork single-user shell, trying again: %m");
 		return;
 	} else if (single_user_pid == 0) {
@@ -377,7 +380,7 @@ single_user(void)
 		sleep(STALL_TIMEOUT);
 		exit(EXIT_FAILURE);
 	} else {
-		if (__kevent(single_user_pid, EVFILT_PROC, EV_ADD, 
+		if (kevent_mod(single_user_pid, EVFILT_PROC, EV_ADD, 
 					NOTE_EXIT, 0, &kqsingle_user_callback) == -1)
 			single_user_callback(NULL, NULL);
 	}
@@ -386,9 +389,7 @@ single_user(void)
 static void
 single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
-	int status;
-
-	switch (waitpid(single_user_pid, &status, 0)) {
+	switch (single_user_pid ? waitpid(single_user_pid, &single_user_status, 0) : 1) {
 	case -1:
 		syslog(LOG_ERR, "single_user_callback(): waitpid(): %m");
 		return;
@@ -399,8 +400,8 @@ single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __att
 		break;
 	}
 
-	if (!WIFEXITED(status)) {
-		if (WTERMSIG(status) == SIGKILL) { 
+	if (!WIFEXITED(single_user_status)) {
+		if (WTERMSIG(single_user_status) == SIGKILL) { 
 			/* 
 			 *  reboot(8) killed shell? 
 			 */
@@ -414,6 +415,7 @@ single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __att
 	}
 
 	single_user_pid = 0;
+	single_user_status = 0;
 	single_user_mode = false;
 	run_runcom = true;
 }
@@ -427,7 +429,7 @@ runcom(void)
 	char *argv[4];
 	char options[4];
 
-	if ((runcom_pid = fork()) == -1) {
+	if ((runcom_pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_ERR, "can't fork for %s on %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
 		sleep(STALL_TIMEOUT);
 		runcom_pid = 0;
@@ -435,7 +437,7 @@ runcom(void)
 		return;
 	} else if (runcom_pid > 0) {
 		run_runcom = false;
-		if (__kevent(runcom_pid, EVFILT_PROC, EV_ADD, 
+		if (kevent_mod(runcom_pid, EVFILT_PROC, EV_ADD, 
 					NOTE_EXIT, 0, &kqruncom_callback) == -1) {
 			runcom_callback(NULL, NULL);
 		}
@@ -471,9 +473,9 @@ runcom(void)
 static void
 runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
-	int status;
+	int status = runcom_status;
 
-	switch (waitpid(runcom_pid, &status, 0)) {
+	switch (runcom_pid ? waitpid(runcom_pid, &status, 0) : 1) {
 	case -1:
 	case 0:
 		syslog(LOG_ERR, "wait for %s on %s failed: %m; going to single user mode",
@@ -481,6 +483,7 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 		single_user_mode = true;
 		return;
 	default:
+		runcom_status = 0;
 		runcom_pid = 0;
 		break;
 	}
@@ -488,6 +491,7 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 	if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
 		logwtmp("~", "reboot", "");
 		update_ttys();
+		runcom_status = 0;
 		return;
 	} else if (WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM) {
 		/* /etc/rc executed /sbin/reboot; wait for the end quietly */
@@ -536,7 +540,7 @@ session_free(session_t s)
 {
 	TAILQ_REMOVE(&sessions, s, tqe);
 	if (s->se_process) {
-		if (__kevent(s->se_process, EVFILT_PROC, EV_ADD, 
+		if (kevent_mod(s->se_process, EVFILT_PROC, EV_ADD, 
 					NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1)
 			session_reap(s);
 		else
@@ -666,7 +670,7 @@ session_launch(session_t s)
 	}
 
 	/* fork(), not vfork() -- we can't afford to block. */
-	if ((pid = fork()) == -1) {
+	if ((pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_ERR, "can't fork for %s on port %s: %m",
 				session_type, s->se_device);
 		update_ttys();
@@ -677,7 +681,7 @@ session_launch(session_t s)
 		s->se_process = pid;
 		s->se_started = time(NULL);
 		s->se_flags  &= ~SE_GETTY_LAUNCH; // clear down getty launch type
-		if (__kevent(pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &s->se_callback) == -1)
+		if (kevent_mod(pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &s->se_callback) == -1)
 			session_reap(s);
 		return;
 	}
@@ -840,13 +844,23 @@ bool init_check_pid(pid_t p, int status)
 
 	TAILQ_FOREACH(s, &sessions, tqe) {
 		if (s->se_process == p) {
+			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, s);
 			s->se_wstatus = status;
+			s->se_callback(s, &kev);
 			return true;
 		}
 	}
-	if (single_user_pid == p)
+	if (single_user_pid == p) {
+		single_user_pid = 0;
+		single_user_status = status;
+		single_user_callback(NULL, NULL);
 		return true;
-	if (runcom_pid == p)
+	}
+	if (runcom_pid == p) {
+		runcom_pid = 0;
+		runcom_status = status;
+		runcom_callback(NULL, NULL);
 		return true;
+	}
 	return false;
 }
