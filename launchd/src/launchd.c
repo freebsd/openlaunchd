@@ -38,7 +38,8 @@
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
-#define LAUNCHD_CONF "/etc/launchd.conf"
+#define PID1LAUNCHD_CONF "/etc/launchd.conf"
+#define LAUNCHD_CONF ".launchd.conf"
 #define LAUNCHCTL_PATH "/bin/launchctl"
 
 extern char **environ;
@@ -117,6 +118,7 @@ static void notify_helperd(void);
 static void loopback_setup(void);
 static void update_lm(void);
 static void workaround3048875(int argc, char *argv[]);
+static void reload_launchd_config(void);
 
 static pid_t readcfg_pid = 0;
 static int thesocket = -1;
@@ -133,7 +135,6 @@ int main(int argc, char *argv[])
 	struct timespec timeout = { 30, 0 };
 	pthread_attr_t attr;
 	struct kevent kev;
-	struct stat sb;
 	size_t i;
 	bool sflag = false, xflag = false;
 	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
@@ -170,6 +171,33 @@ int main(int argc, char *argv[])
 
 	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
 	update_lm();
+
+	if ((mainkq = kqueue()) == -1) {
+		syslog(LOG_EMERG, "kqueue(): %m");
+		exit(EXIT_FAILURE);
+	}
+
+	sigemptyset(&blocked_signals);
+
+	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
+		if (kevent_mod(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
+			syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", sigigns[i]);
+		sigaddset(&blocked_signals, sigigns[i]);
+		signal(sigigns[i], SIG_IGN);
+	}
+
+	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
+	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
+		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
+	
+	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
+		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
+
+	if (setsid() == -1)
+		syslog(LOG_ERR, "setsid(): %m");
+
+	if (chdir("/") == -1)
+		syslog(LOG_ERR, "chdir(\"/\"): %m");
 
 	if (getpid() == 1) {
 		int memmib[2] = { CTL_HW, HW_PHYSMEM };
@@ -211,33 +239,7 @@ int main(int argc, char *argv[])
 			syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "volfs", "/.vol");
 
 		setenv("PATH", _PATH_STDPATH, 1);
-	}
 
-	if ((mainkq = kqueue()) == -1) {
-		syslog(LOG_EMERG, "kqueue(): %m");
-		exit(EXIT_FAILURE);
-	}
-
-	sigemptyset(&blocked_signals);
-
-	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
-		if (kevent_mod(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
-			syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", sigigns[i]);
-		sigaddset(&blocked_signals, sigigns[i]);
-		signal(sigigns[i], SIG_IGN);
-	}
-
-	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
-	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
-		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
-
-	if (setsid() == -1)
-		syslog(LOG_ERR, "setsid(): %m");
-
-	if (chdir("/") == -1)
-		syslog(LOG_ERR, "chdir(\"/\"): %m");
-
-	if (getpid() == 1) {
 		launchd_bootstrap_port = mach_init_init();
 		task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
 		bootstrap_port = MACH_PORT_NULL;
@@ -256,40 +258,7 @@ int main(int argc, char *argv[])
 		init_boot(sflag, verbose, xflag);
 	}
 
-	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
-		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
-
-	if (lstat(LAUNCHD_CONF, &sb) == 0) {
-		int spair[2];
-		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
-		readcfg_pid = fork_with_bootstrap_port(launchd_bootstrap_port);
-		if (readcfg_pid == 0) {
-			char nbuf[100];
-			close(spair[0]);
-			sprintf(nbuf, "%d", spair[1]);
-			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
-			int fd = open(LAUNCHD_CONF, O_RDONLY);
-			if (fd == -1) {
-				syslog(LOG_ERR, "open(\"%s\"): %m", LAUNCHD_CONF);
-				exit(EXIT_FAILURE);
-			}
-			dup2(fd, STDIN_FILENO);
-			close(fd);
-			execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL);
-			syslog(LOG_ERR, "execl(): %m");
-			exit(EXIT_FAILURE);
-		} else if (readcfg_pid == -1) {
-			close(spair[0]);
-			close(spair[1]);
-			syslog(LOG_ERR, "fork(): %m");
-			readcfg_pid = 0;
-		} else {
-			close(spair[1]);
-			ipc_open(_fd(spair[0]), NULL);
-			if (kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) == -1)
-				syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqreadcfg_callback): %m");
-		}
-	}
+	reload_launchd_config();
 
 	for (;;) {
 		if (pending_stdout) {
@@ -1326,6 +1295,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	switch (kev->ident) {
 	case SIGHUP:
 		update_ttys();
+		reload_launchd_config();
 		break;
 	case SIGTERM:
 		do_shutdown();
@@ -1459,6 +1429,51 @@ static void *mach_demand_loop(void *arg __attribute__((unused)))
 	}
 
 	return NULL;
+}
+
+static void reload_launchd_config(void)
+{
+	struct stat sb;
+	static char *ldconf = PID1LAUNCHD_CONF;
+	const char *h = getenv("HOME");
+
+	if (h && ldconf == PID1LAUNCHD_CONF)
+		asprintf(&ldconf, "%s/%s", h, LAUNCHD_CONF);
+
+	if (!ldconf)
+		return;
+
+	if (lstat(ldconf, &sb) == 0) {
+		int spair[2];
+		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
+		readcfg_pid = fork_with_bootstrap_port(launchd_bootstrap_port);
+		if (readcfg_pid == 0) {
+			char nbuf[100];
+			close(spair[0]);
+			sprintf(nbuf, "%d", spair[1]);
+			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
+			int fd = open(ldconf, O_RDONLY);
+			if (fd == -1) {
+				syslog(LOG_ERR, "open(\"%s\"): %m", ldconf);
+				exit(EXIT_FAILURE);
+			}
+			dup2(fd, STDIN_FILENO);
+			close(fd);
+			execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL);
+			syslog(LOG_ERR, "execl(): %m");
+			exit(EXIT_FAILURE);
+		} else if (readcfg_pid == -1) {
+			close(spair[0]);
+			close(spair[1]);
+			syslog(LOG_ERR, "fork(): %m");
+			readcfg_pid = 0;
+		} else {
+			close(spair[1]);
+			ipc_open(_fd(spair[0]), NULL);
+			if (kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) == -1)
+				syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqreadcfg_callback): %m");
+		}
+	}
 }
 
 static void loopback_setup(void)
