@@ -1228,14 +1228,22 @@ static void job_start(struct jobcb *j)
 		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
 			umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH)) {
-			int sofd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH), O_WRONLY|O_APPEND|O_CREAT, 0666);
-			dup2(sofd, STDOUT_FILENO);
-			close(sofd);
+			int sofd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+			if (sofd == -1) {
+				syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH));
+			} else {
+				dup2(sofd, STDOUT_FILENO);
+				close(sofd);
+			}
 		}
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH)) {
-			int sefd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH), O_WRONLY|O_APPEND|O_CREAT, 0666);
-			dup2(sefd, STDERR_FILENO);
-			close(sefd);
+			int sefd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+			if (sefd == -1) {
+				syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH));
+			} else {
+				dup2(sefd, STDERR_FILENO);
+				close(sefd);
+			}
 		}
 		if (sipc)
 			sprintf(nbuf, "%d", spair[1]);
