@@ -457,8 +457,6 @@ static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int arg
 		j->_event = NULL;
 	}
 
-	fprintf(stderr, "@@@@@ %f\n", interval);
-
 	if (interval > 0) {
 		if (use_interval)
 			j->rlt = CFRunLoopTimerCreate(kCFAllocatorDefault, 0, interval, 0, 0, tcl_timer_callback, &rlcont);
