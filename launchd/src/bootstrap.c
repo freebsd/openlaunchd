@@ -308,7 +308,7 @@ reap_server(server_t *serverp)
 	presult = waitpid(serverp->pid, &wstatus, WNOHANG);
 	switch (presult) {
 	case -1:
-		syslog(LOG_ERR, "waitpid: cmd = %s: %m", serverp->cmd);
+		syslog(LOG_DEBUG, "waitpid: cmd = %s: %m", serverp->cmd);
 		break;
 
 	case 0:
