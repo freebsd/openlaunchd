@@ -233,7 +233,7 @@ void SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 
 CFIndex StartupItemListCountServices (CFArrayRef anItemList)
 {
-    CFIndex aResult = NULL;
+    CFIndex aResult = 0;
 
     if (anItemList)
       {
