@@ -45,7 +45,7 @@ elif [ "$1" == "--test-if-configured-on" ]
 then
 	if [ -f /System/Library/LaunchDaemons/$2.plist ]
 	then
-		IS_OFF=$(defaults read /System/Library/LaunchDaemons/$2 Disabled || true)
+		IS_OFF=$(defaults read /System/Library/LaunchDaemons/$2 Disabled 2>/dev/null || true)
 		if [ "$IS_OFF" = 1 ]
 		then
 			exit 1
