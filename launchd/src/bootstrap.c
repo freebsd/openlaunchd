@@ -51,6 +51,7 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <pthread.h>
+#include <errno.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
