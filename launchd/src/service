@@ -43,6 +43,11 @@ then
 	exit 0
 elif [ "$1" == "--test-if-configured-on" ]
 then
+	if [ -f "/etc/xinetd.d/$2" ]
+	then
+		egrep "disable.*=.*no" /etc/xinetd.d/$2 >/dev/null 2>&1
+		exit $?
+	fi
 	if [ -f /System/Library/LaunchDaemons/$2.plist ]
 	then
 		IS_OFF=$(defaults read /System/Library/LaunchDaemons/$2 Disabled 2>/dev/null || true)
@@ -63,9 +68,7 @@ then
 		egrep '^fax.*unknown.*on$' /etc/ttys >/dev/null 2>&1
 		exit $? 
 	fi
-	[ ! -f "/etc/xinetd.d/$2" ] && exit 1
-	egrep "disable.*=.*no" /etc/xinetd.d/$2 >/dev/null 2>&1
-	exit $?
+	exit 1
 elif [ "$1" == "--test-if-available" ]
 then
 	[ -f /System/Library/LaunchDaemons/$2.plist ] && exit 0
@@ -75,10 +78,6 @@ then
 	SERVER_FILE=$(egrep 'server[ 	]' "/etc/xinetd.d/$2" | sed 's,.*server[ 	]*=[ 	]*\(.*\),\1,g')
 	[ ! -f "$SERVER_FILE" ] && exit 1
 	exit 0
-elif [ -f "/System/Library/LaunchDaemons/$1.plist" ]
-then
-	[ "$2" == start ] && launchctl load -w /System/Library/LaunchDaemons/$1.plist
-	[ "$2" == stop  ] && launchctl unload -w /System/Library/LaunchDaemons/$1.plist
 elif [ -f "/etc/xinetd.d/$1" ]
 then
 	if [ $UID != 0 ]
@@ -109,6 +108,10 @@ then
 		echo "No such service command" >&2
 	fi
 	rm -f $TMPFILE
+elif [ -f "/System/Library/LaunchDaemons/$1.plist" ]
+then
+	[ "$2" == start ] && launchctl load -w /System/Library/LaunchDaemons/$1.plist
+	[ "$2" == stop  ] && launchctl unload -w /System/Library/LaunchDaemons/$1.plist
 elif [ "$1" = "smtp" ]
 then
 	if [ $UID != 0 ]
