@@ -2,6 +2,7 @@
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
 #include <sys/types.h>
+#include <sys/select.h>
 #include <sys/event.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -28,7 +29,21 @@ static void find_fds(launch_data_t o, const char *key, void *context __attribute
 	int fd;
 
 	if (key && !strcmp(key, LAUNCH_JOBSOCKETKEY_RENDEZVOUSFD)) {
-		close(launch_data_get_fd(o));
+		struct timeval timeout = { 0, 0 };
+		int rz = launch_data_get_fd(o);
+		fd_set rfds;
+		FD_ZERO(&rfds);
+		FD_SET(rz, &rfds);
+		switch (select(rz + 1, &rfds, NULL, NULL, &timeout)) {
+		case -1:
+			syslog(LOG_WARNING, "select(): %m");
+			break;
+		default:
+			syslog(LOG_WARNING, "mDNSResponder sent data to a job that will never read it!");
+		case 0:
+			break;
+		}
+		close(rz);
 		return;
 	}
 
