@@ -221,7 +221,7 @@ fi
     fi
 
     # Clear utmp (who is logged on).
-    touch /var/run/utmp
+    touch /var/run/utmp /var/run/utmpx
 
     # purge the _run_ directory if it exists
     if [ -d /var/_run_ ]; then
