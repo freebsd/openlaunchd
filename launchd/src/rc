@@ -108,7 +108,6 @@ if [ -d /private/tmp ]; then
 		chflags -R -P 0 /private/_tmp_
 		rm -rf /private/_tmp_
 	fi
-	echo -n " /private/tmp"
 	mv /private/tmp /private/_tmp_
 	chflags -R -P 0 /private/_tmp_
 	RMRF_ITEMS="$RMRF_ITEMS /private/_tmp_"
