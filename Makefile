@@ -12,9 +12,6 @@ ifeq ($(RC_ProjectName),launchd_libs)
 else
 	mkdir -p $(DSTROOT)/Library/StartupItems
 	chmod 755 $(DSTROOT)/Library/StartupItems
-	mkdir -p $(DSTROOT)/System/Library/LaunchDaemons
-	chmod 755 $(DSTROOT)/System/Library/LaunchDaemons
-	install -m 644 LaunchDaemons/* $(DSTROOT)/System/Library/LaunchDaemons
 	rm -rf $(DSTROOT)/usr/local/lib/system
 endif
 
