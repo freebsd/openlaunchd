@@ -18,3 +18,5 @@ else
 	install -m 644 LaunchDaemons/* $(DSTROOT)/System/Library/LaunchDaemons
 	rm -rf $(DSTROOT)/usr/local/lib/system
 endif
+
+launchd_libs:: install
