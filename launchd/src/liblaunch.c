@@ -82,6 +82,7 @@ static void launch_client_init(void)
 		} else {
 			lfd = -1;
 		}
+		unsetenv(LAUNCHD_TRUSTED_FD_ENV);
 	}
 	if (lfd == -1) {
 		memset(&sun, 0, sizeof(sun));
