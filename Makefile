@@ -5,6 +5,6 @@ include $(MAKEFILEPATH)/CoreOS/ReleaseControl/GNUSource.make
 Install_Flags = DESTDIR=$(DSTROOT)
 
 initng_after_install::
-	rm -rf $(DSTROOT)/private
-	rm -rf $(DSTROOT)/usr
-	rm -rf $(DSTROOT)/System
+	mkdir -p $(DSTROOT)/private/etc/xinetd.d
+	chmod 755 $(DSTROOT)/private/etc/xinetd.d
+	install -m 644 xinetd.d/* $(DSTROOT)/private/etc/xinetd.d

@@ -11,7 +11,14 @@
 	<key>ProgramArguments</key>
 	<array>
 		<string>helloworldd</string>
+		<string>-l</string>
+		<string>-w</string>
 	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HELLOWORLDD</key>
+		<string>yo</string>
+	</dict>
 	<key>Sockets</key>
 	<array>
 		<dict>
@@ -19,6 +26,18 @@
 			<string>HelloTCPListener</string>
 			<key>SockServiceName</key>
 			<string>4567</string>
+			<key>SockPassive</key>
+			<true/>
+			<key>SockType</key>
+			<string>SOCK_STREAM</string>
+			<key>RendezvousName</key>
+			<string>HelloWorld</string>
+		</dict>
+		<dict>
+			<key>SockLabel</key>
+			<string>HelloUnixListener</string>
+			<key>SockPathName</key>
+			<string>/tmp/exampleunixsocket</string>
 			<key>SockPassive</key>
 			<true/>
 			<key>SockType</key>
