@@ -261,6 +261,10 @@ else
 	SystemStarter ${VerboseFlag}
 fi
 
+if [ "${NetBoot}" = "-N" ]; then
+    sh /etc/rc.netboot setup_computername
+fi
+
 # Set language from CDIS.custom - assumes this is parse-able by sh
 if [ -f /var/log/CDIS.custom ]; then
 	. /var/log/CDIS.custom 

@@ -5,12 +5,6 @@
 # This script configures NetBoot
 ##
 
-##
-# Set shell to ignore Control-C, etc.
-# Prevent inadvertent problems caused by interrupting the shell during boot.
-##
-stty intr undef kill undef quit undef susp undef start undef stop undef dsusp undef
-
 . /etc/rc.common
 
 # 
@@ -164,7 +158,7 @@ do_start()
 
 }
 
-do_vm()
+do_computername()
 {
     machine_name=$(ipconfig netbootoption machine_name 2>&1)
     if [ $? -ne 0 ]; then
@@ -173,7 +167,10 @@ do_vm()
 	echo "Setting ComputerName to ${machine_name}"
 	scutil --set ComputerName "${machine_name}"
     fi
+}
 
+do_vm()
+{
     swapdir=${1:-/private/var/vm}
 
     mounted_from=$(mount | sed -n 's:\(.*\) on .*/var/netboot.*:\1:p')
@@ -206,6 +203,9 @@ case "${command}" in
 	;;
     setup_vm)
 	do_vm $@
+	;;
+    setup_computername)
+	do_computername $@
 	;;
 esac 
 
