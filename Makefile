@@ -1,5 +1,5 @@
 Project	= initng
-Extra_Configure_Flags = --sbindir=/sbin --sysconfdir=/private/etc
+Extra_Configure_Flags = --sbindir=/sbin --bindir=/bin --sysconfdir=/private/etc
 GnuAfterInstall = initng_after_install
 include $(MAKEFILEPATH)/CoreOS/ReleaseControl/GNUSource.make
 Install_Flags = DESTDIR=$(DSTROOT)

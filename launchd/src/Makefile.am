@@ -4,11 +4,11 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshado
 
 sbin_SCRIPTS = service
 
-sbin_PROGRAMS = initctl initngd wait4path SystemStarter init mach_init
+bin_PROGRAMS = launchctl wait4path
 
-noinst_PROGRAMS = helloworldd
+sbin_PROGRAMS = launchd SystemStarter init mach_init launchdebugd
 
-libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext initproxy
+libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
 sysconf_DATA = hostconfig rc rc.boot rc.cleanup rc.common rc.netboot
 
@@ -16,25 +16,24 @@ SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
-initctl_LDFLAGS = -framework CoreFoundation
+launchctl_LDFLAGS = -framework CoreFoundation
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
-
 
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 	Log.c TextDisplay.c main.c SafeBoot.c
 
 wait4path_SOURCES = wait4path.c
 
-helloworldd_SOURCES = libinitng.c helloworldd.c
+launchdebugd_SOURCES = liblaunch.c launchdebugd.c
 
 init_SOURCES = init.c
 
-initctl_SOURCES = libinitng.c initctl.c
+launchctl_SOURCES = liblaunch.c launchctl.c
 
-initngd_SOURCES = libinitng.c initngd.c
+launchd_SOURCES = liblaunch.c launchd.c
 
-initproxy_SOURCES = libinitng.c initproxy.c
+launchproxy_SOURCES = liblaunch.c launchproxy.c
 
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 
@@ -63,3 +62,5 @@ install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STA
 install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
+	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
+	mkdir -p $(DESTDIR)/System/Library/LaunchAgents

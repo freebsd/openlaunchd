@@ -15,14 +15,8 @@ static const char *argv0 = NULL;
 static void regServ(uid_t u, bool on_demand, bool is_kunc, const char *serv_name, const char *serv_cmd);
 static void handleConfigFile(const char *file);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile);
-#ifdef BUILD_LIB
-#include "initng.h"
-static int register_per_user_mach_bootstrap_servers_main(int argc, char *argv[]);
 
-static int register_per_user_mach_bootstrap_servers_main(int argc, char *argv[])
-#else
 int main(int argc, char *argv[])
-#endif
 {
 	DIR *d;
 	struct dirent *de;
@@ -33,6 +27,16 @@ int main(int argc, char *argv[])
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s: <configdir|configfile>\n", argv0);
 		exit(EXIT_FAILURE);
+	}
+
+	if (getuid() == 0 && geteuid() != 0) {
+		if (fork() == 0) {
+			struct passwd *pwe = getpwuid(geteuid());
+			char *buf;
+			asprintf(&buf, "%s/%s", pwe->pw_dir, "Library/LaunchAgents");
+			execlp("launchctl", "launchctl", "-l", "/System/Library/LaunchAgents", "-l", buf, NULL);
+			exit(EXIT_SUCCESS);
+		}
 	}
 
 	stat(argv[1], &sb);
@@ -163,22 +167,3 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
 
 	return propertyList;
 }
-
-#ifdef BUILD_LIB
-int __register_per_user_mach_bootstrap_servers(void)
-{
-	char *av[] = {
-		"/usr/libexec/register_mach_bootstrap_servers",
-		"/etc/mach_init_per_user.d",
-		NULL
-	};
-	pid_t p = fork();
-	if (p == -1)
-		return 1;
-	if (p == 0) {
-		register_per_user_mach_bootstrap_servers_main(2, av);
-		exit(EXIT_SUCCESS);
-	}
-	return 0;
-}
-#endif

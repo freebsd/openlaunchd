@@ -105,7 +105,8 @@ sysctl -w kern.sysv.shmall=1024
 # Logs are important. Start syslogd after the boot disk becomes r/w but before
 # everything else starts. In the future, we should launch this lazily when it
 # is first needed.
-ifconfig lo0 127.0.0.1 up
+ifconfig lo0 inet 127.0.0.1 up
+ifconfig lo0 inet6 ::1 up
 /usr/sbin/syslogd -s -m 0
 
 # Create mach symbol file
@@ -130,6 +131,9 @@ fi
 
 # Load [ideally on demand] Mach bootstrap based services
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
+
+launchd
+launchctl -l /System/Library/LaunchDaemons
 
 # We hope to launch portmap on demand in the next major release of Mac OS X,
 # but until then, we need to inline in here for reasons not worth going into in

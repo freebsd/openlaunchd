@@ -80,11 +80,11 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshado
 
 sbin_SCRIPTS = service
 
-sbin_PROGRAMS = initctl initngd wait4path SystemStarter init mach_init
+bin_PROGRAMS = launchctl wait4path
 
-noinst_PROGRAMS = helloworldd
+sbin_PROGRAMS = launchd SystemStarter init mach_init launchdebugd
 
-libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext initproxy
+libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
 sysconf_DATA = hostconfig rc rc.boot rc.cleanup rc.common rc.netboot
 
@@ -92,7 +92,7 @@ SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
-initctl_LDFLAGS = -framework CoreFoundation
+launchctl_LDFLAGS = -framework CoreFoundation
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
@@ -102,15 +102,15 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 
 wait4path_SOURCES = wait4path.c
 
-helloworldd_SOURCES = libinitng.c helloworldd.c
+launchdebugd_SOURCES = liblaunch.c launchdebugd.c
 
 init_SOURCES = init.c
 
-initctl_SOURCES = libinitng.c initctl.c
+launchctl_SOURCES = liblaunch.c launchctl.c
 
-initngd_SOURCES = libinitng.c initngd.c
+launchd_SOURCES = liblaunch.c launchd.c
 
-initproxy_SOURCES = libinitng.c initproxy.c
+launchproxy_SOURCES = liblaunch.c launchproxy.c
 
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 
@@ -125,13 +125,13 @@ subdir = src
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES =
+bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
 libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
 	register_mach_bootstrap_servers$(EXEEXT) \
-	StartupItemContext$(EXEEXT) initproxy$(EXEEXT)
-noinst_PROGRAMS = helloworldd$(EXEEXT)
-sbin_PROGRAMS = initctl$(EXEEXT) initngd$(EXEEXT) wait4path$(EXEEXT) \
-	SystemStarter$(EXEEXT) init$(EXEEXT) mach_init$(EXEEXT)
-PROGRAMS = $(libexec_PROGRAMS) $(noinst_PROGRAMS) $(sbin_PROGRAMS)
+	StartupItemContext$(EXEEXT) launchproxy$(EXEEXT)
+sbin_PROGRAMS = launchd$(EXEEXT) SystemStarter$(EXEEXT) init$(EXEEXT) \
+	mach_init$(EXEEXT) launchdebugd$(EXEEXT)
+PROGRAMS = $(bin_PROGRAMS) $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 
 ConsoleMessage_SOURCES = ConsoleMessage.c
 ConsoleMessage_OBJECTS = ConsoleMessage.$(OBJEXT)
@@ -148,30 +148,30 @@ am_SystemStarter_OBJECTS = StartupItems.$(OBJEXT) IPC.$(OBJEXT) \
 SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_DEPENDENCIES =
-am_helloworldd_OBJECTS = libinitng.$(OBJEXT) helloworldd.$(OBJEXT)
-helloworldd_OBJECTS = $(am_helloworldd_OBJECTS)
-helloworldd_LDADD = $(LDADD)
-helloworldd_DEPENDENCIES =
-helloworldd_LDFLAGS =
 am_init_OBJECTS = init.$(OBJEXT)
 init_OBJECTS = $(am_init_OBJECTS)
 init_LDADD = $(LDADD)
 init_DEPENDENCIES =
 init_LDFLAGS =
-am_initctl_OBJECTS = libinitng.$(OBJEXT) initctl.$(OBJEXT)
-initctl_OBJECTS = $(am_initctl_OBJECTS)
-initctl_LDADD = $(LDADD)
-initctl_DEPENDENCIES =
-am_initngd_OBJECTS = libinitng.$(OBJEXT) initngd.$(OBJEXT)
-initngd_OBJECTS = $(am_initngd_OBJECTS)
-initngd_LDADD = $(LDADD)
-initngd_DEPENDENCIES =
-initngd_LDFLAGS =
-am_initproxy_OBJECTS = libinitng.$(OBJEXT) initproxy.$(OBJEXT)
-initproxy_OBJECTS = $(am_initproxy_OBJECTS)
-initproxy_LDADD = $(LDADD)
-initproxy_DEPENDENCIES =
-initproxy_LDFLAGS =
+am_launchctl_OBJECTS = liblaunch.$(OBJEXT) launchctl.$(OBJEXT)
+launchctl_OBJECTS = $(am_launchctl_OBJECTS)
+launchctl_LDADD = $(LDADD)
+launchctl_DEPENDENCIES =
+am_launchd_OBJECTS = liblaunch.$(OBJEXT) launchd.$(OBJEXT)
+launchd_OBJECTS = $(am_launchd_OBJECTS)
+launchd_LDADD = $(LDADD)
+launchd_DEPENDENCIES =
+launchd_LDFLAGS =
+am_launchdebugd_OBJECTS = liblaunch.$(OBJEXT) launchdebugd.$(OBJEXT)
+launchdebugd_OBJECTS = $(am_launchdebugd_OBJECTS)
+launchdebugd_LDADD = $(LDADD)
+launchdebugd_DEPENDENCIES =
+launchdebugd_LDFLAGS =
+am_launchproxy_OBJECTS = liblaunch.$(OBJEXT) launchproxy.$(OBJEXT)
+launchproxy_OBJECTS = $(am_launchproxy_OBJECTS)
+launchproxy_LDADD = $(LDADD)
+launchproxy_DEPENDENCIES =
+launchproxy_LDFLAGS =
 am_mach_init_OBJECTS = bootstrap.$(OBJEXT) lists.$(OBJEXT) \
 	error_log.$(OBJEXT) rpc_services.$(OBJEXT) \
 	bootstrapServer.$(OBJEXT)
@@ -207,11 +207,11 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/TextDisplay.Po ./$(DEPDIR)/bootstrap.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/bootstrapServer.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/error_log.Po ./$(DEPDIR)/helloworldd.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/init.Po ./$(DEPDIR)/initctl.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/initngd.Po ./$(DEPDIR)/initproxy.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/libinitng.Po ./$(DEPDIR)/lists.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/main.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/error_log.Po ./$(DEPDIR)/init.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po ./$(DEPDIR)/launchd.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchdebugd.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/lists.Po ./$(DEPDIR)/main.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/rpc_services.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/wait4path.Po
@@ -221,10 +221,10 @@ CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
 DIST_SOURCES = ConsoleMessage.c StartupItemContext.c \
-	$(SystemStarter_SOURCES) $(helloworldd_SOURCES) $(init_SOURCES) \
-	$(initctl_SOURCES) $(initngd_SOURCES) $(initproxy_SOURCES) \
-	$(mach_init_SOURCES) register_mach_bootstrap_servers.c \
-	$(wait4path_SOURCES)
+	$(SystemStarter_SOURCES) $(init_SOURCES) $(launchctl_SOURCES) \
+	$(launchd_SOURCES) $(launchdebugd_SOURCES) \
+	$(launchproxy_SOURCES) $(mach_init_SOURCES) \
+	register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
 NROFF = nroff
 MANS = $(man1_MANS) $(man8_MANS)
@@ -237,7 +237,7 @@ RECURSIVE_TARGETS = info-recursive dvi-recursive install-info-recursive \
 	uninstall-recursive check-recursive installcheck-recursive
 DIST_COMMON = Makefile.am Makefile.in config.h.in
 DIST_SUBDIRS = $(SUBDIRS)
-SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(helloworldd_SOURCES) $(init_SOURCES) $(initctl_SOURCES) $(initngd_SOURCES) $(initproxy_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
+SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(init_SOURCES) $(launchctl_SOURCES) $(launchd_SOURCES) $(launchdebugd_SOURCES) $(launchproxy_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
@@ -266,6 +266,30 @@ $(srcdir)/config.h.in:  $(top_srcdir)/configure.ac $(ACLOCAL_M4)
 
 distclean-hdr:
 	-rm -f config.h stamp-h1
+binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
+install-binPROGRAMS: $(bin_PROGRAMS)
+	@$(NORMAL_INSTALL)
+	$(mkinstalldirs) $(DESTDIR)$(bindir)
+	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+	  p1=`echo $$p|sed 's/$(EXEEXT)$$//'`; \
+	  if test -f $$p \
+	  ; then \
+	    f=`echo "$$p1" | sed 's,^.*/,,;$(transform);s/$$/$(EXEEXT)/'`; \
+	   echo " $(INSTALL_PROGRAM_ENV) $(binPROGRAMS_INSTALL) $$p $(DESTDIR)$(bindir)/$$f"; \
+	   $(INSTALL_PROGRAM_ENV) $(binPROGRAMS_INSTALL) $$p $(DESTDIR)$(bindir)/$$f; \
+	  else :; fi; \
+	done
+
+uninstall-binPROGRAMS:
+	@$(NORMAL_UNINSTALL)
+	@list='$(bin_PROGRAMS)'; for p in $$list; do \
+	  f=`echo "$$p" | sed 's,^.*/,,;s/$(EXEEXT)$$//;$(transform);s/$$/$(EXEEXT)/'`; \
+	  echo " rm -f $(DESTDIR)$(bindir)/$$f"; \
+	  rm -f $(DESTDIR)$(bindir)/$$f; \
+	done
+
+clean-binPROGRAMS:
+	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
 libexecPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 install-libexecPROGRAMS: $(libexec_PROGRAMS)
 	@$(NORMAL_INSTALL)
@@ -290,9 +314,6 @@ uninstall-libexecPROGRAMS:
 
 clean-libexecPROGRAMS:
 	-test -z "$(libexec_PROGRAMS)" || rm -f $(libexec_PROGRAMS)
-
-clean-noinstPROGRAMS:
-	-test -z "$(noinst_PROGRAMS)" || rm -f $(noinst_PROGRAMS)
 sbinPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 install-sbinPROGRAMS: $(sbin_PROGRAMS)
 	@$(NORMAL_INSTALL)
@@ -326,21 +347,21 @@ StartupItemContext$(EXEEXT): $(StartupItemContext_OBJECTS) $(StartupItemContext_
 SystemStarter$(EXEEXT): $(SystemStarter_OBJECTS) $(SystemStarter_DEPENDENCIES) 
 	@rm -f SystemStarter$(EXEEXT)
 	$(LINK) $(SystemStarter_LDFLAGS) $(SystemStarter_OBJECTS) $(SystemStarter_LDADD) $(LIBS)
-helloworldd$(EXEEXT): $(helloworldd_OBJECTS) $(helloworldd_DEPENDENCIES) 
-	@rm -f helloworldd$(EXEEXT)
-	$(LINK) $(helloworldd_LDFLAGS) $(helloworldd_OBJECTS) $(helloworldd_LDADD) $(LIBS)
 init$(EXEEXT): $(init_OBJECTS) $(init_DEPENDENCIES) 
 	@rm -f init$(EXEEXT)
 	$(LINK) $(init_LDFLAGS) $(init_OBJECTS) $(init_LDADD) $(LIBS)
-initctl$(EXEEXT): $(initctl_OBJECTS) $(initctl_DEPENDENCIES) 
-	@rm -f initctl$(EXEEXT)
-	$(LINK) $(initctl_LDFLAGS) $(initctl_OBJECTS) $(initctl_LDADD) $(LIBS)
-initngd$(EXEEXT): $(initngd_OBJECTS) $(initngd_DEPENDENCIES) 
-	@rm -f initngd$(EXEEXT)
-	$(LINK) $(initngd_LDFLAGS) $(initngd_OBJECTS) $(initngd_LDADD) $(LIBS)
-initproxy$(EXEEXT): $(initproxy_OBJECTS) $(initproxy_DEPENDENCIES) 
-	@rm -f initproxy$(EXEEXT)
-	$(LINK) $(initproxy_LDFLAGS) $(initproxy_OBJECTS) $(initproxy_LDADD) $(LIBS)
+launchctl$(EXEEXT): $(launchctl_OBJECTS) $(launchctl_DEPENDENCIES) 
+	@rm -f launchctl$(EXEEXT)
+	$(LINK) $(launchctl_LDFLAGS) $(launchctl_OBJECTS) $(launchctl_LDADD) $(LIBS)
+launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES) 
+	@rm -f launchd$(EXEEXT)
+	$(LINK) $(launchd_LDFLAGS) $(launchd_OBJECTS) $(launchd_LDADD) $(LIBS)
+launchdebugd$(EXEEXT): $(launchdebugd_OBJECTS) $(launchdebugd_DEPENDENCIES) 
+	@rm -f launchdebugd$(EXEEXT)
+	$(LINK) $(launchdebugd_LDFLAGS) $(launchdebugd_OBJECTS) $(launchdebugd_LDADD) $(LIBS)
+launchproxy$(EXEEXT): $(launchproxy_OBJECTS) $(launchproxy_DEPENDENCIES) 
+	@rm -f launchproxy$(EXEEXT)
+	$(LINK) $(launchproxy_LDFLAGS) $(launchproxy_OBJECTS) $(launchproxy_LDADD) $(LIBS)
 mach_init$(EXEEXT): $(mach_init_OBJECTS) $(mach_init_DEPENDENCIES) 
 	@rm -f mach_init$(EXEEXT)
 	$(LINK) $(mach_init_LDFLAGS) $(mach_init_OBJECTS) $(mach_init_LDADD) $(LIBS)
@@ -388,12 +409,12 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/error_log.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/helloworldd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/init.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/initctl.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/initngd.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/initproxy.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libinitng.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchdebugd.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lists.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/register_mach_bootstrap_servers.Po@am__quote@
@@ -660,7 +681,7 @@ check: check-recursive
 all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) config.h
 installdirs: installdirs-recursive
 installdirs-am:
-	$(mkinstalldirs) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
+	$(mkinstalldirs) $(DESTDIR)$(bindir) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
 
 install: install-recursive
 install-exec: install-exec-recursive
@@ -689,7 +710,7 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-recursive
 
-clean-am: clean-generic clean-libexecPROGRAMS clean-noinstPROGRAMS \
+clean-am: clean-binPROGRAMS clean-generic clean-libexecPROGRAMS \
 	clean-sbinPROGRAMS mostlyclean-am
 
 distclean: distclean-recursive
@@ -709,8 +730,8 @@ install-data-am: install-man
 	@$(NORMAL_INSTALL)
 	$(MAKE) $(AM_MAKEFLAGS) install-data-hook
 
-install-exec-am: install-libexecPROGRAMS install-sbinPROGRAMS \
-	install-sbinSCRIPTS install-sysconfDATA
+install-exec-am: install-binPROGRAMS install-libexecPROGRAMS \
+	install-sbinPROGRAMS install-sbinSCRIPTS install-sysconfDATA
 
 install-info: install-info-recursive
 
@@ -726,31 +747,32 @@ mostlyclean: mostlyclean-recursive
 
 mostlyclean-am: mostlyclean-compile mostlyclean-generic
 
-uninstall-am: uninstall-info-am uninstall-libexecPROGRAMS uninstall-man \
-	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
-	uninstall-sysconfDATA
+uninstall-am: uninstall-binPROGRAMS uninstall-info-am \
+	uninstall-libexecPROGRAMS uninstall-man uninstall-sbinPROGRAMS \
+	uninstall-sbinSCRIPTS uninstall-sysconfDATA
 
 uninstall-info: uninstall-info-recursive
 
 uninstall-man: uninstall-man1 uninstall-man8
 
 .PHONY: $(RECURSIVE_TARGETS) GTAGS all all-am check check-am clean \
-	clean-generic clean-libexecPROGRAMS clean-noinstPROGRAMS \
+	clean-binPROGRAMS clean-generic clean-libexecPROGRAMS \
 	clean-recursive clean-sbinPROGRAMS distclean distclean-compile \
 	distclean-depend distclean-generic distclean-hdr \
 	distclean-recursive distclean-tags distdir dvi dvi-am \
 	dvi-recursive info info-am info-recursive install install-am \
-	install-data install-data-am install-data-recursive \
-	install-exec install-exec-am install-exec-recursive \
-	install-info install-info-am install-info-recursive \
-	install-libexecPROGRAMS install-man install-man1 install-man8 \
-	install-recursive install-sbinPROGRAMS install-sbinSCRIPTS \
-	install-strip install-sysconfDATA installcheck installcheck-am \
-	installdirs installdirs-am installdirs-recursive \
-	maintainer-clean maintainer-clean-generic \
-	maintainer-clean-recursive mostlyclean mostlyclean-compile \
-	mostlyclean-generic mostlyclean-recursive tags tags-recursive \
-	uninstall uninstall-am uninstall-info-am \
+	install-binPROGRAMS install-data install-data-am \
+	install-data-recursive install-exec install-exec-am \
+	install-exec-recursive install-info install-info-am \
+	install-info-recursive install-libexecPROGRAMS install-man \
+	install-man1 install-man8 install-recursive \
+	install-sbinPROGRAMS install-sbinSCRIPTS install-strip \
+	install-sysconfDATA installcheck installcheck-am installdirs \
+	installdirs-am installdirs-recursive maintainer-clean \
+	maintainer-clean-generic maintainer-clean-recursive mostlyclean \
+	mostlyclean-compile mostlyclean-generic mostlyclean-recursive \
+	tags tags-recursive uninstall uninstall-am \
+	uninstall-binPROGRAMS uninstall-info-am \
 	uninstall-info-recursive uninstall-libexecPROGRAMS \
 	uninstall-man uninstall-man1 uninstall-man8 uninstall-recursive \
 	uninstall-sbinPROGRAMS uninstall-sbinSCRIPTS \
@@ -774,6 +796,8 @@ install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STA
 install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
+	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
+	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

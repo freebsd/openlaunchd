@@ -5,45 +5,40 @@
 	<key>Label</key>
 	<string>985C83B2-7472-11D8-8019-000A95CC7904</string>
 	<key>GroupName</key>
-	<string>zarzycki</string>
+	<string>apple_sw</string>
 	<key>Program</key>
-	<string>/Volumes/data/zarzycki/src/initng/HEAD/initng/src/helloworldd</string>
+	<string>/Volumes/data/zarzycki/src/initng/protocol-overhaul/initng/src/launchdebugd</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>helloworldd</string>
-		<string>-l</string>
-		<string>-w</string>
+		<string>launchdebugd</string>
 	</array>
-	<key>EnvironmentVariables</key>
-	<dict>
-		<key>HELLOWORLDD</key>
-		<string>yo</string>
-	</dict>
 	<key>Sockets</key>
-	<array>
-		<dict>
-			<key>SockLabel</key>
-			<string>HelloTCPListener</string>
-			<key>SockServiceName</key>
-			<string>4567</string>
-			<key>SockPassive</key>
-			<true/>
-			<key>SockType</key>
-			<string>SOCK_STREAM</string>
-			<key>RendezvousName</key>
-			<string>HelloWorld</string>
-		</dict>
-		<dict>
-			<key>SockLabel</key>
-			<string>HelloUnixListener</string>
-			<key>SockPathName</key>
-			<string>/tmp/exampleunixsocket</string>
-			<key>SockPassive</key>
-			<true/>
-			<key>SockType</key>
-			<string>SOCK_STREAM</string>
-		</dict>
-	</array>
+	<dict>
+		<key>HelloTCPListener</key>
+		<array>
+			<dict>
+				<key>SockServiceName</key>
+				<integer>4567</integer>
+				<key>SockPassive</key>
+				<true/>
+				<key>SockType</key>
+				<string>SOCK_STREAM</string>
+				<key>RendezvousName</key>
+				<string>HelloWorld</string>
+			</dict>
+		</array>
+		<key>HelloUnixListener</key>
+		<array>
+			<dict>
+				<key>SockPathName</key>
+				<string>/tmp/exampleunixsocket</string>
+				<key>SockPassive</key>
+				<true/>
+				<key>SockType</key>
+				<string>SOCK_STREAM</string>
+			</dict>
+		</array>
+	</dict>
 	<key>ServiceDescription</key>
 	<string>sample daemon</string>
 	<key>UserName</key>
