@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define INITNG_PRIVATE_API
 #include "libinitng.h"
 
 static int thefd = 0;
@@ -17,6 +18,7 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile);
 static void myEnvpCallback(const void *key, const void *value, char **where);
 static void usage(FILE *where) __attribute__((noreturn));
 static void loadcfg(char *what);
+static void monitor_initngd(void);
 
 int main(int argc, char *argv[])
 {
@@ -34,7 +36,7 @@ int main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "mhl:")) != -1) {
 		switch (ch) {
 		case 'm':
-			fprintf(stderr, "i would be monitoring the connection right now");
+			monitor_initngd();
 			break;
 		case 'l':
 			loadcfg(optarg);
@@ -52,6 +54,39 @@ int main(int argc, char *argv[])
 	argv += optind;
 
 	exit(EXIT_SUCCESS);
+}
+
+static void mon_cb(int fd, char *command, char *data[], void *cookie)
+{
+	int sfd;
+
+	if (!strcmp(command, "addFD")) {
+		sfd = strtol(data[2], NULL, 10);
+		close(sfd);
+	}
+
+	fprintf(stdout, "%s\n", command);
+	for (; *data; data++)
+		fprintf(stdout, "\t%s\n", *data);
+
+}
+
+static void monitor_initngd(void)
+{
+	initng_err_t ingerr;
+
+	ingerr = initng_msg(thefd, "enableMonitor", "true", NULL);
+	if (ingerr != INITNG_ERR_SUCCESS) {
+		fprintf(stderr, "monitoring request failed: %s\n", initng_strerror(ingerr));
+		exit(EXIT_FAILURE);
+	}
+
+	for (;;) {
+		ingerr = initng_recvmsg(thefd, mon_cb, NULL);
+		if (ingerr != INITNG_ERR_SUCCESS)
+			break;
+	}
+	exit(EXIT_FAILURE);
 }
 
 static void loadcfg(char *what)
@@ -248,9 +283,9 @@ static void handleConfigFile(const char *file)
 			strcpy(socknodename, buf);
 		}
 
-		if (!CFDictionaryContainsKey(tv, CFSTR("SockServname")))
+		if (!CFDictionaryContainsKey(tv, CFSTR("SockServiceName")))
 			goto socket_out;
-		if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockServname"))))
+		if (!(iv = CFDictionaryGetValue(tv, CFSTR("SockServiceName"))))
 			goto socket_out;
 		CFStringGetCString(iv, buf, sizeof(buf), kCFStringEncodingUTF8);
 		strcpy(sockservname, buf);

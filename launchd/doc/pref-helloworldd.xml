@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>985C83B2-7472-11D8-8019-000A95CC7904</string>
+	<key>GroupName</key>
+	<string>zarzycki</string>
+	<key>Program</key>
+	<string>/Volumes/data/zarzycki/src/apple/initng/HEAD/initng/src/helloworldd</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>helloworldd</string>
+	</array>
+	<key>Sockets</key>
+	<array>
+		<dict>
+			<key>SockLabel</key>
+			<string>HelloTCPListener</string>
+			<key>SockServiceName</key>
+			<string>4567</string>
+			<key>SockPassive</key>
+			<true/>
+			<key>SockType</key>
+			<string>SOCK_STREAM</string>
+		</dict>
+	</array>
+	<key>ServiceDescription</key>
+	<string>sample daemon</string>
+	<key>UserName</key>
+	<string>zarzycki</string>
+</dict>
+</plist>

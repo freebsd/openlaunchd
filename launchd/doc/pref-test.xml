@@ -36,7 +36,7 @@
 			<string>SockLabelOne</string>
 			<key>SockNodename</key>
 			<string>localhost</string>
-			<key>SockServname</key>
+			<key>SockServiceName</key>
 			<string>3456</string>
 			<key>SockPassive</key>
 			<true/>
@@ -48,7 +48,7 @@
 			<string>SockLabelTwo</string>
 			<key>SockNodename</key>
 			<string>localhost</string>
-			<key>SockServname</key>
+			<key>SockServiceName</key>
 			<string>6543</string>
 			<key>SockPassive</key>
 			<true/>

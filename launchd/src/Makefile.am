@@ -2,7 +2,7 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshado
 
 sbin_SCRIPTS = service
 
-sbin_PROGRAMS = SystemStarter init mach_init initctl initngd wait4mount
+sbin_PROGRAMS = SystemStarter init mach_init initctl initngd wait4mount helloworldd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
 
@@ -20,6 +20,8 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 	Log.c TextDisplay.c main.c SafeBootPrivate.c
 
 wait4mount_SOURCES = wait4mount.c
+
+helloworldd_SOURCES = libinitng.c helloworldd.c
 
 init_SOURCES = init.c
 

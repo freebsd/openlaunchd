@@ -12,12 +12,12 @@
 #include <grp.h>
 #include <errno.h>
 
-#define INITNG_SERVER
+#define INITNG_PRIVATE_API
 #include "libinitng.h"
 
 static struct initng_ipc_conn *find_conn_with_fd(int fd);
 static void create_ipc_conn(int fd);
-static char **lstring2vdup(void *data, size_t data_len);
+static char **lstring2vdup(char *data, size_t data_len);
 static initng_err_t __initng_sendmsga(int fd, char *command, char *data[], struct cmsghdr *cm, size_t cml);
 
 #define INITNG_SOCKET_ENV       "INITNG_SOCKET"
@@ -30,7 +30,7 @@ struct initng_ipc_packet {
 
 struct initng_ipc_conn {
 	TAILQ_ENTRY(initng_ipc_conn) tqe;
-	int     monitoring:1;
+	unsigned int monitoring;
 	int     fd;
 	void    *sendbuf;
 	size_t  sendlen;
@@ -147,7 +147,7 @@ initng_err_t initng_recvmsg(int fd, initng_msg_cb cb, void *cookie)
 	struct initng_ipc_packet *p;
         struct msghdr mh;
         struct iovec iov;
-	char **datav, *fdstr = NULL;
+	char **datav, *fdstr;
 	size_t pl;
         int r;
 
@@ -177,6 +177,7 @@ initng_err_t initng_recvmsg(int fd, initng_msg_cb cb, void *cookie)
 	thisconn->recvctrllen += mh.msg_controllen;
 
 start_over:
+	fdstr = NULL;
         p = thisconn->recvbuf;
         if (thisconn->recvlen < sizeof(struct initng_ipc_packet))
                 return INITNG_ERR_AGAIN;
@@ -200,22 +201,23 @@ start_over:
 		memmove(thisconn->recvctrlbuf, thisconn->recvctrlbuf + cml, thisconn->recvctrllen - cml);
         	thisconn->recvctrllen -= cml;
 	}
+
 	cb(fd, datav[0], &(datav[1]), cookie);
 
 	if (fdstr)
 		free(fdstr);
-	free(datav[0]);
 	free(datav);
 
 	pl = p->p_len;
 	memmove(thisconn->recvbuf, thisconn->recvbuf + pl, thisconn->recvlen - pl);
         thisconn->recvlen -= pl;
 
-	if (thisconn->recvlen > 0 && thisconn->recvctrllen > 0)
+	if (thisconn->recvlen > 0)
 		goto start_over;
 
 	thisconn->recvbuf = realloc(thisconn->recvbuf, 0);
-	thisconn->recvctrlbuf = realloc(thisconn->recvctrlbuf, 0);
+        if (thisconn->recvctrllen == 0)
+		thisconn->recvctrlbuf = realloc(thisconn->recvctrlbuf, 0);
 	return INITNG_ERR_SUCCESS;
 }
 
@@ -456,6 +458,79 @@ res_walk_out_bad:
 	return __initng_sendmsga(fd, command, data, NULL, 0);
 }
 
+struct __resultmgmt {
+	bool done;
+	size_t config_size;
+	char ***config;
+};
+
+static void config_msg_cb(int fd, char *command, char *data[], void *cookie)
+{
+	struct __resultmgmt *__resultmgmt = cookie;
+	char **r, **t;
+	int s = 1;
+
+	if (!strcmp(command, "dumpJobStateDONE")) {
+		__resultmgmt->done = true;
+		return;
+	}
+
+	__resultmgmt->config_size++;
+	__resultmgmt->config = realloc(__resultmgmt->config, __resultmgmt->config_size * sizeof(char***));
+
+	for (t = data; *t; t++)
+		s++;
+	r = malloc((s + 1) * sizeof(char*));
+	r[s] = NULL;
+	r[0] = strdup(command);
+	for (s = 1, t = data; *t; t++, s++)
+		r[s] = strdup(*t);
+	__resultmgmt->config[__resultmgmt->config_size - 2] = r;
+	__resultmgmt->config[__resultmgmt->config_size - 1] = NULL;
+}
+
+void initng_freeconfig(char ***config)
+{
+	char **tmpv, ***tmpvv;
+
+	for (tmpvv = config; *tmpvv; tmpvv++) {
+		for (tmpv = *tmpvv; *tmpv; tmpv++)
+			free(*tmpv);
+		free(*tmpvv);
+	}
+	free(config);
+}
+
+initng_err_t initng_checkin(int fd, char ****config)
+{
+	initng_err_t ingerr = INITNG_ERR_SUCCESS;
+	char *jl = getenv("INITNG_JOB_LABEL");
+	struct __resultmgmt __resultmgmt;
+
+	__resultmgmt.done = false;
+	__resultmgmt.config_size = 1;
+	__resultmgmt.config = malloc(sizeof(char***));
+	__resultmgmt.config[0] = NULL;
+
+
+	*config = NULL;
+
+	if (!jl)
+		return INITNG_ERR_BROKEN_CONN;
+
+	ingerr = initng_sendmsg(fd, "dumpJobState", jl, NULL);
+	if (ingerr != INITNG_ERR_SUCCESS)
+		return ingerr;
+	while (__resultmgmt.done != true) {
+		ingerr = initng_recvmsg(fd, config_msg_cb, &__resultmgmt);
+		if (ingerr != INITNG_ERR_SUCCESS)
+			return ingerr;
+	}
+
+	*config = __resultmgmt.config;
+	return ingerr;
+}
+
 static void create_ipc_conn(int fd)
 {
         struct initng_ipc_conn *c;
@@ -517,29 +592,47 @@ const char *initng_strerror(initng_err_t error)
 	return errs[error];
 }
 
-static char **lstring2vdup(void *data, size_t data_len)
+static char **lstring2vdup(char *data, size_t data_len)
 {
-        char *tmp = malloc(data_len);
         char *lastseenstring = NULL;
         char **r;
         size_t argc = 0;
         unsigned int i, j = 0;
 
-        memcpy(tmp, data, data_len);
-
         for (i = 0; i < data_len; i++) {
-                if (tmp[i] == NULL)
+                if (data[i] == NULL)
                         argc++;
         }
         r = malloc((argc * sizeof(char*)) + 1);
         r[argc] = NULL;
-        lastseenstring = tmp;
+        lastseenstring = data;
         for (i = 0; i < data_len; i++) {
-                if (tmp[i] == NULL) {
+                if (data[i] == NULL) {
                         r[j] = lastseenstring;
                         j++;
-                        lastseenstring = &(tmp[i]) + 1;
+                        lastseenstring = &(data[i]) + 1;
                 }
         }
         return r;
+}
+
+void initng_set_sniffer(int fd, bool e)
+{
+        struct initng_ipc_conn *thisconn = find_conn_with_fd(fd);
+
+	if (thisconn)
+		thisconn->monitoring = e;
+}
+
+void initng_sendmsga2sniffers(char *command, char *data[])
+{
+	struct initng_ipc_conn *var;
+	initng_err_t ingerr;
+	TAILQ_FOREACH(var, &theconnections, tqe) {
+		if (var->monitoring) {
+			ingerr = initng_sendmsga(var->fd, command, data);
+			if (ingerr != INITNG_ERR_SUCCESS)
+				fprintf(stderr, "broadcast burp\n");
+		}
+	}
 }

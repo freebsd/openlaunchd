@@ -8,6 +8,7 @@
 #include <sys/param.h>
 #include <sys/fcntl.h>
 #include <sys/wait.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -18,7 +19,7 @@
 #include <signal.h>
 #include <libgen.h>
 
-#define INITNG_SERVER
+#define INITNG_PRIVATE_API
 #include "libinitng.h"
 
 extern char **environ;
@@ -50,6 +51,7 @@ struct initng_job {
 TAILQ_HEAD(initng_jobs, initng_job) thejobs = TAILQ_HEAD_INITIALIZER(thejobs);
 
 static int thesocket = 0;
+static int thewebsocket = 0;
 static int kq = 0;
 static char *argv0 = NULL;
 
@@ -59,6 +61,8 @@ static void launch_job_st(struct initng_job *j, int tfd);
 static void reap_job(struct initng_job *j);
 static void runloop_observe(struct initng_job *j);
 static void runloop_ignore(struct initng_job *j);
+static void do_web_feedback(void);
+static void dump_job_state(int fd, struct initng_job *j);
 
 /* utility functions */
 static char **stringvdup(char **sv);
@@ -102,13 +106,40 @@ int main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (!debug)
-		daemon(0, 0);
+	if ((kq = _fd(kqueue())) == -1)
+		initngd_panic("kqueue(): %m");
+
+	if (!debug) {
+		int tmpfd = open("/dev/null", O_RDWR);
+		dup2(tmpfd, STDIN_FILENO);
+		dup2(tmpfd, STDOUT_FILENO);
+		dup2(tmpfd, STDERR_FILENO);
+		close(tmpfd);
+	} else {
+		struct sockaddr_in sain;
+		int sock_opt = 1;
+
+		memset(&sain, 0, sizeof(sain));
+		sain.sin_family = AF_INET;
+		sain.sin_port = htons(12345);
+		sain.sin_addr.s_addr = htonl(0x7f000001);
+
+		if ((thewebsocket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+			initngd_panic("socket(): %m");
+		if (setsockopt(thewebsocket, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1)
+			initngd_panic("setsockopt(): %m");
+		if (bind(thewebsocket, (struct sockaddr *)&sain, sizeof(sain)) == -1)
+			initngd_panic("bind(): %m");
+		if (listen(thewebsocket, 255) == -1)
+			initngd_panic("listen(): %m");
+		__kevent(_fd(thewebsocket), EVFILT_READ, EV_ADD, 0, 0, NULL);
+	}
+
+	chdir("/");
+	setsid();
 
 	openlog((const char*)basename(argv0), LOG_CONS|(debug ? LOG_PERROR : 0), LOG_DAEMON);
 
-	if ((kq = _fd(kqueue())) == -1)
-		initngd_panic("kqueue(): %m");
 	if ((ingerr = initng_server_init(&thesocket, thesockpath)) != INITNG_ERR_SUCCESS)
 		initngd_panic("initng_server_init(): %s", initng_strerror(ingerr));
 	__kevent(_fd(thesocket), EVFILT_READ, EV_ADD, 0, 0, NULL);
@@ -134,6 +165,8 @@ int main(int argc, char *argv[])
 				continue;
 			}
 			__kevent(_fd(fd), EVFILT_READ, EV_ADD, 0, 0, NULL);
+		} else if ((int)kev.ident == thewebsocket) {
+			do_web_feedback();
 		} else if (kev.filter == EVFILT_READ) {
 			ingerr = initng_recvmsg(kev.ident, parse_packet, j);
 			if (ingerr != INITNG_ERR_SUCCESS && ingerr != INITNG_ERR_AGAIN) {
@@ -179,12 +212,9 @@ static void launch_job_st(struct initng_job *j, int tfd)
 		if (dup2(fd, STDERR_FILENO) == -1)
 			initngd_debug(LOG_DEBUG, "child dup2(fd, 2): %m");
 		close(fd);
-		if (setgid(j->g) == -1)
-			initngd_debug(LOG_DEBUG, "child setgid(): %m");
-		if (setuid(j->u) == -1)
-			initngd_debug(LOG_DEBUG, "child setuid(): %m");
-		if (setsid() == -1)
-			initngd_debug(LOG_DEBUG, "child setsid(): %m");
+		setgid(j->g);
+		setuid(j->u);
+		setsid();
 		if (execve(j->program, j->argv, environ) == -1)
 			initngd_debug(LOG_DEBUG, "child execve(): %m");
 		_exit(EXIT_FAILURE);
@@ -194,8 +224,8 @@ static void launch_job_st(struct initng_job *j, int tfd)
 static void launch_job(struct initng_job *j)
 {
 	pid_t c;
+	char *rdata[] = { j->label, NULL, NULL };
 
-	j->running = 1;
 	runloop_ignore(j);
 
 	if ((c = fork()) == -1) {
@@ -209,34 +239,41 @@ static void launch_job(struct initng_job *j)
 			goto out_bad;
 		}
 	} else {
+		setenv("INITNG_JOB_LABEL", j->label, 1);
 		setgid(j->g);
 		setuid(j->u);
 		setsid();
-		/* XXX -- ammend the environ */
-		execve(j->program, j->argv, environ);
+		if (execve(j->program, j->argv, environ) == -1)
+			initngd_debug(LOG_DEBUG, "child execve(): %m");
 		_exit(EXIT_FAILURE);
 	}
+	j->running = 1;
+	asprintf(&(rdata[1]), "%d", j->p);
+	initng_sendmsga2sniffers("notifyRunning", rdata);
+	free(rdata[1]);
 	return;
 out_bad:
 	if (j->p) {
 		reap_job(j);
 	} else {
-		j->running = 0;
 		runloop_observe(j);
 	}
 }
 
 static void reap_job(struct initng_job *j)
 {
-	int status;
+	int status = 0;
+	char *rdata[] = { j->label, "0", NULL };
 
 	waitpid(j->p, &status, 0);
-	if (WIFSIGNALED(status))
+	if (WIFEXITED(status)) {
+		if (WEXITSTATUS(status) > 0)
+			initngd_debug(LOG_WARNING, "%s[%d] exited with exit code %d", j->program, j->p, WEXITSTATUS(status));
+	} else if (WIFSIGNALED(status))
 		initngd_debug(LOG_WARNING, "%s[%d] exited abnormally with signal %d", j->program, j->p, WTERMSIG(status));
-	else if (WIFEXITED(status) && WEXITSTATUS(status) > 0)
-		initngd_debug(LOG_WARNING, "%s[%d] exited with exit code %d", j->program, j->p, WEXITSTATUS(status));
 	j->p = 0;
 	j->running = 0;
+	initng_sendmsga2sniffers("notifyRunning", rdata);
 	runloop_observe(j);
 }
 
@@ -298,12 +335,14 @@ static void parse_packet(int fd, char *command, char *data[], void *cookie)
 	struct initng_job *j = NULL;
 	char **datatmp;
 	char *r = "success";
-	int i, argc = 0;
+	int i, argc = 0, dodump = 0;
 	initng_err_t ingerr;
 	static struct arg_check_s {
 		const char *command;
 		int arg_count;
 	} arg_check[] = {
+		{ "dumpJobState", 1 }, /* label */
+		{ "enableMonitor", 1 }, /* true/false */
 		{ "createJob", 1 }, /* label */
 		{ "removeJob", 1 }, /* label */
 		{ "enableJob", 2 }, /* label, true/false */
@@ -325,10 +364,16 @@ static void parse_packet(int fd, char *command, char *data[], void *cookie)
 		}
 	}
 
-	/* XXX - define macro for preflight (find job, verify trust) */
+	if (*data)
+		j = job_find(*data);
 
-	if (!strcmp(command, "createJob")) {
-		if ((j = job_find(*data))) {
+	if (!strcmp(command, "enableMonitor")) {
+		if (!strcmp(data[0], "true"))
+			initng_set_sniffer(fd, true);
+		else
+			initng_set_sniffer(fd, false);
+	} else if (!strcmp(command, "createJob")) {
+		if (j) {
 			r = "job exists";
 			goto out;
 		}
@@ -338,13 +383,11 @@ static void parse_packet(int fd, char *command, char *data[], void *cookie)
 		TAILQ_INIT(&j->thefds);
 		TAILQ_INSERT_TAIL(&thejobs, j, tqe);
 		goto out;
-	} else {
-		if (!(j = job_find(*data))) {
+	} else if (!j) {
 			r = "job not found";
-			goto out;
-		}
-	}
-	if (!strcmp(command, "removeJob")) {
+	} else if (!strcmp(command, "dumpJobState")) {
+		dodump = 1;
+	} else if (!strcmp(command, "removeJob")) {
 		job_remove_cleanup(j);
 	} else if (!strcmp(command, "enableJob")) {
 		if (!strcmp(data[1], "true"))
@@ -384,9 +427,102 @@ static void parse_packet(int fd, char *command, char *data[], void *cookie)
 		r = "unknown command";
 	}
 out:
-	ingerr = initng_sendmsg(fd, "commandACK", r, NULL);
+	if (!dodump) {
+		ingerr = initng_sendmsg(fd, "commandACK", r, NULL);
+		if (ingerr != INITNG_ERR_SUCCESS)
+			initngd_debug(LOG_DEBUG, "fd %d: failed to send command acknowledgement: %s", fd, initng_strerror(ingerr));
+	}
+	initng_sendmsga2sniffers(command, data);
+	if (dodump)
+		dump_job_state(fd, j);
+}
+
+static void do_web_feedback(void)
+{
+	struct sockaddr_in sain;
+	struct initng_job *j;
+	socklen_t slen = sizeof(sain);
+	int afd;
+	FILE *F;
+	char **tmpv;
+
+	if ((afd = accept(thewebsocket, (struct sockaddr *)&sain, &slen)) == -1)
+		return;
+
+	F = fdopen(afd, "w+");
+
+	fprintf(F, "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n");
+
+	fprintf(F, "<html><body><table border=\"1\" width=\"100%%\">");
+
+	fprintf(F, "<tr>");
+	fprintf(F, "<td>Label</td>");
+	fprintf(F, "<td>Description</td>");
+	fprintf(F, "<td>Program</td>");
+	fprintf(F, "<td>PID</td>");
+	fprintf(F, "<td>UID</td>");
+	fprintf(F, "<td>GID</td>");
+	fprintf(F, "<td>Flags</td>");
+	fprintf(F, "<td>argv</td>");
+	fprintf(F, "<td>env</td>");
+	fprintf(F, "<td>msn</td>");
+	fprintf(F, "</tr>");
+
+	TAILQ_FOREACH(j, &thejobs, tqe) {
+		fprintf(F, "<tr>");
+		fprintf(F, "<td>%s</td>", j->label);
+		fprintf(F, "<td>%s</td>", j->description);
+		fprintf(F, "<td>%s</td>", j->program);
+		fprintf(F, "<td>%d</td>", j->p);
+		fprintf(F, "<td>%d</td>", j->u);
+		fprintf(F, "<td>%d</td>", j->g);
+		fprintf(F, "<td>");
+		fprintf(F, "%s ", j->enabled ? "enabled" : "");
+		fprintf(F, "%s ", j->on_demand ? "on_demand" : "");
+		fprintf(F, "%s ", j->batch ? "batch" : "");
+		fprintf(F, "%s ", j->launch_once ? "launch_once" : "");
+		fprintf(F, "%s ", j->supports_mgmt ? "supports_mgmt" : "");
+		fprintf(F, "%s ", j->running ? "running" : "");
+		fprintf(F, "%s ", j->compat_inetd_wait ? "compat_inetd_wait" : "");
+		fprintf(F, "%s", j->compat_inetd_nowait ? "compat_inetd_nowait" : "");
+		fprintf(F, "</td>");
+		fprintf(F, "<td>");
+		for (tmpv = j->argv; *tmpv; tmpv++)
+			fprintf(F, "%s%s", *tmpv, *(tmpv + 1) ? " " : "");
+		fprintf(F, "</td>");
+		fprintf(F, "<td>");
+		if (j->env)
+			for (tmpv = j->env; *tmpv; tmpv++)
+				fprintf(F, "%s%s", *tmpv, *(tmpv + 1) ? " " : "");
+		fprintf(F, "</td>");
+		fprintf(F, "<td>");
+		if (j->msn)
+			for (tmpv = j->msn; *tmpv; tmpv++)
+				fprintf(F, "%s%s", *tmpv, *(tmpv + 1) ? " " : "");
+		fprintf(F, "</td></tr>");
+	}
+
+	fprintf(F, "</table></body></html>");
+
+	fclose(F);
+}
+
+static void dump_job_state(int fd, struct initng_job *j)
+{
+	struct initng_job_fd *jfd;
+	initng_err_t ingerr;
+	
+	TAILQ_FOREACH(jfd, &j->thefds, tqe) {
+		char *fdstr = NULL;
+		asprintf(&fdstr, "%d", jfd->fd);
+		ingerr = initng_sendmsg(fd, "addFD", j->label, jfd->label, fdstr, NULL);
+		free(fdstr);
+		if (ingerr != INITNG_ERR_SUCCESS)
+			return initngd_debug(LOG_DEBUG, "failed to send fd %d: %s", jfd->fd, initng_strerror(ingerr));
+	}
+	ingerr = initng_sendmsg(fd, "dumpJobStateDONE", j->label, NULL);
 	if (ingerr != INITNG_ERR_SUCCESS)
-		initngd_debug(LOG_DEBUG, "fd %d: failed to send command acknowledgement: %s", fd, initng_strerror(ingerr));
+		initngd_debug(LOG_DEBUG, "failed to send completion of dumpJobState: %s", initng_strerror(ingerr));
 }
 
 /* the remaining are utility functions */
