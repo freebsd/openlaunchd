@@ -1,26 +1,2 @@
 #!/bin/sh
-
-##
-# Load network kernel modules
-##
-
-. /etc/rc.common
-
-StartService ()
-{
-	if [ "${VPNSERVER:=-NO-}" = "-YES-" ]; then
-		vpnd
-	fi
-}
-
-StopService ()
-{
-    return 0
-}
-
-RestartService ()
-{
-    return 0
-}
-
-RunService "$1"
+exit 0
