@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>UUID</key>
+	<string>E8D8FB5E-50F6-11D8-A465-000A95CC7904</string>
+	<key>GroupName</key>
+	<string>staff</string>
+	<key>Program</key>
+	<string>/bin/echo</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>echo</string>
+		<string>eats</string>
+		<string>boogers</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>TESTVAR1</key>
+		<string>foo</string>
+		<key>TESTVAR2</key>
+		<string>bar</string>
+		<key>TESTVAR3</key>
+		<string>baz</string>
+	</dict>
+	<key>MachServiceNames</key>
+	<array>
+		<string>myMPname1</string>
+		<string>myMPname2</string>
+		<string>myMPname3</string>
+	</array>
+	<key>Sockets</key>
+	<array>
+		<dict>
+			<key>addrinfo_nodename</key>
+			<string>localhost</string>
+			<key>addrinfo_servname</key>
+			<string>3456</string>
+			<key>addrinfo_passive</key>
+			<true/>
+			<key>addrinfo_socktype</key>
+			<string>SOCK_STREAM</string>
+		</dict>
+		<dict>
+			<key>addrinfo_nodename</key>
+			<string>localhost</string>
+			<key>addrinfo_servname</key>
+			<string>6543</string>
+			<key>addrinfo_passive</key>
+			<true/>
+			<key>addrinfo_socktype</key>
+			<string>SOCK_DGRAM</string>
+		</dict>
+	</array>
+	<key>ServiceDescription</key>
+	<string>test the descriptions</string>
+	<key>UserName</key>
+	<string>daemon</string>
+	<key>inetdSingleThreaded</key>
+	<true/>
+</dict>
+</plist>

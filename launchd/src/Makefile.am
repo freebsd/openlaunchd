@@ -1,8 +1,8 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare -Wunreachable-code
 
 sbin_SCRIPTS = service
 
-sbin_PROGRAMS = SystemStarter init mach_init
+sbin_PROGRAMS = SystemStarter init mach_init initctl initngd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext
 
@@ -12,12 +12,18 @@ SystemStarter_LDFLAGS = -framework CoreFoundation -framework Bom
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
+initctl_LDFLAGS = -framework CoreFoundation
+
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 	Log.c TextDisplay.c main.c SafeBootPrivate.c
 
 init_SOURCES = init.c
+
+initctl_SOURCES = libinitng.c initctl.c
+
+initngd_SOURCES = initngd.c
 
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 
