@@ -352,7 +352,7 @@ single_user(void)
 
                 setenv("TERM", "vt100", 1);
 		setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
-		setenv("VerboseFlag", runcom_verbose ? "-v" : "", 1);
+		setenv("VerboseFlag", "-v", 1); /* single user mode implies verbose mode */
 		setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
 		setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 
