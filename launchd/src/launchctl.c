@@ -421,24 +421,6 @@ static void distill_config_file(launch_data_t id_plist)
 {
 	launch_data_t tmp;
 
-	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_USERNAME))) {
-		struct passwd *pwe = getpwnam(launch_data_get_string(tmp));
-		if (pwe) {
-			launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
-			launch_data_set_integer(ntmp, pwe->pw_uid);
-			launch_data_dict_insert(id_plist, ntmp, LAUNCH_JOBKEY_UID);
-		}
-	}
-
-	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_GROUPNAME))) {
-		struct group *gre = getgrnam(launch_data_get_string(tmp));
-		if (gre) {
-			launch_data_t ntmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
-			launch_data_set_integer(ntmp, gre->gr_gid);
-			launch_data_dict_insert(id_plist, ntmp, LAUNCH_JOBKEY_GID);
-		}
-	}
-
 	if ((tmp = launch_data_dict_lookup(id_plist, LAUNCH_JOBKEY_SOCKETS)))
 		launch_data_dict_iterate(tmp, sock_dict_cb, id_plist);
 }

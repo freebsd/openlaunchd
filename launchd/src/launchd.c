@@ -33,6 +33,7 @@
 #include <pthread.h>
 #include <paths.h>
 #include <pwd.h>
+#include <grp.h>
 #include <dlfcn.h>
 
 #include "launch.h"
@@ -1321,7 +1322,9 @@ static void job_start_child(struct jobcb *j)
 	launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
 	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
 	size_t i, argv_cnt;
-	const char **argv;
+	const char **argv, *tmpstr;
+	struct group *gre = NULL;
+	gid_t gre_g = 0;
 	static const struct {
 		const char *key;
 		int val;
@@ -1370,20 +1373,6 @@ static void job_start_child(struct jobcb *j)
 	if (!inetcompat && job_get_bool(j->ldj, LAUNCH_JOBKEY_SESSIONCREATE))
 		launchd_SessionCreate(job_get_argv0(j->ldj));
 
-	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
-		const char *u = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME);
-		struct passwd *pwe;
-
-		if (u == NULL) {
-			syslog(LOG_NOTICE, "\"%s\" requires \"%s\"", LAUNCH_JOBKEY_INITGROUPS, LAUNCH_JOBKEY_USERNAME);
-		} else if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_GID)) {
-			initgroups(u, job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
-		} else if ((pwe = getpwnam(u))) {
-			initgroups(u, pwe->pw_gid);
-		} else {
-			syslog(LOG_NOTICE, "Could not find base group in order to call initgroups()");
-		}
-	}
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_LOWPRIORITYIO)) {
 		int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
 		int val = 1;
@@ -1391,29 +1380,69 @@ static void job_start_child(struct jobcb *j)
 		if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
 			syslog(LOG_NOTICE, "sysctl(\"%s\"): %m", "kern.proc_low_pri_io");
 	}
-	if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))
-		chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY));
-	if (job_get_integer(j->ldj, LAUNCH_JOBKEY_GID) != getgid())
-		setgid(job_get_integer(j->ldj, LAUNCH_JOBKEY_GID));
-	if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UID) != getuid())
-		setuid(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID));
-	if (job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY))
-		chdir(job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY));
+	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY)))
+		chroot(tmpstr);
+	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_GROUPNAME))) {
+		gre = getgrnam(tmpstr);
+		if (gre) {
+			gre_g = gre->gr_gid;
+			if (-1 == setgid(gre_g)) {
+				syslog(LOG_WARNING, "%s: setgid(%d): %m", job_get_argv0(j->ldj), gre_g);
+				_exit(EXIT_FAILURE);
+			}
+		} else {
+			syslog(LOG_WARNING, "%s: getgrnam(\"%s\") failed", job_get_argv0(j->ldj), tmpstr);
+			_exit(EXIT_FAILURE);
+		}
+	}
+	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME))) {
+		struct passwd *pwe = getpwnam(tmpstr);
+		if (pwe) {
+			uid_t pwe_u = pwe->pw_uid;
+			uid_t pwe_g = pwe->pw_gid;
+
+			if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
+				syslog(LOG_WARNING, "%s: expired account: %s", job_get_argv0(j->ldj), tmpstr);
+				_exit(EXIT_FAILURE);
+			}
+			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
+				if (-1 == initgroups(tmpstr, gre ? gre_g : pwe_g)) {
+					syslog(LOG_WARNING, "%s: initgroups(): %m", job_get_argv0(j->ldj));
+					_exit(EXIT_FAILURE);
+				}
+			}
+			if (!gre) {
+				if (-1 == setgid(pwe_g)) {
+					syslog(LOG_WARNING, "%s: setgid(%d): %m", job_get_argv0(j->ldj), pwe_g);
+					_exit(EXIT_FAILURE);
+				}
+			}
+			if (-1 == setuid(pwe_u)) {
+				syslog(LOG_WARNING, "%s: setuid(%d): %m", job_get_argv0(j->ldj), pwe_u);
+				_exit(EXIT_FAILURE);
+			}
+		} else {
+			syslog(LOG_WARNING, "%s: getpwnam(\"%s\") failed", job_get_argv0(j->ldj), tmpstr);
+			_exit(EXIT_FAILURE);
+		}
+	}
+	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY)))
+		chdir(tmpstr);
 	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
 		umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
-	if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH)) {
-		int sofd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH))) {
+		int sofd = open(tmpstr, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sofd == -1) {
-			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH));
+			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", tmpstr);
 		} else {
 			dup2(sofd, STDOUT_FILENO);
 			close(sofd);
 		}
 	}
-	if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH)) {
-		int sefd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH), O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH))) {
+		int sefd = open(tmpstr, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sefd == -1) {
-			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH));
+			syslog(LOG_NOTICE, "open(\"%s\", ...): %m", tmpstr);
 		} else {
 			dup2(sefd, STDERR_FILENO);
 			close(sefd);
