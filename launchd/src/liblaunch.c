@@ -582,11 +582,16 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 	}
 
 	lh->sendlen -= r;
-	memmove(lh->sendbuf, lh->sendbuf + r, lh->sendlen);
-	lh->sendbuf = realloc(lh->sendbuf, lh->sendlen);
+	if (lh->sendlen > 0) {
+		memmove(lh->sendbuf, lh->sendbuf + r, lh->sendlen);
+	} else {
+		free(lh->sendbuf);
+		lh->sendbuf = malloc(0);
+	}
 
 	lh->sendfdcnt = 0;
-	lh->sendfds = realloc(lh->sendfds, 0);
+	free(lh->sendfds);
+	lh->sendfds = malloc(0);
 
 	if (lh->sendlen > 0) {
 		errno = EAGAIN;
@@ -715,12 +720,20 @@ parse_more:
 		cb(rmsg, context);
 
 		lh->recvlen -= data_offset;
-		memmove(lh->recvbuf, lh->recvbuf + data_offset, lh->recvlen);
-		lh->recvbuf = realloc(lh->recvbuf, lh->recvlen);
+		if (lh->recvlen > 0) {
+			memmove(lh->recvbuf, lh->recvbuf + data_offset, lh->recvlen);
+		} else {
+			free(lh->recvbuf);
+			lh->recvbuf = malloc(0);
+		}
 
 		lh->recvfdcnt -= fd_offset;
-		memmove(lh->recvfds, lh->recvfds + fd_offset, lh->recvfdcnt * sizeof(int));
-		lh->recvfds = realloc(lh->recvfds, lh->recvfdcnt * sizeof(int));
+		if (lh->recvfdcnt > 0) {
+			memmove(lh->recvfds, lh->recvfds + fd_offset, lh->recvfdcnt * sizeof(int));
+		} else {
+			free(lh->recvfds);
+			lh->recvfds = malloc(0);
+		}
 
 		if (lh->recvlen > 0)
 			goto parse_more;
