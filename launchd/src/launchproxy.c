@@ -15,6 +15,7 @@
 #include <syslog.h>
 #include <libgen.h>
 #include <getopt.h>
+#include <signal.h>
 
 #include "launch.h"
 
@@ -98,6 +99,9 @@ int main(int argc __attribute__((unused)), char *argv[])
 			w = launch_data_get_bool(tmp);
 	}
 
+	if (!w)
+		signal(SIGCHLD, SIG_IGN);
+
 	for (;;) {
 		if ((r = kevent(kq, NULL, 0, &kev, 1, &timeout)) == -1) {
 			syslog(LOG_DEBUG, "kevent(): %m");
@@ -141,6 +145,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 			dup2(r, STDIN_FILENO);
 			dup2(r, STDOUT_FILENO);
 			dup2(r, STDERR_FILENO);
+			signal(SIGCHLD, SIG_DFL);
 			execv(prog ? prog : argv[1], argv + 1);
 			syslog(LOG_ERR, "execv(): %m");
 			exit(EXIT_FAILURE);
