@@ -959,7 +959,7 @@ static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 	char slimstr[100];
 	char hlimstr[100];
 	struct rlimit *lmts = NULL;
-	launch_data_t resp, msg, tmp;
+	launch_data_t resp, resp1 = NULL, msg, tmp;
 	int r = 0;
 	size_t i, lsz = -1, which = 0;
 	rlim_t slim = -1, hlim = -1;
@@ -1063,10 +1063,12 @@ static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 		r = 1;
 	}
 
-	launch_data_free(resp);
-
-	if (argc <= 2 || r != 0)
+	if (argc <= 2 || r != 0) {
+		launch_data_free(resp);
 		return r;
+	} else {
+		resp1 = resp;
+	}
 
 	lmts[which].rlim_cur = slim;
 	lmts[which].rlim_max = hlim;
@@ -1089,6 +1091,7 @@ static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 	}
 
 	launch_data_free(resp);
+	launch_data_free(resp1);
 
 	return r;
 }

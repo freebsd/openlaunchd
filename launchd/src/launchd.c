@@ -1584,22 +1584,35 @@ static void notify_helperd(void)
 static launch_data_t adjust_rlimits(launch_data_t in)
 {
 	static struct rlimit *l = NULL;
+	static size_t lsz = sizeof(struct rlimit) * RLIM_NLIMITS;
 	struct rlimit *ltmp;
 	size_t i,ltmpsz;
 
 	if (l == NULL) {
-		l = malloc(sizeof(struct rlimit) * RLIM_NLIMITS);
+		l = malloc(lsz);
+		for (i = 0; i < RLIM_NLIMITS; i++) {
+			if (getrlimit(i, l + i) == -1)
+				syslog(LOG_WARNING, "getrlimit(): %m");
+		}
 	}
 
 	if (in) {
 		ltmp = launch_data_get_opaque(in);
 		ltmpsz = launch_data_get_opaque_size(in);
-		for (i = 0; i < (ltmpsz / sizeof(struct rlimit)); i++)
-			setrlimit(i, ltmp + i);
-	}
 
-	for (i = 0; i < RLIM_NLIMITS; i++)
-		getrlimit(i, l + i);
+		if (ltmpsz > lsz) {
+			syslog(LOG_WARNING, "Too much rlimit data sent!");
+			ltmpsz = lsz;
+		}
+		
+		for (i = 0; i < (ltmpsz / sizeof(struct rlimit)); i++) {
+			if (ltmp[i].rlim_cur != l[i].rlim_cur || ltmp[i].rlim_max != l[i].rlim_max) {
+				l[i] = ltmp[i];
+				if (setrlimit(i, l + i) == -1)
+					syslog(LOG_WARNING, "setrlimit(): %m");
+			}
+		}
+	}
 
 	return launch_data_new_opaque(l, sizeof(struct rlimit) * RLIM_NLIMITS);
 }
