@@ -411,7 +411,9 @@ if [ ! -d ${appprofiledir} ]; then
 	chown root:wheel ${appprofiledir}
 fi
 
-SystemStarter ${VerboseFlag} ${SafeBoot}
+if [ "${SafeBoot}" != "-x" ]; then
+	SystemStarter ${VerboseFlag}
+fi
 
 # Set language from CDIS.custom - assumes this is parse-able by sh
 if [ -f /var/log/CDIS.custom ]; then
