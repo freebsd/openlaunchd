@@ -591,6 +591,7 @@ exec_server(server_t *serverp)
 	sigemptyset(&mask);
 	(void) sigprocmask(SIG_SETMASK, &mask, (sigset_t *)NULL);
 
+	setpriority(PRIO_PROCESS, 0, 0);
 	execv(argv[0], argv);
 	panic("Disabled server %x bootstrap %x: \"%s\": exec(): %s",
 			   serverp->port,
