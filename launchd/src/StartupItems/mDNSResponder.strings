@@ -2,12 +2,12 @@
 <!DOCTYPE plist SYSTEM "file://localhost/System/Library/DTDs/PropertyList.dtd">
 <plist version="0.9">
 <dict>
-	<key>Multi-cast DNS Responder</key>
-	<string>Multi-cast DNS Responder</string>
-	<key>Starting Apple Multicast DNS Responder</key>
-	<string>Starting Apple Multicast DNS Responder</string>
-	<key>Stopping Apple Multicast DNS Responder</key>
-	<string>Stopping Apple Multicast DNS Responder</string>
+	<key>Multicast DNS Responder</key>
+	<string>Multicast DNS Responder</string>
+	<key>Starting Multicast DNS Responder</key>
+	<string>Starting Multicast DNS Responder</string>
+	<key>Stopping Multicast DNS Responder</key>
+	<string>Stopping Multicast DNS Responder</string>
 </dict>
 </plist>
 

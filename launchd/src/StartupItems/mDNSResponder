@@ -1,22 +1,15 @@
 #!/bin/sh
 
-##
-# Multi-cast DNS Responder
-##
-
 . /etc/rc.common
 
 StartService ()
 {
 
-    ## 
-    # Startup the Multi-cast DNS Responder if it is available on the system
-    ##
     if [ -f /usr/sbin/mDNSResponder ]; then
         if pid=$(GetPID mDNSResponder); then
             return 0
         else
-            ConsoleMessage "Starting Apple Multicast DNS Responder"
+            ConsoleMessage "Starting Multicast DNS Responder"
             /usr/sbin/mDNSResponder
         fi
     fi
@@ -25,10 +18,10 @@ StartService ()
 StopService ()
 {
     if pid=$(GetPID mDNSResponder); then
-	ConsoleMessage "Stopping Apple Multicast DNS Responder"
+	ConsoleMessage "Stopping Multicast DNS Responder"
 	kill -TERM "${pid}"
     else
-	ConsoleMessage "Apple Multicast DNS Responder is not running."
+	ConsoleMessage "Multicast DNS Responder is not running."
     fi
 }
 
