@@ -114,6 +114,7 @@ static void dummysignalhandler(int sig);
 
 static void loopback_setup(void);
 static void update_lm(void);
+static void workaround3048875(int argc, char *argv[]);
 
 static int thesocket = -1;
 static char *thesockpath = NULL;
@@ -132,6 +133,9 @@ int main(int argc, char *argv[])
 		SIGURG, SIGTSTP, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
 
+	if (getpid() == 1)
+		workaround3048875(argc, argv);
+	
 	ourmask = umask(0);
 	umask(ourmask);
 
@@ -1262,4 +1266,28 @@ static void loopback_setup(void)
  
 	close(s);
 	close(s6);
+}
+
+static void workaround3048875(int argc, char *argv[])
+{
+	size_t i;
+	char **ap, *newargv[100], *p = argv[1];
+
+	if (argc == 1 || argc > 2)
+		return;
+
+	newargv[0] = argv[0];
+	for (ap = newargv + 1, i = 1; ap < &newargv[100]; ap++, i++) {
+		if ((*ap = strsep(&p, " \t")) == NULL)
+			break;
+		if (**ap == '\0') {
+			*ap = NULL;
+			break;
+		}
+	}
+
+	if (argc == i)
+		return;
+
+	execv(newargv[0], newargv);
 }
