@@ -304,49 +304,57 @@ static void launchd_server_init(void)
 {
 	struct sockaddr_un sun;
 	mode_t oldmask;
-	int r = -2, fd = -1, lockfd = -2;
-	char lockpath[1024];
+	int r, fd = -1, ourdirfd = -1;
+	char ourdir[1024];
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 
-	r = mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH);
-	if (r == -1 && errno == EROFS)
-		return;
-	if (r == -1 && errno != EEXIST) {
-		syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
-		exit(EXIT_FAILURE);
-	}
+	snprintf(ourdir, sizeof(ourdir), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
+	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u/sock", LAUNCHD_SOCK_PREFIX, getuid());
 
-	snprintf(lockpath, sizeof(lockpath), "%s/.%u.lock", LAUNCHD_SOCK_PREFIX, getuid());
-	snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
-
-	do {
-		if (lockfd == -1)
-			sleep(1);
-		lockfd = open(lockpath, O_CREAT|O_EXCL|O_RDWR, S_IRUSR|S_IWUSR);
-	} while (lockfd == -1 && errno == EEXIST);
-		       
-	if (lockfd == -1) {
-		if (errno == ENOENT || errno == EROFS)
+	if (mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH) == -1) {
+		if (errno == EROFS)
 			return;
-		syslog(LOG_ERR, "open(\"%s\"): %m", lockpath);
-		exit(EXIT_FAILURE);
+		if (errno != EEXIST) {
+			syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+			;exit(EXIT_FAILURE);
+		}
 	}
 
-	close(lockfd);
-
-	if ((fd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
-		goto out_bad;
-	if (connect(fd, (struct sockaddr *)&sun, sizeof(sun)) == 0) {
-		if (unlink(lockpath) == -1)
-			syslog(LOG_ERR, "unlink(\"%s\"): %m", lockpath);
-		/* race in setting up per-user launchd */
-		exit(EXIT_SUCCESS);
+	unlink(ourdir);
+	if (mkdir(ourdir, S_IRWXU) == -1) {
+		if (errno == EROFS) {
+			return;
+		} else if (errno == EEXIST) {
+			struct stat sb;
+			stat(ourdir, &sb);
+			if (!S_ISDIR(sb.st_mode))
+				return;
+		} else {
+			syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
+			;exit(EXIT_FAILURE);
+		}
 	}
-	close(fd);
+
+	ourdirfd = _fd(open(ourdir, O_RDONLY));
+	if (ourdirfd == -1) {
+		syslog(LOG_ERR, "open(\"%s\"): %m", ourdir);
+		;exit(EXIT_FAILURE);
+	}
+
+	if (flock(ourdirfd, LOCK_EX|LOCK_NB) == -1) {
+		if (errno == EWOULDBLOCK) {
+			exit(EXIT_SUCCESS);
+		} else {
+			syslog(LOG_ERR, "flock(\"%s\"): %m", ourdir);
+			;exit(EXIT_FAILURE);
+		}
+	}
+
 	if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
-		syslog(LOG_ERR, "unlink(\"thesocket\"): %m");
+		if (errno != EROFS)
+			syslog(LOG_ERR, "unlink(\"thesocket\"): %m");
 		goto out_bad;
 	}
 	if ((fd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1) {
@@ -356,11 +364,13 @@ static void launchd_server_init(void)
 	oldmask = umask(077);
 	r = bind(fd, (struct sockaddr *)&sun, sizeof(sun));
 	umask(oldmask);
-	chown(sun.sun_path, getuid(), getgid());
 	if (r == -1) {
-		syslog(LOG_ERR, "bind(\"thesocket\"): %m");
+		if (errno != EROFS)
+			syslog(LOG_ERR, "bind(\"thesocket\"): %m");
 		goto out_bad;
 	}
+	if (chown(sun.sun_path, getuid(), getgid()) == -1)
+		syslog(LOG_WARNING, "chown(\"thesocket\"): %m");
 	if (listen(fd, SOMAXCONN) == -1) {
 		syslog(LOG_ERR, "listen(\"thesocket\"): %m");
 		goto out_bad;
@@ -371,18 +381,16 @@ static void launchd_server_init(void)
 		goto out_bad;
 	}
 
-	goto out;
+	thesocket = fd;
+	setgid(getgid());
+	setuid(getuid());
+
+	return;
 out_bad:
-	close(fd);
-	fd = -1;
-out:
-	if (unlink(lockpath) == -1)
-		syslog(LOG_ERR, "unlink(\"%s\"): %m", lockpath);
-	if (fd != -1) {
-		thesocket = fd;
-		setgid(getgid());
-		setuid(getuid());
-	}
+	if (fd != -1)
+		close(fd);
+	if (ourdirfd != -1)
+		close(ourdirfd);
 }
 
 static long long job_get_integer(launch_data_t j, const char *key)

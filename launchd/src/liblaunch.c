@@ -67,7 +67,7 @@ static void launch_client_init(void)
 		if (where)
 			strncpy(sun.sun_path, where, sizeof(sun.sun_path));
 		else
-			snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
+			snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u/sock", LAUNCHD_SOCK_PREFIX, getuid());
 
 		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
 			goto out_bad;
