@@ -702,8 +702,13 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(NULL);
+		launch_data_revoke_fds(resp);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOB))) {
+		resp = get_jobs(launch_data_get_string(tmp));
+		launch_data_revoke_fds(resp);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOBWITHHANDLES))) {
 		resp = get_jobs(launch_data_get_string(tmp));
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {

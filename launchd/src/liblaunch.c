@@ -437,9 +437,11 @@ static void make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **
 
 	switch (d->type) {
 	case LAUNCH_DATA_FD:
-		*fd_where = realloc(*fd_where, (*fdcnt + 1) * sizeof(int));
-		(*fd_where)[*fdcnt] = d->fd;
-		(*fdcnt)++;
+		if (d->fd != -1) {
+			*fd_where = realloc(*fd_where, (*fdcnt + 1) * sizeof(int));
+			(*fd_where)[*fdcnt] = d->fd;
+			(*fdcnt)++;
+		}
 		break;
 	case LAUNCH_DATA_STRING:
 		*where = realloc(*where, *len + strlen(d->string) + 1);
@@ -506,8 +508,10 @@ static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoff
 		*data_offset += r->opaque_size;
 		break;
 	case LAUNCH_DATA_FD:
-		r->fd = _fd(conn->recvfds[*fdoffset]);
-		*fdoffset += 1;
+		if (r->fd != -1) {
+			r->fd = _fd(conn->recvfds[*fdoffset]);
+			*fdoffset += 1;
+		}
 		break;
 	case LAUNCH_DATA_INTEGER:
 	case LAUNCH_DATA_REAL:

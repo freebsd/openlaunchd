@@ -10,6 +10,7 @@
 #define LAUNCH_KEY_STARTJOB			"StartJob"
 #define LAUNCH_KEY_STOPJOB			"StopJob"
 #define LAUNCH_KEY_GETJOB			"GetJob"
+#define LAUNCH_KEY_GETJOBWITHHANDLES		"GetJobWithHandles"
 #define LAUNCH_KEY_GETJOBS			"GetJobs"
 #define LAUNCH_KEY_CHECKIN			"CheckIn"
 #define LAUNCH_KEY_GETUSERENVIRONMENT		"GetUserEnvironment"
