@@ -1,0 +1,123 @@
+#!/bin/sh
+
+set -e
+
+# don't let people kill us. We shouldn't be long, so this isn't a big deal.
+
+trap "" TSTP
+trap "" HUP
+trap "" INT
+trap "" QUIT
+trap "" TERM
+
+function restart_xinetd ()
+{
+	kill -HUP $(cat /var/run/xinetd.pid 2>/dev/null) 2>/dev/null || /usr/sbin/xinetd -pidfile /var/run/xinetd.pid
+}
+
+if [ $# -eq 0 ]
+then
+   echo "Usage: $(basename $0) --list | <service-name> <command>" >&2
+   exit 1
+fi
+
+if [ "$1" == "--list" ]
+then
+	cd /etc/xinetd.d 2>/dev/null
+	echo smtp
+	echo fax-receive
+	ls -1
+	exit 0
+elif [ "$1" == "--test-if-configured-on" ]
+then
+	if [ "$2" = "smtp" ]
+	then
+		egrep '^MAILSERVER.*-YES-' /etc/hostconfig >/dev/null 2>&1
+		exit $? 
+	fi
+	if [ "$2" = "fax-receive" ]
+	then
+		egrep '^fax.*unknown.*on$' /etc/ttys >/dev/null 2>&1
+		exit $? 
+	fi
+	[ ! -f "/etc/xinetd.d/$2" ] && exit 1
+	egrep "disable.*=.*no" /etc/xinetd.d/$2 >/dev/null 2>&1
+	exit $?
+elif [ "$1" == "--test-if-available" ]
+then
+	[ "$2" = "smtp" ] && exit 0
+	[ "$2" = "fax-receive" ] && exit 0
+	[ ! -f "/etc/xinetd.d/$2" ] && exit 1
+	SERVER_FILE=$(egrep 'server[ 	]' "/etc/xinetd.d/$2" | sed 's,.*server[ 	]*=[ 	]*\(.*\),\1,g')
+	[ ! -f "$SERVER_FILE" ] && exit 1
+	exit 0
+elif [ -f "/etc/xinetd.d/$1" ]
+then
+	if [ $UID != 0 ]
+	then
+		echo "You must be root to run this option" >&2
+		exit 1
+	fi
+	# yes, /var/run is gross, but it is tmp directory cleaned up a boot,
+	# writable only by root (so i don't need to worry about the security
+	# implications of mktemp)
+	TMPFILE=$(mktemp /var/run/xinetd.tmp.$$.XXXXXX)
+	cp -f "/etc/xinetd.d/$1" $TMPFILE
+	if [ "$2" == start ]
+	then
+		sed 's/disable.*=.*/disable = no/g' < $TMPFILE > "/etc/xinetd.d/$1"
+		restart_xinetd
+	elif [ "$2" == stop ]
+	then
+		sed 's/disable.*=.*/disable = yes/g' < $TMPFILE > "/etc/xinetd.d/$1"
+		restart_xinetd
+	else
+		echo "No such service command" >&2
+	fi
+	rm -f $TMPFILE
+elif [ "$1" = "smtp" ]
+then
+	if [ $UID != 0 ]
+	then
+		echo "You must be root to run this option" >&2
+		exit 1
+	fi
+	TMPFILE=$(mktemp /var/run/xinetd.tmp.$$.XXXXXX)
+	cp -f /etc/hostconfig $TMPFILE
+	if [ "$2" == start ]
+	then
+		sed 's,^MAILSERVER=\(.*\),MAILSERVER=-YES-,g' < $TMPFILE > /etc/hostconfig
+		postfix start
+	elif [ "$2" == stop ]
+	then
+		sed 's,^MAILSERVER=\(.*\),MAILSERVER=-NO-,g' < $TMPFILE > /etc/hostconfig
+		postfix stop
+	else
+		echo "No such service command" >&2
+	fi
+	rm -f $TMPFILE
+elif [ "$1" = "fax-receive" ]
+then
+	if [ $UID != 0 ]
+	then
+		echo "You must be root to run this option" >&2
+		exit 1
+	fi
+	TMPFILE=$(mktemp /var/run/xinetd.tmp.$$.XXXXXX)
+	cp -f /etc/ttys $TMPFILE
+	if [ "$2" == start ]
+	then
+		sed 's,^fax\(.*\)off$,fax\1on,g' < $TMPFILE > /etc/ttys
+		kill -HUP 1
+	elif [ "$2" == stop ]
+	then
+		sed 's,^fax\(.*\)on$,fax\1off,g' < $TMPFILE > /etc/ttys
+		kill -HUP 1
+	else
+		echo "No such service command" >&2
+	fi
+	rm -f $TMPFILE
+else
+	echo "No such service $1" >&2
+	exit 1
+fi
