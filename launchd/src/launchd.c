@@ -161,9 +161,15 @@ int main(int argc, char *argv[])
 	__kevent(mainkq, thesocket, EVFILT_READ, EV_ADD, 0, 0, &kqlisten_callback);
 
 	for (;;) {
-		if (kevent(mainkq, NULL, 0, &kev, 1, NULL) == -1) {
+		switch (kevent(mainkq, NULL, 0, &kev, 1, NULL)) {
+		case -1:
 			launchd_debug(LOG_DEBUG, "kevent(): %m");
 			continue;
+		case 0:
+			launchd_debug(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
+			continue;
+		default:
+			break;
 		}
 		(*((kq_callback *)kev.udata))(kev.udata, &kev);
 	}
