@@ -46,7 +46,7 @@ bootstrap.h bootstrapServer.c bootstrapUser.c: $(srcdir)/bootstrap.defs
 
 man1_MANS = wait4path.1 launchctl.1
 
-man5_MANS = launchd.conf.5
+man5_MANS = launch.plist.5
 
 man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8
 
