@@ -37,6 +37,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <dlfcn.h>
+#include <dirent.h>
 
 #include "launch.h"
 #include "launch_priv.h"
@@ -62,6 +63,8 @@ struct jobcb {
 	pid_t p;
 	struct timeval start_time;
 	size_t failed_exits;
+	int *qdirs;
+	size_t qdirs_cnt;
 	unsigned int checkedin:1, firstborn:1, debug:1, futureflags:29;
 };
 
@@ -98,8 +101,8 @@ static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqreadcfg_callback = readcfg_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
-static void job_watch_fds(launch_data_t o, void *cookie);
-static void job_ignore_fds(launch_data_t o);
+static void job_watch(struct jobcb *j);
+static void job_ignore(struct jobcb *j);
 static void job_start(struct jobcb *j);
 static void job_start_child(struct jobcb *j);
 static void job_stop(struct jobcb *j);
@@ -135,6 +138,7 @@ static void notify_helperd(void);
 static void loopback_setup(void);
 static void workaround3048875(int argc, char *argv[]);
 static void reload_launchd_config(void);
+static int dir_has_files(const char *path);
 
 static size_t total_children = 0;
 static pid_t readcfg_pid = 0;
@@ -657,18 +661,18 @@ static void launch_data_revoke_fds(launch_data_t o, const char *key __attribute_
 	}
 }
 
-static void job_ignore_fds(launch_data_t o)
+static void job_ignore_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie __attribute__((unused)))
 {
 	size_t i;
 	int fd;
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))job_ignore_fds, NULL);
+		launch_data_dict_iterate(o, job_ignore_fds, NULL);
 		break;
 	case LAUNCH_DATA_ARRAY:
 		for (i = 0; i < launch_data_array_get_count(o); i++)
-			job_ignore_fds(launch_data_array_get_index(o, i));
+			job_ignore_fds(launch_data_array_get_index(o, i), NULL, NULL);
 		break;
 	case LAUNCH_DATA_FD:
 		fd = launch_data_get_fd(o);
@@ -682,23 +686,29 @@ static void job_ignore_fds(launch_data_t o)
 	}
 }
 
-static void job_watch_fds_dict(launch_data_t o, const char *k __attribute__((unused)), void *cookie)
+static void job_ignore(struct jobcb *j)
 {
-	job_watch_fds(o, cookie);
+	size_t i;
+
+	job_ignore_fds(j->ldj, NULL, NULL);
+
+	for (i = 0; i < j->qdirs_cnt; i++) {
+		kevent_mod(j->qdirs[i], EVFILT_VNODE, EV_DELETE, 0, 0, NULL);
+	}
 }
 
-static void job_watch_fds(launch_data_t o, void *cookie)
+static void job_watch_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie)
 {
 	size_t i;
 	int fd;
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, job_watch_fds_dict, cookie);
+		launch_data_dict_iterate(o, job_watch_fds, cookie);
 		break;
 	case LAUNCH_DATA_ARRAY:
 		for (i = 0; i < launch_data_array_get_count(o); i++)
-			job_watch_fds(launch_data_array_get_index(o, i), cookie);
+			job_watch_fds(launch_data_array_get_index(o, i), NULL, cookie);
 		break;
 	case LAUNCH_DATA_FD:
 		fd = launch_data_get_fd(o);
@@ -712,6 +722,35 @@ static void job_watch_fds(launch_data_t o, void *cookie)
 	}
 }
 
+static void job_watch(struct jobcb *j)
+{
+	launch_data_t ld_qdirs = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES);
+	size_t i;
+
+	job_watch_fds(j->ldj, NULL, &j->kqjob_callback);
+
+	for (i = 0; i < j->qdirs_cnt; i++) {
+		kevent_mod(j->qdirs[i], EVFILT_VNODE, EV_ADD|EV_CLEAR,
+				NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK, 0, &j->kqjob_callback);
+	}
+
+	if (!ld_qdirs)
+		return;
+
+	for (i = 0; i < launch_data_array_get_count(ld_qdirs); i++) {
+		launch_data_t ld_idx = launch_data_array_get_index(ld_qdirs, i);
+		const char *thepath = launch_data_get_string(ld_idx);
+		int dcc_r;
+
+		if (-1 == (dcc_r = dir_has_files(thepath))) {
+			syslog(LOG_ERR, "%s: dir_has_files(\"%s\", ...): %m", job_get_argv0(j->ldj), thepath);
+		} else if (dcc_r > 0) {
+			job_start(j);
+			break;
+		}
+	}
+}
+
 static void job_stop(struct jobcb *j)
 {
 	if (j->p)
@@ -720,6 +759,8 @@ static void job_stop(struct jobcb *j)
 
 static void job_remove(struct jobcb *j)
 {
+	size_t i;
+
 	syslog(LOG_DEBUG, "Removing: %s", job_get_argv0(j->ldj));
 
 	TAILQ_REMOVE(&jobs, j, tqe);
@@ -732,6 +773,11 @@ static void job_remove(struct jobcb *j)
 	}
 	launch_data_close_fds(j->ldj);
 	launch_data_free(j->ldj);
+	for (i = 0; i < j->qdirs_cnt; i++)
+		if (-1 != j->qdirs[i])
+			close(j->qdirs[i]);
+	if (j->qdirs)
+		free(j->qdirs);
 	free(j);
 }
 
@@ -978,9 +1024,24 @@ static launch_data_t load_job(launch_data_t pload)
 	TAILQ_INSERT_TAIL(&jobs, j, tqe);
 
 	j->debug = job_get_bool(j->ldj, LAUNCH_JOBKEY_DEBUG);
+
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
+		size_t i;
+
+		j->qdirs_cnt = launch_data_array_get_count(tmp);
+		j->qdirs = malloc(sizeof(int) * j->qdirs_cnt);
+
+		for (i = 0; i < j->qdirs_cnt; i++) {
+			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
+
+			if (-1 == (j->qdirs[i] = open(thepath, O_EVTONLY)))
+				syslog(LOG_ERR, "open(\"%s\", O_EVTONLY) %m", thepath);
+		}
+
+	}
 	
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
-		job_watch_fds(j->ldj, &j->kqjob_callback);
+		job_watch(j);
 		notify_helperd();
 	} else {
 		job_start(j);
@@ -1221,7 +1282,28 @@ static void job_callback(void *obj, struct kevent *kev)
 			job_remove(j);
 			goto out;
 		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
-			job_watch_fds(j->ldj, &j->kqjob_callback);
+			job_watch(j);
+			goto out;
+		}
+	} else if (kev->filter == EVFILT_VNODE) {
+		const char *thepath;
+		int dcc_r;
+		size_t i;
+
+		for (i = 0; i < j->qdirs_cnt; i++) {
+			if (j->qdirs[i] == (int)kev->ident)
+				break;
+		}
+
+		thepath = launch_data_get_string(launch_data_array_get_index(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES), i));
+
+		syslog(LOG_DEBUG, "%s: queue directory modified: %s", job_get_argv0(j->ldj), thepath);
+
+		if (-1 == (dcc_r = dir_has_files(thepath))) {
+			syslog(LOG_ERR, "%s: dir_has_files(\"%s\", ...): %m", job_get_argv0(j->ldj), thepath);
+			goto out;
+		} else if (0 == dcc_r) {
+			syslog(LOG_DEBUG, "%s: spurious wake up, directory empty: %s", job_get_argv0(j->ldj), thepath);
 			goto out;
 		}
 	} else if (kev->filter == EVFILT_READ && kev->flags & EV_EOF && kev->data == 0) {
@@ -1321,7 +1403,7 @@ static void job_start(struct jobcb *j)
 			j->p = c;
 			total_children++;
 			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
-				job_ignore_fds(j->ldj);
+				job_ignore(j);
 		}
 		break;
 	}
@@ -1919,3 +2001,24 @@ __private_extern__ void launchd_SessionCreate(const char *who)
 		syslog(LOG_WARNING, "%s: dlopen(\"%s\",...): %s", who, SECURITY_LIB, dlerror());
 	}
 }
+
+static int dir_has_files(const char *path)
+{
+	DIR *dd = opendir(path);
+	struct dirent *de;
+	bool r = 0;
+
+	if (!dd)
+		return -1;
+
+	while ((de = readdir(dd))) {
+		if (strcmp(de->d_name, ".") && strcmp(de->d_name, "..")) {
+			r = 1;
+			break;
+		}
+	}
+
+	closedir(dd);
+	return r;
+}
+

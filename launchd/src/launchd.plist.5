@@ -142,6 +142,8 @@ This optional key specifies
 code that will be executed at the time that the job is loaded. Additional documentation is located in the
 .Xr launch_Tcl 5
 man page.
+.It Sy QueueDirectories <array of strings>
+This optional key causes the job to be started if any one of the listed directories are not empty.
 .It Sy StandardOutPath <string>
 This optional key specifies what file should be used for data being sent to stdout when using
 .Xr stdio 3 .
