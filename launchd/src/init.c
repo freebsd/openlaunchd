@@ -179,9 +179,6 @@ static int setupargv(session_t, struct ttyent *);
 void
 init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
 {
-	int status;
-	char *argv[5];
-
 	if (sflag) {
 		single_user_mode = true;
 		run_runcom = false;
@@ -192,7 +189,6 @@ init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
 		runcom_verbose = true;
 	if (xflag)
 		runcom_safe = true;
-
 }
 
 void
