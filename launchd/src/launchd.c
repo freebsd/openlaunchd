@@ -48,7 +48,6 @@ struct jobcb {
 	pid_t p;
 	int wstatus;
 	struct timeval start_time;
-	struct timeval exit_time;
 	size_t failed_exits;
 };
 
@@ -941,21 +940,22 @@ static void job_reap(struct jobcb *j)
 {
 	bool bad_exit = false;
 
-	gettimeofday(&j->exit_time, NULL);
-
 	if (j->p)
 		waitpid(j->p, &j->wstatus, 0);
 
-	if (WIFEXITED(j->wstatus) && WEXITSTATUS(j->wstatus) > 0) {
+	if (WIFEXITED(j->wstatus) && WEXITSTATUS(j->wstatus) != 0) {
 		syslog(LOG_WARNING, "%s[%d] exited with exit code %d",
 				job_get_argv0(j->ldj), j->p, WEXITSTATUS(j->wstatus));
 		bad_exit = true;
 	}
 
-	if (WIFSIGNALED(j->wstatus) && (WTERMSIG(j->wstatus) != SIGKILL || WTERMSIG(j->wstatus) != SIGTERM)) {
-		syslog(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
+	if (WIFSIGNALED(j->wstatus)) {
+		int s = WTERMSIG(j->wstatus);
+		if (s != SIGKILL && s != SIGTERM) {
+			syslog(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
 					job_get_argv0(j->ldj), j->p, WTERMSIG(j->wstatus));
-		bad_exit = true;
+			bad_exit = true;
+		}
 	}
 
 	if (bad_exit)
@@ -1004,6 +1004,7 @@ static void job_launch(struct jobcb *j)
 	int spair[2];
 	const char **argv;
 	bool sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
+	struct timeval last_start_time = j->start_time;
 
 	if (sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
@@ -1061,10 +1062,13 @@ static void job_launch(struct jobcb *j)
 			a0 = "/usr/libexec/launchproxy";
 		else
 			a0 = job_get_argv0(j->ldj);
-		timersub(&j->start_time, &j->exit_time, &tvd);
-		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
-			syslog(LOG_NOTICE, "%s respawning to quickly! Sleeping %d seconds", job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
-			sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && j->failed_exits > 0) {
+			timersub(&j->start_time, &last_start_time, &tvd);
+			if (tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
+				syslog(LOG_NOTICE, "%s respawning too quickly! Sleeping %d seconds",
+						job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+				sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+			}
 		}
                 if (execvp(a0, (char *const*)argv) == -1)
 			syslog(LOG_ERR, "child execvp(): %m");
