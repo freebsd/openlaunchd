@@ -250,7 +250,7 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 	setpriority(PRIO_PROCESS, 0, -1);
 
 	if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
-		syslog(LOG_WARNING, "sysctl(\"hw.physmem\"): %m");
+		syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "hw.physmem");
 	} else {
 		/* The following assignment of mem to itself if the size
 		 * of data returned is 32 bits instead of 64 is a clever
@@ -263,10 +263,10 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 			mem = *(uint32_t *)&mem;
 		mvn = mem / (64 * 1024) + 1024;
 		if (sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) == -1)
-			syslog(LOG_WARNING, "sysctl(\"kern.maxvnodes\"): %m");
+			syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "kern.maxvnodes");
 	}
 	if (sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) == -1)
-		syslog(LOG_WARNING, "sysctl(\"kern.hostname\"): %m");
+		syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "kern.hostname");
 
 	if (setlogin("root") == -1)
 		syslog(LOG_ERR, "setlogin(\"root\"): %m");
@@ -1215,7 +1215,7 @@ static void job_start(struct jobcb *j)
 			int val = 1;
 
 			if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
-				syslog(LOG_NOTICE, "sysctl(kern.proc_low_pri_io): %m");
+				syslog(LOG_NOTICE, "sysctl(\"%s\"): %m", "kern.proc_low_pri_io");
 		}
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))
 			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY));
@@ -1605,11 +1605,41 @@ static launch_data_t adjust_rlimits(launch_data_t in)
 		}
 		
 		for (i = 0; i < (ltmpsz / sizeof(struct rlimit)); i++) {
-			if (ltmp[i].rlim_cur != l[i].rlim_cur || ltmp[i].rlim_max != l[i].rlim_max) {
-				l[i] = ltmp[i];
-				if (setrlimit(i, l + i) == -1)
-					syslog(LOG_WARNING, "setrlimit(): %m");
+			if (ltmp[i].rlim_cur == l[i].rlim_cur && ltmp[i].rlim_max == l[i].rlim_max)
+				continue;
+
+			if (readcfg_pid && getpid() == 1) {
+				int gmib[] = { CTL_KERN, KERN_MAXPROC };
+				int pmib[] = { CTL_KERN, KERN_MAXPROCPERUID };
+				const char *gstr = "kern.maxproc";
+				const char *pstr = "kern.maxprocperuid";
+				int gval = ltmp[i].rlim_max;
+				int pval = ltmp[i].rlim_cur;
+				switch (i) {
+				case RLIMIT_NOFILE:
+					gmib[1] = KERN_MAXFILES;
+					pmib[1] = KERN_MAXFILESPERPROC;
+					gstr = "kern.maxfiles";
+					pstr = "kern.maxfilesperproc";
+					break;
+				case RLIMIT_NPROC:
+					/* kernel will not clamp to this value, we must */
+					if (gval > (2048 + 20))
+						gval = 2048 + 20;
+					break;
+				default:
+					break;
+				}
+				if (sysctl(gmib, 2, NULL, NULL, &gval, sizeof(gval)) == -1)
+					syslog(LOG_WARNING, "sysctl(\"%s\"): %m", gstr);
+				if (sysctl(pmib, 2, NULL, NULL, &pval, sizeof(pval)) == -1)
+					syslog(LOG_WARNING, "sysctl(\"%s\"): %m", pstr);
 			}
+			if (setrlimit(i, ltmp + i) == -1)
+				syslog(LOG_WARNING, "setrlimit(): %m");
+			/* the kernel may have clamped the values we gave it */
+			if (getrlimit(i, l + i) == -1)
+				syslog(LOG_WARNING, "getrlimit(): %m");
 		}
 	}
 
