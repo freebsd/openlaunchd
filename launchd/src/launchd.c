@@ -241,15 +241,17 @@ int main(int argc, char *argv[])
 	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
 	
-	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
-		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
-
 	if (getpid() == 1) {
 		pid1_magic_init(sflag, vflag, xflag);
 	} else {
 		launchd_bootstrap_port = bootstrap_port;
 		launchd_server_init(argv[0] ? true : false);
 	}
+
+	/* do this after pid1_magic_init() to not catch ourselves mounting stuff */
+	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
+		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
+
 
 	if (argv[0])
 		conceive_firstborn(argv);
