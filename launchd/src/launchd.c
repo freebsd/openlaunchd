@@ -65,7 +65,6 @@ struct conncb {
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
 static struct jobcb *helperd = NULL;
-static mode_t ourmask = 0;
 static int mainkq = 0;
 static bool batch_enabled = true;
 
@@ -145,9 +144,6 @@ int main(int argc, char *argv[])
 	if (getpid() == 1)
 		workaround3048875(argc, argv);
 	
-	ourmask = umask(0);
-	umask(ourmask);
-
 	while ((ch = getopt(argc, argv, "dhsvx")) != -1) {
 		switch (ch) {
 		case 'd': debug = true;   break;
@@ -884,12 +880,6 @@ static launch_data_t load_job(launch_data_t pload)
 		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_SERVICEIPC);
 	}
 
-	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK) == NULL) {
-		tmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
-		launch_data_set_integer(tmp, ourmask);
-		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_UMASK);
-	}
-
 	TAILQ_INSERT_TAIL(&jobs, j, tqe);
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
@@ -1220,7 +1210,7 @@ static void job_start(struct jobcb *j)
 			setuid(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID));
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY))
 			chdir(job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY));
-		if (job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK) != ourmask)
+		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
 			umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH)) {
 			int sofd = open(job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH), O_WRONLY|O_APPEND|O_CREAT, 0666);
