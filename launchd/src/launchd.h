@@ -16,6 +16,7 @@ extern int pid1_child_exit_status;
 #endif
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
+void launchd_SessionCreate(const char *who);
 
 void init_boot(bool sflag, bool vflag, bool xflag);
 void init_pre_kevent(void);

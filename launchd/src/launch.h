@@ -54,6 +54,7 @@
 #define LAUNCH_JOBKEY_UMASK			"Umask"
 #define LAUNCH_JOBKEY_NICE			"Nice"
 #define LAUNCH_JOBKEY_LOWPRIORITYIO		"LowPriorityIO"
+#define LAUNCH_JOBKEY_SESSIONCREATE		"SessionCreate"
 #define LAUNCH_JOBKEY_TCL			"Tcl"
 #define LAUNCH_JOBKEY_SOFTRESOURCELIMITS	"SoftResourceLimits"
 #define LAUNCH_JOBKEY_HARDRESOURCELIMITS	"HardResourceLimits"

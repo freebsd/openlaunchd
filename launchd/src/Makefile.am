@@ -35,6 +35,8 @@ launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno
 launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
+launchproxy_LDFLAGS = -weak_framework Security
+
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
 
 bootstrap.c:: bootstrap.h

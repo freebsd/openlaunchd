@@ -112,6 +112,8 @@ launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno
 launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 
+launchproxy_LDFLAGS = -weak_framework Security
+
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
 
 man1_MANS = wait4path.1 launchctl.1
@@ -182,7 +184,6 @@ launchproxy_SOURCES = launchproxy.c
 launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_LDADD = $(LDADD)
 launchproxy_DEPENDENCIES =
-launchproxy_LDFLAGS =
 register_mach_bootstrap_servers_SOURCES = \
 	register_mach_bootstrap_servers.c
 register_mach_bootstrap_servers_OBJECTS = \

@@ -1,3 +1,6 @@
+#include <Security/Authorization.h>
+#include <Security/AuthorizationTags.h>
+#include <Security/AuthSession.h>
 #include <mach/mach_error.h>
 #include <mach/port.h>
 #include <sys/types.h>
@@ -29,6 +32,7 @@
 #include <pthread.h>
 #include <paths.h>
 #include <pwd.h>
+#include <dlfcn.h>
 
 #include "launch.h"
 #include "launch_priv.h"
@@ -42,6 +46,7 @@
 #define PID1LAUNCHD_CONF "/etc/launchd.conf"
 #define LAUNCHD_CONF ".launchd.conf"
 #define LAUNCHCTL_PATH "/bin/launchctl"
+#define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
 extern char **environ;
 
@@ -1188,6 +1193,8 @@ static void job_start(struct jobcb *j)
 			}
 		}
 
+		if (!inetcompat && job_get_bool(j->ldj, LAUNCH_JOBKEY_SESSIONCREATE))
+			launchd_SessionCreate(job_get_argv0(j->ldj));
 
 		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
 			const char *u = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME);
@@ -1599,4 +1606,25 @@ static launch_data_t adjust_rlimits(launch_data_t in)
 	}
 
 	return launch_data_new_opaque(l, sizeof(struct rlimit) * RLIM_NLIMITS);
+}
+
+__private_extern__ void launchd_SessionCreate(const char *who)
+{
+	void *seclib = dlopen(SECURITY_LIB, RTLD_LAZY);
+	OSStatus (*sescr)(SessionCreationFlags flags, SessionAttributeBits attributes);
+
+	if (seclib) {
+		sescr = dlsym(seclib, "SessionCreate");
+		
+		if (sescr) {
+			if (sescr(0, 0) != noErr)
+				syslog(LOG_WARNING, "%s: SessionCreate() failed!", who);
+		} else {
+			syslog(LOG_WARNING, "%s: couldn't find SessionCreate() in %s", who, SECURITY_LIB);
+		}
+
+		dlclose(seclib);
+	} else {
+		syslog(LOG_WARNING, "%s: dlopen(\"%s\",...): %s", who, SECURITY_LIB, dlerror());
+	}
 }

@@ -57,6 +57,10 @@
  * SUCH DAMAGE.
  */
 
+#include <Security/Authorization.h>
+#include <Security/AuthorizationTags.h>
+#include <Security/AuthSession.h>
+
 #include <mach/port.h>
 
 #include <sys/types.h>
@@ -715,6 +719,9 @@ session_launch(session_t s)
 	sigprocmask(SIG_SETMASK, &mask, NULL);
 
 	setpriority(PRIO_PROCESS, 0, 0);
+
+	launchd_SessionCreate(se_cmd->argv[0]);
+
 	execv(se_cmd->argv[0], se_cmd->argv);
 	stall("can't exec %s '%s' for port %s: %m", session_type,
 		se_cmd->argv[0], s->se_device);

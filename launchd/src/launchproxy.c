@@ -1,3 +1,6 @@
+#include <Security/Authorization.h>
+#include <Security/AuthorizationTags.h>
+#include <Security/AuthSession.h>
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -125,6 +128,14 @@ int main(int argc __attribute__((unused)), char *argv[])
 			if (p != 0) {
 				close(r);
 				continue;
+			}
+			if ((tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SESSIONCREATE)) && launch_data_get_bool(tmp)) {
+				if (SessionCreate) {
+					if (SessionCreate(0, 0) != noErr)
+						syslog(LOG_NOTICE, "%s: SessionCreate() failed!", prog ? prog : argv[1]);
+				} else {
+					syslog(LOG_NOTICE, "%s: SessionCreate == NULL!", prog ? prog : argv[1]);
+				}
 			}
 			fcntl(r, F_SETFL, 0);
 			dup2(r, STDIN_FILENO);
