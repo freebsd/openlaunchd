@@ -1,9 +1,0 @@
-1) You are pre daemonized
-	a) do not fork() and have the parent exit
-	b) do not change stdio
-	c) do not close() file descriptors 3 -> N
-	d) do not setuid()/setgid()
-	d) do not setsid()
-	e) do not chdir()
-	e) do not umask()
-	e) Just check-in and go! :-)
