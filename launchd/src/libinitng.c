@@ -11,7 +11,7 @@
 #include <grp.h>
 #include <errno.h>
 #include "libinitng.h"
-#include "initngd_private.h"
+#include "initngd.h"
 
 static bool initng_jobinfo_set_data(initng_jobinfo_t j, void *d, size_t dl, int command);
 static bool initng_jobinfo_set_data_with_ancillary(initng_jobinfo_t j, void *d, size_t dl, int command, void *c, size_t cl);

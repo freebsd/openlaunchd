@@ -18,7 +18,7 @@
 #include <signal.h>
 #include <libgen.h>
 
-#include "initngd_private.h"
+#include "initngd.h"
 
 extern char **environ;
 
@@ -434,6 +434,7 @@ static void launch_job_st(struct initng_job *j)
 		close(fd);
 		setgid(j->g);
 		setuid(j->u);
+		setsid();
 		execve(j->program, j->argv, environ);
 		_exit(EXIT_FAILURE);
 	}
@@ -471,6 +472,7 @@ static void launch_job(struct initng_job *j)
 
 		setgid(j->g);
 		setuid(j->u);
+		setsid();
 		/* XXX -- ammend the environ */
 		execve(j->program, j->argv, environ);
 		_exit(EXIT_FAILURE);
