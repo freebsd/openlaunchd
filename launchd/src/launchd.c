@@ -1033,7 +1033,7 @@ static void job_start(struct jobcb *j)
 	int spair[2];
 	const char **argv;
 	bool sipc;
-	struct timeval last_start_time = j->start_time;
+	struct timeval tvd, last_start_time = j->start_time;
 
 	if (j->p)
 		return;
@@ -1042,6 +1042,13 @@ static void job_start(struct jobcb *j)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
 	gettimeofday(&j->start_time, NULL);
+	timersub(&j->start_time, &last_start_time, &tvd);
+
+	if (tvd.tv_sec >= LAUNCHD_MIN_JOB_RUN_TIME) {
+		/* If the daemon lived long enough, let's reward it.
+		 * This lets infrequent bugs not cause the daemon to removed */
+		j->failed_exits = 0;
+	}
 	
 	if ((c = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_WARNING, "fork(): %m");
@@ -1050,7 +1057,6 @@ static void job_start(struct jobcb *j)
 		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 		launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
 		launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
-		struct timeval tvd;
 		size_t i, argv_cnt;
 		const char *a0;
 		const struct {
@@ -1144,19 +1150,12 @@ static void job_start(struct jobcb *j)
 			a0 = "/usr/libexec/launchproxy";
 		else
 			a0 = job_get_argv0(j->ldj);
-		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
-			timersub(&j->start_time, &last_start_time, &tvd);
-			if (tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
-				/* Only punish short daemon life if the last exit was "bad." */
-				if (j->failed_exits > 0) {
-					syslog(LOG_NOTICE, "%s respawning too quickly! Sleeping %d seconds",
-							job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
-					sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
-				}
-			} else {
-				/* If the daemon lived long enough, let's reward it.
-				 * This lets infrequent bugs not cause the daemon to removed */
-				j->failed_exits = 0;
+		if (!job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND) && tvd.tv_sec < LAUNCHD_MIN_JOB_RUN_TIME) {
+			/* Only punish short daemon life if the last exit was "bad." */
+			if (j->failed_exits > 0) {
+				syslog(LOG_NOTICE, "%s respawning too quickly! Sleeping %d seconds",
+						job_get_argv0(j->ldj), LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
+				sleep(LAUNCHD_MIN_JOB_RUN_TIME - tvd.tv_sec);
 			}
 		}
                 if (execvp(a0, (char *const*)argv) == -1)
