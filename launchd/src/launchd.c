@@ -227,12 +227,6 @@ int main(int argc, char *argv[])
 			syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
 			break;
 		}
-
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-		/* <rdar://problem/3632556> Please automatically reap processes reparented to PID 1 */
-		if (getpid() == 1) 
-			pid1waitpid();
-#endif
 	}
 }
 
@@ -1316,6 +1310,13 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	case SIGTERM:
 		do_shutdown();
 		break;
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+	case SIGCHLD:
+		/* <rdar://problem/3632556> Please automatically reap processes reparented to PID 1 */
+		if (getpid() == 1) 
+			pid1waitpid();
+		break;
+#endif
 	default:
 		break;
 	} 
