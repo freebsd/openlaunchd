@@ -1776,6 +1776,8 @@ static void do_shutdown(void)
 
 	shutdown_in_progress = true;
 
+	kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback);
+
 	TAILQ_FOREACH(j, &jobs, tqe)
 		job_stop(j);
 
