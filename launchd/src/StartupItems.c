@@ -916,9 +916,17 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 		CFSTR("Check For Missed Tasks"),	/* 3965785 */
 		CFSTR("Privacy"),			/* 3933484 */
 		CFSTR("Firmware Update Checking"),	/* 4001504 */
-		CFSTR("M-Audio FireWire Audio Support"),	/* 3931757 */
-		CFSTR("help for M-Audio Delta Family"),	/* 3931757 */
-		CFSTR("help for M-Audio Devices"),	/* 3931757 */
+
+		CFSTR("M-Audio FireWire Audio Support"),		/* 3931757 */
+		CFSTR("help for M-Audio Delta Family"),			/* 3931757 */
+		CFSTR("help for M-Audio Devices"),			/* 3931757 */
+		CFSTR("help for M-Audio Revo 5.1"),			/* 3931757 */
+		CFSTR("M-Audio USB Duo Configuration Service"),		/* 3931757 */
+		CFSTR("firmware loader for M-Audio devices"),		/* 3931757 */
+		CFSTR("M-Audio MobilePre USB Configuration Service"),	/* 3931757 */
+		CFSTR("M-Audio OmniStudio USB Configuration Service"),	/* 3931757 */
+		CFSTR("M-Audio Transit USB Configuration Service"),	/* 3931757 */
+		CFSTR("M-Audio Audiophile USB Configuration Service"),	/* 3931757 */
 		NULL
 	};
 	const CFStringRef *c;
