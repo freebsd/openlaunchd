@@ -108,6 +108,7 @@ static void ipc_open(int fd, struct jobcb *j);
 static void ipc_close(struct conncb *c);
 static void ipc_callback(void *, struct kevent *);
 static void ipc_readmsg(launch_data_t msg, void *context);
+static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context);
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 static void pid1waitpid(void);
@@ -638,64 +639,94 @@ static void job_remove(struct jobcb *j)
 	free(j);
 }
 
+struct readmsg_context {
+	struct conncb *c;
+	launch_data_t resp;
+};
+
 static void ipc_readmsg(launch_data_t msg, void *context)
 {
-	struct conncb *c = context;
-	struct jobcb *j;
-	launch_data_t pload, tmp, resp = NULL;
-	size_t i;
+	struct readmsg_context rmc = { context, NULL };
 
-	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_STARTJOB))) {
+	if (LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) {
+		launch_data_dict_iterate(msg, ipc_readmsg2, &rmc);
+	} else if (LAUNCH_DATA_STRING == launch_data_get_type(msg)) {
+		ipc_readmsg2(NULL, launch_data_get_string(msg), &rmc);
+	} else {
+		rmc.resp = launch_data_new_errno(EINVAL);
+	}
+
+	if (NULL == rmc.resp)
+		rmc.resp = launch_data_new_errno(ENOSYS);
+
+	launch_data_close_fds(msg);
+
+	if (launchd_msg_send(rmc.c->conn, rmc.resp) == -1) {
+		if (errno == EAGAIN) {
+			kevent_mod(launchd_getfd(rmc.c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &rmc.c->kqconn_callback);
+		} else {
+			syslog(LOG_DEBUG, "launchd_msg_send() == -1: %m");
+			ipc_close(rmc.c);
+		}
+	}
+	launch_data_free(rmc.resp);
+}
+
+
+static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
+{
+	struct readmsg_context *rmc = context;
+	launch_data_t resp = NULL;
+	struct jobcb *j;
+
+	if (rmc->resp)
+		return;
+
+	if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
 				job_start(j);
 				resp = launch_data_new_errno(0);
-				goto out;
 			}
 		}
 		resp = launch_data_new_errno(ESRCH);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_STOPJOB))) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_STOPJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
 				job_stop(j);
 				resp = launch_data_new_errno(0);
-				goto out;
 			}
 		}
 		resp = launch_data_new_errno(ESRCH);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_REMOVEJOB))) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
-				if (!strcmp(launch_data_get_string(tmp), HELPERD))
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(data))) {
+				if (!strcmp(launch_data_get_string(data), HELPERD))
 					helperd = NULL;
 				if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 					notify_helperd();
 				job_remove(j);
 				resp = launch_data_new_errno(0);
-				goto out;
 			}
 		}
 		resp = launch_data_new_errno(ESRCH);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SUBMITJOB))) {
-		if (launch_data_get_type(pload) == LAUNCH_DATA_ARRAY) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_SUBMITJOB)) {
+		if (launch_data_get_type(data) == LAUNCH_DATA_ARRAY) {
+			launch_data_t tmp;
+			size_t i;
+
 			resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
-			for (i = 0; i < launch_data_array_get_count(pload); i++) {
-				tmp = load_job(launch_data_array_get_index(pload, i));
+			for (i = 0; i < launch_data_array_get_count(data); i++) {
+				tmp = load_job(launch_data_array_get_index(data, i));
 				launch_data_array_set_index(resp, tmp, i);
 			}
 		} else {
-			resp = load_job(pload);
+			resp = load_job(data);
 		}
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_UNSETUSERENVIRONMENT))) {
-		unsetenv(launch_data_get_string(pload));
+	} else if (!strcmp(cmd, LAUNCH_KEY_UNSETUSERENVIRONMENT)) {
+		unsetenv(launch_data_get_string(data));
 		resp = launch_data_new_errno(0);
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETUSERENVIRONMENT)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETUSERENVIRONMENT)) {
 		char **tmpenviron = environ;
 		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		for (; *tmpenviron; tmpenviron++) {
@@ -706,102 +737,71 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			*(strchr(envkey, '=')) = '\0';
 			launch_data_dict_insert(resp, s, envkey);
 		}
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SETUSERENVIRONMENT))) {
-		launch_data_dict_iterate(pload, set_user_env, NULL);
+	} else if (!strcmp(cmd, LAUNCH_KEY_SETUSERENVIRONMENT)) {
+		launch_data_dict_iterate(data, set_user_env, NULL);
 		resp = launch_data_new_errno(0);
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_CHECKIN)) {
-		if (c->j) {
-			resp = launch_data_copy(c->j->ldj);
+	} else if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
+		if (rmc->c->j) {
+			resp = launch_data_copy(rmc->c->j->ldj);
 			if (NULL == launch_data_dict_lookup(resp, LAUNCH_JOBKEY_TIMEOUT)) {
 				launch_data_t to = launch_data_new_integer(LAUNCHD_MIN_JOB_RUN_TIME);
 				launch_data_dict_insert(resp, to, LAUNCH_JOBKEY_TIMEOUT);
 			}
-			c->j->checkedin = true;
+			rmc->c->j->checkedin = true;
 		} else {
 			resp = launch_data_new_errno(EACCES);
 		}
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_RELOADTTYS)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_RELOADTTYS)) {
 		update_ttys();
 		resp = launch_data_new_errno(0);
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_SHUTDOWN)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_SHUTDOWN)) {
 		do_shutdown();
 		resp = launch_data_new_errno(0);
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETJOBS)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(NULL);
 		launch_data_revoke_fds(resp);
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETRESOURCELIMITS)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETRESOURCELIMITS)) {
 		resp = adjust_rlimits(NULL);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETRESOURCELIMITS))) {
-		resp = adjust_rlimits(tmp);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOB))) {
-		resp = get_jobs(launch_data_get_string(tmp));
+	} else if (!strcmp(cmd, LAUNCH_KEY_SETRESOURCELIMITS)) {
+		resp = adjust_rlimits(data);
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOB)) {
+		resp = get_jobs(launch_data_get_string(data));
 		launch_data_revoke_fds(resp);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOBWITHHANDLES))) {
-		resp = get_jobs(launch_data_get_string(tmp));
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETLOGMASK))) {
-		resp = launch_data_new_integer(setlogmask(launch_data_get_integer(tmp)));
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETLOGMASK)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBWITHHANDLES)) {
+		resp = get_jobs(launch_data_get_string(data));
+	} else if (!strcmp(cmd, LAUNCH_KEY_SETLOGMASK)) {
+		resp = launch_data_new_integer(setlogmask(launch_data_get_integer(data)));
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETLOGMASK)) {
 		int oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
 		resp = launch_data_new_integer(oldmask);
 		setlogmask(oldmask);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETUMASK))) {
-		resp = launch_data_new_integer(umask(launch_data_get_integer(tmp)));
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETUMASK)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_SETUMASK)) {
+		resp = launch_data_new_integer(umask(launch_data_get_integer(data)));
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETUMASK)) {
 		mode_t oldmask = umask(0);
 		resp = launch_data_new_integer(oldmask);
 		umask(oldmask);
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETRUSAGESELF)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETRUSAGESELF)) {
 		struct rusage rusage;
 		getrusage(RUSAGE_SELF, &rusage);
 		resp = launch_data_new_opaque(&rusage, sizeof(rusage));
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETRUSAGECHILDREN)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_GETRUSAGECHILDREN)) {
 		struct rusage rusage;
 		getrusage(RUSAGE_CHILDREN, &rusage);
 		resp = launch_data_new_opaque(&rusage, sizeof(rusage));
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDOUT))) {
-		resp = setstdio(STDOUT_FILENO, tmp);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETSTDERR))) {
-		resp = setstdio(STDERR_FILENO, tmp);
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
-		batch_job_enable(launch_data_get_bool(tmp), c);
+	} else if (!strcmp(cmd, LAUNCH_KEY_SETSTDOUT)) {
+		resp = setstdio(STDOUT_FILENO, data);
+	} else if (!strcmp(cmd, LAUNCH_KEY_SETSTDERR)) {
+		resp = setstdio(STDERR_FILENO, data);
+	} else if (!strcmp(cmd, LAUNCH_KEY_BATCHCONTROL)) {
+		batch_job_enable(launch_data_get_bool(data), rmc->c);
 		resp = launch_data_new_errno(0);
-	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
-			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_BATCHQUERY)) {
+	} else if (!strcmp(cmd, LAUNCH_KEY_BATCHQUERY)) {
 		resp = launch_data_alloc(LAUNCH_DATA_BOOL);
 		launch_data_set_bool(resp, batch_disabler_count == 0);
-	} else {	
-		resp = launch_data_new_errno(ENOSYS);
 	}
 
-	launch_data_close_fds(msg);
-out:
-	if (launchd_msg_send(c->conn, resp) == -1) {
-		if (errno == EAGAIN) {
-			kevent_mod(launchd_getfd(c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &c->kqconn_callback);
-		} else {
-			syslog(LOG_DEBUG, "launchd_msg_send() == -1: %m");
-			ipc_close(c);
-		}
-	}
-	launch_data_free(resp);
+	rmc->resp = resp;
 }
 
 static launch_data_t setstdio(int d, launch_data_t o)
