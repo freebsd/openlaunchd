@@ -488,28 +488,26 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 	sec += (double)runcom_total_tv.tv_usec / (double)1000000;
 	syslog(LOG_INFO, "%s finished in: %.3f seconds", _PATH_RUNCOM, sec);
 
-	switch (runcom_pid ? waitpid(runcom_pid, &status, 0) : 1) {
-	case -1:
-	case 0:
-		syslog(LOG_ERR, "wait for %s on %s failed: %m; going to single user mode",
-			_PATH_BSHELL, _PATH_RUNCOM);
-		single_user_mode = true;
-		return;
-	default:
-		runcom_status = 0;
-		runcom_pid = 0;
-		break;
+	runcom_status = 0;
+
+	if (runcom_pid) {
+		pid_t r = waitpid(runcom_pid, &status, 0);
+		if (r == runcom_pid) {
+			runcom_pid = 0;
+		} else if (r == -1) {
+			syslog(LOG_ERR, "wait for %s on %s failed: %m; going to single user mode",
+					_PATH_BSHELL, _PATH_RUNCOM);
+			single_user_mode = true;
+			return;
+		}
 	}
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
 		logwtmp("~", "reboot", "");
 		update_ttys();
-		runcom_status = 0;
 		return;
-	} else if (WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM) {
-		/* /etc/rc executed /sbin/reboot; wait for the end quietly */
-		for (;;)
-			pause();
+	} else if (WIFSIGNALED(status) && (WTERMSIG(status) == SIGTERM || WTERMSIG(status) == SIGKILL)) {
+		return;
 	}
 
 	syslog(LOG_ERR, "%s on %s terminated abnormally, going to single user mode",
