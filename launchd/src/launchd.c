@@ -714,7 +714,8 @@ static void job_ignore(struct jobcb *j)
 	launch_data_t j_sockets = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS);
 	size_t i;
 
-	job_ignore_fds(j_sockets, NULL, j);
+	if (j_sockets)
+		job_ignore_fds(j_sockets, NULL, j);
 
 	for (i = 0; i < j->vnodes_cnt; i++) {
 		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_DELETE, 0, 0, NULL);
@@ -757,7 +758,8 @@ static void job_watch(struct jobcb *j)
 	launch_data_t j_sockets = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS);
 	size_t i;
 
-	job_watch_fds(j_sockets, NULL, &j->kqjob_callback);
+	if (j_sockets)
+		job_watch_fds(j_sockets, NULL, &j->kqjob_callback);
 
 	for (i = 0; i < j->vnodes_cnt; i++) {
 		if (-1 == j->vnodes[i]) {
