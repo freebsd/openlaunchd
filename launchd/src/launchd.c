@@ -149,6 +149,9 @@ static void loopback_setup(void);
 static void workaround3048875(int argc, char *argv[]);
 static void reload_launchd_config(void);
 static int dir_has_files(const char *path);
+static void setup_job_env(launch_data_t obj, const char *key, void *context);
+static void unsetup_job_env(launch_data_t obj, const char *key, void *context);
+
 
 static size_t total_children = 0;
 static pid_t readcfg_pid = 0;
@@ -797,6 +800,7 @@ static void job_stop(struct jobcb *j)
 
 static void job_remove(struct jobcb *j)
 {
+	launch_data_t tmp;
 	size_t i;
 
 	job_log(j, LOG_DEBUG, "Removed");
@@ -809,10 +813,12 @@ static void job_remove(struct jobcb *j)
 			job_stop(j);
 		}
 	}
-	if (j->execfd)
-		close(j->execfd);
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
+		launch_data_dict_iterate(tmp, unsetup_job_env, NULL);
 	launch_data_close_fds(j->ldj);
 	launch_data_free(j->ldj);
+	if (j->execfd)
+		close(j->execfd);
 	for (i = 0; i < j->vnodes_cnt; i++)
 		if (-1 != j->vnodes[i])
 			close(j->vnodes[i]);
@@ -1139,6 +1145,9 @@ static launch_data_t load_job(launch_data_t pload)
 		}
 
 	}
+
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
+		launch_data_dict_iterate(tmp, setup_job_env, NULL);
 	
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 		job_watch(j);
@@ -1310,6 +1319,12 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 {
 	if (LAUNCH_DATA_STRING == launch_data_get_type(obj))
 		setenv(key, launch_data_get_string(obj), 1);
+}
+
+static void unsetup_job_env(launch_data_t obj, const char *key, void *context __attribute__((unused)))
+{
+	if (LAUNCH_DATA_STRING == launch_data_get_type(obj))
+		unsetenv(key);
 }
 
 static void job_reap(struct jobcb *j)
@@ -1615,6 +1630,7 @@ static void job_setup_attributes(struct jobcb *j)
 	launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
 	launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
 	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
+	launch_data_t tmp;
 	size_t i;
 	const char *tmpstr;
 	struct group *gre = NULL;
@@ -1735,10 +1751,9 @@ static void job_setup_attributes(struct jobcb *j)
 			close(sefd);
 		}
 	}
-	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))
-		launch_data_dict_iterate(launch_data_dict_lookup(j->ldj,
-					LAUNCH_JOBKEY_ENVIRONMENTVARIABLES),
-				setup_job_env, NULL);
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES)))
+		launch_data_dict_iterate(tmp, setup_job_env, NULL);
+
 	setsid();
 }
 

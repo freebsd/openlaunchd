@@ -32,6 +32,7 @@
 #define LAUNCH_JOBKEY_WORKINGDIRECTORY		"WorkingDirectory"
 #define LAUNCH_JOBKEY_SERVICEDESCRIPTION	"ServiceDescription"
 #define LAUNCH_JOBKEY_ENVIRONMENTVARIABLES	"EnvironmentVariables"
+#define LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES	"UserEnvironmentVariables"
 #define LAUNCH_JOBKEY_PID			"PID"
 #define LAUNCH_JOBKEY_UMASK			"Umask"
 #define LAUNCH_JOBKEY_NICE			"Nice"

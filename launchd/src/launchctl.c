@@ -429,17 +429,22 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 		passive = launch_data_get_bool(val);
 
 	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SECUREWITHKEY))) {
-		char secdir[sizeof(LAUNCH_SECDIR)], buf[1024];
+		char secdir[] = LAUNCH_SECDIR, buf[1024];
+		launch_data_t uenv = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES);
 
-		strcpy(secdir, LAUNCH_SECDIR);
+		if (NULL == uenv) {
+			uenv = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+			launch_data_dict_insert(thejob, uenv, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES);
+		}
 
 		mkdtemp(secdir);
 
 		sprintf(buf, "%s/%s", secdir, key);
 
-		a = launch_data_alloc(LAUNCH_DATA_STRING);
-		launch_data_set_string(a, buf);
+		a = launch_data_new_string(buf);
 		launch_data_dict_insert(tmp, a, LAUNCH_JOBSOCKETKEY_PATHNAME);
+		a = launch_data_new_string(buf);
+		launch_data_dict_insert(uenv, a, launch_data_get_string(val));
 	}
 		
 	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHNAME))) {
