@@ -187,11 +187,7 @@ static void job_add(launch_data_t ajob)
 	if ((tclc = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_TCL))) {
 		if ((j->tcli = Tcl_CreateInterp())) {
 			Tcl_DeleteCommand(j->tcli, "exit");
-			Tcl_DeleteCommand(j->tcli, "exec");
-			Tcl_DeleteCommand(j->tcli, "after");
 			Tcl_DeleteCommand(j->tcli, "gets");
-			Tcl_DeleteCommand(j->tcli, "socket");
-			Tcl_DeleteCommand(j->tcli, "vwait");
 			Tcl_CreateCommand(j->tcli, "StartJob", _start_job, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "StopJob", _stop_job, (void *)j, NULL);
 			Tcl_CreateCommand(j->tcli, "CallBackInterval", _callback_interval, (void *)j, NULL);
