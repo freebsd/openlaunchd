@@ -12,7 +12,9 @@ trap "" TERM
 
 function restart_xinetd ()
 {
+	lockfile /var/run/xinetd-start-lockfile
 	kill -HUP $(cat /var/run/xinetd.pid 2>/dev/null) 2>/dev/null || /usr/sbin/xinetd -pidfile /var/run/xinetd.pid
+	rm -f /var/run/xinetd-start-lockfile
 }
 
 if [ $# -eq 0 ]
@@ -86,11 +88,16 @@ then
 	cp -f /etc/hostconfig $TMPFILE
 	if [ "$2" == start ]
 	then
-		sed 's,^MAILSERVER=\(.*\),MAILSERVER=-YES-,g' < $TMPFILE > /etc/hostconfig
+		if grep -q MAILSERVER=-NO- /etc/hostconfig ; then
+			sed 's,^MAILSERVER=-NO-,MAILSERVER=-YES-,g' < $TMPFILE > /etc/hostconfig
+		fi
 		postfix start
+		postfix flush
 	elif [ "$2" == stop ]
 	then
-		sed 's,^MAILSERVER=\(.*\),MAILSERVER=-NO-,g' < $TMPFILE > /etc/hostconfig
+		if grep -q MAILSERVER=-YES- /etc/hostconfig ; then
+			sed 's,^MAILSERVER=-YES-,MAILSERVER=-NO-,g' < $TMPFILE > /etc/hostconfig
+		fi
 		postfix stop
 	else
 		echo "No such service command" >&2
