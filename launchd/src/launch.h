@@ -115,7 +115,7 @@ launch_data_t		launch_data_copy(launch_data_t);
 launch_data_type_t	launch_data_get_type(launch_data_t);
 void			launch_data_free(launch_data_t);
 
-/* kLaunchDataDictionary */
+/* Generic Dictionaries */
 /* the value should not be changed while iterating */
 bool		launch_data_dict_insert(launch_data_t, launch_data_t, const char *);
 launch_data_t	launch_data_dict_lookup(launch_data_t, const char *);
@@ -123,7 +123,7 @@ bool		launch_data_dict_remove(launch_data_t, const char *);
 void		launch_data_dict_iterate(launch_data_t, void (*)(launch_data_t, const char *, void *), void *);
 size_t		launch_data_dict_get_count(launch_data_t);
 
-/* kLaunchDataArray */
+/* Generic Arrays */
 bool		launch_data_array_set_index(launch_data_t, launch_data_t, size_t);
 launch_data_t	launch_data_array_get_index(launch_data_t, size_t);
 size_t		launch_data_array_get_count(launch_data_t);

@@ -36,8 +36,7 @@ static void find_fds(launch_data_t o)
                         find_fds(launch_data_array_get_index(o, i));
                 break;
         case LAUNCH_DATA_DICTIONARY:
-                launch_data_dict_iterate(o,
-                                (void (*)(launch_data_t, const char *, void *))find_fds, NULL);
+                launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))find_fds, NULL);
                 break;
         default:
                 break;
@@ -62,12 +61,19 @@ int main(int argc __attribute__((unused)), char *argv[])
 	kq = kqueue();
 
 	if ((resp = launch_msg(msg)) == NULL) {
-		syslog(LOG_DEBUG, "launch_msg(\"" LAUNCH_KEY_CHECKIN "\"): %s", strerror(errno));
+		syslog(LOG_ERR, "launch_msg(%s): %m", LAUNCH_KEY_CHECKIN);
 		goto out;
 	}
 
 	launch_data_free(msg);
-	find_fds(resp);
+
+	tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SOCKETS);
+	if (tmp) {
+		find_fds(tmp);
+	} else {
+		syslog(LOG_ERR, "No FDs found to answer requests on!");
+		goto out;
+	}
 
 	tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_PROGRAM);
 	if (tmp)

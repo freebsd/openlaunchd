@@ -49,7 +49,7 @@ int main(void)
 	socklen_t slen = sizeof(ss);
 	struct kevent kev;
 	FILE *c;
-	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
+	launch_data_t tmp, resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
 
 	kq = kqueue();
 
@@ -62,7 +62,13 @@ int main(void)
 		exit(EXIT_FAILURE);
 	}
 
-	find_fds(resp);
+	tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SOCKETS);
+	if (tmp) {
+		find_fds(tmp);
+	} else {
+		syslog(LOG_ERR, "No FDs found to answer requests on!");
+		exit(EXIT_FAILURE);
+	}
 
 	launch_data_free(resp);
 
