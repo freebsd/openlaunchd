@@ -476,6 +476,8 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 		j->prog = strdup(launch_data_get_string(tmp));
 	if ((tmp = launch_data_dict_lookup(pload, "EnvironmentVariables")))
 		j->env = launch_data_copy(tmp);
+	if ((tmp = launch_data_dict_lookup(pload, "UserEnvironmentVariables")))
+		launch_data_dict_iterate(tmp, set_user_env, find_usercb(c->u));
 	if ((tmp = launch_data_dict_lookup(pload, "ProgramArguments"))) {
 		j->argv = malloc(sizeof(char *) * (launch_data_array_get_count(tmp) + 1));
 		for (i = 0; i < launch_data_array_get_count(tmp); i++) {
@@ -511,6 +513,8 @@ static void free_stray_fds(launch_data_t o)
 			close(fd);
 		break;
 	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))free_stray_fds, NULL);
+		break;
 	case LAUNCH_DATA_ARRAY:
 		for (i = 0; i < launch_data_array_get_count(o); i++)
 			free_stray_fds(launch_data_array_get_index(o, i));

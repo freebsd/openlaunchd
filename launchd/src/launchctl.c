@@ -15,6 +15,8 @@
 
 #include "launch.h"
 
+#define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
+
 static const char *argv0 = NULL;
 
 static void distill_config_file(launch_data_t);
@@ -27,6 +29,7 @@ static void unloadcfg(const char *);
 static void get_launchd_env(void);
 static void set_launchd_env(const char *);
 static void unset_launchd_env(const char *);
+static void set_launchd_envkv(const char *key, const char *val);
 
 int main(int argc, char *argv[])
 {
@@ -93,7 +96,6 @@ static void unset_launchd_env(const char *arg)
 
 static void set_launchd_env(const char *arg)
 {
-	launch_data_t resp, tmp, tmpv, req = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	const char *key = arg, *val = strchr(arg, '=');
 
 	if (val) {
@@ -101,6 +103,14 @@ static void set_launchd_env(const char *arg)
 		val++;
 	} else
 		val = "";
+
+	set_launchd_envkv(key, val);
+}
+
+static void set_launchd_envkv(const char *key, const char *val)
+{
+	launch_data_t resp, tmp, tmpv, req = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+
 	tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmpv = launch_data_alloc(LAUNCH_DATA_STRING);
 	launch_data_set_string(tmpv, val);
@@ -233,10 +243,14 @@ static void loadcfg(const char *what)
 	}
 }
 
+static launch_data_t ccfile = NULL;
+
 static void distill_config_file(launch_data_t id_plist)
 {
 	launch_data_t tmp, oldargs, newargs, tmps;
 	size_t i;
+
+	ccfile = id_plist;
 
 	if ((tmp = launch_data_dict_lookup(id_plist, "UserName"))) {
 		struct passwd *pwe = getpwnam(launch_data_get_string(tmp));
@@ -297,7 +311,7 @@ static void distill_config_file(launch_data_t id_plist)
 static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 {
 	launch_data_t where = context;
-	launch_data_t kevarray = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	launch_data_t evarray = launch_data_alloc(LAUNCH_DATA_ARRAY);
 	launch_data_t tmp, val;
 	size_t i;
 
@@ -320,6 +334,30 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 		if ((val = launch_data_dict_lookup(tmp, "SockPassive")))
 			passive = launch_data_get_bool(val);
 
+		if ((val = launch_data_dict_lookup(tmp, "SecureSocketWithKey"))) {
+			launch_data_t t, a;
+			char secdir[sizeof(LAUNCH_SECDIR)], buf[1024];
+
+			strcpy(secdir, LAUNCH_SECDIR);
+
+			mkdtemp(secdir);
+
+			sprintf(buf, "%s/%s", secdir, key);
+
+			if (!(t = launch_data_dict_lookup(ccfile, "UserEnvironmentVariables"))) {
+				t = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+				launch_data_dict_insert(ccfile, t, "UserEnvironmentVariables");
+			}
+
+			a = launch_data_alloc(LAUNCH_DATA_STRING);
+			launch_data_set_string(a, buf);
+			launch_data_dict_insert(tmp, a, "SockPathName");
+
+			a = launch_data_alloc(LAUNCH_DATA_STRING);
+			launch_data_set_string(a, buf);
+			launch_data_dict_insert(t, a, launch_data_get_string(val));
+		}
+		
 		if ((val = launch_data_dict_lookup(tmp, "SockPathName"))) {
 			struct sockaddr_un sun;
 
@@ -353,7 +391,7 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 
 			val = launch_data_alloc(LAUNCH_DATA_FD);
 			launch_data_set_fd(val, sfd);
-			launch_data_array_set_index(kevarray, val, launch_data_array_get_count(kevarray));
+			launch_data_array_set_index(evarray, val, launch_data_array_get_count(evarray));
 		} else {
 			const char *node = NULL, *serv = NULL;
 			char servnbuf[50];
@@ -419,12 +457,12 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 				}
 				val = launch_data_alloc(LAUNCH_DATA_FD);
 				launch_data_set_fd(val, sfd);
-				launch_data_array_set_index(kevarray, val, launch_data_array_get_count(kevarray));
+				launch_data_array_set_index(evarray, val, launch_data_array_get_count(evarray));
 			}
 		}
 	}
 
-	launch_data_dict_insert(where, kevarray, key);	
+	launch_data_dict_insert(where, evarray, key);	
 }
 
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
