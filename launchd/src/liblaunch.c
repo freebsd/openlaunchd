@@ -696,3 +696,40 @@ launch_data_t launch_data_copy(launch_data_t o)
 
 	return r;
 }
+
+void launchd_batch_enable(bool val)
+{
+	launch_data_t resp, tmp, msg;
+
+	tmp = launch_data_alloc(LAUNCH_DATA_BOOL);
+	launch_data_set_bool(tmp, val);
+
+	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_dict_insert(msg, tmp, "BatchControl");
+
+	resp = launch_msg(msg);
+
+	launch_data_free(msg);
+
+	if (resp)
+		launch_data_free(resp);
+}
+
+bool launchd_batch_query(void)
+{
+	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
+	bool rval = true;
+
+	launch_data_set_string(msg, "BatchQuery");
+
+	resp = launch_msg(msg);
+
+	launch_data_free(msg);
+
+	if (resp) {
+		if (launch_data_get_type(resp) == LAUNCH_DATA_BOOL)
+			rval = launch_data_get_bool(resp);
+		launch_data_free(resp);
+	}
+	return rval;
+}

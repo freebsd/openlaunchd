@@ -14,4 +14,9 @@ void launchd_close(launch_t);
 int launchd_msg_send(launch_t, launch_data_t);
 int launchd_msg_recv(launch_t, void (*)(launch_data_t, void *), void *);
 
+/* batch jobs will be implicity re-enabled when the last application who
+ * disabled them exits */
+void launchd_batch_enable(bool);
+bool launchd_batch_query(void);
+
 #endif
