@@ -2,5 +2,4 @@
   Description     = "network time synchronization";
   Provides        = ("Network Time");
   Requires        = ("DirectoryServices");
-  OrderPreference = "First";
 }

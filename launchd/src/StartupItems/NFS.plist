@@ -3,5 +3,4 @@
   Provides        = ("NFS");
   Requires        = ("Portmap", "DirectoryServices");
   Uses            = ("Disks");
-  OrderPreference = "None";
 }

@@ -2,5 +2,4 @@
   Description     = "system usage accounting";
   Provides        = ("Accounting");
   Uses            = ("System Tuning");
-  OrderPreference = "Last";
 }

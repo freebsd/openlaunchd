@@ -1,6 +1,0 @@
-{
-  Description     = "NetInfo";
-  Provides        = ("NetInfo");
-  Requires        = ("Portmap", "Network Configuration");
-  OrderPreference = "None";
-}

@@ -175,47 +175,55 @@ startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef a
 	return aResult;
 }
 
-#define kNortonFirewall      CFSTR("Firewall")
-#define kNetBarrierFirewall  CFSTR("NetBarrier Firewall")
-#define kTimbuktuHost        CFSTR("TimbuktuHost")
-#define kNetworkExtensions   CFSTR("NetworkExtensions")
-#define kResolver            CFSTR("Resolver")
+static const CFStringRef stubitems[] = {
+	CFSTR("System Tuning"),
+	CFSTR("SecurityServer"),
+	CFSTR("Portmap"),
+	CFSTR("System Log"),
+	CFSTR("Resolver"),
+	CFSTR("LDAP"),
+	CFSTR("NetInfo"),
+	CFSTR("NetworkExtensions"),
+	CFSTR("DirectoryServices"),
+	CFSTR("Network Configuration"),
+	CFSTR("mDNSResponder"),
+	NULL
+};
 
-void 
+static void 
 SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 {
-	CFMutableArrayRef aProvidesList;
+	CFMutableArrayRef aList, aNewList;
+	CFIndex	i, aCount;
+	CFStringRef *c, ci, type = kRequiresKey;
 
-	aProvidesList = (CFMutableArrayRef) CFDictionaryGetValue(aConfig, kProvidesKey);
-	if (aProvidesList) {
-		CFMutableArrayRef aRequiresList;
-		CFIndex         aProvidesCount = CFArrayGetCount(aProvidesList);
+again:
+	aList = (CFMutableArrayRef) CFDictionaryGetValue(aConfig, type);
+	if (aList) {
+		aCount = CFArrayGetCount(aList);
 
-		/* special case for Norton Firewall */
-		if (CFArrayContainsValue(aProvidesList, CFRangeMake(0, aProvidesCount), kNetBarrierFirewall)) {
-			aRequiresList = (CFMutableArrayRef) CFDictionaryGetValue(aConfig, kRequiresKey);
-			if (!aRequiresList) {
-				aRequiresList = CFArrayCreateMutable(kCFAllocatorDefault, 1, NULL);
+		aNewList = CFArrayCreateMutable(kCFAllocatorDefault, aCount, &kCFTypeArrayCallBacks);
+
+		for (i = 0; i < aCount; i++) {
+			ci = CFArrayGetValueAtIndex(aList, i);
+			CF_syslog(LOG_DEBUG, CFSTR("%@: Evaluating %@"), type, ci);
+			for (c = stubitems; *c; c++) {
+				if (CFEqual(*c, ci))
+					break;
 			}
-			if (!aRequiresList) {
-				return;
+			if (*c == NULL) {
+				CFRetain(ci);
+				CFArrayAppendValue(aNewList, ci);
+				CF_syslog(LOG_DEBUG, CFSTR("%@: Keeping %@"), type, ci);
 			}
-			CFArrayAppendValue(aRequiresList, kNetworkExtensions);
-			CFDictionaryAddValue(aConfig, kRequiresKey, aRequiresList);
 		}
-		/* special case for Timbuktu */
-		if (CFArrayContainsValue(aProvidesList, CFRangeMake(0, aProvidesCount), kTimbuktuHost)) {
-			aRequiresList = (CFMutableArrayRef) CFDictionaryGetValue(aConfig, kRequiresKey);
-			if (!aRequiresList) {
-				aRequiresList = CFArrayCreateMutable(kCFAllocatorDefault, 0, NULL);
-			}
-			if (!aRequiresList) {
-				return;
-			}
-			CFArrayAppendValue(aRequiresList, kResolver);
-			CFDictionaryAddValue(aConfig, kRequiresKey, aRequiresList);
-		}
+
+		CFDictionaryReplaceValue(aConfig, type, aNewList);
 	}
+	if (type == kUsesKey)
+		return;
+	type = kUsesKey;
+	goto again;
 }
 
 CFIndex 

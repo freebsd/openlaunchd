@@ -1,6 +1,0 @@
-{
-  Description     = "system error/notice log";
-  Provides        = ("System Log");
-  Uses            = ("Network");
-  OrderPreference = "Early";
-}

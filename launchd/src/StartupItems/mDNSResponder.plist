@@ -1,4 +1,0 @@
-{
-  Description     = "Multicast DNS Responder";
-  Provides        = ("mDNSResponder");
-}

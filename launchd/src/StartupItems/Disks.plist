@@ -3,5 +3,4 @@
   Provides        = ("Disks");
   Uses            = ("System Tuning");
   Requires        = ("SecurityServer");
-  OrderPreference = "Early";
 }

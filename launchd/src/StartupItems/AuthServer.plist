@@ -2,5 +2,4 @@
   Description     = "authentication service";
   Provides        = ("TIM");
   Requires        = ("NetInfo", "DirectoryServices");
-  OrderPreference = "None";
 }

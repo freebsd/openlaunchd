@@ -1,6 +1,0 @@
-{
-  Description     = "network port mapper";
-  Provides        = ("Portmap");
-  Requires        = ("Network");
-  OrderPreference = "First";
-}

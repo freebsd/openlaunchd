@@ -1,5 +1,0 @@
-{
-  Description     = "system performance tuning";
-  Provides        = ("System Tuning");
-  OrderPreference = "First";
-}
