@@ -249,7 +249,9 @@ if [ -d /var/_run_ ]; then
 fi
 
 # Clear /var/spool/lock
-purgedir /var/spool/lock
+if [ -d /var/spool/lock ]; then
+	purgedir /var/spool/lock
+fi
 
 
 # if "/Desktop Folder" exists and has contents, make sure there is a
