@@ -1164,6 +1164,7 @@ static void job_callback(void *obj, struct kevent *kev)
 		if (j->firstborn) {
 			syslog(LOG_DEBUG, "first born process died, begin shutdown");
 			do_shutdown();
+			goto out;
 		} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
 			syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
 			job_remove(j);
