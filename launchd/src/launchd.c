@@ -206,7 +206,9 @@ int main(int argc, char *argv[])
 		loopback_setup();
 
 		if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
-			syslog(LOG_ERR, "mount(\"fdesc\", \"/dev/\", ...): %m");
+			syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
+		if (mount("volfs", "/.vol", MNT_RDONLY, NULL) == -1)
+			syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "volfs", "/.vol");
 
 		setenv("PATH", _PATH_STDPATH, 1);
 	}

@@ -38,8 +38,8 @@ fi
 
 echo "Mounting local filesystems"
 mount -uw /
-[ ! -d /.vol ] && mkdir -p -m 0555 /.vol
-mount_volfs /.vol
+# 3946331 "mount -uw /" doesn't cause kqueue EVFILT_FS to fire
+kill -CONT 1
 [ -f /etc/fstab ] && mount -vat nonfs
 
 BootCacheControl=/System/Library/Extensions/BootCache.kext/Contents/Resources/BootCacheControl
