@@ -305,6 +305,8 @@ if [ -f /etc/rc.local ]; then
 	sh /etc/rc.local
 fi
 
-/usr/libexec/WaitingForLoginWindow
+if [ "${VerboseFlag}" != "-v" ] ; then
+	/usr/libexec/WaitingForLoginWindow
+fi
 
 exit 0
