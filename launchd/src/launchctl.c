@@ -15,6 +15,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <netdb.h>
+#include <syslog.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <dns_sd.h>
@@ -50,6 +51,7 @@ static int getenv_and_export_cmd(int argc, char *const argv[]);
 static int limit_cmd(int argc, char *const argv[]);
 static int stdio_cmd(int argc, char *const argv[]);
 static int fyi_cmd(int argc, char *const argv[]);
+static int logupdate_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
 
 static int help_cmd(int argc, char *const argv[]);
@@ -67,13 +69,14 @@ static const struct {
 	{ "list",	list_cmd,		"List jobs and information about jobs" },
 	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
 	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
-	{ "getenv",	getenv_and_export_cmd,	"Get environmental variables from launchd" },
+	{ "getenv",	getenv_and_export_cmd,	"Get an environmental variable from launchd" },
 	{ "export",	getenv_and_export_cmd,	"Export shell settings from launchd" },
 	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
 	{ "stdout",	stdio_cmd,		"Redirect launchd's standard out to the given path" },
 	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
 	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
+	{ "log",	logupdate_cmd,		"Adjust the logging level or mask of launchd" },
 	{ "umask",	umask_cmd,		"Change launchd's umask" },
 	{ "help",	help_cmd,		"This help output" },
 };
@@ -989,6 +992,114 @@ static int fyi_cmd(int argc, char *const argv[])
 		if ((e = launch_data_get_errno(resp))) {
 			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(e));
 			r = 1;
+		}
+	} else {
+		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
+		r = 1;
+	}
+
+	launch_data_free(resp);
+
+	return r;
+}
+
+static int logupdate_cmd(int argc, char *const argv[])
+{
+	launch_data_t resp, msg;
+	int e, i, j, r = 0, m = 0;
+	bool badargs = false, maskmode = false, onlymode = false, levelmode = false;
+	const char *whichcmd = LAUNCH_KEY_SETLOGMASK;
+	static const struct {
+		const char *name;
+		int level;
+	} logtbl[] = {
+		{ "debug",	LOG_DEBUG },
+		{ "info",	LOG_INFO },
+		{ "notice",	LOG_NOTICE },
+		{ "warning",	LOG_WARNING },
+		{ "error",	LOG_ERR },
+		{ "critical",	LOG_CRIT },
+		{ "alert",	LOG_ALERT },
+		{ "emergency",	LOG_EMERG },
+	};
+	int logtblsz = sizeof logtbl / sizeof logtbl[0];
+
+	if (argc >= 2) {
+		if (!strcmp(argv[1], "mask"))
+			maskmode = true;
+		else if (!strcmp(argv[1], "only"))
+			onlymode = true;
+		else if (!strcmp(argv[1], "level"))
+			levelmode = true;
+		else
+			badargs = true;
+	}
+
+	if (maskmode)
+		m = LOG_UPTO(LOG_DEBUG);
+
+	if (argc > 2 && (maskmode || onlymode)) {
+		for (i = 2; i < argc; i++) {
+			for (j = 0; j < logtblsz; j++) {
+				if (!strcmp(argv[i], logtbl[j].name)) {
+					if (maskmode)
+						m &= ~(LOG_MASK(logtbl[j].level));
+					else
+						m |= LOG_MASK(logtbl[j].level);
+					break;
+				}
+			}
+			if (j == logtblsz) {
+				badargs = true;
+				break;
+			}
+		}
+	} else if (argc > 2 && levelmode) {
+		for (j = 0; j < logtblsz; j++) {
+			if (!strcmp(argv[2], logtbl[j].name)) {
+				m = LOG_UPTO(logtbl[j].level);
+				break;
+			}
+		}
+		if (j == logtblsz)
+			badargs = true;
+	} else if (argc == 1) {
+		whichcmd = LAUNCH_KEY_GETLOGMASK;
+	} else {
+		badargs = true;
+	}
+
+	if (badargs) {
+		fprintf(stderr, "usage: %s [[mask loglevels...] | [only loglevels...] [level loglevel]]\n", getprogname());
+		return 1;
+	}
+
+	if (whichcmd == LAUNCH_KEY_SETLOGMASK) {
+		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+		launch_data_dict_insert(msg, launch_data_new_integer(m), whichcmd);
+	} else {
+		msg = launch_data_new_string(whichcmd);
+	}
+
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
+		if ((e = launch_data_get_errno(resp))) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(e));
+			r = 1;
+		}
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_INTEGER) {
+		if (whichcmd == LAUNCH_KEY_GETLOGMASK) {
+			m = launch_data_get_integer(resp);
+			for (j = 0; j < logtblsz; j++) {
+				if (m & LOG_MASK(logtbl[j].level))
+					fprintf(stdout, "%s ", logtbl[j].name);
+			}
+			fprintf(stdout, "\n");
 		}
 	} else {
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);

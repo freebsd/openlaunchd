@@ -60,6 +60,13 @@ Get an environmental variable inside of
 Export all of the environmental variables of
 .Nm launchd
 for use in a shell eval statement.
+.It Xo Ar log
+.Op Ar level loglevel
+.Op Ar only | mask loglevels...
+.Xc
+Get and set the
+.Xr syslog 3
+log level mask. The available log levels are: debug, info, notice, warning, error, critical, alert and emergency.
 .It Xo Ar limit
 .Op Ar cpu | filesize | data | stack | core | rss | memlock | maxproc | maxfiles
 .Op Ar both Op Ar soft | hard

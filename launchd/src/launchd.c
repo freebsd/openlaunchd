@@ -105,7 +105,7 @@ static void ipc_readmsg(launch_data_t msg, void *context);
 static void pid1waitpid(void);
 static bool launchd_check_pid(pid_t p);
 #endif
-static void pid1_magic_init(bool sflag, bool xflag);
+static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
 static bool launchd_server_init(void);
 
 static void *mach_demand_loop(void *);
@@ -116,14 +116,11 @@ static int _fd(int fd);
 static void notify_helperd(void);
 
 static void loopback_setup(void);
-static void update_lm(void);
 static void workaround3048875(int argc, char *argv[]);
 static void reload_launchd_config(void);
 
 static pid_t readcfg_pid = 0;
 static int thesocket = -1;
-static bool debug = false;
-static bool verbose = false;
 static pthread_t mach_server_loop_thread;
 mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 sigset_t blocked_signals = 0;
@@ -135,7 +132,7 @@ int main(int argc, char *argv[])
 	struct timespec timeout = { 30, 0 };
 	struct kevent kev;
 	size_t i;
-	bool sflag = false, xflag = false;
+	bool sflag = false, xflag = false, dflag = false, vflag = false;
 	int ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
@@ -146,10 +143,10 @@ int main(int argc, char *argv[])
 	
 	while ((ch = getopt(argc, argv, "dhsvx")) != -1) {
 		switch (ch) {
-		case 'd': debug = true;   break;
+		case 'd': dflag = true;   break;
 		case 's': sflag = true;   break;
 		case 'x': xflag = true;   break;
-		case 'v': verbose = true; break;
+		case 'v': vflag = true; break;
 		case 'h': usage(stdout);  break;
 		default:
 			syslog(LOG_WARNING, "ignoring unknown arguments");
@@ -166,7 +163,7 @@ int main(int argc, char *argv[])
 	open(_PATH_DEVNULL, O_WRONLY);
 
 	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
-	update_lm();
+	setlogmask(LOG_UPTO(LOG_NOTICE));
 
 	if ((mainkq = kqueue()) == -1) {
 		syslog(LOG_EMERG, "kqueue(): %m");
@@ -196,7 +193,7 @@ int main(int argc, char *argv[])
 		syslog(LOG_ERR, "chdir(\"/\"): %m");
 
 	if (getpid() == 1) {
-		pid1_magic_init(sflag, xflag);
+		pid1_magic_init(sflag, vflag, xflag);
 	} else if (!launchd_server_init()) {
 		exit(EXIT_FAILURE);
 	}
@@ -233,7 +230,7 @@ int main(int argc, char *argv[])
 	}
 }
 
-static void pid1_magic_init(bool sflag, bool xflag)
+static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 {
 	pthread_attr_t attr;
 	int memmib[2] = { CTL_HW, HW_PHYSMEM };
@@ -292,7 +289,7 @@ static void pid1_magic_init(bool sflag, bool xflag)
 
 	pthread_attr_destroy(&attr);
 
-	init_boot(sflag, verbose, xflag);
+	init_boot(sflag, vflag, xflag);
 }
 
 
@@ -752,6 +749,14 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_GETJOBWITHHANDLES))) {
 		resp = get_jobs(launch_data_get_string(tmp));
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETLOGMASK))) {
+		resp = launch_data_new_integer(setlogmask(launch_data_get_integer(tmp)));
+	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
+			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_GETLOGMASK)) {
+		int oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
+		resp = launch_data_new_integer(oldmask);
+		setlogmask(oldmask);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_SETUMASK))) {
 		resp = launch_data_new_integer(umask(launch_data_get_integer(tmp)));
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
@@ -900,7 +905,6 @@ static launch_data_t get_jobs(const char *which)
 static void usage(FILE *where)
 {
 	fprintf(where, "%s:\n", getprogname());
-	fprintf(where, "\t-d\tdebug mode\n");
 	fprintf(where, "\t-h\tthis usage statement\n");
 
 	if (where == stdout)
@@ -1286,36 +1290,9 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	case SIGTERM:
 		do_shutdown();
 		break;
-	case SIGUSR1:
-		debug = !debug;
-		update_lm();
-		break;
-	case SIGUSR2:
-		verbose = !verbose;
-		update_lm();
-		break;
 	default:
 		break;
-	}
-}
-
-static void update_lm(void)
-{
-	int oldlm, lm = LOG_UPTO(LOG_NOTICE);
-	const char *lstr = "verbose";
-	const char *e_vs_d = "disabled";
-	if (verbose) {
-		lm = LOG_UPTO(LOG_INFO);
-		e_vs_d = "enabled";
-	}
-	if (debug) {
-		lm = LOG_UPTO(LOG_DEBUG);
-		lstr = "debug";
-		e_vs_d = "enabled";
-	}
-	oldlm = setlogmask(lm);
-	if (lm != oldlm)
-		syslog(LOG_NOTICE, "%s logging %s", lstr, e_vs_d);
+	} 
 }
 
 static void fs_callback(void)
