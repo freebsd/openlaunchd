@@ -196,7 +196,8 @@ SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 {
 	CFMutableArrayRef aList, aNewList;
 	CFIndex	i, aCount;
-	CFStringRef *c, ci, type = kRequiresKey;
+	CFStringRef ci, type = kRequiresKey;
+	const CFStringRef *c;
 
 again:
 	aList = (CFMutableArrayRef) CFDictionaryGetValue(aConfig, type);

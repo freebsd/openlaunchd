@@ -528,7 +528,7 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 	struct msghdr mh;
 	struct iovec iov;
 	int r;
-	ssize_t sentctrllen = 0;
+	size_t sentctrllen = 0;
 
 	memset(&mh, 0, sizeof(mh));
 
