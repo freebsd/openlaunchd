@@ -106,6 +106,7 @@ static void ipc_readmsg(launch_data_t msg, void *context);
 static void pid1waitpid(void);
 static bool launchd_check_pid(pid_t p);
 #endif
+static void pid1_magic_init(bool sflag, bool xflag);
 static void launchd_server_init(void);
 
 static void *mach_demand_loop(void *);
@@ -133,11 +134,10 @@ static char *pending_stderr = NULL;
 int main(int argc, char *argv[])
 {
 	struct timespec timeout = { 30, 0 };
-	pthread_attr_t attr;
 	struct kevent kev;
 	size_t i;
 	bool sflag = false, xflag = false;
-	int pthr_r, ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
+	int ch, sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
@@ -199,64 +199,8 @@ int main(int argc, char *argv[])
 	if (chdir("/") == -1)
 		syslog(LOG_ERR, "chdir(\"/\"): %m");
 
-	if (getpid() == 1) {
-		int memmib[2] = { CTL_HW, HW_PHYSMEM };
-		int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
-		int hnmib[2] = { CTL_KERN, KERN_HOSTNAME };
-		uint64_t mem = 0;
-		uint32_t mvn;
-		size_t memsz = sizeof(mem);
-		
-		setpriority(PRIO_PROCESS, 0, -1);
-
-		if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
-			syslog(LOG_WARNING, "sysctl(\"hw.physmem\"): %m");
-		} else {
-			/* The following assignment of mem to itself if the size
-			 * of data returned is 32 bits instead of 64 is a clever
-			 * C trick to move the 32 bits on big endian systems to
-			 * the least significant bytes of the 64 mem variable.
-			 *
-			 * On little endian systems, this is effectively a no-op.
-			 */
-			if (memsz == 4)
-				mem = *(uint32_t *)&mem;
-			mvn = mem / (64 * 1024) + 1024;
-			if (sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) == -1)
-				syslog(LOG_WARNING, "sysctl(\"kern.maxvnodes\"): %m");
-		}
-		if (sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) == -1)
-			syslog(LOG_WARNING, "sysctl(\"kern.hostname\"): %m");
-
-		if (setlogin("root") == -1)
-			syslog(LOG_ERR, "setlogin(\"root\"): %m");
-
-		loopback_setup();
-
-		if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
-			syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
-		if (mount("volfs", "/.vol", MNT_RDONLY, NULL) == -1)
-			syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "volfs", "/.vol");
-
-		setenv("PATH", _PATH_STDPATH, 1);
-
-		launchd_bootstrap_port = mach_init_init();
-		task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
-		bootstrap_port = MACH_PORT_NULL;
-
-		pthread_attr_init(&attr);
-		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-		pthr_r = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
-		if (pthr_r != 0) {
-			syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(pthr_r));
-			exit(EXIT_FAILURE);
-		}
-
-		pthread_attr_destroy(&attr);
-
-		init_boot(sflag, verbose, xflag);
-	}
+	if (getpid() == 1)
+		pid1_magic_init(sflag, xflag);
 
 	reload_launchd_config();
 
@@ -309,6 +253,69 @@ int main(int argc, char *argv[])
 #endif
 	}
 }
+
+static void pid1_magic_init(bool sflag, bool xflag)
+{
+	pthread_attr_t attr;
+	int memmib[2] = { CTL_HW, HW_PHYSMEM };
+	int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
+	int hnmib[2] = { CTL_KERN, KERN_HOSTNAME };
+	uint64_t mem = 0;
+	uint32_t mvn;
+	size_t memsz = sizeof(mem);
+	int pthr_r;
+		
+	setpriority(PRIO_PROCESS, 0, -1);
+
+	if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
+		syslog(LOG_WARNING, "sysctl(\"hw.physmem\"): %m");
+	} else {
+		/* The following assignment of mem to itself if the size
+		 * of data returned is 32 bits instead of 64 is a clever
+		 * C trick to move the 32 bits on big endian systems to
+		 * the least significant bytes of the 64 mem variable.
+		 *
+		 * On little endian systems, this is effectively a no-op.
+		 */
+		if (memsz == 4)
+			mem = *(uint32_t *)&mem;
+		mvn = mem / (64 * 1024) + 1024;
+		if (sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) == -1)
+			syslog(LOG_WARNING, "sysctl(\"kern.maxvnodes\"): %m");
+	}
+	if (sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) == -1)
+		syslog(LOG_WARNING, "sysctl(\"kern.hostname\"): %m");
+
+	if (setlogin("root") == -1)
+		syslog(LOG_ERR, "setlogin(\"root\"): %m");
+
+	loopback_setup();
+
+	if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
+		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
+	if (mount("volfs", "/.vol", MNT_RDONLY, NULL) == -1)
+		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "volfs", "/.vol");
+
+	setenv("PATH", _PATH_STDPATH, 1);
+
+	launchd_bootstrap_port = mach_init_init();
+	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
+	bootstrap_port = MACH_PORT_NULL;
+
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+	pthr_r = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
+	if (pthr_r != 0) {
+		syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(pthr_r));
+		exit(EXIT_FAILURE);
+	}
+
+	pthread_attr_destroy(&attr);
+
+	init_boot(sflag, verbose, xflag);
+}
+
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 static bool launchd_check_pid(pid_t p)
