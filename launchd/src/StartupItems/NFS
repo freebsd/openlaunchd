@@ -96,6 +96,7 @@ StartService ()
 
     if [ "${AUTOMOUNT:=-YES-}" = "-YES-" ]; then
 	automount -m /Network -nsl -mnt ${AUTOMOUNTDIR}
+	ln -s /automount/Library /Network/Library
 	automount -m /automount/Servers -fstab -mnt /private/Network/Servers \
 		-m /automount/static -static -mnt ${AUTOMOUNTDIR}
 	ln -s /automount/Servers /Network/Servers
