@@ -21,6 +21,7 @@ int main(int argc, char *argv[])
 	DIR *d;
 	struct dirent *de;
 	struct stat sb;
+	uid_t u = geteuid();
 
 	argv0 = argv[0];
 
@@ -29,11 +30,15 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	if (getuid() == 0 && geteuid() != 0) {
+	if (getenv("SECURITYSESSIONID")) {
+		/* 3875726 loginwindow, fix up uid/euid */
+		seteuid(0);
+		setuid(u);
 		if (fork() == 0) {
-			struct passwd *pwe = getpwuid(geteuid());
+			const char *h = getenv("HOME");
+			struct passwd *pwe = getpwuid(u);
 			char *buf;
-			asprintf(&buf, "%s/%s", pwe->pw_dir, "Library/LaunchAgents");
+			asprintf(&buf, "%s/%s", h ? h : pwe->pw_dir, "Library/LaunchAgents");
 			execlp("launchctl", "launchctl", "-l", "/System/Library/LaunchAgents", "-l", buf, NULL);
 			exit(EXIT_SUCCESS);
 		}
@@ -72,9 +77,6 @@ static void handleConfigFile(const char *file)
 	char serv_name[4096];
 	char serv_cmd[4096];
 	CFPropertyListRef plist = CreateMyPropertyListFromFile(file);
-
-	if (u == 0)
-		u = geteuid();
 
 	if (plist) {
 		if (CFDictionaryContainsKey(plist, CFSTR("Username"))) {
