@@ -978,8 +978,8 @@ static void job_reap(struct jobcb *j)
 	if (WIFSIGNALED(status)) {
 		int s = WTERMSIG(status);
 		if (s != SIGKILL && s != SIGTERM) {
-			syslog(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
-					job_get_argv0(j->ldj), j->p, WTERMSIG(status));
+			syslog(LOG_WARNING, "%s[%d] exited abnormally: %s",
+					job_get_argv0(j->ldj), j->p, strsignal(WTERMSIG(status)));
 			bad_exit = true;
 		}
 	}

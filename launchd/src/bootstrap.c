@@ -354,15 +354,14 @@ reap_server(server_t *serverp)
 	}
 
 	default:
-		if (wstatus) {
-			syslog(LOG_NOTICE, "Server %x in bootstrap %x uid %d: \"%s\": %s %d [pid %d]",
+		if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus)) {
+			syslog(LOG_NOTICE, "Server %x in bootstrap %x uid %d: \"%s\"[%d]: exited with status: %d",
 			       serverp->port, serverp->bootstrap->bootstrap_port,
-			       serverp->uid, serverp->cmd, 
-			       ((WIFEXITED(wstatus)) ? 
-				"exited with non-zero status" :
-				"exited as a result of signal"),
-			       ((WIFEXITED(wstatus)) ? WEXITSTATUS(wstatus) : WTERMSIG(wstatus)),
-			       serverp->pid);
+			       serverp->uid, serverp->cmd, serverp->pid, WEXITSTATUS(wstatus));
+		} else if (WIFSIGNALED(wstatus)) {
+			syslog(LOG_NOTICE, "Server %x in bootstrap %x uid %d: \"%s\"[%d]: exited abnormally: %s",
+			       serverp->port, serverp->bootstrap->bootstrap_port,
+			       serverp->uid, serverp->cmd, serverp->pid, strsignal(WTERMSIG(wstatus)));
 		}
 		break;
 	}

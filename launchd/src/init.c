@@ -756,6 +756,8 @@ session_reap(session_t s)
 		return;
 	default:
 		if (WIFSIGNALED(status)) {
+			syslog(LOG_WARNING, "%s port %s exited abnormally: %s",
+					s->se_getty.path, s->se_device, strsignal(WTERMSIG(status)));
 			s->se_flags |= SE_ONERROR; 
 		} else if (WEXITSTATUS(status) == REALLY_EXIT_TO_CONSOLE) {
 			/* WIFEXITED(status) assumed */
