@@ -9,13 +9,8 @@
 # Set shell to ignore Control-C, etc.
 # Prevent inadvertent problems caused by interrupting the shell during boot.
 ##
-stty intr  undef
-stty kill  undef
-stty quit  undef
-stty susp  undef
-stty start undef
-stty stop  undef
-stty dsusp undef
+stty intr undef kill undef quit undef susp undef start undef stop undef dsusp undef
+
 . /etc/rc.common
 
 # 

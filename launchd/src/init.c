@@ -85,7 +85,6 @@
 #include "bootstrap_internal.h"
 
 #define _PATH_RUNCOM            "/etc/rc"
-#define _PATH_RUNCOM_BOOT       _PATH_RUNCOM ".boot"
 
 /*
  * Sleep times; used to prevent thrashing.
@@ -109,6 +108,7 @@ static void runcom(void);
 static bool runcom_boot = true;		/* Run the rc.boot script */
 static bool runcom_verbose = false;
 static bool runcom_safe = false;
+static bool runcom_fsck = true;
 static bool single_user_mode = false;
 static bool run_runcom = true;
 static pid_t single_user_pid = 0;
@@ -172,22 +172,6 @@ static void setsecuritylevel(int);
 static int getsecuritylevel(void);
 static int setupargv(session_t, struct ttyent *);
 
-
-static int fwexecv(int *status, const char *path, char * const *argv)
-{
-	pid_t p = fork_with_bootstrap_port(launchd_bootstrap_port);
-
-	if (p == -1) {
-		return -1;
-	} else if (p == 0) {
-		setctty(_PATH_CONSOLE, 0);
-		execv(path, argv);
-		exit(EXIT_FAILURE);
-	}
-
-	return waitpid(p, status, 0);
-}
-
 void
 init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
 {
@@ -205,24 +189,6 @@ init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
 	if (xflag)
 		runcom_safe = true;
 
-	argv[0] = "sh";
-	argv[1] = _PATH_RUNCOM_BOOT;
-	argv[2] = NULL;
-	argv[3] = NULL;
-	argv[4] = NULL;
-
-	if (xflag && sflag) {
-		argv[2] = "-x";
-		argv[3] = "-s";
-	} else if (xflag) {
-		argv[2] = "-x";
-	} else if (sflag) {
-		argv[2] = "-s";
-	}
-
-	if (!(fwexecv(&status, _PATH_BSHELL, argv) > 0 &&
-				WIFEXITED(status) && WEXITSTATUS(status) == 0))
-		single_user_mode = true;
 }
 
 void
@@ -373,6 +339,14 @@ single_user(void)
 
                 setenv("TERM", "vt100", 1);
 
+		if (runcom_fsck) {
+			fprintf(stdout, "Singleuser boot -- fsck not done\n");
+			fprintf(stdout, "Root device is mounted read-only\n");
+			fprintf(stdout, "If you want to make modifications to files,\n");
+			fprintf(stdout, "run '/sbin/fsck -fy' first and then '/sbin/mount -uw /'\n");
+			fflush(stdout);
+		}
+
 		argv[0] = "-sh";
 		argv[1] = 0;
 		execv(_PATH_BSHELL, argv);
@@ -380,6 +354,7 @@ single_user(void)
 		sleep(STALL_TIMEOUT);
 		exit(EXIT_FAILURE);
 	} else {
+		runcom_fsck = false;
 		if (kevent_mod(single_user_pid, EVFILT_PROC, EV_ADD, 
 					NOTE_EXIT, 0, &kqsingle_user_callback) == -1)
 			single_user_callback(NULL, NULL);
@@ -427,7 +402,10 @@ static void
 runcom(void)
 {
 	char *argv[4];
-	char options[4];
+	char options[30];
+	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
+	uint64_t nb;
+	size_t nbsz = sizeof(nb);
 
 	if ((runcom_pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
 		syslog(LOG_ERR, "can't fork for %s on %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
@@ -454,12 +432,26 @@ runcom(void)
 	argv[2] = NULL;
 	argv[3] = NULL;
 
-	if (runcom_verbose || runcom_safe) {
+	if (runcom_verbose || runcom_safe || runcom_fsck) {
 		int i = 0;
 
 		options[i++] = '-';
-		if (runcom_verbose) options[i++] = 'v';
-		if (runcom_safe   ) options[i++] = 'x';
+		if (runcom_verbose)
+			options[i++] = 'v';
+		if (runcom_safe)
+			options[i++] = 'x';
+		if (sysctl(nbmib, 2, &nb, &nbsz, NULL, 0) == 0) {
+			if (nbsz == 4)
+				nb >>= 32;
+			if (nb != 0)
+				options[i++] = 'N';
+		} else {
+			syslog(LOG_WARNING, "sysctl(\"kern.netboot\") %m");
+		}
+		if (runcom_fsck) {
+			options[i++] = 'F';
+			runcom_fsck = false;
+		}
 		options[i] = '\0';
 
 		argv[2] = options;

@@ -7,6 +7,13 @@
 #include <sys/fcntl.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <sys/sysctl.h>
+#include <sys/sockio.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/in_var.h>
+#include <netinet6/nd6.h>
 #include <unistd.h>
 #include <errno.h>
 #include <syslog.h>
@@ -101,6 +108,8 @@ static int _fd(int fd);
 
 static void dummysignalhandler(int sig);
 
+static void loopback_setup(void);
+
 static int thesocket = -1;
 static char *thesockpath = NULL;
 static bool debug = false;
@@ -163,6 +172,32 @@ int main(int argc, char *argv[])
 			LOG_DAEMON);
 	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
 
+	if (getpid() == 1) {
+		int memmib[2] = { CTL_HW, HW_PHYSMEM };
+		int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
+		int hnmib[2] = { CTL_KERN, KERN_HOSTNAME };
+		uint64_t mem;
+		uint32_t mvn;
+		size_t memsz = sizeof(mem);
+		
+		if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
+			syslog(LOG_WARNING, "sysctl(\"hw.physmem\"): %m");
+		} else {
+			if (memsz == 4)
+				mem >>= 32;
+			mvn = mem / (64 * 1024) + 1024;
+			if (sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) == -1)
+				syslog(LOG_WARNING, "sysctl(\"kern.maxvnodes\"): %m");
+		}
+		if (sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) == -1)
+			syslog(LOG_WARNING, "sysctl(\"kern.hostname\"): %m");
+
+		if (setlogin("root") == -1)
+			syslog(LOG_ERR, "setlogin(\"root\"): %m");
+
+		loopback_setup();
+	}
+
 	if ((mainkq = kqueue()) == -1) {
 		syslog(LOG_EMERG, "kqueue(): %m");
 		exit(EXIT_FAILURE);
@@ -178,11 +213,6 @@ int main(int argc, char *argv[])
 
 	if (setsid() == -1)
 		syslog(LOG_ERR, "setsid(): %m");
-
-	if (getpid() == 1) {
-		if (setlogin("root") == -1)
-			syslog(LOG_ERR, "setlogin(\"root\"): %m");
-	}
 
 	if (chdir("/") == -1)
 		syslog(LOG_ERR, "chdir(\"/\"): %m");
@@ -1114,4 +1144,68 @@ static void *mach_demand_loop(void *arg __attribute__((unused)))
 	}
 
 	return NULL;
+}
+
+static void loopback_setup(void)
+{
+	int s = socket(AF_INET, SOCK_DGRAM, 0);
+	int s6 = socket(AF_INET6, SOCK_DGRAM, 0);
+	struct ifaliasreq ifra;
+	struct in6_aliasreq ifra6;
+	struct ifreq ifr;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "lo0");
+
+        if (ioctl(s, SIOCGIFFLAGS, &ifr) == -1) {
+                syslog(LOG_ERR, "ioctl(SIOCGIFFLAGS): %m");
+        } else {
+        	ifr.ifr_flags |= IFF_UP;
+
+        	if (ioctl(s, SIOCSIFFLAGS, &ifr) == -1)
+                	syslog(LOG_ERR, "ioctl(SIOCSIFFLAGS): %m");
+	}
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "lo0");
+
+        if (ioctl(s6, SIOCGIFFLAGS, &ifr) == -1) {
+                syslog(LOG_ERR, "ioctl(SIOCGIFFLAGS): %m");
+        } else {
+        	ifr.ifr_flags |= IFF_UP;
+
+        	if (ioctl(s6, SIOCSIFFLAGS, &ifr) == -1)
+                	syslog(LOG_ERR, "ioctl(SIOCSIFFLAGS): %m");
+	}
+
+	memset(&ifra, 0, sizeof(ifra));
+	strcpy(ifra.ifra_name, "lo0");
+
+	((struct sockaddr_in *)&ifra.ifra_addr)->sin_family = AF_INET;
+	((struct sockaddr_in *)&ifra.ifra_addr)->sin_addr.s_addr = INADDR_LOOPBACK;
+	((struct sockaddr_in *)&ifra.ifra_addr)->sin_len = sizeof(struct sockaddr_in);
+	((struct sockaddr_in *)&ifra.ifra_mask)->sin_family = AF_INET;
+	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = IN_CLASSA_NET;
+	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
+
+	if (ioctl(s, SIOCAIFADDR, &ifra) == -1)
+		syslog(LOG_ERR, "ioctl(SIOCAIFADDR ipv4): %m");
+
+	memset(&ifra6, 0, sizeof(ifra6));
+	strcpy(ifra6.ifra_name, "lo0");
+
+	ifra6.ifra_addr.sin6_family = AF_INET6;
+	ifra6.ifra_addr.sin6_addr = in6addr_loopback;
+	ifra6.ifra_addr.sin6_len = sizeof(struct sockaddr_in6);
+	ifra6.ifra_prefixmask.sin6_family = AF_INET6;
+	memset(&ifra6.ifra_prefixmask.sin6_addr, 0xff, sizeof(struct in6_addr));
+	ifra6.ifra_prefixmask.sin6_len = sizeof(struct sockaddr_in6);
+	ifra6.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
+	ifra6.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
+
+	if (ioctl(s6, SIOCAIFADDR_IN6, &ifra6) == -1)
+		syslog(LOG_ERR, "ioctl(SIOCAIFADDR ipv6): %m");
+ 
+	close(s);
+	close(s6);
 }

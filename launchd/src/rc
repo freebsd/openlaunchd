@@ -1,30 +1,16 @@
 #!/bin/sh
-
-##
-# Multi-user startup script.
-#
 # Copyright 1997-2004 Apple Computer, Inc.
-#
-# Customize system startup by adding scripts to the startup 
-# directory, rather than editing this file.
-##
 
-stty intr  undef
-stty kill  undef
-stty quit  undef
-stty susp  undef
-stty start undef
-stty stop  undef
-stty dsusp undef
+stty intr undef kill undef quit undef susp undef start undef stop undef dsusp undef
 
 . /etc/rc.common
 
-stty status '^T'
-
+SafeBoot=""
 VerboseFlag=""
-   SafeBoot=""
+FsckSlash=""
+NetBoot=""
 
-args=$(/usr/bin/getopt vx $*)
+args=$(/usr/bin/getopt xvFN $*)
 set -- ${args};
 for option; do
     case "${option}" in
@@ -34,35 +20,244 @@ for option; do
       -x)
         SafeBoot="-x"
 	;;
+      -F)
+        FsckSlash="-F"
+	;;
+      -N)
+        NetBoot="-N"
+	;;
     esac;
 done;
+
+function fsck_slash {
+
+if [ "${NetBoot}" = "-N" ] ; then
+    echo "Initializing NetBoot"
+    if ! sh /etc/rc.netboot start ; then
+	echo NetBoot initialization failed, shut down in 10 seconds...
+	sleep 10
+	echo Shutting down.
+	halt
+    fi
+fi
+
+fsckerror=0
+
+# We're neither single-user nor on a CD-ROM.
+# Erase the rom's old-style login panel
+echo "Checking disk"
+
+# Benignly clean up ("preen") any dirty filesystems. 
+# fsck -p will skip disks which were properly unmounted during
+# a normal shutdown.
+# fsck always runs during SafeBoot
+if [ "${SafeBoot}" = "-x" ]; then
+	fsck -fy
+else
+	fsck -p
+fi
+
+# fsck's success is reflected in its status.
+case $? in
+0)
+	# No problems
+	;;
+2) 
+	# Request was made (via SIGQUIT, ^\) to complete fsck
+	# but prevent going multi-user.
+	ConsoleMessage "Request to remain single-user received"
+	fsckerror=1
+	;;
+4)
+	# The root filesystem was checked and fixed.  Let's reboot.
+	# Note that we do NOT sync the disks before rebooting, to
+	# ensure that the filesystem versions of everything fsck fixed
+	# are preserved, rather than being overwritten when in-memory
+	# buffers are flushed.
+	ConsoleMessage "Root filesystem fixed - rebooting"
+	reboot -q -n
+	;;
+8)
+	# Serious problem was found.
+	ConsoleMessage "Reboot failed - serious errors"
+	fsckerror=1
+	;;
+12)
+	# fsck was interrupted by SIGINT (^C)
+	ConsoleMessage "Reboot interrupted"
+	fsckerror=1
+	;;
+*)
+	# Some other error condition ocurred.
+	ConsoleMessage "Unknown error while checking disks"
+	fsckerror=1
+	;;
+esac
+
+##
+# Try fsck -y and reboot if the above fails horribly.
+# This may create a neverending cycle if your root disk is unrecoverably
+#  frobbed, and the only recourse them is to power down or boot single
+#  user and hope you know what you're doing.
+##
+if [ ${fsckerror} -ne 0 ]; then
+	fsck -y && reboot
+fi
+
+}
 
 if [ -d /System/Installation -a -f /etc/rc.cdrom ]; then
 	/etc/rc.cdrom multiuser
 	# We shouldn't get here; CDIS should reboot the machine when done
 	echo "CD-ROM boot procedure complete"
 	halt
-	exit 0
 fi
 
-netboot=$(/usr/sbin/sysctl -n kern.netboot)
+if [ "${FsckSlash}" = "-F" ]; then
+	fsck_slash
+fi
+
 
 # Mount essential local filesystems (according to /etc/fstab).
 echo "Mounting local filesystems"
 
-mount -vat hfs
-mount -vat ufs
-mount -t fdesc -o union stdin /dev
-mkdir -p -m 0555 /.vol && chmod 0555 /.vol && mount_volfs /.vol
-
-# 3281054 Cannot start up if /private/var/tmp is missing (system should recreate it)
-mkdir -p -m 01777 /private/var/tmp
+mount_fdesc -o union fdesc /dev
+mkdir -p -m 0555 /.vol
+mount_volfs /.vol
+mount -vat nonfs
 
 if [ -f /etc/rc.installer_cleanup ]; then
 	/etc/rc.installer_cleanup multiuser
 fi
 
-. /etc/rc.cleanup
+    ConsoleMessage "Resetting files and devices"
+
+    ##
+    # Attempt to recover the passwd file, if needed.  This procedure is
+    # primarily historical and makes sense only when the passwd file is edited
+    # using the vipw command.  
+    ##
+    if [ -s /etc/ptmp ]; then
+	if [ -s /etc/passwd ]; then
+	    echo -n "Passwd file conflict with ptmp: "
+	    ls -l /etc/passwd /etc/ptmp
+	    echo "Moving ptmp to ptmp.save"
+	    mv -f /etc/ptmp /etc/ptmp.save
+	else
+	    echo "Passwd file recovered from ptmp"
+	    mv /etc/ptmp /etc/passwd
+	fi
+    elif [ -r /etc/ptmp ]; then
+	echo "Removing passwd lock file"
+	rm -f /etc/ptmp
+    fi
+
+    ConsoleMessage "Cleaning up"
+    echo -n "    "
+
+    ##
+    # If the shutdown command was used to shut the system down, the file
+    # /etc/nologin may have been created to prevent users from logging in.  
+    # Remove it so that logins are enabled when the system comes up.
+    ##
+    echo -n " /etc/nologin"
+    rm -f /etc/nologin
+
+    # Clean out /private/tmp.
+    if [ -d /private/tmp ]; then
+        # blow away any _tmp_ in case it exists as well
+        if [ -e /private/_tmp_ ]; then
+            chflags -R nouchg /private/_tmp_ && rm -rf /private/_tmp_
+        fi
+    echo -n " /private/tmp"
+    mv /private/tmp /private/_tmp_
+    (chflags -R nouchg /private/_tmp_ && rm -rf /private/_tmp_) &
+    fi
+	mkdir -p -m 01777 /private/var/tmp
+	mkdir -p -m 01777 /private/tmp
+
+    # Clear /private/Network (created by automount).
+    if [ -d /private/Network ]; then
+        # blow away any _Network_ in case it exists as well
+        if [ -e /private/_Network_ ]; then
+            chflags -R nouchg /private/_Network_ && rm -rf /private/_Network_
+        fi
+
+        echo -n " /private/Network"
+        mv /private/Network /private/_Network_
+        {
+            find /private/_Network_ -x -exec sh -c "chflags -R nouchg {} && rm -f -- {}" \; \
+                >/dev/null 2>&1;
+            find -d /private/_Network_ -x -type d -exec rmdir -- {} \; \
+                >/dev/null 2>&1;
+            rmdir /private/_Network_ >/dev/null 2>&1;
+        } &
+    fi
+
+
+    # Move /var/run out of the way
+    if [ -d /var/run ]; then
+        # blow away any _run_ in case it exists as well
+        if [ -e /var/_run_ ]; then
+            chflags -R nouchg /var/_run_ && rm -rf /var/_run_
+        fi
+        mv /var/run /var/_run_
+    fi
+
+    # Make new /var/run
+    mkdir -m 775 /var/run
+    chown root:daemon /var/run
+    mkdir -m 775 /var/run/StartupItems
+    chown root:daemon /var/run/StartupItems
+    mkdir -m 755 /var/run/proxy
+    chown www:www /var/run/proxy
+    mkdir -m 775 /var/run/davlocks
+    chown www:www /var/run/davlocks
+
+    # Move sudo back to /var/run, touch the contents of /var/run/sudo/* back to the epoch
+    if [ -d /var/_run_/sudo ]; then
+        mv /var/_run_/sudo /var/run/sudo
+        touch -t 198501010000 /var/run/sudo/*
+    fi
+
+    # Clear utmp (who is logged on).
+    touch /var/run/utmp
+
+    # purge the _run_ directory if it exists
+    if [ -d /var/_run_ ]; then
+        (chflags -R nouchg /var/_run_ && rm -rf /var/_run_) &
+    fi
+
+    # Clear /var/spool/lock
+    purgedir /var/spool/lock
+
+
+    # if "/Desktop Folder" exists and has contents, make sure there is a
+    #   "/Desktop (Mac OS 9)" symlink to it
+    # if "/Desktop Folder" does not exist, exists but has no contents, or exists
+    #   and has only a single file, ".DS_Store" then there should be no
+    #   "/Desktop (Mac OS 9)" symlink
+    # if there is some other file or directory with the name "/Desktop (Mac OS 9)"
+    #   then just exit
+    needlink=0
+    if [ -d "/Desktop Folder" ]; then
+        needlink=$(ls -a1 "/Desktop Folder" | wc -l)
+        if [ "${needlink}" -eq 3 ]; then
+            if [ -f "/Desktop Folder/.DS_Store" ]; then
+                needlink=0
+            fi
+        fi
+    fi
+
+    if [ "${needlink}" -lt 3 ]; then
+        if [ -h "/Desktop (Mac OS 9)" ]; then
+            rm -f "/Desktop (Mac OS 9)"
+        fi
+    else
+        if ! [ -e "/Desktop (Mac OS 9)" ]; then
+            ln -s "/Desktop Folder" "/Desktop (Mac OS 9)"
+        fi
+    fi
 
 BootCacheControl=/System/Library/Extensions/BootCache.kext/Contents/Resources/BootCacheControl
 if [ ! -f $BootCacheControl ]; then
@@ -73,7 +268,6 @@ if [ "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
 fi
 
 # System tuning
-sysctl -w kern.maxvnodes=$(echo $(sysctl -n hw.physmem) '33554432 / 512 * 1024 +p'|dc)
 if [ -f /etc/sysctl-macosxserver.conf ]; then
 	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/sysctl-macosxserver.conf | while read
 	do
@@ -86,17 +280,11 @@ if [ -f /etc/sysctl.conf ]; then
 		sysctl -w ${REPLY}
 	done
 fi
-sysctl -w kern.sysv.shmmax=4194304
-sysctl -w kern.sysv.shmmin=1
-sysctl -w kern.sysv.shmmni=32
-sysctl -w kern.sysv.shmseg=8
-sysctl -w kern.sysv.shmall=1024
+sysctl -w kern.sysv.shmmax=4194304 kern.sysv.shmmin=1 kern.sysv.shmmni=32 kern.sysv.shmseg=8 kern.sysv.shmall=1024
 
 # Logs are important. Start syslogd after the boot disk becomes r/w but before
 # everything else starts. In the future, we should launch this lazily when it
 # is first needed.
-ifconfig lo0 inet 127.0.0.1 up
-ifconfig lo0 inet6 ::1 up
 /usr/sbin/syslogd -s -m 0
 
 # Create mach symbol file
@@ -194,7 +382,7 @@ update
 echo "Starting virtual memory"
 
 swapdir=/private/var/vm
-if [ "${netboot}" = "1" ]; then
+if [ "${NetBoot}" = "-N" ]; then
     sh /etc/rc.netboot setup_vm ${swapdir}
 fi
 
@@ -257,6 +445,6 @@ fi
 
 export LANGUAGE
 
-SystemStarter -gr ${VerboseFlag} ${SafeBoot}
+SystemStarter -g ${VerboseFlag} ${SafeBoot}
 
 exit 0
