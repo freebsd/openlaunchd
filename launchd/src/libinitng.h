@@ -4,18 +4,17 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
-
 /* Unless otherwise stated, all of the following APIs return 0 on success
  * and -1 (and errno) on failure */
+
+typedef void (*initng_fdcheckin_cb)(int fd, const char *label, void *cookie);
+int initng_fdcheckin(initng_fdcheckin_cb cb, void *cookie);
+
+/* simple synchronous APIs */
 
 /* returns FD to connection, -1 and errno on failure */
 int initng_open(void);
 int initng_close(int fd);
-
-typedef void (*initng_checkin_cb)(char *key, char *data[], void *cookie);
-int initng_checkin(int fd, initng_checkin_cb cb, void *cookie);
-
-/* simple synchronous APIs */
 
 int initng_msg(int fd, char *command, ...);
 int initng_msgv(int fd, char *command, va_list ap);

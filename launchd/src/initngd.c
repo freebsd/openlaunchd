@@ -285,9 +285,13 @@ static void launch_job_st(struct initngd_job *j)
 
 static void job_launch(struct initngd_job *j, struct kevent *kev)
 {
+	struct initngd_jobfd *jfd;
 	pid_t c;
 	char *rdata[] = { j->label, NULL, NULL };
 	char **tmp, *tmps;
+	char fds[4096];
+	char fdlabelkey[1024];
+	size_t fdindex = 0;
 
 	initngd_assert(kev->filter == EVFILT_READ);
 
@@ -306,7 +310,14 @@ static void job_launch(struct initngd_job *j, struct kevent *kev)
 				setenv(*tmp, tmps, 1);
 			}
 		}
-		setenv("INITNG_JOB_LABEL", j->label, 1);
+		TAILQ_FOREACH(jfd, &j->fds, tqe)
+			fdindex += sprintf(fds + fdindex, "%d%s", jfd->fd, TAILQ_NEXT(jfd, tqe) ? " " : "");
+		setenv("__INITNG_FDS", fds, 1);
+		TAILQ_FOREACH(jfd, &j->fds, tqe) {
+			fcntl(jfd->fd, F_SETFD, 0);
+			sprintf(fdlabelkey, "__INITNG_FD_%d", jfd->fd);
+			setenv(fdlabelkey, jfd->label, 1);
+		}
 		setgid(j->g);
 		setuid(j->u);
 		setsid();
@@ -417,7 +428,6 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 	struct initngd_job *j = NULL;
 	char rstr[20], estr[20];
 	int r = 0, e = 0;
-	int dodump = 0;
 	bool check_args(const char *expected, int count) {
 		char **datatmp;
 		int argc = 0;
@@ -469,8 +479,6 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 	} else if (!j) {
 			r = -1;
 			e = ENOENT;
-	} else if (check_args("dumpJobState", 1)) {
-		dodump = 1;
 	} else if (check_args("removeJob", 2)) {
 		job_remove(j);
 	} else if (check_args("enableJob", 2)) {
@@ -551,8 +559,6 @@ static void initngd_parse_packet(int fd, char *command, char *data[], void *cook
 		e = EINVAL;
 	}
 out:
-	if (dodump)
-		job_dump_state(j, fd);
 	snprintf(rstr, sizeof(rstr), "%d", r);
 	snprintf(estr, sizeof(estr), "%d", e);
 	if (initng_sendmsg(fd, "commandACK", rstr, estr, NULL) == -1)
@@ -633,18 +639,6 @@ static void initngd_do_web_feedback(int lfd)
 	fprintf(F, "</table></body></html>");
 
 	fclose(F);
-}
-
-static void job_dump_state(struct initngd_job *j, int fd)
-{
-	struct initngd_jobfd *jfd;
-	char fdstr[20];
-	
-	TAILQ_FOREACH(jfd, &j->fds, tqe) {
-		snprintf(fdstr, sizeof(fdstr), "%d", jfd->fd);
-		if (initng_sendmsg(fd, "addFD", j->label, jfd->label, fdstr, NULL) == -1)
-			return initngd_debug(LOG_DEBUG, "failed to send fd %d: %m", jfd->fd);
-	}
 }
 
 static struct initngd_jobfd *job_fd_find(struct initngd_job *j, const char *label)

@@ -7,7 +7,7 @@
 	<key>GroupName</key>
 	<string>zarzycki</string>
 	<key>Program</key>
-	<string>/Volumes/data/zarzycki/src/apple/initng/HEAD/initng/src/helloworldd</string>
+	<string>/Volumes/data/zarzycki/src/initng/HEAD/initng/src/helloworldd</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>helloworldd</string>

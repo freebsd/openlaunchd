@@ -17,7 +17,7 @@
 static int kq = 0;
 static int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 static int _fd(int fd);
-static void hwd_cb(char *key, char *data[], void *cookie);
+static void hwd_cb(int fd, const char *label, void *cookie);
 
 int main(int argc, char *argv[])
 {
@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
 	struct sockaddr_storage ss;
 	socklen_t slen = sizeof(ss);
 	struct kevent kev;
-	int ch, thefd, r, ec = EXIT_FAILURE;
+	int ch, r, ec = EXIT_FAILURE;
 	FILE *c;
 	bool cf = false, lf = false, wf = false;
 
@@ -57,18 +57,10 @@ int main(int argc, char *argv[])
 
 	kq = kqueue();
 
-
-	if ((thefd = initng_open()) == -1) {
-		syslog(LOG_DEBUG, "initng_open(): %m");
-		goto out;
-	}
-
-	if (initng_checkin(thefd, hwd_cb, NULL) == -1) {
+	if (initng_fdcheckin(hwd_cb, NULL) == -1) {
 		syslog(LOG_DEBUG, "initng_checkin(): %s", strerror(errno));
 		goto out;
 	}
-
-	initng_close(thefd);
 
 	for (;;) {
 		if ((r = kevent(kq, NULL, 0, &kev, 1, &timeout)) == -1) {
@@ -113,14 +105,10 @@ out:
 	exit(ec);
 }
 
-static void hwd_cb(char *key, char *data[], void *cookie __attribute__((unused)))
+static void hwd_cb(int fd, const char *label, void *cookie __attribute__((unused)))
 {
-	if (!strcmp(key, "FD")) {
-		int sfd = strtol(data[1], NULL, 10);
-		__kevent(_fd(sfd), EVFILT_READ, EV_ADD, 0, 0, NULL);
-	} else {
-		syslog(LOG_DEBUG, "unknown key: %s", key);
-	}
+	if (__kevent(_fd(fd), EVFILT_READ, EV_ADD, 0, 0, NULL) == -1)
+		syslog(LOG_DEBUG, "kevent(%d, EVFILT_READ, EV_ADD, ...): %m", fd);
 }
 
 static int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)

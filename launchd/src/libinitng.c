@@ -560,48 +560,25 @@ res_walk_out_bad:
 	}
 }
 
-struct __resultmgmt {
-	bool done;
-	initng_checkin_cb cb;
-	void *cookie;
-};
-
-static void config_msg_cb(int fd, char *command, char *data[], void *cookie, initng_cred_t *cred)
+int initng_fdcheckin(initng_fdcheckin_cb cb, void *cookie)
 {
-	struct __resultmgmt *rmgmt = cookie;
+	char *fds = getenv("__INITNG_FDS");
+	char fdlabelkey[128];
+	char *fdlabel, *endptr;
+	int fd;
 
-	if (!strcmp(command, "commandACK")) {
-		rmgmt->done = true;
-		return;
-	}
-	if (!strcmp(command, "addFD")) {
-		rmgmt->cb("FD", data + 1, rmgmt->cookie);
-	} else {
-		rmgmt->cb(command, data + 1, rmgmt->cookie);
-	}
-}
-
-int initng_checkin(int fd, initng_checkin_cb cb, void *cookie)
-{
-	struct __resultmgmt rmgmt;
-	char *joblabel = getenv("INITNG_JOB_LABEL");
-
-	if (!joblabel) {
-		errno = EINVAL;
+	if (!fds) {
+		errno = ESRCH;
 		return -1;
 	}
 
-	rmgmt.done = false;
-	rmgmt.cb = cb;
-	rmgmt.cookie = cookie;
-
-	if (initng_sendmsg(fd, "dumpJobState", joblabel, NULL))
-		return -1;
-	while (rmgmt.done != true) {
-		if (initng_recvmsg(fd, config_msg_cb, &rmgmt) == -1)
-			return -1;
+	while (*fds != '\0') {
+		fd = strtol(fds, &endptr, 10);
+		sprintf(fdlabelkey, "__INITNG_FD_%d", fd);
+		fdlabel = getenv(fdlabelkey);
+		cb(fd, fdlabel, cookie);
+		fds = endptr;
 	}
-
 	return 0;
 }
 
