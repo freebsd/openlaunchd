@@ -16,5 +16,7 @@
 	<integer>30</integer>
 	<key>FileSystemEnergySavingSyncInterval</key>
 	<integer>30</integer>
+	<key>LowPriorityIO</key>
+	<true/>
 </dict>
 </plist>

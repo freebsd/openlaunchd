@@ -1164,7 +1164,7 @@ static void job_start(struct jobcb *j)
 			{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
 			{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
 			{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
-			};
+		};
 
 		argv_cnt = launch_data_array_get_count(ldpa);
 		argv = alloca((argv_cnt + 1) * sizeof(char *));
@@ -1208,6 +1208,13 @@ static void job_start(struct jobcb *j)
 			} else {
 				syslog(LOG_NOTICE, "Could not find base group in order to call initgroups()");
 			}
+		}
+		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_LOWPRIORITYIO)) {
+			int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
+			int val = 1;
+
+			if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
+				syslog(LOG_NOTICE, "sysctl(kern.proc_low_pri_io): %m");
 		}
 		if (job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))
 			chroot(job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY));

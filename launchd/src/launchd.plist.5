@@ -190,6 +190,8 @@ performed automatically by the system.
 This optional key specifies what
 .Xr nice 3
 value should be applied to the daemon.
+.It Sy LowPriorityIO <boolean>
+This optional key specifies whether the kernel should consider this daemon to be low priority when doing file system I/O.
 .It Sy Sockets <dictionary of dictionaries...>
 This optional key is used to specify launch on demand sockets that can be used to let
 .Nm launchd
