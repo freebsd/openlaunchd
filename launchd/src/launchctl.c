@@ -24,6 +24,7 @@
 #include <tcl.h>
 
 #include "launch.h"
+#include "launch_priv.h"
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
 
