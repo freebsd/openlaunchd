@@ -57,37 +57,40 @@ static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(conne
 static mode_t ourmask = 0;
 int mainkq = 0;
 
-static void job_watch_fds(launch_data_t o, void *cookie);
-static void job_ignore_fds(launch_data_t o, void *cookie);
 static launch_data_t load_job(launch_data_t pload, struct conncb *c);
 static launch_data_t get_jobs(struct userjobs *uhead);
 static launch_data_t batch_job_disable(struct usercb *u, bool e);
+
 static struct usercb *find_usercb(uid_t u);
 static struct userjobs *find_jobq(uid_t u);
-static void ipc_close(struct conncb *c);
 
 static void listen_callback(void *, struct kevent *);
-static kq_callback kqlisten_callback = listen_callback;
 static void signal_callback(void *, struct kevent *);
-static kq_callback kqsignal_callback = signal_callback;
 static void fs_callback(void *, struct kevent *);
-static kq_callback kqfs_callback = fs_callback;
 
+static kq_callback kqlisten_callback = listen_callback;
+static kq_callback kqsignal_callback = signal_callback;
+static kq_callback kqfs_callback = fs_callback;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
+static void job_watch_fds(launch_data_t o, void *cookie);
+static void job_ignore_fds(launch_data_t o, void *cookie);
+static void job_launch(struct jobcb *j);
 static void job_reap(struct jobcb *j);
-static void job_event_callback(void *obj, struct kevent *kev);
-static int launchd_server_init(const char *);
+static void job_callback(void *obj, struct kevent *kev);
+
+static void ipc_open(int fd, struct jobcb *j);
+static void ipc_close(struct conncb *c);
 static void ipc_callback(void *, struct kevent *);
 static void ipc_readmsg(launch_data_t msg, void *context);
-static void usage(FILE *where, const char *argv0) __attribute__((noreturn));
-static void launchd_panic(const char *format, ...) __attribute__((noreturn, format(printf,1,2)));
+
 static bool launchd_check_pid(pid_t p, int status);
+static int launchd_server_init(const char *);
+
+static void usage(FILE *where, const char *argv0) __attribute__((noreturn));
 static int _fd(int fd);
 
-static void dummysignalhandler(int sig __attribute__((unused)))
-{
-}
+static void dummysignalhandler(int sig __attribute__((unused)));
 
 static int thesocket = -1;
 static char *thesockpath = NULL;
@@ -131,6 +134,7 @@ int main(int argc, char *argv[])
 		case '?':
 		default:
 			syslog(LOG_WARNING, "ignoring unknown arguments");
+			usage(stderr, argv[0]);
 			break;
 		}
 	}
@@ -147,8 +151,10 @@ int main(int argc, char *argv[])
 			LOG_DAEMON);
 	setlogmask(debug ? LOG_UPTO(LOG_DEBUG) : LOG_UPTO(LOG_INFO));
 
-	if ((mainkq = kqueue()) == -1)
-		launchd_panic("kqueue(): %m");
+	if ((mainkq = kqueue()) == -1) {
+		syslog(LOG_EMERG, "kqueue(): %m");
+		exit(EXIT_FAILURE);
+	}
 
 	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
 		if (__kevent(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
@@ -616,7 +622,7 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 
 	j = calloc(1, sizeof(struct jobcb));
 	j->ldj = launch_data_copy(pload);
-	j->kqjob_callback = job_event_callback;
+	j->kqjob_callback = job_callback;
 
 	if (c->u != 0) {
 		tmp = launch_data_alloc(LAUNCH_DATA_INTEGER);
@@ -647,7 +653,7 @@ static launch_data_t load_job(launch_data_t pload, struct conncb *c)
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 		job_watch_fds(j->ldj, &j->kqjob_callback);
 	else
-		job_event_callback(j, NULL);
+		job_launch(j);
 
 	resp = launch_data_alloc(LAUNCH_DATA_STRING);
 	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
@@ -668,15 +674,6 @@ static launch_data_t get_jobs(struct userjobs *uhead)
 	return resp;
 }
 
-static void launchd_panic(const char *format, ...)
-{
-	va_list ap;
-	va_start(ap, format);
-	vsyslog(LOG_EMERG, format, ap);
-	va_end(ap);
-	exit(EXIT_FAILURE);
-}
-
 static void usage(FILE *where, const char *argv0)
 {
 	fprintf(where, "%s:\n", argv0);
@@ -686,8 +683,6 @@ static void usage(FILE *where, const char *argv0)
 
 	if (where == stdout)
 		exit(EXIT_SUCCESS);
-	else
-		exit(EXIT_FAILURE);
 }
 
 int __kevent(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, kq_callback *cback)
@@ -762,34 +757,39 @@ static void job_reap(struct jobcb *j)
 
 	j->p = 0;
 	j->wstatus = 0;
+	j->checkedin = false;
 }
 
-static void job_event_callback(void *obj, struct kevent *kev)
+static void job_callback(void *obj, struct kevent *kev)
 {
-	char nbuf[64];
 	struct jobcb *j = obj;
-        pid_t c;
-	int spair[2];
-	const char **argv;
-	bool sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
 
-	if (kev && kev->filter == EVFILT_PROC) {
-		job_reap(j);
+	if (kev->filter == EVFILT_PROC) {
 
-		if (sipc) {
-			if (j->checkedin != true) {
-				job_remove(j);
-				return;
-			} else {
-				j->checkedin = false;
-			}
+		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !j->checkedin) {
+			syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
+			job_remove(j);
+			return;
 		}
+
+		job_reap(j);
 
 		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND)) {
 			job_watch_fds(j->ldj, &j->kqjob_callback);
 			return;
 		}
 	}
+
+	job_launch(j);
+}
+
+static void job_launch(struct jobcb *j)
+{
+	char nbuf[64];
+        pid_t c;
+	int spair[2];
+	const char **argv;
+	bool sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
 
 	if (sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
@@ -870,7 +870,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 		openlog(basename(getprogname()),
 				LOG_NDELAY|LOG_CONS|(debug ? LOG_PERROR : 0)|(getpid() > 1 ? LOG_PID : 0),
 				LOG_DAEMON);
-		syslog(LOG_INFO, "closelog();openlog();");
+		syslog(LOG_INFO, "reopened syslog connection");
 		break;
 	case SIGUSR2:
 		debug = !debug;
@@ -890,4 +890,8 @@ static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __
 			setenv(LAUNCHD_SOCKET_ENV, thesockpath, 1);
 		}
 	}
+}
+
+static void dummysignalhandler(int sig)
+{
 }

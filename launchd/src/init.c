@@ -629,11 +629,8 @@ session_new(session_index, typ)
 
 	asprintf(&s->se_device, "%s%s", _PATH_DEV, typ->ty_name);
 
-	if (setupargv(s, typ) == 0) {
+	if (setupargv(s, typ) == 0)
 		session_free(s);
-		return;
-	}
-
 }
 
 static void
