@@ -69,6 +69,10 @@ static void ipc_close(struct conncb *c);
 static void listen_callback(void *, struct kevent *);
 static kq_callback kqlisten_callback = listen_callback;
 
+static void simple_zombie_reaper(void *, struct kevent *);
+static kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
+
+static void job_waitpid(struct jobcb *j);
 static void job_event_callback(void *obj, struct kevent *kev);
 static int launchd_server_init(const char *);
 static void ipc_callback(void *, struct kevent *);
@@ -259,6 +263,13 @@ static void ipc_open(int fd, struct jobcb *j)
 	__kevent(mainkq, fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
 
+static void simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
+{
+	int status;
+
+	waitpid(kev->ident, &status, 0);
+}
+
 static void listen_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
         struct sockaddr_un sun;
@@ -379,6 +390,13 @@ static void job_watch_fds(launch_data_t o, void *cookie)
 static void job_remove(struct jobcb *j)
 {
 	TAILQ_REMOVE(find_jobq(job_get_integer(j->ldj, LAUNCH_JOBKEY_UID)), j, tqe);
+        if (j->p) {
+        	if (__kevent(mainkq, j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
+        		job_waitpid(j);
+		} else {
+			kill(j->p, SIGTERM);
+		}
+	}
 	launch_data_close_fds(j->ldj);
 	launch_data_free(j->ldj);
 	free(j);
@@ -660,28 +678,35 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 		setenv(key, launch_data_get_string(obj), 1);
 }
 
+static void job_waitpid(struct jobcb *j)
+{
+	int status;
+
+	waitpid(j->p, &status, 0);
+
+	if (WIFEXITED(status)) {
+		if (WEXITSTATUS(status) > 0)
+			launchd_debug(LOG_WARNING, "%s[%d] exited with exit code %d",
+					job_get_argv0(j->ldj), j->p, WEXITSTATUS(status));
+	} else if (WIFSIGNALED(status)) {
+		launchd_debug(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
+					job_get_argv0(j->ldj), j->p, WTERMSIG(status));
+	}
+
+	j->p = 0;
+}
+
 static void job_event_callback(void *obj, struct kevent *kev)
 {
 	char nbuf[64];
 	struct jobcb *j = obj;
         pid_t c;
-	int status;
 	int spair[2];
 	const char **argv;
 
 	if (kev && kev->filter == EVFILT_PROC) {
-		waitpid(j->p, &status, 0);
+		job_waitpid(j);
 
-		if (WIFEXITED(status)) {
-			if (WEXITSTATUS(status) > 0)
-				launchd_debug(LOG_WARNING, "%s[%d] exited with exit code %d",
-						job_get_argv0(j->ldj), j->p, WEXITSTATUS(status));
-		} else if (WIFSIGNALED(status)) {
-			launchd_debug(LOG_WARNING, "%s[%d] exited abnormally with signal %d",
-					job_get_argv0(j->ldj), j->p, WTERMSIG(status));
-		}
-
-		j->p = 0;
 		if (j->checkedin != true && j->has_fds) {
 			job_remove(j);
 			return;
