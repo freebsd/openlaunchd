@@ -302,12 +302,14 @@ static void job_launch(struct initngd_job *j, struct kevent *kev)
 		initngd_debug(LOG_DEBUG, "fork(): %m");
 		return;
 	} else if (c == 0) {
-		for (tmp = j->env; *tmp; tmp++) {
-			tmps = strchr(*tmp, '=');
-			if (tmps) {
-				*tmps = '\0';
-				tmps++;
-				setenv(*tmp, tmps, 1);
+		if (j->env) {
+			for (tmp = j->env; *tmp; tmp++) {
+				tmps = strchr(*tmp, '=');
+				if (tmps) {
+					*tmps = '\0';
+					tmps++;
+					setenv(*tmp, tmps, 1);
+				}
 			}
 		}
 		TAILQ_FOREACH(jfd, &j->fds, tqe)
