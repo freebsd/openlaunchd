@@ -804,7 +804,7 @@ static void proc_callback(void *obj __attribute__((unused)), struct kevent *kev 
 
 static kq_callback kqproc_callback = proc_callback;
 
-static void *waitpid_demand_loop(void *arg __attribute__((unused)))
+static void waitpid_demand_loop(void *arg __attribute__((unused)))
 {
 	wait_pass_results_t wpr;
 
@@ -832,7 +832,7 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 		pthread_attr_init(&attr);
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-		pthr_r = pthread_create(&waitpid_demand_thread, &attr, waitpid_demand_loop, NULL);
+		pthr_r = pthread_create(&waitpid_demand_thread, &attr, (void *(*)(void *))waitpid_demand_loop, NULL);
 		if (pthr_r != 0) {
 			syslog(LOG_ERR, "pthread_create(waitpid_demand_loop): %s", strerror(pthr_r));
 			exit(EXIT_FAILURE);
@@ -1011,7 +1011,7 @@ static void job_launch(struct jobcb *j)
         } else if (c == 0) {
 		launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 		size_t i, argv_cnt;
-		char *a0;
+		const char *a0;
 
 		argv_cnt = launch_data_array_get_count(ldpa);
 		argv = alloca((argv_cnt + 1) * sizeof(char *));
@@ -1275,7 +1275,7 @@ static void loopback_setup(void)
 
 static void workaround3048875(int argc, char *argv[])
 {
-	size_t i;
+	int i;
 	char **ap, *newargv[100], *p = argv[1];
 
 	if (argc == 1 || argc > 2)

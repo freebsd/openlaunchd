@@ -1,6 +1,8 @@
 #ifndef __LAUNCHD_H__
 #define __LAUNCHD_H__
 
+#include <sys/event.h>
+
 typedef void (*kq_callback)(void *, struct kevent *);
 
 extern int mainkq;
