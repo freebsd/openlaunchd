@@ -267,9 +267,10 @@ fi
 
 # Load [ideally on demand] daemons
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
-launchctl -l /System/Library/LaunchDaemons
-
-if [ "${SafeBoot}" != "-x" ]; then
+if [ "${SafeBoot}" = "-x" ]; then
+	launchctl -l /System/Library/LaunchDaemons
+else
+	launchctl -l /Library/LaunchDaemons -l /System/Library/LaunchDaemons
 	SystemStarter ${VerboseFlag}
 fi
 

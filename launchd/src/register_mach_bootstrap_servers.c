@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
 			struct passwd *pwe = getpwuid(getuid());
 			char *buf;
 			asprintf(&buf, "%s/%s", h ? h : pwe->pw_dir, "Library/LaunchAgents");
-			execlp("launchctl", "launchctl", "-l", "/System/Library/LaunchAgents", "-l", buf, NULL);
+			execlp("launchctl", "launchctl", "-l", buf, "-l", "/Library/LaunchAgents", "-l", "/System/Library/LaunchAgents", NULL);
 			exit(EXIT_SUCCESS);
 		}
 	}
