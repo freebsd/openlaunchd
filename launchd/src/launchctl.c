@@ -44,7 +44,7 @@ static int unsetenv_cmd(int argc, char *const argv[]);
 static int getenv_and_export_cmd(int argc, char *const argv[]);
 
 //static int limit_cmd(int argc, char *const argv[]);
-static int setstdio_cmd(int argc, char *const argv[]);
+static int stdio_cmd(int argc, char *const argv[]);
 static int fyi_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
 
@@ -66,8 +66,8 @@ static const struct {
 	{ "getenv",	getenv_and_export_cmd,	"Get environmental variables from launchd" },
 	{ "export",	getenv_and_export_cmd,	"Export shell settings from launchd" },
 //	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
-	{ "setstdout",	setstdio_cmd,		"Redirect launchd's standard out to the given path" },
-	{ "setstderr",	setstdio_cmd,		"Redirect launchd's standard error to the given path" },
+	{ "stdout",	stdio_cmd,		"Redirect launchd's standard out to the given path" },
+	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
 	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
 	{ "umask",	umask_cmd,		"Change launchd's umask" },
@@ -867,7 +867,7 @@ static int list_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static int setstdio_cmd(int argc, char *const argv[])
+static int stdio_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg, tmp;
 	int fd = -1, r = 0;
@@ -887,7 +887,7 @@ static int setstdio_cmd(int argc, char *const argv[])
 		tmp = launch_data_new_fd(fd);
 	}
 
-	if (!strcmp(argv[0], "setstdout")) {
+	if (!strcmp(argv[0], "stdout")) {
 		launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETSTDOUT);
 	} else {
 		launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETSTDERR);
