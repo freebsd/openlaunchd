@@ -1,33 +1,12 @@
 #!/bin/sh
 # Copyright 1997-2004 Apple Computer, Inc.
 
-stty intr undef kill undef quit undef susp undef start undef stop undef dsusp undef
-
 . /etc/rc.common
 
-SafeBoot=""
-VerboseFlag=""
-FsckSlash=""
-NetBoot=""
-
-args=$(/usr/bin/getopt xvFN $*)
-set -- ${args};
-for option; do
-    case "${option}" in
-      -v)
-        VerboseFlag="-v"
-	;;
-      -x)
-        SafeBoot="-x"
-	;;
-      -F)
-        FsckSlash="-F"
-	;;
-      -N)
-        NetBoot="-N"
-	;;
-    esac;
-done;
+export -n SafeBoot
+export -n VerboseFlag
+export -n FsckSlash
+export -n NetBoot
 
 if [ -d /System/Installation -a -f /etc/rc.cdrom ]; then
 	/etc/rc.cdrom multiuser
@@ -44,7 +23,6 @@ if [ "${NetBoot}" = "-N" ] ; then
 		halt
 	fi
 fi
-
 
 if [ "${FsckSlash}" = "-F" ]; then
 	# Benignly clean up ("preen") any dirty filesystems. 

@@ -84,6 +84,7 @@
 #include <libgen.h>
 #include <pwd.h>
 #include <paths.h>
+#include <termios.h>
 
 #include "launchd.h"
 #include "bootstrap_internal.h"
@@ -113,6 +114,7 @@ static bool runcom_boot = true;		/* Run the rc.boot script */
 static bool runcom_verbose = false;
 static bool runcom_safe = false;
 static bool runcom_fsck = true;
+static bool runcom_netboot = false;
 static bool single_user_mode = false;
 static bool run_runcom = true;
 static pid_t single_user_pid = 0;
@@ -179,6 +181,10 @@ static int setupargv(session_t, struct ttyent *);
 void
 init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
 {
+	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
+	uint64_t nb = 0;
+	size_t nbsz = sizeof(nb);
+
 	if (sflag) {
 		single_user_mode = true;
 		run_runcom = false;
@@ -189,6 +195,23 @@ init_boot(bool sflag, bool vflag, bool xflag, bool bflag)
 		runcom_verbose = true;
 	if (xflag)
 		runcom_safe = true;
+
+	if (sysctl(nbmib, 2, &nb, &nbsz, NULL, 0) == 0) {
+		/* The following assignment of nb to itself if the size of data
+		 * returned is 32 bits instead of 64 is a clever C trick to
+		 * move the 32 bits on big endian systems to the least
+		 * significant bytes of the 64 mem variable.
+		 *
+		 * On little endian systems, this is effectively a no-op.
+		 */
+		if (nbsz == 4)
+			nb = *(uint32_t *)&nb;
+		if (nb != 0)
+			runcom_netboot = true;
+	} else {
+		syslog(LOG_WARNING, "sysctl(\"kern.netboot\") %m");
+	}
+
 }
 
 void
@@ -335,20 +358,24 @@ single_user(void)
 
 		do_security_check();
 
-                setenv("PATH", _PATH_STDPATH, 1);
-
                 setenv("TERM", "vt100", 1);
+		setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
+		setenv("VerboseFlag", runcom_verbose ? "-v" : "", 1);
+		setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
+		setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 
 		if (runcom_fsck) {
 			fprintf(stdout, "Singleuser boot -- fsck not done\n");
-			fprintf(stdout, "Root device is mounted read-only\n");
-			fprintf(stdout, "If you want to make modifications to files,\n");
-			fprintf(stdout, "run '/sbin/fsck -fy' first and then '/sbin/mount -uw /'\n");
+			fprintf(stdout, "Root device is mounted read-only\n\n");
+			fprintf(stdout, "If you want to make modifications to files:\n");
+			fprintf(stdout, "\t/sbin/fsck -fy\n\t/sbin/mount -uw /\n\n");
+			fprintf(stdout, "If you wish to boot the system, but stay in single user mode:\n");
+			fprintf(stdout, "\tsh /etc/rc\n");
 			fflush(stdout);
 		}
 
 		argv[0] = "-sh";
-		argv[1] = 0;
+		argv[1] = NULL;
 		setpriority(PRIO_PROCESS, 0, 0);
 		execv(_PATH_BSHELL, argv);
 		syslog(LOG_ERR, "can't exec %s for single user: %m", _PATH_BSHELL);
@@ -398,11 +425,9 @@ static struct timeval runcom_start_tv = { 0, 0 };
 static void
 runcom(void)
 {
-	char *argv[4];
-	char options[30];
-	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
-	uint64_t nb = 0;
-	size_t nbsz = sizeof(nb);
+	char *argv[3];
+	struct termios term;
+	int vdisable;
 
 	gettimeofday(&runcom_start_tv, NULL);
 
@@ -414,6 +439,7 @@ runcom(void)
 		return;
 	} else if (runcom_pid > 0) {
 		run_runcom = false;
+		runcom_fsck = false;
 		if (kevent_mod(runcom_pid, EVFILT_PROC, EV_ADD, 
 					NOTE_EXIT, 0, &kqruncom_callback) == -1) {
 			runcom_callback(NULL, NULL);
@@ -421,48 +447,33 @@ runcom(void)
 		return;
 	}
 
-	signal(SIGTSTP, SIG_IGN);
-	signal(SIGHUP, SIG_IGN);
-
 	setctty(_PATH_CONSOLE, 0);
+
+	if ((vdisable = fpathconf(STDIN_FILENO, _PC_VDISABLE)) == -1) {
+		syslog(LOG_WARNING, "fpathconf(\"%s\") %m", _PATH_CONSOLE);
+	} else if (tcgetattr(STDIN_FILENO, &term) == -1) {
+		syslog(LOG_WARNING, "tcgetattr(\"%s\") %m", _PATH_CONSOLE);
+	} else {
+		term.c_cc[VINTR] = vdisable;
+		term.c_cc[VKILL] = vdisable;
+		term.c_cc[VQUIT] = vdisable;
+		term.c_cc[VSUSP] = vdisable;
+		term.c_cc[VSTART] = vdisable;
+		term.c_cc[VSTOP] = vdisable;
+		term.c_cc[VDSUSP] = vdisable;
+
+		if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &term) == -1)
+			syslog(LOG_WARNING, "tcsetattr(\"%s\") %m", _PATH_CONSOLE);
+	}
 
 	argv[0] = "sh";
 	argv[1] = _PATH_RUNCOM;
 	argv[2] = NULL;
-	argv[3] = NULL;
 
-	if (runcom_verbose || runcom_safe || runcom_fsck) {
-		int i = 0;
-
-		options[i++] = '-';
-		if (runcom_verbose)
-			options[i++] = 'v';
-		if (runcom_safe)
-			options[i++] = 'x';
-		if (sysctl(nbmib, 2, &nb, &nbsz, NULL, 0) == 0) {
-			/* The following assignment of nb to itself if the
-			 * size of data returned is 32 bits instead of 64 is a
-			 * clever C trick to move the 32 bits on big endian
-			 * systems to the least significant bytes of the 64 mem
-			 * variable.
-			 *
-			 * On little endian systems, this is effectively a no-op.
-			 */
-			if (nbsz == 4)
-				nb = *(uint32_t *)&nb;
-			if (nb != 0)
-				options[i++] = 'N';
-		} else {
-			syslog(LOG_WARNING, "sysctl(\"kern.netboot\") %m");
-		}
-		if (runcom_fsck) {
-			options[i++] = 'F';
-			runcom_fsck = false;
-		}
-		options[i] = '\0';
-
-		argv[2] = options;
-	}
+	setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
+	setenv("VerboseFlag", runcom_verbose ? "-v" : "", 1);
+	setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
+	setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 
 	setpriority(PRIO_PROCESS, 0, 0);
 	execv(_PATH_BSHELL, argv);
