@@ -47,6 +47,7 @@
 #define LAUNCHD_CONF ".launchd.conf"
 #define LAUNCHCTL_PATH "/bin/launchctl"
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+#define VOLFSDIR "/.vol"
 
 extern char **environ;
 
@@ -268,8 +269,6 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 
 	if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
 		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
-	if (mount("volfs", "/.vol", MNT_RDONLY, NULL) == -1)
-		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "volfs", "/.vol");
 
 	setenv("PATH", _PATH_STDPATH, 1);
 
@@ -1323,6 +1322,8 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 
 static void fs_callback(void)
 {
+	static bool mounted_volfs = false;
+
 	if (pending_stdout) {
 		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
 		if (fd != -1) {
@@ -1339,6 +1340,21 @@ static void fs_callback(void)
 			close(fd);
 			free(pending_stderr);
 			pending_stderr = NULL;
+		}
+	}
+
+	if (!mounted_volfs) {
+		int r = mount("volfs", VOLFSDIR, MNT_RDONLY, NULL);
+
+		if (-1 == r && errno == ENOENT) {
+			mkdir(VOLFSDIR, ACCESSPERMS & ~(S_IWUSR|S_IWGRP|S_IWOTH));
+			r = mount("volfs", VOLFSDIR, MNT_RDONLY, NULL);
+		}
+
+		if (-1 == r) {
+			syslog(LOG_WARNING, "mount(\"%s\", \"%s\", ...): %m", "volfs", VOLFSDIR);
+		} else {
+			mounted_volfs = true;
 		}
 	}
 
