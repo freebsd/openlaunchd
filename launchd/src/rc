@@ -280,7 +280,7 @@ rm -rf $RMRF_ITEMS
 # Logs are important. Start syslogd after the boot disk becomes r/w but before
 # everything else starts. In the future, we should launch this lazily when it
 # is first needed.
-/usr/sbin/syslogd -s -m 0
+/usr/sbin/syslogd -m 0 -c 5
 
 # Create mach symbol file
 rm -f /mach.sym
