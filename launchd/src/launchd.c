@@ -1091,14 +1091,15 @@ static void job_callback(void *obj, struct kevent *kev)
 	struct jobcb *j = obj;
 
 	if (kev->filter == EVFILT_PROC) {
+		bool checkin_check = j->checkedin;
 
-		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !j->checkedin) {
+		job_reap(j);
+
+		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !checkin_check) {
 			syslog(LOG_WARNING, "%s failed to checkin, removing job", job_get_argv0(j->ldj));
 			job_remove(j);
 			return;
 		}
-
-		job_reap(j);
 
 		if (j->failed_exits > LAUNCHD_FAILED_EXITS_THRESHOLD) {
 			syslog(LOG_NOTICE, "Too many failures in a row with %s, removing job", job_get_argv0(j->ldj));
