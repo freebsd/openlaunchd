@@ -161,9 +161,15 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
 	if (!CFURLCreateDataAndPropertiesFromResource(kCFAllocatorDefault, fileURL, &resourceData, NULL, NULL, &errorCode))
 		fprintf(stderr, "%s: CFURLCreateDataAndPropertiesFromResource(%s) failed: %d\n", argv0, posixfile, (int)errorCode);
 	propertyList = CFPropertyListCreateFromXMLData(kCFAllocatorDefault, resourceData, kCFPropertyListImmutable, &errorString);
-	if (!propertyList)
+	if (!propertyList) {
 		fprintf(stderr, "%s: propertyList is NULL\n", argv0);
-	CFRelease(resourceData);
-
+		if (errorString)
+			CFRelease(errorString);
+        }
+	if (resourceData)
+		CFRelease(resourceData);
+        if (fileURL)
+		CFRelease(fileURL);
+        
 	return propertyList;
 }
