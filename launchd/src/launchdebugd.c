@@ -42,7 +42,7 @@ static void find_fds(launch_data_t o)
 	}
 }
 
-int main(int argc __attribute__((unused)), char *argv[])
+int main(void)
 {
 	int r;
 	struct sockaddr_storage ss;
