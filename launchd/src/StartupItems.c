@@ -192,6 +192,7 @@ SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		CFSTR("Network Configuration"),
 		CFSTR("mDNSResponder"),
 		CFSTR("Cron"),
+		CFSTR("Core Graphics"),
 		NULL
 	};
 	CFMutableArrayRef aList, aNewList;
