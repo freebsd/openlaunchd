@@ -43,7 +43,7 @@
     # Clean out /private/tmp.
     if [ -d /private/tmp ]; then
         # blow away any _tmp_ in case it exists as well
-        if [ -f /private/_tmp_ ]; then
+        if [ -e /private/_tmp_ ]; then
             chflags -R nouchg /private/_tmp_ && rm -rf /private/_tmp_
         fi
     echo -n " /private/tmp"
@@ -55,7 +55,7 @@
     # Clear /private/Network (created by automount).
     if [ -d /private/Network ]; then
         # blow away any _Network_ in case it exists as well
-        if [ -f /private/_Network_ ]; then
+        if [ -e /private/_Network_ ]; then
             chflags -R nouchg /private/_Network_ && rm -rf /private/_Network_
         fi
 
@@ -74,7 +74,7 @@
     # Move /var/run out of the way
     if [ -d /var/run ]; then
         # blow away any _run_ in case it exists as well
-        if [ -f /var/_run_ ]; then
+        if [ -e /var/_run_ ]; then
             chflags -R nouchg /var/_run_ && rm -rf /var/_run_
         fi
         mv /var/run /var/_run_
