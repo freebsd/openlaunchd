@@ -659,24 +659,20 @@ static void launch_data_close_fds(launch_data_t o)
 	}
 }
 
-static void launch_data_revoke_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie)
+static void launch_data_revoke_fds(launch_data_t o)
 {
-	int *badfd = cookie;
 	size_t i;
 
 	switch (launch_data_get_type(o)) {
 	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, launch_data_revoke_fds, cookie);
+		launch_data_dict_iterate(o, (void (*)(launch_data_t, const char *, void *))launch_data_revoke_fds, NULL);
 		break;
 	case LAUNCH_DATA_ARRAY:
 		for (i = 0; i < launch_data_array_get_count(o); i++)
-			launch_data_revoke_fds(launch_data_array_get_index(o, i), NULL, cookie);
+			launch_data_revoke_fds(launch_data_array_get_index(o, i));
 		break;
 	case LAUNCH_DATA_FD:
-		if (NULL == badfd)
-			launch_data_set_fd(o, -1);
-		else if (*badfd == launch_data_get_fd(o))
-			launch_data_set_fd(o, -1);
+		launch_data_set_fd(o, -1);
 		break;
 	default:
 		break;
@@ -956,14 +952,14 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		resp = launch_data_new_errno(0);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(NULL);
-		launch_data_revoke_fds(resp, NULL, NULL);
+		launch_data_revoke_fds(resp);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETRESOURCELIMITS)) {
 		resp = adjust_rlimits(NULL);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETRESOURCELIMITS)) {
 		resp = adjust_rlimits(data);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOB)) {
 		resp = get_jobs(launch_data_get_string(data));
-		launch_data_revoke_fds(resp, NULL, NULL);
+		launch_data_revoke_fds(resp);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBWITHHANDLES)) {
 		resp = get_jobs(launch_data_get_string(data));
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETLOGMASK)) {
@@ -1062,7 +1058,7 @@ static launch_data_t load_job(launch_data_t pload)
 	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
 	strcpy(j->label, label);
 	j->ldj = launch_data_copy(pload);
-	launch_data_revoke_fds(pload, NULL, NULL);
+	launch_data_revoke_fds(pload);
 	j->kqjob_callback = job_callback;
 
 
@@ -1455,26 +1451,19 @@ static void job_callback(void *obj, struct kevent *kev)
 			}
 		}
 		/* if we get here, then the vnodes either wasn't a qdir, or if it was, it has entries in it */
-	} else if (kev->filter == EVFILT_READ) {
-		if ((int)kev->ident == j->execfd) {
-			if (kev->data > 0) {
-				int e;
+	} else if (kev->filter == EVFILT_READ && (int)kev->ident == j->execfd) {
+		if (kev->data > 0) {
+			int e;
 
-				read(j->execfd, &e, sizeof(e));
-				errno = e;
-				job_log_error(j, LOG_ERR, "execve()");
-				job_remove(j);
-				j = NULL;
-				startnow = false;
-			} else {
-				close(j->execfd);
-				j->execfd = 0;
-			}
-		} else if (kev->flags & EV_EOF && kev->data == 0) {
-			/* Busted FD with no data/listeners pending. Revoke the fd and start the job. */
-			job_log(j, LOG_WARNING, "revoking busted FD %d", kev->ident);
-			close(kev->ident);
-			launch_data_revoke_fds(j->ldj, NULL, &kev->ident);
+			read(j->execfd, &e, sizeof(e));
+			errno = e;
+			job_log_error(j, LOG_ERR, "execve()");
+			job_remove(j);
+			j = NULL;
+			startnow = false;
+		} else {
+			close(j->execfd);
+			j->execfd = 0;
 		}
 	}
 
