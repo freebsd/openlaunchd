@@ -91,38 +91,12 @@ int main(int argc, char *const argv[])
 {
 	Tcl_Interp *interp;
 	char *l;
-	int ch;
 	size_t i;
-	bool wflag = false, legacymode = false;
 
-	while ((ch = getopt(argc, argv, "l:u:w")) != -1) {
-		legacymode = true;
-		switch (ch) {
-		case 'w':
-			wflag = true;
-			break;
-		case 'l':
-			fprintf(stderr, "%s usage: \"-l\" is deprecated, please use \"load\"\n", getprogname());
-			readcfg(optarg, true, wflag);
-			break;
-		case 'u':
-			fprintf(stderr, "%s usage: \"-u\" is deprecated, please use \"unload\"\n", getprogname());
-			readcfg(optarg, false, wflag);
-			break;
-		default:
-			help_cmd(0, NULL);
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	if (legacymode)
-		exit(EXIT_SUCCESS);
-
-	argc -= optind;
-	argv += optind;
-
-	if (argc > 0) {
-		exit(demux_cmd(argc, argv));
+	if (argc > 1) {
+		exit(demux_cmd(argc - 1, argv + 1));
+	} else {
+		help_cmd(0, NULL);
 	}
 
 	if (NULL == Tcl_CreateInterp) {
