@@ -270,6 +270,8 @@ static void myCFSocketCallBack(void)
 		if (resp == NULL) {
 			if (errno != 0)
 				syslog(LOG_ERR, "launch_msg(): %m");
+			if (errno == ECONNRESET)
+				exit(EXIT_FAILURE);
 			return;
 		}
 
