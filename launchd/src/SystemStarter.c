@@ -80,14 +80,12 @@ main(int argc, char *argv[])
 	if (argc > 2)
 		usage();
 
-	openlog(getprogname(), LOG_PID|LOG_CONS|(gDebugFlag || gVerboseFlag ? LOG_PERROR : 0), LOG_DAEMON);
-	if (gVerboseFlag) {
+	openlog(getprogname(), LOG_PID|LOG_CONS|(gDebugFlag ? LOG_PERROR : 0), LOG_DAEMON);
+	setlogmask(LOG_UPTO(LOG_NOTICE));
+	if (gVerboseFlag)
 		setlogmask(LOG_UPTO(LOG_INFO));
-	} else if (gDebugFlag) {
+	if (gDebugFlag)
 		setlogmask(LOG_UPTO(LOG_DEBUG));
-	} else {
-		setlogmask(LOG_UPTO(LOG_NOTICE));
-	}
 
 	if (!gNoRunFlag && (getuid() != 0)) {
 		syslog(LOG_ERR, "must be root to run");
