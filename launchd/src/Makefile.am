@@ -28,12 +28,12 @@ bootstrap.h bootstrapServer.c bootstrapUser.c:
 
 man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8
 
-STARTUPITEMS = $(basename $(notdir $(wildcard StartupItems/*.plist)))
+STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@
-	cp StartupItems/$(notdir $@) $@
-	cp StartupItems/$(notdir $@).plist $@/StartupParameters.plist
+	cp $(srcdir)/StartupItems/$(notdir $@) $@
+	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
 
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 

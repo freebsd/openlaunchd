@@ -100,7 +100,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
 
 man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 mach_init.8
 
-STARTUPITEMS = $(basename $(notdir $(wildcard StartupItems/*.plist)))
+STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 subdir = src
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = config.h
@@ -533,8 +533,8 @@ bootstrap.h bootstrapServer.c bootstrapUser.c:
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@
-	cp StartupItems/$(notdir $@) $@
-	cp StartupItems/$(notdir $@).plist $@/StartupParameters.plist
+	cp $(srcdir)/StartupItems/$(notdir $@) $@
+	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
 
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 
