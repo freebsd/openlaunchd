@@ -1085,29 +1085,11 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 
 static void fs_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
-	pid_t p;
-	char *argv[] = { "launchctl", "-l", "/System/Library/LaunchDaemons", NULL };
-
 	if (thesocket == -1) {
 		if ((thesocket = _fd(launchd_server_init(thesockpath))) > 0) {
 			if (kevent_mod(thesocket, EVFILT_READ, EV_ADD, 0, 0, &kqlisten_callback) == -1)
 				syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
 			setenv(LAUNCHD_SOCKET_ENV, thesockpath, 1);
-			p = fork();
-			switch (p) {
-			case -1:
-				syslog(LOG_ALERT, "fork(): %m");
-				break;
-			case 0:
-				execvp(argv[0], argv);
-				syslog(LOG_ERR, "execvp(): %m");
-				exit(EXIT_FAILURE);
-				break;
-			default:
-        			if (kevent_mod(p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1)
-					waitpid(p, NULL, 0);
-				break;
-			}
 		}
 	}
 }

@@ -39,7 +39,7 @@ static void launch_client_init(void)
 	struct sockaddr_un sun;
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
 	char *_launchd_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
-	int dfd, lfd = -1;
+	int r, dfd, lfd = -1, tries;
 	
 	_lc = calloc(1, sizeof(struct _launch_client));
 
@@ -67,7 +67,15 @@ static void launch_client_init(void)
 
 		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
 			goto out_bad;
-		if (connect(lfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+
+		for (tries = 0; tries < 10; tries++) {
+			r = connect(lfd, (struct sockaddr *)&sun, sizeof(sun));
+			if (r == -1)
+				sleep(1);
+			else
+				break;
+		}
+		if (r == -1) {
 			close(lfd);
 			goto out_bad;
 		}
