@@ -913,6 +913,7 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 		CFSTR("FCUUpdater"),
 		CFSTR("AutoProtect Daemon"),
 		CFSTR("Check For Missed Tasks"),
+		CFSTR("Privacy"),
 		NULL
 	};
 	const CFStringRef *c;
