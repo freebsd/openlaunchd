@@ -256,7 +256,7 @@ static void readcfg(const char *what, bool load, bool editondisk)
 			launch_data_free(msg);
 			return;
 		}
-		launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_SUBMITJOBS);
+		launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_SUBMITJOB);
 	}
 
 	resp = launch_msg(msg);

@@ -135,6 +135,12 @@ before running the job.
 This optional key specifies whether the job participates in advanced communication with
 .Nm launchd .
 The default is true.
+.It Sy Tcl <string>
+This optional key specifies
+.Nm Tcl
+code that will be executed at the time that the job is loaded. Additional documentation is located in the
+.Xr launchd_Tcl
+man page.
 .It Sy StandardOutPath <string>
 This optional key specifies what file should be used for data being sent to stdout when using
 .Xr stdio 3 .

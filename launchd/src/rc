@@ -322,8 +322,6 @@ else
 	cd /
 fi
 
-update
-
 echo "Starting virtual memory"
 
 swapdir=/private/var/vm

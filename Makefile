@@ -19,6 +19,8 @@ else
 	chmod 755 $(DSTROOT)/System/Library/LaunchDaemons
 	install -m 644 LaunchDaemons/* $(DSTROOT)/System/Library/LaunchDaemons
 	rm -rf $(DSTROOT)/usr/local/lib/system
+	mkdir -p $(DSTROOT)/usr/sbin
+	mv $(DSTROOT)/sbin/launchd_helperd $(DSTROOT)/usr/sbin
 endif
 
 launchd_libs:: install

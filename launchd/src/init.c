@@ -376,7 +376,7 @@ single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __att
 		break;
 	}
 
-	if (WIFEXITED(single_user_status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
+	if (WIFEXITED(single_user_status) && WEXITSTATUS(single_user_status) == EXIT_SUCCESS) {
 		syslog(LOG_INFO, "single user shell terminated, restarting");
 		run_runcom = true;
 		single_user_mode = false;

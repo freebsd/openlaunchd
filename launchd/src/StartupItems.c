@@ -961,6 +961,7 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 
 			case 0:/* Child */
 				{
+					setpriority(PRIO_PROCESS, 0, 0);
 					if (setsid() == -1)
 						syslog(LOG_WARNING, "Unable to create session for item %s: %m", anExecutable);
 

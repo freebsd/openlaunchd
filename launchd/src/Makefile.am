@@ -6,7 +6,7 @@ noinst_LIBRARIES = liblaunch.a
 
 bin_PROGRAMS = launchctl wait4path
 
-sbin_PROGRAMS = launchd SystemStarter launchdebugd
+sbin_PROGRAMS = launchd SystemStarter launchdebugd launchd_helperd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
@@ -29,6 +29,9 @@ register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
+
+launchd_helperd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+launchd_helperd_LDFLAGS = -framework CoreFoundation -framework IOKit -ltcl
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 

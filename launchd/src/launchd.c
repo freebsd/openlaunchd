@@ -43,12 +43,12 @@ struct jobcb {
 	kq_callback kqjob_callback;
 	TAILQ_ENTRY(jobcb) tqe;
 	launch_data_t ldj;
-	bool checkedin;
-	bool suspended;
 	pid_t p;
 	int wstatus;
 	struct timeval start_time;
 	size_t failed_exits;
+	struct conncb *c;
+	bool checkedin;
 };
 
 struct conncb {
@@ -60,13 +60,14 @@ struct conncb {
 
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
+static struct jobcb *helperd = NULL;
 static mode_t ourmask = 0;
 static int mainkq = 0;
 static bool batch_enabled = true;
 
 static launch_data_t load_job(launch_data_t pload);
 static launch_data_t get_jobs(void);
-static launch_data_t batch_job_enable(bool e);
+static void batch_job_enable(bool e);
 
 static void listen_callback(void *, struct kevent *);
 static void signal_callback(void *, struct kevent *);
@@ -100,6 +101,8 @@ static void *mach_demand_loop(void *);
 
 static void usage(FILE *where);
 static int _fd(int fd);
+
+static void notify_helperd(const char *key, launch_data_t msg);
 
 static void loopback_setup(void);
 static void update_lm(void);
@@ -443,6 +446,8 @@ static void ipc_open(int fd, struct jobcb *j)
 	c->kqconn_callback = ipc_callback;
 	c->conn = launchd_fdopen(fd);
 	c->j = j;
+	if (j)
+		j->c = c;
 	TAILQ_INSERT_TAIL(&connections, c, tqe);
 	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
@@ -590,10 +595,24 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 	size_t i;
 
 	if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
+			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_RUNJOB))) {
+		resp = launch_data_alloc(LAUNCH_DATA_STRING);
+		TAILQ_FOREACH(j, &jobs, tqe) {
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
+				job_launch(j);
+				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
+				goto out;
+			}
+		}
+		launch_data_set_string(resp, LAUNCH_RESPONSE_JOBNOTFOUND);
+	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_REMOVEJOB))) {
 		resp = launch_data_alloc(LAUNCH_DATA_STRING);
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
+				notify_helperd(LAUNCH_KEY_REMOVEJOB, tmp);
+				if (!strcmp(launch_data_get_string(tmp), HELPERD))
+					helperd = NULL;
 				job_remove(j);
 				launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 				goto out;
@@ -601,15 +620,16 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		}
 		launch_data_set_string(resp, LAUNCH_RESPONSE_JOBNOTFOUND);
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
-			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SUBMITJOBS))) {
-		resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
-		for (i = 0; i < launch_data_array_get_count(pload); i++) {
-			tmp = load_job(launch_data_array_get_index(pload, i));
-			launch_data_array_set_index(resp, tmp, i);
-		}
-	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_SUBMITJOB))) {
-		resp = load_job(pload);
+		if (launch_data_get_type(pload) == LAUNCH_DATA_ARRAY) {
+			resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
+			for (i = 0; i < launch_data_array_get_count(pload); i++) {
+				tmp = load_job(launch_data_array_get_index(pload, i));
+				launch_data_array_set_index(resp, tmp, i);
+			}
+		} else {
+			resp = load_job(pload);
+		}
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(pload = launch_data_dict_lookup(msg, LAUNCH_KEY_UNSETUSERENVIRONMENT))) {
 		unsetenv(launch_data_get_string(pload));
@@ -646,7 +666,9 @@ static void ipc_readmsg(launch_data_t msg, void *context)
 		resp = get_jobs();
 	} else if ((LAUNCH_DATA_DICTIONARY == launch_data_get_type(msg)) &&
 			(tmp = launch_data_dict_lookup(msg, LAUNCH_KEY_BATCHCONTROL))) {
-		resp = batch_job_enable(launch_data_get_bool(tmp));
+		batch_job_enable(launch_data_get_bool(tmp));
+		resp = launch_data_alloc(LAUNCH_DATA_STRING);
+		launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 	} else if ((LAUNCH_DATA_STRING == launch_data_get_type(msg)) &&
 			!strcmp(launch_data_get_string(msg), LAUNCH_KEY_BATCHQUERY)) {
 		resp = launch_data_alloc(LAUNCH_DATA_BOOL);
@@ -667,46 +689,27 @@ out:
 	launch_data_free(resp);
 }
 
-static launch_data_t batch_job_enable(bool e)
+static void batch_job_enable(bool e)
 {
-	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_STRING);
-	struct jobcb *j;
-
-	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
-
 	if (e) {
 		batch_enabled = true;
-		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_BATCH) && j->suspended) {
-				j->suspended = false;
-				job_watch_fds(j->ldj, &j->kqjob_callback);
-				if (j->p)
-					kill(j->p, SIGCONT);
-			}
-		}
+		if (helperd)
+			job_launch(helperd);
 	} else {
 		batch_enabled = false;
-		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_BATCH) && !j->suspended) {
-				j->suspended = true;
-				job_ignore_fds(j->ldj, &j->kqjob_callback);
-				if (j->p)
-					kill(j->p, SIGSTOP);
-			}
-		}
+		if (helperd)
+			kill(helperd->p, SIGTERM);
 	}
-
-	return resp;
 }
 
 static launch_data_t load_job(launch_data_t pload)
 {
-	launch_data_t tmp, resp;
+	launch_data_t label, tmp, resp;
 	struct jobcb *j;
 
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
+	if ((label = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(tmp))) {
+			if (!strcmp(job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL), launch_data_get_string(label))) {
 				resp = launch_data_alloc(LAUNCH_DATA_STRING);
 				launch_data_set_string(resp, LAUNCH_RESPONSE_JOBEXISTS);
 				goto out;
@@ -726,6 +729,7 @@ static launch_data_t load_job(launch_data_t pload)
 	j = calloc(1, sizeof(struct jobcb));
 	j->ldj = launch_data_copy(pload);
 	j->kqjob_callback = job_callback;
+
 
 	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
 		tmp = launch_data_alloc(LAUNCH_DATA_BOOL);
@@ -752,6 +756,11 @@ static launch_data_t load_job(launch_data_t pload)
 	else
 		job_launch(j);
 
+	notify_helperd(LAUNCH_KEY_SUBMITJOB, j->ldj);
+	
+	if (!strcmp(launch_data_get_string(label), HELPERD))
+		helperd = j;
+
 	resp = launch_data_alloc(LAUNCH_DATA_STRING);
 	launch_data_set_string(resp, LAUNCH_RESPONSE_SUCCESS);
 out:
@@ -765,7 +774,7 @@ static launch_data_t get_jobs(void)
 
 	TAILQ_FOREACH(j, &jobs, tqe) {
 		tmp = launch_data_copy(j->ldj);
-		launch_data_dict_insert(resp, tmp, job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL));
+		launch_data_dict_insert(resp, tmp, job_get_string(tmp, LAUNCH_JOBKEY_LABEL));
 	}
 
 	return resp;
@@ -874,7 +883,7 @@ static int _fd(int fd)
 
 static void ipc_close(struct conncb *c)
 {
-	launch_data_free(batch_job_enable(true));
+	batch_job_enable(true);
 
 	TAILQ_REMOVE(&connections, c, tqe);
 	launchd_close(c->conn);
@@ -890,7 +899,7 @@ static void setup_job_env(launch_data_t obj, const char *key, void *context __at
 static void job_reap(struct jobcb *j)
 {
 	bool bad_exit = false;
-
+	
 	if (j->p)
 		waitpid(j->p, &j->wstatus, 0);
 
@@ -914,6 +923,7 @@ static void job_reap(struct jobcb *j)
 	else
 		j->failed_exits = 0;
 
+	j->c = NULL;
 	j->p = 0;
 	j->wstatus = 0;
 	j->checkedin = false;
@@ -943,6 +953,9 @@ static void job_callback(void *obj, struct kevent *kev)
 			job_watch_fds(j->ldj, &j->kqjob_callback);
 			return;
 		}
+
+		if (j == helperd && !batch_enabled)
+			return;
 	}
 
 	job_launch(j);
@@ -954,10 +967,13 @@ static void job_launch(struct jobcb *j)
 	pid_t c;
 	int spair[2];
 	const char **argv;
-	bool sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
+	bool sipc;
 	struct timeval last_start_time = j->start_time;
 
-	if (sipc)
+	if (j->p)
+		return;
+
+	if ((sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC)))
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
 	gettimeofday(&j->start_time, NULL);
@@ -995,6 +1011,9 @@ static void job_launch(struct jobcb *j)
 
 		if (sipc)
 			close(spair[0]);
+
+		setpriority(PRIO_PROCESS, 0, job_get_integer(j->ldj, LAUNCH_JOBKEY_NICE));
+
 		if (srl || hrl) {
 			for (i = 0; i < (sizeof(limits) / sizeof(limits[0])); i++) {
 				struct rlimit rl;
@@ -1040,7 +1059,6 @@ static void job_launch(struct jobcb *j)
 		if (sipc)
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		setsid();
-		setpriority(PRIO_PROCESS, 0, 0);
 		if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY))
 			a0 = "/usr/libexec/launchproxy";
 		else
@@ -1300,4 +1318,21 @@ static void workaround3048875(int argc, char *argv[])
 		return;
 
 	execv(newargv[0], newargv);
+}
+
+static void notify_helperd(const char *key, launch_data_t msg)
+{
+	launch_data_t asyncmsg, what;
+
+	if (helperd == NULL || !batch_enabled)
+		return;
+
+	what = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	asyncmsg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+
+	launch_data_dict_insert(what, launch_data_copy(msg), key);
+	launch_data_dict_insert(asyncmsg, what, LAUNCHD_ASYNC_MSG_KEY);
+
+	launchd_msg_send(helperd->c->conn, asyncmsg);
+	launch_data_free(asyncmsg);
 }

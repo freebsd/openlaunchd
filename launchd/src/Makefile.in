@@ -83,7 +83,7 @@ noinst_LIBRARIES = liblaunch.a
 
 bin_PROGRAMS = launchctl wait4path
 
-sbin_PROGRAMS = launchd SystemStarter launchdebugd
+sbin_PROGRAMS = launchd SystemStarter launchdebugd launchd_helperd
 
 libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
 
@@ -106,6 +106,9 @@ register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
+
+launchd_helperd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+launchd_helperd_LDFLAGS = -framework CoreFoundation -framework IOKit -ltcl
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 
@@ -135,7 +138,7 @@ libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
 	register_mach_bootstrap_servers$(EXEEXT) \
 	StartupItemContext$(EXEEXT) launchproxy$(EXEEXT)
 sbin_PROGRAMS = launchd$(EXEEXT) SystemStarter$(EXEEXT) \
-	launchdebugd$(EXEEXT)
+	launchdebugd$(EXEEXT) launchd_helperd$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS) $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 
 ConsoleMessage_SOURCES = ConsoleMessage.c
@@ -164,6 +167,10 @@ am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) launchd-init.$(OBJEXT) \
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
+launchd_helperd_SOURCES = launchd_helperd.c
+launchd_helperd_OBJECTS = launchd_helperd-launchd_helperd.$(OBJEXT)
+launchd_helperd_LDADD = $(LDADD)
+launchd_helperd_DEPENDENCIES =
 launchdebugd_SOURCES = launchdebugd.c
 launchdebugd_OBJECTS = launchdebugd-launchdebugd.$(OBJEXT)
 launchdebugd_LDADD = $(LDADD)
@@ -207,6 +214,7 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-lists.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-rpc_services.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchd_helperd-launchd_helperd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchdebugd-launchdebugd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
@@ -218,15 +226,15 @@ LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
 DIST_SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c \
 	StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c \
-	$(launchd_SOURCES) launchdebugd.c launchproxy.c \
-	register_mach_bootstrap_servers.c wait4path.c
+	$(launchd_SOURCES) launchd_helperd.c launchdebugd.c \
+	launchproxy.c register_mach_bootstrap_servers.c wait4path.c
 
 NROFF = nroff
 MANS = $(man1_MANS) $(man5_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 DIST_COMMON = Makefile.am Makefile.in config.h.in
-SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) launchdebugd.c launchproxy.c register_mach_bootstrap_servers.c wait4path.c
+SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) launchd_helperd.c launchdebugd.c launchproxy.c register_mach_bootstrap_servers.c wait4path.c
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -360,6 +368,10 @@ launchd-bootstrapServer.$(OBJEXT): bootstrapServer.c
 launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES) 
 	@rm -f launchd$(EXEEXT)
 	$(LINK) $(launchd_LDFLAGS) $(launchd_OBJECTS) $(launchd_LDADD) $(LIBS)
+launchd_helperd-launchd_helperd.$(OBJEXT): launchd_helperd.c
+launchd_helperd$(EXEEXT): $(launchd_helperd_OBJECTS) $(launchd_helperd_DEPENDENCIES) 
+	@rm -f launchd_helperd$(EXEEXT)
+	$(LINK) $(launchd_helperd_LDFLAGS) $(launchd_helperd_OBJECTS) $(launchd_helperd_LDADD) $(LIBS)
 launchdebugd-launchdebugd.$(OBJEXT): launchdebugd.c
 launchdebugd$(EXEEXT): $(launchdebugd_OBJECTS) $(launchdebugd_DEPENDENCIES) 
 	@rm -f launchdebugd$(EXEEXT)
@@ -412,6 +424,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-lists.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-rpc_services.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd_helperd-launchd_helperd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchdebugd-launchdebugd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
@@ -540,6 +553,18 @@ launchd-bootstrapServer.obj: bootstrapServer.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-bootstrapServer.Po' tmpdepfile='$(DEPDIR)/launchd-bootstrapServer.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-bootstrapServer.obj `cygpath -w bootstrapServer.c`
+
+launchd_helperd-launchd_helperd.o: launchd_helperd.c
+@AMDEP_TRUE@	source='launchd_helperd.c' object='launchd_helperd-launchd_helperd.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd_helperd-launchd_helperd.Po' tmpdepfile='$(DEPDIR)/launchd_helperd-launchd_helperd.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_helperd_CFLAGS) $(CFLAGS) -c -o launchd_helperd-launchd_helperd.o `test -f 'launchd_helperd.c' || echo '$(srcdir)/'`launchd_helperd.c
+
+launchd_helperd-launchd_helperd.obj: launchd_helperd.c
+@AMDEP_TRUE@	source='launchd_helperd.c' object='launchd_helperd-launchd_helperd.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd_helperd-launchd_helperd.Po' tmpdepfile='$(DEPDIR)/launchd_helperd-launchd_helperd.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_helperd_CFLAGS) $(CFLAGS) -c -o launchd_helperd-launchd_helperd.obj `cygpath -w launchd_helperd.c`
 
 launchdebugd-launchdebugd.o: launchdebugd.c
 @AMDEP_TRUE@	source='launchdebugd.c' object='launchdebugd-launchdebugd.o' libtool=no @AMDEPBACKSLASH@

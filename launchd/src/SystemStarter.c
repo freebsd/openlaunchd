@@ -109,6 +109,7 @@ main(int argc, char *argv[])
 	if (argc == 2) {
 		aService = argv[1];
 	} else if (!gDebugFlag && anAction != kActionStop) {
+		setpriority(PRIO_PROCESS, 0, 20);
 		daemon(0, 0);
 	}
 

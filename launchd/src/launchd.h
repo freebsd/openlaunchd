@@ -3,6 +3,8 @@
 
 #include <sys/event.h>
 
+#define HELPERD "com.apple.launchd_helperd"
+
 typedef void (*kq_callback)(void *, struct kevent *);
 
 extern kq_callback kqsimple_zombie_reaper;
