@@ -23,6 +23,8 @@
 			<string>bootps</string>
 			<key>SockType</key>
 			<string>dgram</string>
+			<key>SockFamily</key>
+			<string>IPv4</string>
 		</dict>
 	</dict>
 </dict>
