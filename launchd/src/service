@@ -77,8 +77,8 @@ then
 	exit 0
 elif [ -f "/System/Library/LaunchDaemons/$1.plist" ]
 then
-	[ "$2" == start ] && launchctl -wl /System/Library/LaunchDaemons/$1.plist
-	[ "$2" == stop  ] && launchctl -wu /System/Library/LaunchDaemons/$1.plist
+	[ "$2" == start ] && launchctl load -w /System/Library/LaunchDaemons/$1.plist
+	[ "$2" == stop  ] && launchctl unload -w /System/Library/LaunchDaemons/$1.plist
 elif [ -f "/etc/xinetd.d/$1" ]
 then
 	if [ $UID != 0 ]

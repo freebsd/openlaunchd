@@ -6,25 +6,94 @@
 .Nd Interfaces with launchd
 .Sh SYNOPSIS
 .Nm
-.Op Fl w
-.Op Fl l Ar xmlfile
-.Op Fl u Ar xmlfile
+.Op Ar subcommand Op Ar arguments ...
 .Sh DESCRIPTION
 .Nm 
 interfaces with
 .Nm launchd
-to load and unload daemons and agents.
-.Sh OPTIONS
+to load, unload daemons/agents and generally control
+.Nm launchd .
+.Nm
+supports taking subcommands on the command line, interactively or even redirected from standard input.
+These commands can be stored in
+.Nm $HOME/.launchd.conf
+or
+.Nm /etc/launchd.conf
+to be read at the time
+.Nm launchd
+starts.
+.Sh SUBCOMMANDS
+.Bl -tag -width -indent
+.It Xo Ar load Op Fl w
+.Ar paths ...
+.Xc
+Load the specified configuration files or directories of configuration files.
 .Bl -tag -width -indent
 .It Fl w
-Write to the XML property list. This updates the disabled boolean at the same time as a load or unload command given to this tool.
-.It Fl l Ar xmlfile
-Load the daemon/agent described in the XML property list into
+Remove the disabled key and write the configuration files back out to disk.
+.El
+.It Xo Ar unload Op Fl w
+.Ar paths ...
+.Xc
+Unload the specified configuration files or directories of configuration files.
+.Bl -tag -width -indent
+.It Fl w
+Add the disabled key and write the configuration files back out to disk.
+.El
+.It Ar start Ar joblabels ...
+Start the specified jobs by label.
+.It Ar stop Ar joblabels ...
+Stop the specified jobs by label. Jobs may restart automatically if demand driven.
+.It Ar list
+List all of the jobs loaded into
 .Nm launchd .
-This ignores daemons/agents marked as disabled in the XML property list.
-.It Fl u Ar xmlfile
-Unload the daemon/agent described in the XML property list from
+.It Ar setenv Ar key Ar value
+Set an environmental variable inside of
 .Nm launchd .
+.It Ar unsetenv Ar key
+Unset an environmental variable inside of
+.Nm launchd .
+.It Ar getenv Ar key
+Get an environmental variable inside of
+.Nm launchd .
+.It Ar export
+Export all of the environmental variables of
+.Nm launchd
+for use in a shell eval statement.
+.It Xo Ar limit
+.Op Ar cpu | filesize | data | stack | core | rss | memlock | maxproc | maxfiles
+.Op Ar both Op Ar soft | hard
+.Xc
+With no arguments, this command prints all the resource limits of
+.Nm launchd
+as found via
+.Xr getrlimit 2 .
+When a given resource is specified, it prints the limits for that resource.
+With a third argument, it sets both the hard and soft limits to that value.
+With four arguments, the third and forth argument represent the soft and hard limits respectively.
+See
+.Xr setrlimit 2 .
+.It Ar stdout path
+Set the standard out file descriptor to the given path.
+.Nm launchd
+.It Ar stderr path
+Set the standard error file descriptor to the given path.
+.Nm launchd
+.It Ar shutdown
+Tell
+.Nm launchd
+to prepare for shutdown by removing all jobs.
+.It Ar reloadttys
+Tell
+.Nm launchd
+to reread /etc/ttys. This option may go away in a future release.
+.It Ar umask Op Ar newmask
+Get or optionally set the
+.Xr umask 2
+of
+.Nm launchd .
+.It Ar help
+Print out a quick usage statement.
 .El
 .Sh FILES
 .Bl -tag -width "/System/Library/LaunchDaemons" -compact
@@ -40,5 +109,6 @@ Mac OS X Per-user agents.
 Mac OS X System wide daemons.
 .El
 .Sh SEE ALSO 
-.Xr launchd 8 ,
-.Xr launch.plist 5
+.Xr launch.plist 5 ,
+.Xr launchd.conf 5 ,
+.Xr launchd 8
