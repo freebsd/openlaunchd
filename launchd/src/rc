@@ -137,11 +137,13 @@ fi
 
 # System tuning
 if [ -f /etc/rc.env ]; then
-       awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/rc.env | while read
-       do
-               launchctl -S ${REPLY}
-	       export ${REPLY}
-       done
+	OLDPATH="$PATH"
+	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/rc.env | while read
+	do
+		launchctl -S ${REPLY}
+	done
+	eval `launchctl -E`
+	export PATH="$OLDPATH"
 fi
 if [ -f /etc/sysctl-macosxserver.conf ]; then
 	awk '{ if (!index($1, "#") && index($1, "=")) print $1 }' < /etc/sysctl-macosxserver.conf | while read
