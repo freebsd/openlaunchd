@@ -45,7 +45,6 @@
 #define LAUNCH_JOBKEY_PROGRAM			"Program"
 #define LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES	"UserEnvironmentVariables"
 #define LAUNCH_JOBKEY_ONDEMAND			"OnDemand"
-#define LAUNCH_JOBKEY_BATCH			"Batch"
 #define LAUNCH_JOBKEY_ROOTDIRECTORY		"RootDirectory"
 #define LAUNCH_JOBKEY_WORKINGDIRECTORY		"WorkingDirectory"
 #define LAUNCH_JOBKEY_SERVICEDESCRIPTION	"ServiceDescription"
