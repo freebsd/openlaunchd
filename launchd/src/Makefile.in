@@ -69,6 +69,7 @@ CC = @CC@
 DEPDIR = @DEPDIR@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 PACKAGE = @PACKAGE@
+RANLIB = @RANLIB@
 STRIP = @STRIP@
 VERSION = @VERSION@
 am__include = @am__include@
@@ -79,6 +80,8 @@ SUBDIRS = . QuartzDisplay SafeBoot SystemStarterResources
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wsign-compare
 
 sbin_SCRIPTS = service
+
+noinst_LIBRARIES = liblaunch.a
 
 bin_PROGRAMS = launchctl wait4path
 
@@ -92,7 +95,13 @@ SystemStarter_LDFLAGS = -framework CoreFoundation
 
 ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
-launchctl_LDFLAGS = -framework CoreFoundation
+launchctl_LDFLAGS = -framework CoreFoundation liblaunch.A.dylib
+
+launchd_LDFLAGS = liblaunch.A.dylib
+
+launchdebugd_LDFLAGS = liblaunch.A.dylib
+
+launchproxy_LDFLAGS = liblaunch.A.dylib
 
 register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
@@ -102,19 +111,21 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c \
 
 wait4path_SOURCES = wait4path.c
 
-launchdebugd_SOURCES = liblaunch.c launchdebugd.c
-
 init_SOURCES = init.c
 
-launchctl_SOURCES = liblaunch.c launchctl.c
+liblaunch_a_SOURCES = liblaunch.c
 
-launchd_SOURCES = liblaunch.c launchd.c
+launchdebugd_SOURCES = launchdebugd.c
 
-launchproxy_SOURCES = liblaunch.c launchproxy.c
+launchctl_SOURCES = launchctl.c
+
+launchd_SOURCES = launchd.c
+
+launchproxy_SOURCES = launchproxy.c
 
 mach_init_SOURCES = bootstrap.c lists.c error_log.c rpc_services.c bootstrapServer.c
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c liblaunch.A.dylib
 
 man1_MANS = wait4path.1
 
@@ -125,6 +136,12 @@ subdir = src
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = config.h
 CONFIG_CLEAN_FILES =
+LIBRARIES = $(noinst_LIBRARIES)
+
+liblaunch_a_AR = $(AR) cru
+liblaunch_a_LIBADD =
+am_liblaunch_a_OBJECTS = liblaunch.$(OBJEXT)
+liblaunch_a_OBJECTS = $(am_liblaunch_a_OBJECTS)
 bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
 libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
 	register_mach_bootstrap_servers$(EXEEXT) \
@@ -153,25 +170,22 @@ init_OBJECTS = $(am_init_OBJECTS)
 init_LDADD = $(LDADD)
 init_DEPENDENCIES =
 init_LDFLAGS =
-am_launchctl_OBJECTS = liblaunch.$(OBJEXT) launchctl.$(OBJEXT)
+am_launchctl_OBJECTS = launchctl.$(OBJEXT)
 launchctl_OBJECTS = $(am_launchctl_OBJECTS)
 launchctl_LDADD = $(LDADD)
 launchctl_DEPENDENCIES =
-am_launchd_OBJECTS = liblaunch.$(OBJEXT) launchd.$(OBJEXT)
+am_launchd_OBJECTS = launchd.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
-launchd_LDFLAGS =
-am_launchdebugd_OBJECTS = liblaunch.$(OBJEXT) launchdebugd.$(OBJEXT)
+am_launchdebugd_OBJECTS = launchdebugd.$(OBJEXT)
 launchdebugd_OBJECTS = $(am_launchdebugd_OBJECTS)
 launchdebugd_LDADD = $(LDADD)
 launchdebugd_DEPENDENCIES =
-launchdebugd_LDFLAGS =
-am_launchproxy_OBJECTS = liblaunch.$(OBJEXT) launchproxy.$(OBJEXT)
+am_launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_OBJECTS = $(am_launchproxy_OBJECTS)
 launchproxy_LDADD = $(LDADD)
 launchproxy_DEPENDENCIES =
-launchproxy_LDFLAGS =
 am_mach_init_OBJECTS = bootstrap.$(OBJEXT) lists.$(OBJEXT) \
 	error_log.$(OBJEXT) rpc_services.$(OBJEXT) \
 	bootstrapServer.$(OBJEXT)
@@ -220,9 +234,9 @@ COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
-DIST_SOURCES = ConsoleMessage.c StartupItemContext.c \
-	$(SystemStarter_SOURCES) $(init_SOURCES) $(launchctl_SOURCES) \
-	$(launchd_SOURCES) $(launchdebugd_SOURCES) \
+DIST_SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c \
+	StartupItemContext.c $(SystemStarter_SOURCES) $(init_SOURCES) \
+	$(launchctl_SOURCES) $(launchd_SOURCES) $(launchdebugd_SOURCES) \
 	$(launchproxy_SOURCES) $(mach_init_SOURCES) \
 	register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
@@ -237,7 +251,7 @@ RECURSIVE_TARGETS = info-recursive dvi-recursive install-info-recursive \
 	uninstall-recursive check-recursive installcheck-recursive
 DIST_COMMON = Makefile.am Makefile.in config.h.in
 DIST_SUBDIRS = $(SUBDIRS)
-SOURCES = ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(init_SOURCES) $(launchctl_SOURCES) $(launchd_SOURCES) $(launchdebugd_SOURCES) $(launchproxy_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
+SOURCES = $(liblaunch_a_SOURCES) ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) $(init_SOURCES) $(launchctl_SOURCES) $(launchd_SOURCES) $(launchdebugd_SOURCES) $(launchproxy_SOURCES) $(mach_init_SOURCES) register_mach_bootstrap_servers.c $(wait4path_SOURCES)
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
@@ -266,6 +280,15 @@ $(srcdir)/config.h.in:  $(top_srcdir)/configure.ac $(ACLOCAL_M4)
 
 distclean-hdr:
 	-rm -f config.h stamp-h1
+
+AR = ar
+
+clean-noinstLIBRARIES:
+	-test -z "$(noinst_LIBRARIES)" || rm -f $(noinst_LIBRARIES)
+liblaunch.a: $(liblaunch_a_OBJECTS) $(liblaunch_a_DEPENDENCIES) 
+	-rm -f liblaunch.a
+	$(liblaunch_a_AR) liblaunch.a $(liblaunch_a_OBJECTS) $(liblaunch_a_LIBADD)
+	$(RANLIB) liblaunch.a
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 install-binPROGRAMS: $(bin_PROGRAMS)
 	@$(NORMAL_INSTALL)
@@ -678,7 +701,8 @@ distdir: $(DISTFILES)
 	done
 check-am: all-am
 check: check-recursive
-all-am: Makefile $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) config.h
+all-am: Makefile $(LIBRARIES) $(PROGRAMS) $(SCRIPTS) $(MANS) $(DATA) \
+		config.h
 installdirs: installdirs-recursive
 installdirs-am:
 	$(mkinstalldirs) $(DESTDIR)$(bindir) $(DESTDIR)$(libexecdir) $(DESTDIR)$(sbindir) $(DESTDIR)$(sbindir) $(DESTDIR)$(man1dir) $(DESTDIR)$(man8dir) $(DESTDIR)$(sysconfdir)
@@ -711,7 +735,7 @@ maintainer-clean-generic:
 clean: clean-recursive
 
 clean-am: clean-binPROGRAMS clean-generic clean-libexecPROGRAMS \
-	clean-sbinPROGRAMS mostlyclean-am
+	clean-noinstLIBRARIES clean-sbinPROGRAMS mostlyclean-am
 
 distclean: distclean-recursive
 
@@ -757,11 +781,11 @@ uninstall-man: uninstall-man1 uninstall-man8
 
 .PHONY: $(RECURSIVE_TARGETS) GTAGS all all-am check check-am clean \
 	clean-binPROGRAMS clean-generic clean-libexecPROGRAMS \
-	clean-recursive clean-sbinPROGRAMS distclean distclean-compile \
-	distclean-depend distclean-generic distclean-hdr \
-	distclean-recursive distclean-tags distdir dvi dvi-am \
-	dvi-recursive info info-am info-recursive install install-am \
-	install-binPROGRAMS install-data install-data-am \
+	clean-noinstLIBRARIES clean-recursive clean-sbinPROGRAMS \
+	distclean distclean-compile distclean-depend distclean-generic \
+	distclean-hdr distclean-recursive distclean-tags distdir dvi \
+	dvi-am dvi-recursive info info-am info-recursive install \
+	install-am install-binPROGRAMS install-data install-data-am \
 	install-data-recursive install-exec install-exec-am \
 	install-exec-recursive install-info install-info-am \
 	install-info-recursive install-libexecPROGRAMS install-man \
@@ -784,6 +808,17 @@ bootstrap.c:: bootstrap.h
 bootstrap.h bootstrapServer.c bootstrapUser.c:
 	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
 
+liblaunch.A.dylib:
+	libtool -dynamic -o liblaunch.A.dylib -install_name /usr/lib/liblaunch.A.dylib -compatibility_version 1 -current_version 1 liblaunch.o -lSystem
+
+launchctl.c:: liblaunch.A.dylib
+
+launchdebugd.c:: liblaunch.A.dylib
+
+launchd.c:: liblaunch.A.dylib
+
+launchproxy.c:: liblaunch.A.dylib
+
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@/Resources/English.lproj
 	cp $(srcdir)/StartupItems/$(notdir $@) $@
@@ -794,6 +829,11 @@ $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 
 install-data-hook: install-startupitems
+	mkdir -p $(DESTDIR)/usr/lib
+	strip -S liblaunch.A.dylib
+	cp liblaunch.A.dylib $(DESTDIR)/usr/lib
+	mkdir -p $(DESTDIR)/usr/include
+	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
