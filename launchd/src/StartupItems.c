@@ -191,7 +191,6 @@ SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		CFSTR("DirectoryServices"),
 		CFSTR("Network Configuration"),
 		CFSTR("mDNSResponder"),
-		CFSTR("LDAP"),
 		NULL
 	};
 	CFMutableArrayRef aList, aNewList;

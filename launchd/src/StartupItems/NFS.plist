@@ -1,6 +1,6 @@
 {
   Description     = "network file system";
   Provides        = ("NFS");
-  Requires        = ("Portmap", "DirectoryServices");
+  Requires        = ("Network");
   Uses            = ("Disks");
 }

@@ -1,5 +1,5 @@
 {
   Description     = "authentication service";
   Provides        = ("TIM");
-  Requires        = ("NetInfo", "DirectoryServices");
+  Requires        = ("Network");
 }
