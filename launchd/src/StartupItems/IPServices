@@ -8,17 +8,8 @@
 
 StartService ()
 {
-    ##
-    # Internet super-server.
-    ##
-    echo "Starting internet services"
-    xinetd -inetd_compat -pidfile /var/run/xinetd.pid 
-
-    ##
-    # Internet Address Sharing.
-    ##
-    if [ -a /etc/com.apple.named.conf.proxy ]
-    then
+	if [ -a /etc/com.apple.named.conf.proxy ]
+	then
 		echo "Starting Internet address sharing"
 		/usr/libexec/InternetSharing
 	fi
