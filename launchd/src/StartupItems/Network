@@ -21,8 +21,6 @@ StartService ()
 	if [ "${IPFORWARDING:=-NO-}" = "-YES-" ]
 	then
 		sysctl -w net.inet.ip.forwarding=1 > /dev/null
-	else
-		sysctl -w net.inet.ip.forwarding=0 > /dev/null
 	fi
 
 }
