@@ -82,22 +82,22 @@ static void addjob(launch_data_t j)
 	launch_data_t tclc = launch_data_dict_lookup(j, LAUNCH_JOBKEY_TCL);
 	const char *ckey = launch_data_get_string(l);
 	CFStringRef key = CFStringCreateWithBytes(kCFAllocatorDefault, ckey, strlen(ckey), kCFStringEncodingUTF8, false);
-	CFTypeRef value = ld2CF(j);
+	CFMutableDictionaryRef value = (CFMutableDictionaryRef)ld2CF(j);
 
 	if (tclc) {
 		CFDataRef cfdr;
 		Tcl_Interp *interp;
 
 		if ((interp = Tcl_CreateInterp())) {
-			Tcl_CreateObjCommand(interp, "RunJob", _run_job, value, NULL);
-			Tcl_CreateObjCommand(interp, "CallBackInterval", _callback_interval, value, NULL);
+			Tcl_CreateObjCommand(interp, "RunJob", _run_job, (void *)value, NULL);
+			Tcl_CreateObjCommand(interp, "CallBackInterval", _callback_interval, (void *)value, NULL);
 			if (Tcl_Init(interp) != TCL_OK)
 				syslog(LOG_ERR, "Tcl_Init() for %s failed", ckey);
 		} else {
 			syslog(LOG_ERR, "Tcl_CreateInterp() for %s failed", ckey);
 		}
 
-		cfdr = CFDataCreate(kCFAllocatorDefault, &interp, sizeof(interp)); 
+		cfdr = CFDataCreate(kCFAllocatorDefault, (UInt8 *)&interp, sizeof(interp)); 
 		CFDictionarySetValue(value, kHelperdTCLState, cfdr);
 		CFRelease(cfdr);
 

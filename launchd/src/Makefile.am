@@ -1,4 +1,4 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Werror
 
 sbin_SCRIPTS = service
 
@@ -30,7 +30,7 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 launchd_helperd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 launchd_helperd_LDFLAGS = -framework CoreFoundation -framework IOKit -ltcl
 
-launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS)
+launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
 

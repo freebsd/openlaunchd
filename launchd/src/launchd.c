@@ -782,8 +782,8 @@ static launch_data_t get_jobs(const char *which)
 
 	if (which) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			if (!strcmp(which, job_get_string(j, LAUNCH_JOBKEY_LABEL)))
-				resp = launch_data_copy(j);
+			if (!strcmp(which, job_get_string(j->ldj, LAUNCH_JOBKEY_LABEL)))
+				resp = launch_data_copy(j->ldj);
 		}
 		if (resp == NULL)
 			resp = launch_data_new_string(LAUNCH_RESPONSE_JOBNOTFOUND);
