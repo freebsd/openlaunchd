@@ -30,81 +30,25 @@ for option; do
 done;
 
 function fsck_slash {
+	if [ "${NetBoot}" = "-N" ] ; then
+		echo "Initializing NetBoot"
+		if ! sh /etc/rc.netboot start ; then
+			echo NetBoot initialization failed, shut down in 10 seconds...
+			sleep 10
+			echo Shutting down.
+			halt
+		fi
+	fi
 
-if [ "${NetBoot}" = "-N" ] ; then
-    echo "Initializing NetBoot"
-    if ! sh /etc/rc.netboot start ; then
-	echo NetBoot initialization failed, shut down in 10 seconds...
-	sleep 10
-	echo Shutting down.
-	halt
-    fi
-fi
-
-fsckerror=0
-
-# We're neither single-user nor on a CD-ROM.
-# Erase the rom's old-style login panel
-echo "Checking disk"
-
-# Benignly clean up ("preen") any dirty filesystems. 
-# fsck -p will skip disks which were properly unmounted during
-# a normal shutdown.
-# fsck always runs during SafeBoot
-if [ "${SafeBoot}" = "-x" ]; then
-	fsck -fy
-else
-	fsck -p
-fi
-
-# fsck's success is reflected in its status.
-case $? in
-0)
-	# No problems
-	;;
-2) 
-	# Request was made (via SIGQUIT, ^\) to complete fsck
-	# but prevent going multi-user.
-	echo "Request to remain single-user received"
-	fsckerror=1
-	;;
-4)
-	# The root filesystem was checked and fixed.  Let's reboot.
-	# Note that we do NOT sync the disks before rebooting, to
-	# ensure that the filesystem versions of everything fsck fixed
-	# are preserved, rather than being overwritten when in-memory
-	# buffers are flushed.
-	echo "Root filesystem fixed - rebooting"
-	reboot -q -n
-	;;
-8)
-	# Serious problem was found.
-	echo "Reboot failed - serious errors"
-	fsckerror=1
-	;;
-12)
-	# fsck was interrupted by SIGINT (^C)
-	echo "Reboot interrupted"
-	fsckerror=1
-	;;
-*)
-	# Some other error condition ocurred.
-	echo "Unknown error while checking disks"
-	fsckerror=1
-	;;
-esac
-
-##
-# Try fsck -fy and reboot if the above fails horribly.
-# This may create a neverending cycle if your root disk is unrecoverably
-#  frobbed, and the only recourse them is to power down or boot single
-#  user and hope you know what you're doing.
-##
-if [ ${fsckerror} -ne 0 ]; then
-	fsck -fy
-	reboot
-fi
-
+	# Benignly clean up ("preen") any dirty filesystems. 
+	# fsck -p will skip disks which were properly unmounted during
+	# a normal shutdown.
+	echo "Checking disk"
+	if [ "${SafeBoot}" = "-x" ]; then
+		fsck -fy || halt
+	else
+		fsck -p || fsck -fy || halt
+	fi
 }
 
 if [ -d /System/Installation -a -f /etc/rc.cdrom ]; then
