@@ -69,7 +69,7 @@
  * Errors:	Returns appropriate kernel errors on rpc failure.
  *		Returns BOOTSTRAP_NOT_PRIVILEGED, if bootstrap port invalid.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_create_server(
 	mach_port_t bootstrapport,
 	cmd_t server_cmd,
@@ -126,7 +126,7 @@ x_bootstrap_create_server(
  * children (or any offspring that it does not want to count as part
  * of the "server" for mach_init registration and re-launch purposes).
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_unprivileged(
 	mach_port_t bootstrapport,
 	mach_port_t *unprivportp)
@@ -164,7 +164,7 @@ x_bootstrap_unprivileged(
  *		Returns BOOTSTRAP_SERVICE_ACTIVE, if service has already been
  *			registered or checked-in.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_check_in(
 	mach_port_t	bootstrapport,
 	name_t		servicename,
@@ -273,7 +273,7 @@ x_bootstrap_check_in(
  *		Returns BOOTSTRAP_SERVICE_ACTIVE, if service has already been
  *			register or checked-in.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_register(
 	mach_port_t	bootstrapport,
 	name_t	servicename,
@@ -390,7 +390,7 @@ x_bootstrap_register(
  * Errors:	Returns appropriate kernel errors on rpc failure.
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_look_up(
 	mach_port_t	bootstrapport,
 	name_t	servicename,
@@ -444,7 +444,7 @@ x_bootstrap_look_up(
  *			return,
  *		if any service is unknown, it's false.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_look_up_array(
 	mach_port_t	bootstrapport,
 	name_array_t	servicenames,
@@ -489,7 +489,7 @@ x_bootstrap_look_up_array(
  *	with an effective user id of root (as determined by the security
  *	token in the message trailer).
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_parent(
 	mach_port_t bootstrapport,
 	security_token_t sectoken,
@@ -527,7 +527,7 @@ x_bootstrap_parent(
  * Errors:	Returns appropriate kernel errors on rpc failure.
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_status(
 	mach_port_t		bootstrapport,
 	name_t			servicename,
@@ -572,7 +572,7 @@ x_bootstrap_status(
  *			
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_info(
 	mach_port_t			bootstrapport,
 	name_array_t			*servicenamesp,
@@ -689,7 +689,7 @@ x_bootstrap_info(
  *
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_subset(
 	mach_port_t	bootstrapport,
 	mach_port_t	requestorport,
@@ -774,7 +774,7 @@ x_bootstrap_subset(
  * Errors:	Returns appropriate kernel errors on rpc failure.
  *		Returns BOOTSTRAP_NAME_IN_USE, if service already exists.
  */
-kern_return_t
+__private_extern__ kern_return_t
 x_bootstrap_create_service(
 	mach_port_t bootstrapport,
 	name_t	servicename,
