@@ -12,9 +12,18 @@ trap "" TERM
 
 function restart_xinetd ()
 {
-	lockfile /var/run/xinetd-start-lockfile
+	lockfile -r-1 /var/run/.xinetd-restart.lock
 	kill -HUP $(cat /var/run/xinetd.pid 2>/dev/null) 2>/dev/null || /usr/sbin/xinetd -pidfile /var/run/xinetd.pid
-	rm -f /var/run/xinetd-start-lockfile
+	rm -f /var/run/.xinetd-restart.lock
+}
+
+function restart_xinetd_hard ()
+{
+	lockfile -r-1 /var/run/.xinetd-restart.lock
+	kill -TERM $(cat /var/run/xinetd.pid 2>/dev/null) 2>/dev/null || echo >/dev/null
+	kill -0 $(cat /var/run/xinetd.pid 2>/dev/null) 2>/dev/null && sleep 1
+	/usr/sbin/xinetd -pidfile /var/run/xinetd.pid
+	rm -f /var/run/.xinetd-restart.lock
 }
 
 if [ $# -eq 0 ]
@@ -72,7 +81,13 @@ then
 	elif [ "$2" == stop ]
 	then
 		sed 's/disable.*=.*/disable = yes/g' < $TMPFILE > "/etc/xinetd.d/$1"
-		restart_xinetd
+		if [ "$1" == "nmbd" ]
+		then
+			restart_xinetd_hard
+			kill -TERM $(cat /var/run/nmbd.pid) || echo >/dev/null
+		else
+			restart_xinetd
+		fi
 	else
 		echo "No such service command" >&2
 	fi
