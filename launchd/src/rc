@@ -293,27 +293,31 @@ rm -rf $RMRF_ITEMS
 rm -f /mach.sym
 sysctl -n kern.symfile
 if [ -f /mach.sym ]; then
-  rm -f /mach
-  ln -s /mach.sym /mach
+	rm -f /mach
+	ln -s /mach.sym /mach
 else
-  rm -f /mach
-  ln -s /mach_kernel /mach
+	rm -f /mach
+	ln -s /mach_kernel /mach
 fi
 
 if [ "${SafeBoot}" = "-x" ]; then
-    echo "Configuring kernel extensions for safe boot"
-    touch /private/tmp/.SafeBoot
-    kextd -x
+	echo "Configuring kernel extensions for safe boot"
+	touch /private/tmp/.SafeBoot
+	kextd -x
 else
-    echo "Configuring kernel extensions"
-    kextd
+	echo "Configuring kernel extensions"
+	kextd
 fi
 
 if [  "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
-    ${BootCacheControl} tag
+	${BootCacheControl} tag
 fi
 
-# Load [ideally on demand] Mach bootstrap based services
+if [ -f /etc/security/rc.audit ]; then
+	. /etc/security/rc.audit
+fi
+
+# Load [ideally on demand] daemons
 /usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
 launchctl -l /System/Library/LaunchDaemons
 
