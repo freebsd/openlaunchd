@@ -483,6 +483,14 @@ fork_with_bootstrap_port(mach_port_t p)
 	r = fork();
 
 	if (r > 0) {
+		/* Post Tiger:
+		 *
+		 * We should set the bootstrap back to MACH_PORT_NULL instead
+		 * of launchd_bootstrap_port. This will expose rare latent race
+		 * condition bugs, given that some programs assume that the PID
+		 * 1's bootstrap port is constant. This function clearly
+		 * demonstrates that is no longer true.
+		 */
 		result = task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
 		if (result != KERN_SUCCESS)
 			panic("task_set_bootstrap_port(): %s", mach_error_string(result));
