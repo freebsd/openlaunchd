@@ -37,7 +37,7 @@ static void launch_client_init(void)
 	struct sockaddr_un sun;
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
 	char *_launchd_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
-	int lfd;
+	int lfd = -1;
 	
 	_lc = calloc(1, sizeof(struct _launch_client));
 
@@ -48,7 +48,13 @@ static void launch_client_init(void)
 
 	if (_launchd_fd) {
 		lfd = strtol(_launchd_fd, NULL, 10);
-	} else {
+		if ((dfd = dup(lfd)) >= 0) {
+			close(dfd);
+		} else {
+			lfd = -1;
+		}
+	}
+	if (lfd == -1) {
 		if (!where)
 			where = LAUNCHD_DEFAULT_SOCK_PATH;
 
