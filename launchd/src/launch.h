@@ -100,6 +100,13 @@ bool		launch_data_array_set_index(launch_data_t, launch_data_t, size_t);
 launch_data_t	launch_data_array_get_index(launch_data_t, size_t);
 size_t		launch_data_array_get_count(launch_data_t);
 
+launch_data_t	launch_data_new_fd(int);
+launch_data_t	launch_data_new_integer(long long);
+launch_data_t	launch_data_new_bool(bool);
+launch_data_t	launch_data_new_real(double);
+launch_data_t	launch_data_new_string(const char *);
+launch_data_t	launch_data_new_opaque(const void *, size_t);
+
 bool		launch_data_set_fd(launch_data_t, int);
 bool		launch_data_set_integer(launch_data_t, long long);
 bool		launch_data_set_bool(launch_data_t, bool);

@@ -782,3 +782,72 @@ static int _fd(int fd)
 	return fd;
 }
 
+launch_data_t launch_data_new_fd(int fd)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_FD);
+
+	if (r)
+	       launch_data_set_fd(r, fd);
+
+	return r;
+}
+
+launch_data_t launch_data_new_integer(long long n)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_INTEGER);
+
+	if (r)
+		launch_data_set_integer(r, n);
+
+	return r;
+}
+
+launch_data_t launch_data_new_bool(bool b)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_BOOL);
+
+	if (r)
+		launch_data_set_bool(r, b);
+
+	return r;
+}
+
+launch_data_t launch_data_new_real(double d)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_REAL);
+
+	if (r)
+		launch_data_set_real(r, d);
+
+	return r;
+}
+
+launch_data_t launch_data_new_string(const char *s)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_STRING);
+
+	if (r == NULL)
+		return NULL;
+
+	if (!launch_data_set_string(r, s)) {
+		launch_data_free(r);
+		return NULL;
+	}
+
+	return r;
+}
+
+launch_data_t launch_data_new_opaque(const void *o, size_t os)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_OPAQUE);
+
+	if (r == NULL)
+		return NULL;
+
+	if (!launch_data_set_opaque(r, o, os)) {
+		launch_data_free(r);
+		return NULL;
+	}
+
+	return r;
+}
