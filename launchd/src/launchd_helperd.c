@@ -24,24 +24,25 @@
 #define LD_EVENT_FLAGS	"launchd_event_flags"
 
 struct watchpathcb {
-        TAILQ_ENTRY(watchpathcb) tqe;
+	TAILQ_ENTRY(watchpathcb) tqe;
 	int fd;
 	char *path;
 	char *event;
 };
 
 struct timercb {
-        TAILQ_ENTRY(timercb) tqe;
+	TAILQ_ENTRY(timercb) tqe;
 	CFRunLoopTimerRef cftmr;
 	char *event;
 };
 
 struct jobcb {
-        TAILQ_ENTRY(jobcb) tqe;
-        launch_data_t ldj;
+	TAILQ_ENTRY(jobcb) tqe;
+	char *label;
+	char *tclcode;
 	Tcl_Interp *tcli;
-        TAILQ_HEAD(timercbhead, timercb) tmrh;
-        TAILQ_HEAD(watchpathcbhead, watchpathcb) wph;
+	TAILQ_HEAD(timercbhead, timercb) tmrh;
+	TAILQ_HEAD(watchpathcbhead, watchpathcb) wph;
 };
 
 static struct timercb *tmr_find_by_name(struct timercbhead *tmrh, const char *event);
@@ -55,7 +56,7 @@ static void wp_remove(struct watchpathcbhead *wph, struct watchpathcb *wp);
 
 static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
 
-static void job_add(launch_data_t j);
+static void job_add(launch_data_t j, const char *label, void *context __attribute__((unused)));
 static struct jobcb *job_find(const char *label);
 static void job_remove(struct jobcb *j);
 static void job_start(struct jobcb *j);
@@ -69,7 +70,6 @@ static void reload_jobs(void);
 static bool on_battery_power(void);
 static void sync_callback(void);
 
-static launch_data_t ldself = NULL;
 static int kq = 0;
 static char *testtcl = NULL;
 static double sync_interval = 30;
@@ -126,6 +126,7 @@ int main(int argc, char *argv[])
 		char *tclcode;
 		launch_data_t j = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		launch_data_t l = launch_data_new_string("com.apple.launchd_helperd.testtcl");
+		launch_data_t od = launch_data_new_bool(true);
 		launch_data_t t;
 		int fd;
 
@@ -154,25 +155,31 @@ int main(int argc, char *argv[])
 
 		launch_data_dict_insert(j, l, LAUNCH_JOBKEY_LABEL);
 		launch_data_dict_insert(j, t, LAUNCH_JOBKEY_TCL);
+		launch_data_dict_insert(j, od, LAUNCH_JOBKEY_ONDEMAND);
 
-		job_add(j);
+		job_add(j, launch_data_get_string(l), NULL);
 
 		launch_data_free(j);
 	} else {
-		launch_data_t msg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
+		launch_data_t resp, msg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
 		EV_SET(&kev, launch_get_fd(), EVFILT_READ, EV_ADD, 0, 0, 0);
 		if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
 			syslog(LOG_ERR, "kevent(): %m");
 			exit(EXIT_FAILURE);
 		}
 
-		ldself = launch_msg(msg);
+		resp = launch_msg(msg);
 		launch_data_free(msg);
 
-		if (ldself) {
-			si = launch_data_dict_lookup(ldself, "FileSystemSyncInterval");
-			si2 = launch_data_dict_lookup(ldself, "FileSystemEnergySavingSyncInterval");
+		if (resp) {
+			si = launch_data_dict_lookup(resp, "FileSystemSyncInterval");
+			si2 = launch_data_dict_lookup(resp, "FileSystemEnergySavingSyncInterval");
+		} else {
+			syslog(LOG_ERR, "Failed to check in with launchd: %m");
+			exit(EXIT_FAILURE);
 		}
+
+		launch_data_free(resp);
 
 		reload_jobs();
 	}
@@ -219,79 +226,86 @@ static void sync_callback(void)
 	}
 }
 
-static void reload_job(launch_data_t ldj, const char *label, void *context __attribute__((unused)))
-{
-	struct jobcb *j = job_find(label);
-
-	if (!j)
-		job_add(ldj);
-}
-
 static void reload_jobs(void)
 {
 	launch_data_t resp, msg = launch_data_new_string(LAUNCH_KEY_GETJOBS);
 	struct jobcb *j;
-	const char *l;
 
 	resp = launch_msg(msg);
 	launch_data_free(msg);
 
-	if (resp) {
+	if (resp && launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
-			if (launch_data_dict_lookup(resp, l) == NULL)
+			if (launch_data_dict_lookup(resp, j->label) == NULL)
 				job_remove(j);
 		}
-		launch_data_dict_iterate(resp, reload_job, NULL);
+		launch_data_dict_iterate(resp, job_add, NULL);
 		launch_data_free(resp);
 	} else {
 		syslog(LOG_WARNING, "launch_msg(%s): %m", LAUNCH_KEY_GETJOBS);
 	}
 }
 
-static void job_add(launch_data_t ajob)
+static void job_add(launch_data_t ajob, const char *label, void *context __attribute__((unused)))
 {
 	launch_data_t od = launch_data_dict_lookup(ajob, LAUNCH_JOBKEY_ONDEMAND);
 	launch_data_t tclc = launch_data_dict_lookup(ajob, LAUNCH_JOBKEY_TCL);
-	struct jobcb *j;
-	const char *l;
+	struct jobcb *j = job_find(label);
+	Tcl_Interp *tcli;
 
-	if (tclc == NULL || (od && !launch_data_get_bool(od)))
+	if (j) {
+		if (!tclc) {
+			job_remove(j);
+		} else {
+			free(j->tclcode);
+			j->tclcode = strdup(launch_data_get_string(tclc));
+		}
 		return;
+	}
+
+	if (od == NULL)
+		return;
+	if (tclc == NULL)
+		return;
+	if (!launch_data_get_bool(od))
+		return;
+
+	if ((tcli = Tcl_CreateInterp()) == NULL) {
+		syslog(LOG_ERR, "Tcl_CreateInterp() for %s failed", label);
+		return;
+	}
 
 	j = calloc(1, sizeof(struct jobcb));
 
-	j->ldj = launch_data_copy(ajob);
+	Tcl_DeleteCommand(tcli, "exit");
+	Tcl_DeleteCommand(tcli, "gets");
+	Tcl_CreateCommand(tcli, "StartJob", _start_job, (void *)j, NULL);
+	Tcl_CreateCommand(tcli, "StopJob", _stop_job, (void *)j, NULL);
+	Tcl_CreateCommand(tcli, "CallBackInterval", _callback_interval, (void *)j, NULL);
+	Tcl_CreateCommand(tcli, "CallBackDate", _callback_interval, (void *)j, NULL);
+	Tcl_CreateCommand(tcli, "WatchPath", _watch_path, (void *)j, NULL);
+	Tcl_CreateCommand(tcli, "CancelAllCallBacks", _cancel_all_callbacks, (void *)j, NULL);
+	Tcl_CreateCommand(tcli, "syslog", _syslog, (void *)j, NULL);
+	Tcl_CreateCommand(tcli, "GetProperty", _getproperty, (void *)j, NULL);
+
+	if (Tcl_Init(tcli) != TCL_OK) {
+		syslog(LOG_ERR, "Tcl_Init() for %s failed", label);
+		free(j);
+		return;
+	}
+
+	j->label = strdup(label);
+	j->tclcode = strdup(launch_data_get_string(tclc));
+	j->tcli = tcli;
 
 	TAILQ_INIT(&j->tmrh);
 	TAILQ_INIT(&j->wph);
 
-	l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
-
-	if ((tclc = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_TCL))) {
-		if ((j->tcli = Tcl_CreateInterp())) {
-			Tcl_DeleteCommand(j->tcli, "exit");
-			Tcl_DeleteCommand(j->tcli, "gets");
-			Tcl_CreateCommand(j->tcli, "StartJob", _start_job, (void *)j, NULL);
-			Tcl_CreateCommand(j->tcli, "StopJob", _stop_job, (void *)j, NULL);
-			Tcl_CreateCommand(j->tcli, "CallBackInterval", _callback_interval, (void *)j, NULL);
-			Tcl_CreateCommand(j->tcli, "CallBackDate", _callback_interval, (void *)j, NULL);
-			Tcl_CreateCommand(j->tcli, "WatchPath", _watch_path, (void *)j, NULL);
-			Tcl_CreateCommand(j->tcli, "CancelAllCallBacks", _cancel_all_callbacks, (void *)j, NULL);
-			Tcl_CreateCommand(j->tcli, "syslog", _syslog, (void *)j, NULL);
-			Tcl_CreateCommand(j->tcli, "GetProperty", _getproperty, (void *)j, NULL);
-			if (Tcl_Init(j->tcli) != TCL_OK)
-				syslog(LOG_ERR, "Tcl_Init() for %s failed", l);
-		} else {
-			syslog(LOG_ERR, "Tcl_CreateInterp() for %s failed", l);
-		}
-
-		job_tcleval(j);
-	}
-
 	TAILQ_INSERT_TAIL(&jobs, j, tqe);
 
-	syslog(LOG_INFO, "Added job: %s", l);
+	job_tcleval(j);
+
+	syslog(LOG_INFO, "Added job: %s", j->label);
 }
 
 static void job_cancel_all_callbacks(struct jobcb *j)
@@ -309,11 +323,9 @@ static void job_cancel_all_callbacks(struct jobcb *j)
 static struct jobcb *job_find(const char *label)
 {
 	struct jobcb *j = NULL;
-	const char *l;
 
 	TAILQ_FOREACH(j, &jobs, tqe) {
-		l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
-		if (!strcmp(label, l))
+		if (!strcmp(label, j->label))
 			break;
 	}
 	return j;
@@ -321,14 +333,14 @@ static struct jobcb *job_find(const char *label)
 
 static void job_remove(struct jobcb *j)
 {
-	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
+	syslog(LOG_INFO, "Removing job: %s", j->label);
 
-	syslog(LOG_INFO, "Removing job: %s", l);
+	job_cancel_all_callbacks(j);
+	Tcl_DeleteInterp(j->tcli);
+	free(j->tclcode);
+	free(j->label);
+
 	TAILQ_REMOVE(&jobs, j, tqe);
-
-	if (j->tcli)
-		Tcl_DeleteInterp(j->tcli);
-	launch_data_free(j->ldj);
 	free(j);
 }
 
@@ -402,18 +414,16 @@ static void myCFSocketCallBack(void)
 
 static void job_do_something(struct jobcb *j, const char *what)
 {
-	launch_data_t resp, msg, label;
-
-	label = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL);
+	launch_data_t resp, msg;
 
 	if (testtcl) {
-		fprintf(stdout, "Would have sent command \"%s\" to: %s\n", what, launch_data_get_string(label));
+		fprintf(stdout, "Would have sent command \"%s\" to: %s\n", what, j->label);
 		return;
 	}
 
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	launch_data_dict_insert(msg, launch_data_copy(label), what);
+	launch_data_dict_insert(msg, launch_data_new_string(j->label), what);
 
 	resp = launch_msg(msg);
 	launch_data_free(msg);
@@ -444,19 +454,19 @@ static int _callback_interval(ClientData clientData, Tcl_Interp *interp, int arg
 	struct jobcb *j = (struct jobcb *)clientData;
 	struct timercb *tmr;
 	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
-        double interval;
+	double interval;
 	bool use_interval = true;
 	const char *evname = "";
 
 	if (!strcmp(argv[0], "CallBackDate"))
 		use_interval = false;
 
-        if (argc < 2 || argc > 3) {
+	if (argc < 2 || argc > 3) {
 		Tcl_SetStringObj(tcl_result, "Wrong # args. Callback i ", -1);
 		return TCL_ERROR;
-        }
+	}
 
-        interval = atof(argv[1]);
+	interval = atof(argv[1]);
 
 	if (!use_interval)
 		interval -= kCFAbsoluteTimeIntervalSince1970;
@@ -487,7 +497,6 @@ static int _syslog(ClientData clientData, Tcl_Interp *interp, int argc, CONST ch
 {
 	struct jobcb *j = (struct jobcb *)clientData;
 	Tcl_Obj *tcl_result = Tcl_GetObjResult(interp);
-	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
 	const char *levelstr, *msg;
 	int level = -1;
 
@@ -521,7 +530,7 @@ static int _syslog(ClientData clientData, Tcl_Interp *interp, int argc, CONST ch
 		return TCL_ERROR;
 	}
 
-	syslog(level, "%s: %s", l, msg);
+	syslog(level, "%s: %s", j->label, msg);
 
 	Tcl_SetIntObj(tcl_result, 0);
 	return TCL_OK;
@@ -690,58 +699,54 @@ static int _watch_path(ClientData clientData, Tcl_Interp *interp, int argc, CONS
 static void tcl_timer_callback(CFRunLoopTimerRef timer, void *context)
 {
 	struct jobcb *j = context;
-	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
 	struct timercb *tmr = tmr_find(&j->tmrh, timer);
 
 	if (tmr) {
 		Tcl_SetVar(j->tcli, LD_EVENT, tmr->event, TCL_GLOBAL_ONLY);
 		job_tcleval(j);
 	} else {
-		syslog(LOG_ERR, "%s: Couldn't find timer by ref!", l);
+		syslog(LOG_ERR, "%s: Couldn't find timer by ref!", j->label);
 	}
 }
 
 static void job_tcleval(struct jobcb *j)
 {
-	const char *tclcode = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_TCL));
-	const char *l = launch_data_get_string(launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_LABEL));
-
-	if (Tcl_Eval(j->tcli, tclcode) != TCL_OK)
-		syslog(LOG_ERR, "%s: Tcl_Eval() failed at line %d: %s", l, j->tcli->errorLine, j->tcli->result);
+	if (Tcl_Eval(j->tcli, j->tclcode) != TCL_OK)
+		syslog(LOG_ERR, "%s: Tcl_Eval() failed at line %d: %s", j->label, j->tcli->errorLine, j->tcli->result);
 	Tcl_SetVar(j->tcli, LD_EVENT, "", TCL_GLOBAL_ONLY);
 }
 
 static bool on_battery_power(void)
 {
-        bool result = false;
-        kern_return_t kr;
-        CFArrayRef cfarray = NULL;
-        CFDictionaryRef dict;
-        CFNumberRef cfnum;
-        int flags;
+	bool result = false;
+	kern_return_t kr;
+	CFArrayRef cfarray = NULL;
+	CFDictionaryRef dict;
+	CFNumberRef cfnum;
+	int flags;
 
-        kr = IOPMCopyBatteryInfo(kIOMasterPortDefault, &cfarray);
-        if (kIOReturnSuccess != kr) {
-                /* This case handles desktop machines in addition to error cases. */
-                return result;
-        }
+	kr = IOPMCopyBatteryInfo(kIOMasterPortDefault, &cfarray);
+	if (kIOReturnSuccess != kr) {
+		/* This case handles desktop machines in addition to error cases. */
+		return result;
+	}
 
-        dict = CFArrayGetValueAtIndex(cfarray, 0);
-        cfnum = CFDictionaryGetValue(dict, CFSTR(kIOBatteryFlagsKey));
+	dict = CFArrayGetValueAtIndex(cfarray, 0);
+	cfnum = CFDictionaryGetValue(dict, CFSTR(kIOBatteryFlagsKey));
 
-        if (CFNumberGetTypeID() != CFGetTypeID(cfnum)) {
-                syslog(LOG_WARNING, "%s(): battery flags not a CFNumber!", __func__);
-                goto out;
-        }
+	if (CFNumberGetTypeID() != CFGetTypeID(cfnum)) {
+		syslog(LOG_WARNING, "%s(): battery flags not a CFNumber!", __func__);
+		goto out;
+	}
 
-        CFNumberGetValue(cfnum, kCFNumberLongType, &flags);
+	CFNumberGetValue(cfnum, kCFNumberLongType, &flags);
 
-        result = !(flags & kIOPMACInstalled);
+	result = !(flags & kIOPMACInstalled);
 
 out:
-        if (cfarray)
-                CFRelease(cfarray);
-        return result;
+	if (cfarray)
+		CFRelease(cfarray);
+	return result;
 }
 
 static int _getproperty(ClientData clientData __attribute__((unused)), Tcl_Interp *interp, int argc, CONST char *argv[])
