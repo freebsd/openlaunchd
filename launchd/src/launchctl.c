@@ -252,7 +252,9 @@ static void readcfg(const char *what, bool load, bool editondisk)
 		}
 		closedir(d);
 		if (launch_data_array_get_count(tmpa) == 0) {
-			exit(EXIT_SUCCESS);
+			launch_data_free(tmpa);
+			launch_data_free(msg);
+			return;
 		}
 		launch_data_dict_insert(msg, tmpa, LAUNCH_KEY_SUBMITJOBS);
 	}
