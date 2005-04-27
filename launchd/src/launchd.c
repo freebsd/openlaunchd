@@ -1466,8 +1466,8 @@ static void job_callback(void *obj, struct kevent *kev)
 				startnow = false;
 			}
 		}
-	} else if (kev->filter == EVFILT_TIMER && kev->fflags & NOTE_ABSOLUTE) {
-			job_set_alarm(j);
+	} else if (kev->filter == EVFILT_TIMER && (void *)kev->ident == j->start_cal_interval) {
+		job_set_alarm(j);
 	} else if (kev->filter == EVFILT_VNODE) {
 		size_t i;
 		const char *thepath = NULL;
