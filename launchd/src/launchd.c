@@ -1133,6 +1133,11 @@ static launch_data_t load_job(launch_data_t pload)
 		launch_data_t tmp_k;
 
 		j->start_cal_interval = calloc(1, sizeof(struct tm));
+		j->start_cal_interval->tm_min = -1;
+		j->start_cal_interval->tm_hour = -1;
+		j->start_cal_interval->tm_mday = -1;
+		j->start_cal_interval->tm_wday = -1;
+		j->start_cal_interval->tm_mon = -1;
 
 		if (LAUNCH_DATA_DICTIONARY == launch_data_get_type(tmp)) {
 			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_MINUTE)))
@@ -1141,11 +1146,8 @@ static launch_data_t load_job(launch_data_t pload)
 				j->start_cal_interval->tm_hour = launch_data_get_integer(tmp_k);
 			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_DAY)))
 				j->start_cal_interval->tm_mday = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_WEEKDAY))) {
+			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_WEEKDAY)))
 				j->start_cal_interval->tm_wday = launch_data_get_integer(tmp_k);
-				if (j->start_cal_interval->tm_wday == 0)
-					j->start_cal_interval->tm_wday = 7;
-			}
 			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_MONTH)))
 				j->start_cal_interval->tm_mon = launch_data_get_integer(tmp_k);
 		}
@@ -2256,20 +2258,20 @@ static void job_set_alarm(struct jobcb *j)
 	latertm.tm_isdst = -1;
 
 
-	if (j->start_cal_interval->tm_min)
+	if (-1 != j->start_cal_interval->tm_min)
 		latertm.tm_min = j->start_cal_interval->tm_min;
-	if (j->start_cal_interval->tm_hour)
+	if (-1 != j->start_cal_interval->tm_hour)
 		latertm.tm_hour = j->start_cal_interval->tm_hour;
 
 	otherlatertm = latertm;
 
-	if (j->start_cal_interval->tm_mday)
+	if (-1 != j->start_cal_interval->tm_mday)
 		latertm.tm_mday = j->start_cal_interval->tm_mday;
-	if (j->start_cal_interval->tm_mon)
+	if (-1 != j->start_cal_interval->tm_mon)
 		latertm.tm_mon = j->start_cal_interval->tm_mon;
 
 	/* cron semantics are fun */
-	if (j->start_cal_interval->tm_wday) {
+	if (-1 != j->start_cal_interval->tm_wday) {
 		int delta, realwday = j->start_cal_interval->tm_wday;
 
 		if (realwday == 7)
@@ -2312,7 +2314,7 @@ static void job_set_alarm(struct jobcb *j)
 	later = mktime(&latertm);
 
 	if (otherlater) {
-		if (j->start_cal_interval->tm_mday)
+		if (-1 != j->start_cal_interval->tm_mday)
 			later = later < otherlater ? later : otherlater;
 		else
 			later = otherlater;
