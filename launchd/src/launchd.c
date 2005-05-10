@@ -493,8 +493,6 @@ static void launchd_server_init(bool create_session)
 			goto out_bad;
 		}
 	}
-	if (chown(ourdir, getuid(), getgid()) == -1)
-		syslog(LOG_WARNING, "chown(\"%s\"): %m", ourdir);
 
 	ourdirfd = _fd(open(ourdir, O_RDONLY));
 	if (ourdirfd == -1) {
@@ -530,6 +528,9 @@ static void launchd_server_init(bool create_session)
 	}
 	if (chown(sun.sun_path, getuid(), getgid()) == -1)
 		syslog(LOG_WARNING, "chown(\"thesocket\"): %m");
+
+	if (chown(ourdir, getuid(), getgid()) == -1)
+		syslog(LOG_WARNING, "chown(\"%s\"): %m", ourdir);
 
 	if (listen(fd, SOMAXCONN) == -1) {
 		syslog(LOG_ERR, "listen(\"thesocket\"): %m");
