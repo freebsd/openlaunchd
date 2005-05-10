@@ -177,6 +177,7 @@ static void unsetup_job_env(launch_data_t obj, const char *key, void *context);
 
 static size_t total_children = 0;
 static pid_t readcfg_pid = 0;
+static pid_t launchd_proper_pid = 0;
 static bool launchd_inited = false;
 static bool shutdown_in_progress = false;
 static pthread_t mach_server_loop_thread;
@@ -421,6 +422,9 @@ static char *sockpath = NULL;
 
 static void launchd_clean_up(void)
 {
+	if (launchd_proper_pid != getpid())
+		return;
+
 	seteuid(0);
 	setegid(0);
 
@@ -542,6 +546,7 @@ static void launchd_server_init(bool create_session)
 	sockdir = strdup(ourdir);
 	sockpath = strdup(sun.sun_path);
 
+	launchd_proper_pid = getpid();
 	atexit(launchd_clean_up);
 
 out_bad:
@@ -1647,7 +1652,7 @@ static void job_start_child(struct jobcb *j, int execfd)
 		write(execfd, &e, sizeof(e));
 		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", file2exec);
 	}
-	_exit(EXIT_FAILURE);
+	exit(EXIT_FAILURE);
 }
 
 static void job_setup_attributes(struct jobcb *j)
@@ -1716,11 +1721,11 @@ static void job_setup_attributes(struct jobcb *j)
 			gre_g = gre->gr_gid;
 			if (-1 == setgid(gre_g)) {
 				job_log_error(j, LOG_ERR, "setgid(%d)", gre_g);
-				_exit(EXIT_FAILURE);
+				exit(EXIT_FAILURE);
 			}
 		} else {
 			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", tmpstr);
-			_exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 	}
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME))) {
@@ -1731,27 +1736,27 @@ static void job_setup_attributes(struct jobcb *j)
 
 			if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
 				job_log(j, LOG_ERR, "expired account: %s", tmpstr);
-				_exit(EXIT_FAILURE);
+				exit(EXIT_FAILURE);
 			}
 			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
 				if (-1 == initgroups(tmpstr, gre ? gre_g : pwe_g)) {
 					job_log_error(j, LOG_ERR, "initgroups()");
-					_exit(EXIT_FAILURE);
+					exit(EXIT_FAILURE);
 				}
 			}
 			if (!gre) {
 				if (-1 == setgid(pwe_g)) {
 					job_log_error(j, LOG_ERR, "setgid(%d)", pwe_g);
-					_exit(EXIT_FAILURE);
+					exit(EXIT_FAILURE);
 				}
 			}
 			if (-1 == setuid(pwe_u)) {
 				job_log_error(j, LOG_ERR, "setuid(%d)", pwe_u);
-				_exit(EXIT_FAILURE);
+				exit(EXIT_FAILURE);
 			}
 		} else {
 			job_log(j, LOG_WARNING, "getpwnam(\"%s\") failed", tmpstr);
-			_exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 	}
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY)))
@@ -2003,13 +2008,13 @@ static void reload_launchd_config(void)
 			int fd = open(ldconf, O_RDONLY);
 			if (fd == -1) {
 				syslog(LOG_ERR, "open(\"%s\"): %m", ldconf);
-				_exit(EXIT_FAILURE);
+				exit(EXIT_FAILURE);
 			}
 			dup2(fd, STDIN_FILENO);
 			close(fd);
 			execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL);
 			syslog(LOG_ERR, "execl(\"%s\", ...): %m", LAUNCHCTL_PATH);
-			_exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		} else if (readcfg_pid == -1) {
 			close(spair[0]);
 			close(spair[1]);
