@@ -813,7 +813,7 @@ static void job_watch(struct jobcb *j)
 
 		if (-1 == (dcc_r = dir_has_files(thepath))) {
 			job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", thepath);
-		} else if (dcc_r > 0) {
+		} else if (dcc_r > 0 && !shutdown_in_progress) {
 			job_start(j);
 			break;
 		}
