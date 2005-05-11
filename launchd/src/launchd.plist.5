@@ -209,11 +209,17 @@ This optional key specifies what
 value should be applied to the daemon.
 .It Sy LowPriorityIO <boolean>
 This optional key specifies whether the kernel should consider this daemon to be low priority when doing file system I/O.
-.It Sy Sockets <dictionary of dictionaries...>
+.It Sy Sockets <dictionary of dictionaries... OR dictionary of array of dictionaries...>
 This optional key is used to specify launch on demand sockets that can be used to let
 .Nm launchd
 know when to run the job. The job can check-in and get a copy of the file descriptors using APIs outlined in
 .Xr launch 3 .
+The keys of the top level Sockets dictionary can be anything. They are meant for the application developer to use to
+differentiate different which descriptors correspond to which application level protocols (e.g. http vs. ftp vs. DNS...).
+At check in time, the value of each Sockets dictionary key will be an array of descriptors. Daemon/Agent writers should
+consider all descriptors of a given key to be to be effectively equivalent, even though each file descriptor likely represents
+a different networking protocol which conforms to the criteria specified in the job configuration file.
+.Pp
 The paramters below are used as inputs to call
 .Xr getaddrinfo 3 .
 .Bl -ohang -offset indent
@@ -256,6 +262,12 @@ to.
 This optional key can be used to request that the service be registered with the
 .Xr mDNSResponder 8 .
 If the value is boolean, the service name is inferred from the SockServiceName.
+.It Sy MulticastGroup <string>
+This optional key can be used to request that the datagram socket join a multicast group.
+If the value is a hostname, then
+.Xr getaddrinfo 3
+will be used to join the correct multicast address for a given socket family.
+If an explicit IPv4 or IPv6 address is given, it is required that the SockFamily family also be set, otherwise the results are undefined.
 .El
 .El
 .Pp

@@ -63,6 +63,7 @@ static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
 static void submit_job_pass(launch_data_t jobs);
+static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -510,7 +511,7 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 		launch_data_array_append(fdarray, val);
 	} else {
 		launch_data_t rnames = NULL;
-		const char *node = NULL, *serv = NULL;
+		const char *node = NULL, *serv = NULL, *mgroup = NULL;
 		char servnbuf[50];
 		struct addrinfo hints, *res0, *res;
 		int gerr, sock_opt = 1;
@@ -524,6 +525,8 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_NODENAME)))
 			node = launch_data_get_string(val);
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_MULTICASTGROUP)))
+			mgroup = launch_data_get_string(val);
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SERVICENAME))) {
 			if (LAUNCH_DATA_INTEGER == launch_data_get_type(val)) {
 				sprintf(servnbuf, "%lld", launch_data_get_integer(val));
@@ -567,13 +570,24 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 					fprintf(stderr, "setsockopt(IPV6_V6ONLY): %m");
 					return;
 				}
-				if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
-					fprintf(stderr, "socket(): %s\n", strerror(errno));
-					return;
+				if (mgroup) {
+					if (setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
+						fprintf(stderr, "setsockopt(SO_REUSEPORT): %s\n", strerror(errno));
+						return;
+					}
+				} else {
+					if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
+						fprintf(stderr, "setsockopt(SO_REUSEADDR): %s\n", strerror(errno));
+						return;
+					}
 				}
 				if (bind(sfd, res->ai_addr, res->ai_addrlen) == -1) {
 					fprintf(stderr, "bind(): %s\n", strerror(errno));
 					return;
+				}
+
+				if (mgroup) {
+					do_mgroup_join(sfd, res->ai_family, res->ai_socktype, res->ai_protocol, mgroup);
 				}
 				if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
 						&& listen(sfd, SOMAXCONN) == -1) {
@@ -623,6 +637,52 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 		}
 	}
 }
+
+static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup)
+{
+	struct addrinfo hints, *res0, *res;
+	struct ip_mreq mreq;
+	struct ipv6_mreq m6req;
+	int gerr;
+
+	memset(&hints, 0, sizeof(hints));
+
+	hints.ai_flags |= AI_PASSIVE;
+	hints.ai_family = family;
+	hints.ai_socktype = socktype;
+	hints.ai_protocol = protocol;
+
+	if ((gerr = getaddrinfo(mgroup, NULL, &hints, &res0)) != 0) {
+		fprintf(stderr, "getaddrinfo(): %s\n", gai_strerror(gerr));
+		return;
+	}
+
+	for (res = res0; res; res = res->ai_next) {
+		if (AF_INET == family) {
+			memset(&mreq, 0, sizeof(mreq));
+			mreq.imr_multiaddr = ((struct sockaddr_in *)res->ai_addr)->sin_addr;
+			if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) == -1) {
+				fprintf(stderr, "setsockopt(IP_ADD_MEMBERSHIP): %s\n", strerror(errno));
+				continue;
+			}
+			break;
+		} else if (AF_INET6 == family) {
+			memset(&m6req, 0, sizeof(m6req));
+			m6req.ipv6mr_multiaddr = ((struct sockaddr_in6 *)res->ai_addr)->sin6_addr;
+			if (setsockopt(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &m6req, sizeof(m6req)) == -1) {
+				fprintf(stderr, "setsockopt(IPV6_JOIN_GROUP): %s\n", strerror(errno));
+				continue;
+			}
+			break;
+		} else {
+			fprintf(stderr, "unknown family during multicast group bind!\n");
+			break;
+		}
+	}
+
+	freeaddrinfo(res0);
+}
+
 
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv)
 {
