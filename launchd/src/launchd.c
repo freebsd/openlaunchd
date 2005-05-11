@@ -1433,14 +1433,14 @@ static bool job_restart_fitness_test(struct jobcb *j)
 		job_log(j, LOG_WARNING, "failed to checkin");
 		job_remove(j);
 		return false;
+	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
+		job_log(j, LOG_WARNING, "too many failures in succession");
+		job_remove(j);
+		return false;
 	} else if (od || shutdown_in_progress) {
 		if (!od && shutdown_in_progress)
 			job_log(j, LOG_NOTICE, "exited while shutdown is in progress, will not restart unless demand requires it");
 		job_watch(j);
-		return false;
-	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
-		job_log(j, LOG_WARNING, "too many failures in a row for a job that should be alive all the time");
-		job_remove(j);
 		return false;
 	}
 
