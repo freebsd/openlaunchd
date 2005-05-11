@@ -91,6 +91,7 @@ This optional key specifies the user to run the job as. The default is the group
 .It Sy inetdCompatibility <dictionary>
 The presence of this key specifies that the daemon expects to be run as if it were launched from
 .Xr inetd 8 .
+This flag is incompatible with the ServiceIPC key.
 .Bl -ohang -offset indent
 .It Sy Wait <boolean>
 This flag corresponds to the "wait" or "nowait" option of
@@ -126,7 +127,7 @@ before running the job.
 .It Sy ServiceIPC <boolean>
 This optional key specifies whether the job participates in advanced communication with
 .Nm launchd .
-The default is false.
+The default is false. This flag is incompatible with the inetdCompatibility key.
 .It Sy TimeOut <integer>
 The recommended time out to pass to the job. If no value is specified, a default time out will be supplied by
 .Nm launchd
@@ -134,7 +135,7 @@ for use by the job at check in time.
 .It Sy InitGroups <boolean>
 This optional key specifies whether the job should have
 .Xr initgroups 3
-should be called before running the job.
+be called before running the job.
 The default is false.
 .It Sy WatchPaths <array of strings>
 This optional key causes the job to be started if any one of the listed paths are modified.
@@ -168,7 +169,6 @@ This optional key specifies what file should be used for data being sent to stde
 This optional key specifies that
 .Nm launchd
 should adjust its log mask temporarily to LOG_DEBUG while dealing with this job.
-.Xr stdio 3 .
 .It Sy SoftResourceLimits <dictionary of integers>
 .It Sy HardResourceLimits <dictionary of integers>
 Resource limits to be imposed on the job. These adjust variables set with
