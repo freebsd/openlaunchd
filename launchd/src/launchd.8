@@ -6,6 +6,7 @@
 .Nd System wide and per-user daemon/agent manager
 .Sh SYNOPSIS
 .Nm
+.Op Fl d
 .Op Fl v
 .Op Fl s
 .Op Fl x
@@ -31,6 +32,8 @@ During boot
 is invoked by the kernel to run as the first process on the system and to further bootstrap the rest of the system.
 .Sh OPTIONS WHEN RUN AS PID 1
 .Bl -tag -width -indent
+.It Fl d
+Daemonize. Useful when passing a command to launchd on the command line.
 .It Fl v
 Verbose boot.
 .It Fl s
