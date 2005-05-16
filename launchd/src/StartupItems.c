@@ -968,7 +968,7 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 		/* Compute path to excecutable */
 		{
 			char           *tmp;
-			strcpy(anExecutable, aBundlePath);	/* .../foo     */
+			strncpy(anExecutable, aBundlePath, sizeof(anExecutable));	/* .../foo     */
 			tmp = rindex(anExecutable, '/');	/* /foo        */
 			strncat(anExecutable, tmp, strlen(tmp));	/* .../foo/foo */
 		}
