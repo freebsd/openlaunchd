@@ -358,6 +358,12 @@ static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2,
 		return;
 	}
 
+	if (NULL == launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LABEL)) {
+		fprintf(stderr, "%s: missing the Label key: %s\n", getprogname(), what);
+		launch_data_free(thejob);
+		return;
+	}
+
 	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))
 		job_disabled = launch_data_get_bool(tmpd);
 
