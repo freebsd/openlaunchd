@@ -109,6 +109,11 @@ of
 .It Ar help
 Print out a quick usage statement.
 .El
+.Sh ENVIRONMENTAL VARIABLES
+.Bl -tag -width -indent
+.It Pa LAUNCHD_SOCKET
+This variable informs launchctl how to find the correct launchd to talk to. If it is missing, launchctl will use a built-in default.
+.El
 .Sh FILES
 .Bl -tag -width "/System/Library/LaunchDaemons" -compact
 .It Pa ~/Library/LaunchAgents

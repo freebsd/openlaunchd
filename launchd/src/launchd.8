@@ -43,6 +43,11 @@ to give a shell prompt before booting the system.
 .It Fl x
 Safe mode boot. Instructs the system to boot conservatively.
 .El
+.Sh ENVIRONMENTAL VARIABLES
+.Bl -tag -width -indent
+.It Pa LAUNCHD_SOCKET
+This variable is exported when invoking a command via the launchd command line. It informs launchctl how to find the correct launchd to talk to.
+.El
 .Sh NOTES
 In Darwin it is preferable to have your daemon launch via launchd instead of modifying
 .Nm rc
