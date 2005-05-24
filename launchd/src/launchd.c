@@ -1071,7 +1071,7 @@ static launch_data_t load_job(launch_data_t pload)
 	launch_data_t tmp, resp;
 	const char *label;
 	struct jobcb *j;
-	bool startnow;
+	bool startnow, hasprog = false, hasprogargs = false;
 
 	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL))) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
@@ -1084,7 +1084,13 @@ static launch_data_t load_job(launch_data_t pload)
 		resp = launch_data_new_errno(EINVAL);
 		goto out;
 	}
-	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS) == NULL) {
+
+	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM))
+		hasprog = true;
+	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS))
+		hasprogargs = true;
+
+	if (!hasprog && !hasprogargs) {
 		resp = launch_data_new_errno(EINVAL);
 		goto out;
 	}
@@ -1632,14 +1638,25 @@ static void job_start_child(struct jobcb *j, int execfd)
 	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
 	size_t i, argv_cnt;
 	const char **argv, *file2exec = "/usr/libexec/launchproxy";
+	int r;
+	bool hasprog = false;
 
 	job_setup_attributes(j);
 
-	argv_cnt = launch_data_array_get_count(ldpa);
-	argv = alloca((argv_cnt + 2) * sizeof(char *));
-	for (i = 0; i < argv_cnt; i++)
-		argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
-	argv[argv_cnt + 1] = NULL;
+	if (ldpa) {
+		argv_cnt = launch_data_array_get_count(ldpa);
+		argv = alloca((argv_cnt + 2) * sizeof(char *));
+		for (i = 0; i < argv_cnt; i++)
+			argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
+		argv[argv_cnt + 1] = NULL;
+	} else {
+		argv = alloca(3 * sizeof(char *));
+		argv[1] = job_get_string(j->ldj, LAUNCH_JOBKEY_PROGRAM);
+		argv[2] = NULL;
+	}
+
+	if (job_get_string(j->ldj, LAUNCH_JOBKEY_PROGRAM))
+		hasprog = true;
 
 	if (inetcompat) {
 		argv[0] = file2exec;
@@ -1648,10 +1665,15 @@ static void job_start_child(struct jobcb *j, int execfd)
 		file2exec = job_get_file2exec(j->ldj);
 	}
 
-	if (-1 == execvp(file2exec, (char *const*)argv)) {
-		int e = errno; /* errno is a macro that expands, best not to take the address of it */
-		write(execfd, &e, sizeof(e));
-		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", file2exec);
+	if (hasprog) {
+		r = execv(file2exec, (char *const*)argv);
+	} else {
+		r = execvp(file2exec, (char *const*)argv);
+	}
+
+	if (-1 == r) {
+		write(execfd, &errno, sizeof(errno));
+		job_log_error(j, LOG_ERR, "execv%s(\"%s\", ...)", hasprog ? "" : "p", file2exec);
 	}
 	exit(EXIT_FAILURE);
 }
