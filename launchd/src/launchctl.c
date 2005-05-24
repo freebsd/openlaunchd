@@ -58,7 +58,7 @@ static launch_data_t CF2launch_data(CFTypeRef);
 static launch_data_t read_plist_file(const char *file, bool editondisk, bool load);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
-static void readpath(const char *, launch_data_t, launch_data_t, bool editondisk, bool load);
+static void readpath(const char *, launch_data_t, launch_data_t, bool editondisk, bool load, bool forceload);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
@@ -348,7 +348,7 @@ static bool delay_to_second_pass(launch_data_t o)
 	return res;
 }
 
-static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load)
+static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
 {
 	launch_data_t tmpd, thejob;
 	bool job_disabled = false;
@@ -367,6 +367,9 @@ static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2,
 	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))
 		job_disabled = launch_data_get_bool(tmpd);
 
+	if (forceload)
+		job_disabled = false;
+
 	if (job_disabled && load) {
 		launch_data_free(thejob);
 		return;
@@ -378,7 +381,7 @@ static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2,
 		launch_data_array_append(pass1, thejob);
 }
 
-static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load)
+static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
 {
 	char buf[MAXPATHLEN];
 	struct stat sb;
@@ -389,7 +392,7 @@ static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2,
 		return;
 
 	if (S_ISREG(sb.st_mode) && !(sb.st_mode & S_IWOTH)) {
-		readfile(what, pass1, pass2, editondisk, load);
+		readfile(what, pass1, pass2, editondisk, load, forceload);
 	} else {
 		if ((d = opendir(what)) == NULL) {
 			fprintf(stderr, "%s: opendir() failed to open the directory\n", getprogname());
@@ -401,7 +404,7 @@ static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2,
 				continue;
 			snprintf(buf, sizeof(buf), "%s/%s", what, de->d_name);
 
-			readfile(buf, pass1, pass2, editondisk, load);
+			readfile(buf, pass1, pass2, editondisk, load, forceload);
 		}
 		closedir(d);
 	}
@@ -867,17 +870,17 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 	int i, ch;
 	bool wflag = false;
 	bool lflag = false;
+	bool Fflag = false;
 
 	if (!strcmp(argv[0], "load"))
 		lflag = true;
 
-	while ((ch = getopt(argc, argv, "w")) != -1) {
+	while ((ch = getopt(argc, argv, "wF")) != -1) {
 		switch (ch) {
-		case 'w':
-			wflag = true;
-			break;
+		case 'w': wflag = true; break;
+		case 'F': Fflag = true; break;
 		default:
-			fprintf(stderr, "usage: %s load [-w] paths...\n", getprogname());
+			fprintf(stderr, "usage: %s load [-wF] paths...\n", getprogname());
 			return 1;
 		}
 	}
@@ -901,7 +904,7 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 	pass2 = launch_data_alloc(LAUNCH_DATA_ARRAY);
 
 	for (i = 0; i < argc; i++)
-		readpath(argv[i], pass1, pass2, wflag, lflag);
+		readpath(argv[i], pass1, pass2, wflag, lflag, Fflag);
 
 	if (0 == launch_data_array_get_count(pass1) && 0 == launch_data_array_get_count(pass2)) {
 		fprintf(stderr, "nothing found to %s\n", lflag ? "load" : "unload");
