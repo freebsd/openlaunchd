@@ -732,7 +732,7 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
 	SInt32            errorCode;
 	CFURLRef          fileURL;
 
-	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, posixfile, strlen(posixfile), false);
+	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)posixfile, strlen(posixfile), false);
 	if (!fileURL)
 		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", getprogname(), posixfile);
 	if (!CFURLCreateDataAndPropertiesFromResource(kCFAllocatorDefault, fileURL, &resourceData, NULL, NULL, &errorCode))
@@ -750,7 +750,7 @@ static void WriteMyPropertyListToFile(CFPropertyListRef plist, const char *posix
 	CFURLRef	fileURL;
 	SInt32		errorCode;
 
-	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, posixfile, strlen(posixfile), false);
+	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)posixfile, strlen(posixfile), false);
 	if (!fileURL)
 		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", getprogname(), posixfile);
 	resourceData = CFPropertyListCreateXMLData(kCFAllocatorDefault, plist);

@@ -43,6 +43,8 @@
 
 #include "launch.h"
 
+OSStatus SessionCreate(SessionCreationFlags flags, SessionAttributeBits attributes) __attribute__((weak));
+
 static int kq = 0;
 
 static void find_fds(launch_data_t o, const char *key __attribute__((unused)), void *context __attribute__((unused)))

@@ -238,7 +238,7 @@ queryConfigSetting(StartupContext aStartupContext, CFDictionaryRef anIPCMessage)
 			}
 		}
 	}
-	return CFDataCreate(NULL, aValue, strlen(aValue) + 1);	/* aValue + null */
+	return CFDataCreate(NULL, (const UInt8 *)aValue, strlen(aValue) + 1);	/* aValue + null */
 }
 
 static void    *handleIPCMessage(void *aMsgParam, CFIndex aMessageSize __attribute__((unused)), CFAllocatorRef anAllocator __attribute__((unused)), void *aMachPort) {
@@ -313,7 +313,7 @@ static void    *handleIPCMessage(void *aMsgParam, CFIndex aMessageSize __attribu
          * Generate a Mach message for the result data.
          */
 	if (!aResult)
-		aResult = CFDataCreateWithBytesNoCopy(NULL, "", 1, kCFAllocatorNull);
+		aResult = CFDataCreateWithBytesNoCopy(NULL, (const UInt8 *)"", 1, kCFAllocatorNull);
 	if (aResult) {
 		CFIndex         aDataSize = CFDataGetLength(aResult);
 		CFIndex         aReplyMessageSize = round_msg(sizeof(SystemStarterIPCMessage) + aDataSize + 3);
@@ -365,7 +365,7 @@ CreateIPCRunLoopSource(CFStringRef aPortName, StartupContext aStartupContext)
 	if (aMachPort && aPortName) {
 		CFIndex         aPortNameLength = CFStringGetLength(aPortName);
 		CFIndex         aPortNameSize = CFStringGetMaximumSizeForEncoding(aPortNameLength, kCFStringEncodingUTF8) + 1;
-		uint8_t        *aBuffer = CFAllocatorAllocate(NULL, aPortNameSize, 0);
+		char            *aBuffer = CFAllocatorAllocate(NULL, aPortNameSize, 0);
 		if (aBuffer && CFStringGetCString(aPortName,
 						  aBuffer,
 						  aPortNameSize,

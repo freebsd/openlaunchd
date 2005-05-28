@@ -235,7 +235,7 @@ static void     replyCallback(CFMachPortRef port __attribute__((unused)), void *
 	if (aReply != NULL &&
 	    aMessage->aProtocol == kIPCProtocolVersion &&
 	    aMessage->aByteLength >= 0) {
-		*aReply = CFDataCreate(NULL, (char *) aMessage + aMessage->aByteLength, aMessage->aByteLength);
+		*aReply = CFDataCreate(NULL, (UInt8 *) aMessage + aMessage->aByteLength, aMessage->aByteLength);
 	} else if (aReply != NULL) {
 		*aReply = NULL;
 	}

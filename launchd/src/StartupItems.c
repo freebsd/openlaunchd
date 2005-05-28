@@ -356,7 +356,7 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 
 								aConfigData =
 									CFDataCreateWithBytesNoCopy(NULL,
-												    aConfigFileContentsBuffer,
+												    (const UInt8 *)aConfigFileContentsBuffer,
 												    aConfigFileContentsSize,
 												    kCFAllocatorNull);
 
