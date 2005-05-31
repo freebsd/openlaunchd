@@ -28,6 +28,8 @@ starts.
 .Ar paths ...
 .Xc
 Load the specified configuration files or directories of configuration files.
+Jobs that are not on-demand will be started as soon as possible.
+All specified jobs will be loaded before any of them are allowed to start.
 .Bl -tag -width -indent
 .It Fl w
 Remove the disabled key and write the configuration files back out to disk.
@@ -38,14 +40,20 @@ Force the loading of the plist. Ignore the Disabled key.
 .Ar paths ...
 .Xc
 Unload the specified configuration files or directories of configuration files.
+This will also stop the job if it is running.
 .Bl -tag -width -indent
 .It Fl w
 Add the disabled key and write the configuration files back out to disk.
 .El
 .It Ar start Ar joblabels ...
-Start the specified jobs by label.
+Start the specified jobs by label. The expected use of this subcommand is for
+debugging and testing so that one can manually kick-start an on-demand server.
 .It Ar stop Ar joblabels ...
-Stop the specified jobs by label. Jobs may restart automatically if demand driven.
+Stop the specified jobs by label. If a job is on-demand, launchd may immediately
+restart the job if launchd finds any criteria that is satisfied.
+Non-demand based jobs will always be restarted. Use of this subcommand is discouraged.
+Jobs should ideally idle timeout by themselves.
+finds any c.
 .It Ar list
 List all of the jobs loaded into
 .Nm launchd .

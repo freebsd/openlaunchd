@@ -277,6 +277,13 @@ If an explicit IPv4 or IPv6 address is given, it is required that the SockFamily
 .El
 .El
 .Pp
+.Sh DEPENDENCIES
+Unlike many bootstrapping daemons, launchd has no explicit dependency model.
+Interdependencies are expected to be solved through the use of IPC.
+It is therefore in the best interest of a job developer who expects dependents
+to define all of the sockets in the configuration file. This has the added
+benefit of making it possible to start the job based on demand instead of
+immediately.
 .Sh EXAMPLE XML PROPERTY LISTS
 .Pp
 The following XML Property List simply keeps "exampled" running continuously:
