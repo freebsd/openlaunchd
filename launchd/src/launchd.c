@@ -2313,16 +2313,17 @@ static void job_set_alarm(struct jobcb *j)
 		 *   1     5     4       4
 		 *   5     1    -4  7 + -4
 		 */
-		if (delta > 0)
+		if (delta > 0) {
 			otherlatertm.tm_mday += delta;
-		else if (delta < 0)
+		} else if (delta < 0) {
 			otherlatertm.tm_mday += 7 + delta;
-		else if (otherlatertm.tm_hour < nowtm->tm_hour)
+		} else if (otherlatertm.tm_hour < nowtm->tm_hour) {
 			otherlatertm.tm_mday += 7;
-		else if (otherlatertm.tm_min < nowtm->tm_min)
+		} else if (otherlatertm.tm_min < nowtm->tm_min) {
 			otherlatertm.tm_hour++;
-		else
+		} else {
 			otherlatertm.tm_min++;
+		}
 
 		otherlater = mktime(&otherlatertm);
 	}
@@ -2348,8 +2349,11 @@ static void job_set_alarm(struct jobcb *j)
 			later = otherlater;
 	}
 
-	if (-1 == kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, &j->kqjob_callback))
+	if (-1 == kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, &j->kqjob_callback)) {
 		job_log_error(j, LOG_ERR, "adding kevent alarm");
+	} else {
+		job_log(j, LOG_INFO, "scheduled to run again at %s", ctime(&later));
+	}
 }
 
 static void job_log_error(struct jobcb *j, int pri, const char *msg, ...)
