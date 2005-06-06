@@ -494,6 +494,12 @@ static void launchd_server_init(bool create_session)
 		}
 	}
 
+	if (chown(ourdir, getuid(), getgid()) == -1)
+		syslog(LOG_WARNING, "chown(\"%s\"): %m", ourdir);
+
+	setegid(getgid());
+	seteuid(getuid());
+
 	ourdirfd = _fd(open(ourdir, O_RDONLY));
 	if (ourdirfd == -1) {
 		syslog(LOG_ERR, "open(\"%s\"): %m", ourdir);
@@ -526,11 +532,6 @@ static void launchd_server_init(bool create_session)
 			syslog(LOG_ERR, "bind(\"thesocket\"): %m");
 		goto out_bad;
 	}
-	if (chown(sun.sun_path, getuid(), getgid()) == -1)
-		syslog(LOG_WARNING, "chown(\"thesocket\"): %m");
-
-	if (chown(ourdir, getuid(), getgid()) == -1)
-		syslog(LOG_WARNING, "chown(\"%s\"): %m", ourdir);
 
 	if (listen(fd, SOMAXCONN) == -1) {
 		syslog(LOG_ERR, "listen(\"thesocket\"): %m");
@@ -2317,9 +2318,9 @@ static void job_set_alarm(struct jobcb *j)
 			otherlatertm.tm_mday += delta;
 		} else if (delta < 0) {
 			otherlatertm.tm_mday += 7 + delta;
-		} else if (otherlatertm.tm_hour < nowtm->tm_hour) {
+		} else if (-1 != j->start_cal_interval->tm_hour && otherlatertm.tm_hour <= nowtm->tm_hour) {
 			otherlatertm.tm_mday += 7;
-		} else if (otherlatertm.tm_min < nowtm->tm_min) {
+		} else if (-1 != j->start_cal_interval->tm_min && otherlatertm.tm_min <= nowtm->tm_min) {
 			otherlatertm.tm_hour++;
 		} else {
 			otherlatertm.tm_min++;
@@ -2328,13 +2329,13 @@ static void job_set_alarm(struct jobcb *j)
 		otherlater = mktime(&otherlatertm);
 	}
 
-	if (latertm.tm_mon < nowtm->tm_mon) {
+	if (-1 != j->start_cal_interval->tm_mon && latertm.tm_mon <= nowtm->tm_mon) {
 		latertm.tm_year++;
-	} else if (latertm.tm_mday < nowtm->tm_mday) {
+	} else if (-1 != j->start_cal_interval->tm_mday && latertm.tm_mday <= nowtm->tm_mday) {
 		latertm.tm_mon++;
-	} else if (latertm.tm_hour < nowtm->tm_hour) {
+	} else if (-1 != j->start_cal_interval->tm_hour && latertm.tm_hour <= nowtm->tm_hour) {
 		latertm.tm_mday++;
-	} else if (latertm.tm_min < nowtm->tm_min) {
+	} else if (-1 != j->start_cal_interval->tm_min && latertm.tm_min <= nowtm->tm_min) {
 		latertm.tm_hour++;
 	} else {
 		latertm.tm_min++;
