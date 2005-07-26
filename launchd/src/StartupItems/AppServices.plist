@@ -1,4 +1,0 @@
-{
-  Description     = "application services";
-  Provides        = ("Core Services");
-}

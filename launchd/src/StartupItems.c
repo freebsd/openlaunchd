@@ -193,6 +193,7 @@ SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		CFSTR("mDNSResponder"),
 		CFSTR("Cron"),
 		CFSTR("Core Graphics"),
+		CFSTR("Core Services"),
 		CFSTR("Network"),
 		NULL
 	};
