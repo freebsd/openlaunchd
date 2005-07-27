@@ -6,11 +6,9 @@ noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter launchd_debugd
-libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
+libexec_PROGRAMS = register_mach_bootstrap_servers StartupItemContext launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
-
-ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
 
@@ -45,7 +43,7 @@ man1_MANS = wait4path.1 launchctl.1
 
 man5_MANS = launchd.plist.5 launchd.conf.5
 
-man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8 launchproxy.8 launchd_debugd.8
+man8_MANS = StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8 launchproxy.8 launchd_debugd.8
 
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 

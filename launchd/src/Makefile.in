@@ -83,11 +83,9 @@ noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter launchd_debugd
-libexec_PROGRAMS = ConsoleMessage register_mach_bootstrap_servers StartupItemContext launchproxy
+libexec_PROGRAMS = register_mach_bootstrap_servers StartupItemContext launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
-
-ConsoleMessage_LDFLAGS = -framework CoreFoundation
 
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
 
@@ -117,7 +115,7 @@ man1_MANS = wait4path.1 launchctl.1
 
 man5_MANS = launchd.plist.5 launchd.conf.5
 
-man8_MANS = ConsoleMessage.8 StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8 launchproxy.8 launchd_debugd.8
+man8_MANS = StartupItemContext.8 SystemStarter.8 init.8 rc.8 launchd.8 service.8 launchproxy.8 launchd_debugd.8
 
 STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 subdir = src
@@ -135,17 +133,12 @@ liblaunch_profile_a_LIBADD =
 am_liblaunch_profile_a_OBJECTS = liblaunch_profile_a-liblaunch.$(OBJEXT)
 liblaunch_profile_a_OBJECTS = $(am_liblaunch_profile_a_OBJECTS)
 bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
-libexec_PROGRAMS = ConsoleMessage$(EXEEXT) \
-	register_mach_bootstrap_servers$(EXEEXT) \
+libexec_PROGRAMS = register_mach_bootstrap_servers$(EXEEXT) \
 	StartupItemContext$(EXEEXT) launchproxy$(EXEEXT)
 sbin_PROGRAMS = launchd$(EXEEXT) SystemStarter$(EXEEXT) \
 	launchd_debugd$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS) $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 
-ConsoleMessage_SOURCES = ConsoleMessage.c
-ConsoleMessage_OBJECTS = ConsoleMessage.$(OBJEXT)
-ConsoleMessage_LDADD = $(LDADD)
-ConsoleMessage_DEPENDENCIES =
 StartupItemContext_SOURCES = StartupItemContext.c
 StartupItemContext_OBJECTS = StartupItemContext.$(OBJEXT)
 StartupItemContext_LDADD = $(LDADD)
@@ -198,8 +191,7 @@ LDFLAGS = @LDFLAGS@
 LIBS = @LIBS@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
-@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/ConsoleMessage.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/StartupItemContext.Po \
+@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/StartupItemContext.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-IPC.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-StartupItems.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-SystemStarter.Po \
@@ -221,16 +213,16 @@ CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
 DIST_SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) \
-	ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) \
-	launchctl.c $(launchd_SOURCES) $(launchd_debugd_SOURCES) \
-	launchproxy.c register_mach_bootstrap_servers.c wait4path.c
+	StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c \
+	$(launchd_SOURCES) $(launchd_debugd_SOURCES) launchproxy.c \
+	register_mach_bootstrap_servers.c wait4path.c
 
 NROFF = nroff
 MANS = $(man1_MANS) $(man5_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 DIST_COMMON = Makefile.am Makefile.in config.h.in
-SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) ConsoleMessage.c StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) $(launchd_debugd_SOURCES) launchproxy.c register_mach_bootstrap_servers.c wait4path.c
+SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) StartupItemContext.c $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) $(launchd_debugd_SOURCES) launchproxy.c register_mach_bootstrap_servers.c wait4path.c
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -345,9 +337,6 @@ uninstall-sbinPROGRAMS:
 
 clean-sbinPROGRAMS:
 	-test -z "$(sbin_PROGRAMS)" || rm -f $(sbin_PROGRAMS)
-ConsoleMessage$(EXEEXT): $(ConsoleMessage_OBJECTS) $(ConsoleMessage_DEPENDENCIES) 
-	@rm -f ConsoleMessage$(EXEEXT)
-	$(LINK) $(ConsoleMessage_LDFLAGS) $(ConsoleMessage_OBJECTS) $(ConsoleMessage_LDADD) $(LIBS)
 StartupItemContext$(EXEEXT): $(StartupItemContext_OBJECTS) $(StartupItemContext_DEPENDENCIES) 
 	@rm -f StartupItemContext$(EXEEXT)
 	$(LINK) $(StartupItemContext_LDFLAGS) $(StartupItemContext_OBJECTS) $(StartupItemContext_LDADD) $(LIBS)
@@ -409,7 +398,6 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ConsoleMessage.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItemContext.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-IPC.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-StartupItems.Po@am__quote@

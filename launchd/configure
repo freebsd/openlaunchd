@@ -273,7 +273,7 @@ PACKAGE_VERSION='1.0'
 PACKAGE_STRING='launchd 1.0'
 PACKAGE_BUGREPORT='launchd-bug-reports@group.apple.com'
 
-ac_unique_file="src/ConsoleMessage.c"
+ac_unique_file="src/launchd.c"
 # Factoring default headers for most tests.
 ac_includes_default="\
 #include <stdio.h>

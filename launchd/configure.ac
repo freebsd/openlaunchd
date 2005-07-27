@@ -3,7 +3,7 @@
 
 AC_PREREQ(2.57)
 AC_INIT(launchd, 1.0, launchd-bug-reports@group.apple.com)
-AC_CONFIG_SRCDIR([src/ConsoleMessage.c])
+AC_CONFIG_SRCDIR([src/launchd.c])
 AM_INIT_AUTOMAKE
 AM_CONFIG_HEADER([src/config.h])
 
