@@ -298,8 +298,4 @@ fi
 
 touch /var/run/.systemStarterRunning
 
-if [ "${VerboseFlag}" != "-v" ] ; then
-	/usr/libexec/WaitingForLoginWindow
-fi
-
 exit 0
