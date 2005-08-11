@@ -48,6 +48,8 @@
 #define LAUNCH_JOBKEY_PROGRAMARGUMENTS		"ProgramArguments"
 #define LAUNCH_JOBKEY_PROGRAM			"Program"
 #define LAUNCH_JOBKEY_ONDEMAND			"OnDemand"
+#define LAUNCH_JOBKEY_LIMITLOADTOHOSTS		"LimitLoadToHosts"
+#define LAUNCH_JOBKEY_LIMITLOADFROMHOSTS	"LimitLoadFromHosts"
 #define LAUNCH_JOBKEY_RUNATLOAD			"RunAtLoad"
 #define LAUNCH_JOBKEY_ROOTDIRECTORY		"RootDirectory"
 #define LAUNCH_JOBKEY_WORKINGDIRECTORY		"WorkingDirectory"

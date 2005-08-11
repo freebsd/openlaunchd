@@ -97,6 +97,10 @@ This flag is incompatible with the ServiceIPC key.
 This flag corresponds to the "wait" or "nowait" option of
 .Xr inetd 8 .
 .El
+.It Sy LimitLoadToHosts <array of strings>
+This configuration file only applies to the hosts listed with this key.
+.It Sy LimitLoadFromHosts <array of strings>
+This configuration file only applies to hosts NOT listed with this key.
 .It Sy ProgramArguments <array of strings>
 This required key maps to the second argument of
 .Xr execvp 3 .

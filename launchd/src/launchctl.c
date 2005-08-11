@@ -350,8 +350,12 @@ static bool delay_to_second_pass(launch_data_t o)
 
 static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
 {
-	launch_data_t tmpd, thejob;
+	char ourhostname[1024];
+	launch_data_t tmpd, thejob, tmpa;
 	bool job_disabled = false;
+	size_t i, c;
+
+	gethostname(ourhostname, sizeof(ourhostname));
 
 	if (NULL == (thejob = read_plist_file(what, editondisk, load))) {
 		fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), what);
@@ -360,8 +364,30 @@ static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2,
 
 	if (NULL == launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LABEL)) {
 		fprintf(stderr, "%s: missing the Label key: %s\n", getprogname(), what);
-		launch_data_free(thejob);
-		return;
+		goto out_bad;
+	}
+
+	if (NULL != (tmpa = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS))) {
+		c = launch_data_array_get_count(tmpa);
+
+		for (i = 0; i < c; i++) {
+			launch_data_t oai = launch_data_array_get_index(tmpa, i);
+			if (!strcasecmp(ourhostname, launch_data_get_string(oai)))
+				goto out_bad;
+		}
+	}
+
+	if (NULL != (tmpa = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADTOHOSTS))) {
+		c = launch_data_array_get_count(tmpa);
+
+		for (i = 0; i < c; i++) {
+			launch_data_t oai = launch_data_array_get_index(tmpa, i);
+			if (!strcasecmp(ourhostname, launch_data_get_string(oai)))
+				break;
+		}
+
+		if (i == c)
+			goto out_bad;
 	}
 
 	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))
@@ -370,15 +396,17 @@ static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2,
 	if (forceload)
 		job_disabled = false;
 
-	if (job_disabled && load) {
-		launch_data_free(thejob);
-		return;
-	}
+	if (job_disabled && load)
+		goto out_bad;
 
 	if (delay_to_second_pass(thejob))
 		launch_data_array_append(pass2, thejob);
 	else
 		launch_data_array_append(pass1, thejob);
+
+	return;
+out_bad:
+	launch_data_free(thejob);
 }
 
 static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
