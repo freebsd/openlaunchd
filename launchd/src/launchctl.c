@@ -81,6 +81,7 @@ static int logupdate_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
 static int getrusage_cmd(int argc, char *const argv[]);
 
+static int exit_cmd(int argc, char *const argv[]);
 static int help_cmd(int argc, char *const argv[]);
 
 static const struct {
@@ -106,16 +107,21 @@ static const struct {
 	{ "getrusage",	getrusage_cmd,		"Get resource usage statistics from launchd" },
 	{ "log",	logupdate_cmd,		"Adjust the logging level or mask of launchd" },
 	{ "umask",	umask_cmd,		"Change launchd's umask" },
+	{ "exit",	exit_cmd,		"Exit the interactive invocation of launchctl" },
+	{ "quit",	exit_cmd,		"Quit the interactive invocation of launchctl" },
 	{ "help",	help_cmd,		"This help output" },
 };
 
+static bool istty = false;
+
 int main(int argc, char *const argv[])
 {
-	bool istty = isatty(STDIN_FILENO);
 	char *l;
 
 	if (argc > 1)
 		exit(demux_cmd(argc - 1, argv + 1));
+
+	istty = isatty(STDIN_FILENO);
 
 	if (NULL == readline) {
 		fprintf(stderr, "missing library: readline\n");
@@ -874,15 +880,25 @@ static int help_cmd(int argc, char *const argv[])
 		where = stderr;
 
 	fprintf(where, "usage: %s <subcommand>\n", getprogname());
+
 	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
 		l = strlen(cmds[i].name);
 		if (l > cmdwidth)
 			cmdwidth = l;
 	}
-	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++)
+
+	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
+		if (cmds[i].func == exit_cmd && istty == false)
+			continue;
 		fprintf(where, "\t%-*s\t%s\n", cmdwidth, cmds[i].name, cmds[i].desc);
+	}
 
 	return 0;
+}
+
+static int exit_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
+{
+	exit(0);
 }
 
 static int _fd(int fd)
