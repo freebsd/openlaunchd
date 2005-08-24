@@ -45,8 +45,7 @@ This will also stop the job if it is running.
 .It Fl w
 Add the disabled key and write the configuration files back out to disk.
 .El
-.It Xo Ar submit
-.Op Fl l Ar label
+.It Xo Ar submit Fl l Ar label
 .Op Fl p Ar executable
 .Op Fl o Ar path
 .Op Fl e Ar path
@@ -63,10 +62,12 @@ Where to send the stdout of the program.
 .It Fl e Ar path
 Where to send the stderr of the program.
 .El
-.It Ar start Ar joblabels ...
+.It Ar remove Ar job_label
+Remove the jobs from launchd by label.
+.It Ar start Ar job_label
 Start the specified jobs by label. The expected use of this subcommand is for
 debugging and testing so that one can manually kick-start an on-demand server.
-.It Ar stop Ar joblabels ...
+.It Ar stop Ar job_label
 Stop the specified jobs by label. If a job is on-demand, launchd may immediately
 restart the job if launchd finds any criteria that is satisfied.
 Non-demand based jobs will always be restarted. Use of this subcommand is discouraged.

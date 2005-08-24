@@ -67,7 +67,7 @@ static void do_mgroup_join(int fd, int family, int socktype, int protocol, const
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
-static int start_and_stop_cmd(int argc, char *const argv[]);
+static int start_stop_remove_cmd(int argc, char *const argv[]);
 static int submit_cmd(int argc, char *const argv[]);
 static int list_cmd(int argc, char *const argv[]);
 
@@ -93,9 +93,10 @@ static const struct {
 	{ "load",	load_and_unload_cmd,	"Load configuration files and/or directories" },
 	{ "unload",	load_and_unload_cmd,	"Unload configuration files and/or directories" },
 //	{ "reload",	reload_cmd,		"Reload configuration files and/or directories" },
-	{ "start",	start_and_stop_cmd,	"Start specified jobs" },
-	{ "stop",	start_and_stop_cmd,	"Stop specified jobs" },
+	{ "start",	start_stop_remove_cmd,	"Start specified job" },
+	{ "stop",	start_stop_remove_cmd,	"Stop specified job" },
 	{ "submit",	submit_cmd,		"Submit a job from the command line" },
+	{ "remove",	start_stop_remove_cmd,	"Remove specified job" },
 	{ "list",	list_cmd,		"List jobs and information about jobs" },
 	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
 	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
@@ -1031,14 +1032,17 @@ static void submit_job_pass(launch_data_t jobs)
 	launch_data_free(msg);
 }
 
-static int start_and_stop_cmd(int argc, char *const argv[])
+static int start_stop_remove_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	const char *lmsgcmd = LAUNCH_KEY_STOPJOB;
 	int e, r = 0;
 
-	if (!strcmp(argv[0], "start"))
+	if (0 == strcmp(argv[0], "start"))
 		lmsgcmd = LAUNCH_KEY_STARTJOB;
+
+	if (0 == strcmp(argv[0], "remove"))
+		lmsgcmd = LAUNCH_KEY_REMOVEJOB;
 
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s %s <job label>\n", getprogname(), argv[0]);
