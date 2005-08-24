@@ -301,7 +301,7 @@ int main(int argc, char *argv[])
 			if (readcfg_pid == 0)
 				init_pre_kevent();
 		} else {
-			if (TAILQ_EMPTY(&jobs) && !TAILQ_EMPTY(&connections)) {
+			if (TAILQ_EMPTY(&jobs) && TAILQ_EMPTY(&connections)) {
 				/* liblaunch will restart launchd if we're needed again */
 				timeoutp = &timeout;
 			} else if (shutdown_in_progress && total_children == 0) {
