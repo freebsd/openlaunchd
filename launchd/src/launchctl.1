@@ -45,6 +45,24 @@ This will also stop the job if it is running.
 .It Fl w
 Add the disabled key and write the configuration files back out to disk.
 .El
+.It Xo Ar submit
+.Op Fl l Ar label
+.Op Fl p Ar executable
+.Op Fl o Ar path
+.Op Fl e Ar path
+.Ar -- job ...
+.Xc
+A simple way of submitting a program to run without a configuration file. This mechanism also tells launchd to keep the program alive in the event of failure.
+.Bl -tag -width -indent
+.It Fl l Ar label
+What unique label to assign this job to launchd.
+.It Fl p Ar program
+What program to really execute, regardless of what follows the -- in the submit sub-command.
+.It Fl o Ar path
+Where to send the stdout of the program.
+.It Fl e Ar path
+Where to send the stderr of the program.
+.El
 .It Ar start Ar joblabels ...
 Start the specified jobs by label. The expected use of this subcommand is for
 debugging and testing so that one can manually kick-start an on-demand server.

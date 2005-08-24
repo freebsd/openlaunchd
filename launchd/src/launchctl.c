@@ -68,6 +68,7 @@ static void do_mgroup_join(int fd, int family, int socktype, int protocol, const
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
 static int start_and_stop_cmd(int argc, char *const argv[]);
+static int submit_cmd(int argc, char *const argv[]);
 static int list_cmd(int argc, char *const argv[]);
 
 static int setenv_cmd(int argc, char *const argv[]);
@@ -94,6 +95,7 @@ static const struct {
 //	{ "reload",	reload_cmd,		"Reload configuration files and/or directories" },
 	{ "start",	start_and_stop_cmd,	"Start specified jobs" },
 	{ "stop",	start_and_stop_cmd,	"Stop specified jobs" },
+	{ "submit",	submit_cmd,		"Submit a job from the command line" },
 	{ "list",	list_cmd,		"List jobs and information about jobs" },
 	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
 	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
@@ -1505,6 +1507,66 @@ static int umask_cmd(int argc, char *const argv[])
 		r = 1;
 	} else if (argc == 1) {
 		fprintf(stdout, "%o\n", (unsigned int)launch_data_get_integer(resp));
+	}
+
+	launch_data_free(resp);
+
+	return r;
+}
+
+static int submit_cmd(int argc, char *const argv[])
+{
+	launch_data_t msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_t job = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_t resp, largv = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	int ch, i, r = 0;
+
+	launch_data_dict_insert(job, launch_data_new_bool(false), LAUNCH_JOBKEY_ONDEMAND);
+
+	while ((ch = getopt(argc, argv, "l:p:o:e:")) != -1) {
+		switch (ch) {
+		case 'l':
+			launch_data_dict_insert(job, launch_data_new_string(optarg), LAUNCH_JOBKEY_LABEL);
+			break;
+		case 'p':
+			launch_data_dict_insert(job, launch_data_new_string(optarg), LAUNCH_JOBKEY_PROGRAM);
+			break;
+		case 'o':
+			launch_data_dict_insert(job, launch_data_new_string(optarg), LAUNCH_JOBKEY_STANDARDOUTPATH);
+			break;
+		case 'e':
+			launch_data_dict_insert(job, launch_data_new_string(optarg), LAUNCH_JOBKEY_STANDARDERRORPATH);
+			break;
+		default:
+			fprintf(stderr, "usage: %s submit ...\n", getprogname());
+			return 1;
+		}
+	}
+	argc -= optind;
+	argv += optind;
+
+	for (i = 0; argv[i]; i++) {
+		launch_data_array_append(largv, launch_data_new_string(argv[i]));
+	}
+
+	launch_data_dict_insert(job, largv, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+
+	launch_data_dict_insert(msg, job, LAUNCH_KEY_SUBMITJOB);
+
+	resp = launch_msg(msg);
+	launch_data_free(msg);
+
+	if (resp == NULL) {
+		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
+		return 1;
+	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
+		errno = launch_data_get_errno(resp);
+		if (errno) {
+			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(errno));
+			r = 1;
+		}
+	} else {
+		fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], "unknown response");
 	}
 
 	launch_data_free(resp);
