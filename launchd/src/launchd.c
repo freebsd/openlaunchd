@@ -83,6 +83,7 @@ struct jobcb {
 	TAILQ_ENTRY(jobcb) tqe;
 	launch_data_t ldj;
 	pid_t p;
+	int last_exit_status;
 	int execfd;
 	time_t start_time;
 	size_t failed_exits;
@@ -140,6 +141,7 @@ static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
 static void job_set_alarm(struct jobcb *j);
+static launch_data_t job_export(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
@@ -827,6 +829,25 @@ static void job_stop(struct jobcb *j)
 		kill(j->p, SIGTERM);
 }
 
+static launch_data_t job_export(struct jobcb *j)
+{
+	launch_data_t tmp, r = launch_data_copy(j->ldj);
+
+	if (r) {
+		tmp = launch_data_new_integer(j->last_exit_status);
+		if (tmp)
+			launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LASTEXITSTATUS);
+
+		if (j->p) {
+			tmp = launch_data_new_integer(j->p);
+			if (tmp)
+				launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PID);
+		}
+	}
+
+	return r;
+}
+
 static void job_remove(struct jobcb *j)
 {
 	launch_data_t tmp;
@@ -1205,7 +1226,7 @@ static launch_data_t get_jobs(const char *which)
 	if (which) {
 		TAILQ_FOREACH(j, &jobs, tqe) {
 			if (!strcmp(which, j->label))
-				resp = launch_data_copy(j->ldj);
+				resp = job_export(j);
 		}
 		if (resp == NULL)
 			resp = launch_data_new_errno(ESRCH);
@@ -1213,7 +1234,7 @@ static launch_data_t get_jobs(const char *which)
 		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
 		TAILQ_FOREACH(j, &jobs, tqe) {
-			tmp = launch_data_copy(j->ldj);
+			tmp = job_export(j);
 			launch_data_dict_insert(resp, tmp, j->label);
 		}
 	}
@@ -1425,6 +1446,7 @@ static void job_reap(struct jobcb *j)
 	}
 
 	total_children--;
+	j->last_exit_status = status;
 	j->p = 0;
 }
 

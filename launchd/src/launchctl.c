@@ -1068,7 +1068,23 @@ static int start_and_stop_cmd(int argc, char *const argv[])
 
 static void print_jobs(launch_data_t j __attribute__((unused)), const char *label, void *context __attribute__((unused)))
 {
-	fprintf(stdout, "%s\n", label);
+	launch_data_t pido = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PID);
+	launch_data_t stato = launch_data_dict_lookup(j, LAUNCH_JOBKEY_LASTEXITSTATUS);
+
+	if (pido) {
+		fprintf(stdout, "%lld\t-\t%s\n", launch_data_get_integer(pido), label);
+	} else if (stato) {
+		int wstatus = (int)launch_data_get_integer(stato);
+		if (WIFEXITED(wstatus)) {
+			fprintf(stdout, "-\t%d\t%s\n", WEXITSTATUS(wstatus), label);
+		} else if (WIFSIGNALED(wstatus)) {
+			fprintf(stdout, "-\t-%d\t%s\n", WTERMSIG(wstatus), label);
+		} else {
+			fprintf(stdout, "-\t???\t%s\n", label);
+		}
+	} else {
+		fprintf(stdout, "-\t-\t%s\n", label);
+	}
 }
 
 static int list_cmd(int argc, char *const argv[])
@@ -1101,6 +1117,7 @@ static int list_cmd(int argc, char *const argv[])
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
 	} else if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
+		fprintf(stdout, "PID\tStatus\tLabel\n");
 		launch_data_dict_iterate(resp, print_jobs, NULL);
 	} else {
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
