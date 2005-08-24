@@ -120,9 +120,15 @@ static void launch_client_init(void)
 
 		for (tries = 0; tries < 10; tries++) {
 			r = connect(lfd, (struct sockaddr *)&sun, sizeof(sun));
-			if (r == -1) {
-				if (getuid() != 0 && fork() == 0)
-					execl("/sbin/launchd", "/sbin/launchd", NULL);
+			if (r == -1 && getuid() != 0) {
+				pid_t ldp = fork();
+				if (ldp == 0) {
+					execl("/sbin/launchd", "/sbin/launchd", "-d", NULL);
+					fprintf(stderr, "execl(\"/sbin/launchd\", ...): %s\n", strerror(errno));
+					exit(EXIT_FAILURE);
+				} else if (ldp > 0) {
+					waitpid(ldp, NULL, 0);
+				}
 				sleep(1);
 			} else {
 				break;
