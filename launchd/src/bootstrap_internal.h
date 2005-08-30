@@ -32,29 +32,8 @@
 #include <mach/mach.h>
 #include <mach/notify.h>
 #include <sys/types.h>
-#include <stdbool.h>
 
-#define BASEPRI_USER	31	/* AOF 20/02/2002 */
-
-#define	ANYWHERE	TRUE	/* For use with vm_allocate() */
-
-#define DEMAND_REQUEST	MACH_NOTIFY_LAST	/* demand service messaged */
-
-__private_extern__ void mach_start_shutdown(int);
+__private_extern__ void mach_start_shutdown(void);
 __private_extern__ mach_port_t mach_init_init(void);
-__private_extern__ void *mach_server_loop(void*);
+__private_extern__ void *mach_server_loop(void *);
 __private_extern__ pid_t fork_with_bootstrap_port(mach_port_t);
-
-__private_extern__ mach_port_t lookup_only_port;
-__private_extern__ mach_port_t inherited_bootstrap_port;
-__private_extern__ mach_port_t self_port;		/* Compatability hack */
-__private_extern__ bool forward_ok;
-__private_extern__ bool debugging;
-__private_extern__ mach_port_t bootstrap_port_set;
-__private_extern__ mach_port_t demand_port_set;
-__private_extern__ mach_port_t notify_port;
-__private_extern__ mach_port_t backup_port;
-__private_extern__ bool canReceive(mach_port_t);
-__private_extern__ bool canSend(mach_port_t);
-__private_extern__ bool register_self;
-__private_extern__ const char *register_name;

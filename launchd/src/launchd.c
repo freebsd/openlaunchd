@@ -1859,7 +1859,7 @@ static void do_shutdown(void)
 
 	if (getpid() == 1) {
 		catatonia();
-		mach_start_shutdown(SIGTERM);
+		mach_start_shutdown();
 	}
 }
 

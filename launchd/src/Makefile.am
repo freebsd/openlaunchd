@@ -28,7 +28,7 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
+launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c
 
 launchproxy_LDFLAGS = -weak_framework Security
 

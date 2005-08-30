@@ -105,7 +105,7 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c init.c bootstrap.c lists.c rpc_services.c bootstrapServer.c
+launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c
 
 launchproxy_LDFLAGS = -weak_framework Security
 
@@ -155,9 +155,7 @@ launchctl_OBJECTS = launchctl.$(OBJEXT)
 launchctl_LDADD = $(LDADD)
 launchctl_DEPENDENCIES =
 am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) launchd-init.$(OBJEXT) \
-	launchd-bootstrap.$(OBJEXT) launchd-lists.$(OBJEXT) \
-	launchd-rpc_services.$(OBJEXT) \
-	launchd-bootstrapServer.$(OBJEXT)
+	launchd-bootstrap.$(OBJEXT) launchd-bootstrapServer.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
@@ -200,8 +198,6 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-bootstrapServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/launchd-lists.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/launchd-rpc_services.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd_debugd-launchdebugd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po \
@@ -352,8 +348,6 @@ launchctl$(EXEEXT): $(launchctl_OBJECTS) $(launchctl_DEPENDENCIES)
 launchd-launchd.$(OBJEXT): launchd.c
 launchd-init.$(OBJEXT): init.c
 launchd-bootstrap.$(OBJEXT): bootstrap.c
-launchd-lists.$(OBJEXT): lists.c
-launchd-rpc_services.$(OBJEXT): rpc_services.c
 launchd-bootstrapServer.$(OBJEXT): bootstrapServer.c
 launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES) 
 	@rm -f launchd$(EXEEXT)
@@ -407,8 +401,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-lists.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-rpc_services.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd_debugd-launchdebugd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
@@ -514,30 +506,6 @@ launchd-bootstrap.obj: bootstrap.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-bootstrap.Po' tmpdepfile='$(DEPDIR)/launchd-bootstrap.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-bootstrap.obj `cygpath -w bootstrap.c`
-
-launchd-lists.o: lists.c
-@AMDEP_TRUE@	source='lists.c' object='launchd-lists.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-lists.Po' tmpdepfile='$(DEPDIR)/launchd-lists.TPo' @AMDEPBACKSLASH@
-@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-lists.o `test -f 'lists.c' || echo '$(srcdir)/'`lists.c
-
-launchd-lists.obj: lists.c
-@AMDEP_TRUE@	source='lists.c' object='launchd-lists.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-lists.Po' tmpdepfile='$(DEPDIR)/launchd-lists.TPo' @AMDEPBACKSLASH@
-@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-lists.obj `cygpath -w lists.c`
-
-launchd-rpc_services.o: rpc_services.c
-@AMDEP_TRUE@	source='rpc_services.c' object='launchd-rpc_services.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-rpc_services.Po' tmpdepfile='$(DEPDIR)/launchd-rpc_services.TPo' @AMDEPBACKSLASH@
-@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-rpc_services.o `test -f 'rpc_services.c' || echo '$(srcdir)/'`rpc_services.c
-
-launchd-rpc_services.obj: rpc_services.c
-@AMDEP_TRUE@	source='rpc_services.c' object='launchd-rpc_services.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-rpc_services.Po' tmpdepfile='$(DEPDIR)/launchd-rpc_services.TPo' @AMDEPBACKSLASH@
-@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-rpc_services.obj `cygpath -w rpc_services.c`
 
 launchd-bootstrapServer.o: bootstrapServer.c
 @AMDEP_TRUE@	source='bootstrapServer.c' object='launchd-bootstrapServer.o' libtool=no @AMDEPBACKSLASH@
