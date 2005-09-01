@@ -955,6 +955,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			if (!strcmp(j->label, launch_data_get_string(data))) {
 				job_remove(j);
 				resp = launch_data_new_errno(0);
+				break;
 			}
 		}
 		if (NULL == resp)
