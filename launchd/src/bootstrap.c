@@ -569,7 +569,7 @@ fork_with_bootstrap_port(mach_port_t p)
 		result = task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
 		if (result != KERN_SUCCESS)
 			panic("task_set_bootstrap_port(): %s", mach_error_string(result));
-	} else {
+	} else if (0 == r) {
 		for (i = 0; i <= NSIG; i++) {
 			if (sigismember(&blocked_signals, i))
 				signal(i, SIG_DFL);
