@@ -208,6 +208,8 @@ int main(int argc, char *argv[])
 			}
 		}
 	};
+	pthread_attr_t attr;
+	int pthr_r;
 	struct kevent kev;
 	size_t i;
 	bool sflag = false, xflag = false, vflag = false, dflag = false;
@@ -273,10 +275,24 @@ int main(int argc, char *argv[])
 	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
 	
+	launchd_bootstrap_port = mach_init_init();
+	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
+	bootstrap_port = MACH_PORT_NULL;
+
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+	pthr_r = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
+	if (pthr_r != 0) {
+		syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(pthr_r));
+		exit(EXIT_FAILURE);
+	}
+
+	pthread_attr_destroy(&attr);
+
 	if (getpid() == 1) {
 		pid1_magic_init(sflag, vflag, xflag);
 	} else {
-		launchd_bootstrap_port = bootstrap_port;
 		launchd_server_init(argv[0] ? true : false);
 	}
 
@@ -331,14 +347,12 @@ int main(int argc, char *argv[])
 
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 {
-	pthread_attr_t attr;
 	int memmib[2] = { CTL_HW, HW_PHYSMEM };
 	int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
 	int hnmib[2] = { CTL_KERN, KERN_HOSTNAME };
 	uint64_t mem = 0;
 	uint32_t mvn;
 	size_t memsz = sizeof(mem);
-	int pthr_r;
 		
 	setpriority(PRIO_PROCESS, 0, -1);
 
@@ -376,21 +390,6 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
 
 	setenv("PATH", _PATH_STDPATH, 1);
-
-	launchd_bootstrap_port = mach_init_init();
-	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
-	bootstrap_port = MACH_PORT_NULL;
-
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-	pthr_r = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
-	if (pthr_r != 0) {
-		syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(pthr_r));
-		exit(EXIT_FAILURE);
-	}
-
-	pthread_attr_destroy(&attr);
 
 	init_boot(sflag, vflag, xflag);
 }

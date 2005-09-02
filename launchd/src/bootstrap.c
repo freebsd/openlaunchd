@@ -160,9 +160,8 @@ extern boolean_t bootstrap_server(mach_msg_header_t *InHeadP, mach_msg_header_t 
 
 static auditinfo_t inherited_audit;
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
-static bool forward_ok = false;
-static bool register_self = false;
-static const char *register_name = NULL;
+static bool forward_ok = true;
+static char *register_name = NULL;
 
 static uid_t inherited_uid = 0;
 static bool shutdown_in_progress = false;
@@ -250,16 +249,22 @@ mach_port_t mach_init_init(void)
 		syslog(LOG_ALERT, "task_get_bootstrap_port(): %s", mach_error_string(result));
 		exit(EXIT_FAILURE);
 	}
-	if (inherited_bootstrap_port == MACH_PORT_NULL)
+
+	if (inherited_bootstrap_port == MACH_PORT_NULL) {
+		if (1 != getpid())
+			syslog(LOG_NOTICE, "task_get_bootstrap_port() returned MACH_PORT_NULL, not forwarding requests");
 		forward_ok = false;
+	}
 
 	/* We set this explicitly as we start each child */
 	task_set_bootstrap_port(mach_task_self(), MACH_PORT_NULL);
 
 	/* register "self" port with anscestor */		
-	if (register_self && forward_ok) {
+	if (forward_ok) {
+		asprintf(&register_name, "com.apple.launchd.%d", getpid());
+
 		result = bootstrap_register(inherited_bootstrap_port,
-							(char *)register_name,
+							register_name,
 							bootstrap->bootstrap_port);
 		if (result != KERN_SUCCESS)
 			panic("register self(): %s", mach_error_string(result));
@@ -1537,12 +1542,10 @@ x_bootstrap_check_in(
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s unknown%s", servicename,
 			forward_ok ? " forwarding" : "");
-		return  forward_ok ?
-			bootstrap_check_in(
-					inherited_bootstrap_port,
-					servicename,
-					serviceportp) :
-			BOOTSTRAP_UNKNOWN_SERVICE;
+		result = BOOTSTRAP_UNKNOWN_SERVICE;
+		if (forward_ok)
+			result = bootstrap_check_in(inherited_bootstrap_port, servicename, serviceportp);
+		return result;
 	}
 	if (servicep->server != NULL && servicep->server != serverp) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s not privileged",
@@ -1590,9 +1593,7 @@ x_bootstrap_check_in(
 		else if (previous != MACH_PORT_NULL) {
 			syslog(LOG_DEBUG, "deallocating old notification port (%x) for checked in service %x",
 				previous, servicep->port);
-			result = mach_port_deallocate(
-						mach_task_self(),
-						previous);
+			result = mach_port_deallocate(mach_task_self(), previous);
 			if (result != KERN_SUCCESS)
 				panic("mach_port_deallocate(): %s", mach_error_string(result));
 		}
