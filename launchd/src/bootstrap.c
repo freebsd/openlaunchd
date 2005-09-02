@@ -99,17 +99,9 @@ struct service {
 	char			name[0];	/* service name */
 };
 
-/* Server types */
-typedef enum {
-	SERVER,		/* Launchable server */
-	RESTARTABLE,	/* Restartable server */
-	DEMAND,		/* Restartable server - on demand */
-	MACHINIT,	/* mach_init doesn't get launched. */
-} servertype_t;
-
 struct server {
 	TAILQ_ENTRY(server)	tqe;
-	servertype_t	servertype;
+	bool		ondemand;
 	uid_t		uid;		/* uid to exec server with */
 	auditinfo_t	auinfo;		/* server's audit information */
 	mach_port_t	port;		/* server's priv bootstrap port */
@@ -123,18 +115,18 @@ struct server {
 
 static struct server *new_server(
 	struct bootstrap 	*bootstrap,
-	const char			*cmd,
-	uid_t					uid,
-	servertype_t		servertype,
+	const char		*cmd,
+	uid_t			uid,
+	bool			ond,
 	auditinfo_t		auinfo);
 
 static struct service 		*new_service(
 	struct bootstrap	*bootstrap,
-	const char			*name,
-	mach_port_t			serviceport,
-	boolean_t			isActive,
+	const char		*name,
+	mach_port_t		serviceport,
+	boolean_t		isActive,
 	servicetype_t		servicetype,
-	struct server			*serverp);
+	struct server		*serverp);
 
 static struct bootstrap *new_bootstrap(
 	struct bootstrap	*parent,
@@ -489,10 +481,10 @@ void dispatch_server(struct server *serverp)
 	if (!active_server(serverp)) {
 		if (useless_server(serverp) || shutdown_in_progress)
 			delete_server(serverp);
-		else if (serverp->servertype == RESTARTABLE)
-			start_server(serverp);
-		else if (serverp->servertype == DEMAND)
+		else if (serverp->ondemand)
 			demand_server(serverp);
+		else
+			start_server(serverp);
 	}
 }
 
@@ -590,69 +582,47 @@ start_server(struct server *serverp)
 	mach_port_t old_port;
 	int pid;
 
-	/*
-	 * Do what's appropriate to get bootstrap port setup in server task
-	 */
-	switch (serverp->servertype) {
+	if (!serverp->port)
+		setup_server(serverp);
 
-	case MACHINIT:
-		break;
+	serverp->activity = 0;
 
-	case SERVER:
-	case DEMAND:
-	case RESTARTABLE:
-	  if (!serverp->port)
-	      setup_server(serverp);
+	result = mach_port_insert_right(mach_task_self(),
+			serverp->port, serverp->port, MACH_MSG_TYPE_MAKE_SEND);
+	if (result != KERN_SUCCESS)
+		panic("mach_port_insert_right(): %s", mach_error_string(result));
 
-	  serverp->activity = 0;
-
-	  /* Insert a send right */
-	  result = mach_port_insert_right(mach_task_self(),
-						serverp->port,
-						serverp->port,
-						MACH_MSG_TYPE_MAKE_SEND);
-	  if (result != KERN_SUCCESS)
-	  	panic("mach_port_insert_right(): %s", mach_error_string(result));
-
-		pid = fork_with_bootstrap_port(serverp->port);
-		if (pid < 0) {
-			syslog(LOG_WARNING, "fork(): %m");
-		} else if (pid == 0) {	/* CHILD */
-			exec_server(serverp);
-			exit(EXIT_FAILURE);
-		} else {		/* PARENT */
-			syslog(LOG_INFO, "Launched server %x in bootstrap %x uid %d: \"%s\": [pid %d]",
-			     serverp->port, serverp->bootstrap->bootstrap_port,
-				 serverp->uid, serverp->cmd, pid);
-			serverp->pid = pid;
-			result = task_for_pid(
-							mach_task_self(),
-							pid,
-							&serverp->task_port);
-			if (result != KERN_SUCCESS) {
-				syslog(LOG_ERR, "getting server task port(): %s", mach_error_string(result));
-				reap_server(serverp);
-				dispatch_server(serverp);
-				break;
-			}
-				
-			/* Request dead name notification to tell when task dies */
-			result = mach_port_request_notification(
-							mach_task_self(),
-							serverp->task_port,
-							MACH_NOTIFY_DEAD_NAME,
-							0,
-							notify_port,
-							MACH_MSG_TYPE_MAKE_SEND_ONCE,
-							&old_port);
-			if (result != KERN_SUCCESS) {
-				syslog(LOG_ERR, "mach_port_request_notification(): %s", mach_error_string(result));
-				reap_server(serverp);
-				dispatch_server(serverp);
-			}
-		}
-		break;
+	pid = fork_with_bootstrap_port(serverp->port);
+	if (pid < 0) {
+		syslog(LOG_WARNING, "fork(): %m");
+		goto out;
+	} else if (pid == 0) {
+		exec_server(serverp);
+		exit(EXIT_FAILURE);
 	}
+
+	syslog(LOG_INFO, "Launched server %x in bootstrap %x uid %d: \"%s\": [pid %d]",
+			serverp->port, serverp->bootstrap->bootstrap_port, serverp->uid, serverp->cmd, pid);
+	serverp->pid = pid;
+	result = task_for_pid(mach_task_self(), pid, &serverp->task_port);
+	if (result != KERN_SUCCESS) {
+		syslog(LOG_ERR, "getting server task port(): %s", mach_error_string(result));
+		goto out_bad;
+	}
+				
+	/* Request dead name notification to tell when task dies */
+	result = mach_port_request_notification(mach_task_self(),
+			serverp->task_port, MACH_NOTIFY_DEAD_NAME, 0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
+	if (result != KERN_SUCCESS) {
+		syslog(LOG_ERR, "mach_port_request_notification(): %s", mach_error_string(result));
+		goto out_bad;
+	}
+
+out:
+	return;
+out_bad:
+	reap_server(serverp);
+	dispatch_server(serverp);
 }
 
 static void
@@ -1077,7 +1047,7 @@ new_server(
 	struct bootstrap	*bootstrap,
 	const char		*cmd,
 	uid_t			uid,
-	servertype_t		servertype,
+	bool			ond,
 	auditinfo_t		auinfo)
 {
 	struct server *serverp;
@@ -1100,7 +1070,7 @@ new_server(
 	serverp->auinfo = auinfo;
 
 	serverp->port = MACH_PORT_NULL;
-	serverp->servertype = servertype;
+	serverp->ondemand = ond;
 	serverp->activity = 0;
 	serverp->active_services = 0;
 	strcpy(serverp->cmd, cmd);
@@ -1422,7 +1392,7 @@ deallocate_bootstrap(struct bootstrap *bootstrap)
 
 #define bsstatus(servicep) \
 	(((servicep)->isActive) ? BOOTSTRAP_STATUS_ACTIVE : \
-	 (((servicep)->server && (servicep)->server->servertype == DEMAND) ? \
+	 (((servicep)->server && (servicep)->server->ondemand) ? \
 		BOOTSTRAP_STATUS_ON_DEMAND : BOOTSTRAP_STATUS_INACTIVE))
 
 /*
@@ -1484,12 +1454,7 @@ x_bootstrap_create_server(
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	serverp = new_server(
-					bootstrap,
-					server_cmd,
-					server_uid,
-					(on_demand) ? DEMAND : RESTARTABLE,
-					audit_info);
+	serverp = new_server(bootstrap, server_cmd, server_uid, on_demand, audit_info);
 	setup_server(serverp);
 
 	syslog(LOG_INFO, "New server %x in bootstrap %x: \"%s\"",
