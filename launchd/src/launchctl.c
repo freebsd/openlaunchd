@@ -231,10 +231,11 @@ static int getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unu
 	bool is_csh = false;
 	const char *k;
 	void print_launchd_env(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
+		/* XXX escape the double quotes */
 		if (is_csh)
-			fprintf(stdout, "setenv %s %s;\n", key, launch_data_get_string(obj));
+			fprintf(stdout, "setenv %s \"%s\";\n", key, launch_data_get_string(obj));
 		else
-			fprintf(stdout, "%s=%s; export %s;\n", key, launch_data_get_string(obj), key);
+			fprintf(stdout, "%s=\"%s\"; export %s;\n", key, launch_data_get_string(obj), key);
 	}
 	void print_key_value(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
 		if (!strcmp(key, k))
