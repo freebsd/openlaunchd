@@ -1832,8 +1832,11 @@ x_bootstrap_look_up_array(
  *		    mach_port_t *parentport);
  *
  * Given a bootstrap subset port, return the parent bootstrap port.
- * If the specified bootstrap port is already the root subset,
- * MACH_PORT_NULL will be returned.
+ * If the specified bootstrap port is already the root subset, we
+ * return the port again. This is a bug. It should return
+ * MACH_PORT_NULL, but now we're locked in since apps expect this 
+ * behavior. Sigh...
+ *
  *
  * Errors:
  *	Returns BOOTSTRAP_NOT_PRIVILEGED if the caller is not running
@@ -1861,9 +1864,12 @@ x_bootstrap_parent(
 		       bootstrapport, sectoken.val[0]);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
-	syslog(LOG_DEBUG, "Returning bootstrap parent %x for bootstrap %x",
-	      bootstrap->parent->bootstrap_port, bootstrapport);
-	*parentport = bootstrap->parent->bootstrap_port;
+	if (bootstrap->parent == bootstrap && MACH_PORT_NULL != inherited_bootstrap_port) {
+		*parentport = inherited_bootstrap_port;
+	} else {
+		*parentport = bootstrap->parent->bootstrap_port;
+	}
+	syslog(LOG_DEBUG, "Returning bootstrap parent %x for bootstrap %x", *parentport, bootstrapport);
 	return BOOTSTRAP_SUCCESS;
 }
 
