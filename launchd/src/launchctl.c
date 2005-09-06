@@ -225,22 +225,30 @@ static int setenv_cmd(int argc, char *const argv[])
 	return 0;
 }
 
+static void print_launchd_env(launch_data_t obj, const char *key, void *context)
+{
+	bool *is_csh = context;
+
+	/* XXX escape the double quotes */
+	if (*is_csh)
+		fprintf(stdout, "setenv %s \"%s\";\n", key, launch_data_get_string(obj));
+	else
+		fprintf(stdout, "%s=\"%s\"; export %s;\n", key, launch_data_get_string(obj), key);
+}
+
+static void print_key_value(launch_data_t obj, const char *key, void *context)
+{
+	const char *k = context;
+
+	if (!strcmp(key, k))
+		fprintf(stdout, "%s\n", launch_data_get_string(obj));
+}
+
 static int getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
 {
 	launch_data_t resp, msg;
 	bool is_csh = false;
-	const char *k;
-	void print_launchd_env(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
-		/* XXX escape the double quotes */
-		if (is_csh)
-			fprintf(stdout, "setenv %s \"%s\";\n", key, launch_data_get_string(obj));
-		else
-			fprintf(stdout, "%s=\"%s\"; export %s;\n", key, launch_data_get_string(obj), key);
-	}
-	void print_key_value(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
-		if (!strcmp(key, k))
-			fprintf(stdout, "%s\n", launch_data_get_string(obj));
-	}
+	char *k;
 	
 	if (!strcmp(argv[0], "export")) {
 		char *s = getenv("SHELL");
@@ -259,7 +267,10 @@ static int getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unu
 	launch_data_free(msg);
 
 	if (resp) {
-		launch_data_dict_iterate(resp, (!strcmp(argv[0], "export")) ? print_launchd_env : print_key_value, NULL);
+		if (!strcmp(argv[0], "export"))
+			launch_data_dict_iterate(resp, print_launchd_env, &is_csh);
+		else
+			launch_data_dict_iterate(resp, print_key_value, k);
 		launch_data_free(resp);
 	} else {
 		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_GETUSERENVIRONMENT "\"): %s\n", strerror(errno));
@@ -1330,6 +1341,68 @@ static int logupdate_cmd(int argc, char *const argv[])
 	return r;
 }
 
+static const struct {
+	const char *name;
+	int lim;
+} limlookup[] = {
+	{ "cpu",	RLIMIT_CPU },
+	{ "filesize",	RLIMIT_FSIZE },
+	{ "data",	RLIMIT_DATA },
+	{ "stack",	RLIMIT_STACK },
+	{ "core",	RLIMIT_CORE },
+	{ "rss", 	RLIMIT_RSS },
+	{ "memlock",	RLIMIT_MEMLOCK },
+	{ "maxproc",	RLIMIT_NPROC },
+	{ "maxfiles",	RLIMIT_NOFILE }
+};
+
+static const size_t limlookupcnt = sizeof limlookup / sizeof limlookup[0];
+
+static ssize_t name2num(const char *n)
+{
+	size_t i;
+
+	for (i = 0; i < limlookupcnt; i++) {
+		if (!strcmp(limlookup[i].name, n)) {
+			return limlookup[i].lim;
+		}
+	}
+	return -1;
+}
+
+static const char *num2name(int n)
+{
+	size_t i;
+
+	for (i = 0; i < limlookupcnt; i++) {
+		if (limlookup[i].lim == n)
+			return limlookup[i].name;
+	}
+	return NULL;
+}
+
+static const char *lim2str(rlim_t val, char *buf)
+{
+	if (val == RLIM_INFINITY)
+		strcpy(buf, "unlimited");
+	else
+		sprintf(buf, "%lld", val);
+	return buf;
+}
+
+static bool str2lim(const char *buf, rlim_t *res)
+{
+	char *endptr;
+	*res = strtoll(buf, &endptr, 10);
+	if (!strcmp(buf, "unlimited")) {
+		*res = RLIM_INFINITY;
+		return false;
+	} else if (*endptr == '\0') {
+		 return false;
+	}
+	return true;
+}
+
 static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 {
 	char slimstr[100];
@@ -1337,58 +1410,10 @@ static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 	struct rlimit *lmts = NULL;
 	launch_data_t resp, resp1 = NULL, msg, tmp;
 	int r = 0;
-	size_t i, lsz = -1, which = 0;
+	size_t i, lsz = -1;
+	ssize_t which = 0;
 	rlim_t slim = -1, hlim = -1;
 	bool badargs = false;
-	static const struct {
-		const char *name;
-		int lim;
-	} limlookup[] = {
-		{ "cpu",	RLIMIT_CPU },
-		{ "filesize",	RLIMIT_FSIZE },
-		{ "data",	RLIMIT_DATA },
-		{ "stack",	RLIMIT_STACK },
-		{ "core",	RLIMIT_CORE },
-		{ "rss", 	RLIMIT_RSS },
-		{ "memlock",	RLIMIT_MEMLOCK },
-		{ "maxproc",	RLIMIT_NPROC },
-		{ "maxfiles",	RLIMIT_NOFILE }
-	};
-	size_t limlookupcnt = sizeof limlookup / sizeof limlookup[0];
-	bool name2num(const char *n) {
-		for (i = 0; i < limlookupcnt; i++) {
-			if (!strcmp(limlookup[i].name, n)) {
-				which = limlookup[i].lim;
-				return false;
-			}
-		}
-		return true;
-	};
-	const char *num2name(int n) {
-		for (i = 0; i < limlookupcnt; i++) {
-			if (limlookup[i].lim == n)
-				return limlookup[i].name;
-		}
-		return NULL;
-	};
-	const char *lim2str(rlim_t val, char *buf) {
-		if (val == RLIM_INFINITY)
-			strcpy(buf, "unlimited");
-		else
-			sprintf(buf, "%lld", val);
-		return buf;
-	};
-	bool str2lim(const char *buf, rlim_t *res) {
-		char *endptr;
-		*res = strtoll(buf, &endptr, 10);
-		if (!strcmp(buf, "unlimited")) {
-			*res = RLIM_INFINITY;
-			return false;
-		} else if (*endptr == '\0') {
-			 return false;
-		}
-		return true;
-	};
 
 	if (argc > 4)
 		badargs = true;
@@ -1401,7 +1426,7 @@ static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 	if (argc == 4 && str2lim(argv[3], &hlim))
 		badargs = true;
 
-	if (argc >= 2 && name2num(argv[1]))
+	if (argc >= 2 && -1 == (which = name2num(argv[1])))
 		badargs = true;
 
 	if (badargs) {
@@ -1424,7 +1449,7 @@ static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 		lsz = launch_data_get_opaque_size(resp);
 		if (argc <= 2) {
 			for (i = 0; i < (lsz / sizeof(struct rlimit)); i++) {
-				if (argc == 2 && which != i)
+				if (argc == 2 && (size_t)which != i)
 					continue;
 				fprintf(stdout, "\t%-12s%-15s%-15s\n", num2name(i),
 						lim2str(lmts[i].rlim_cur, slimstr),

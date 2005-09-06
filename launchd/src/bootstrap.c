@@ -101,15 +101,15 @@ struct service {
 
 struct server {
 	TAILQ_ENTRY(server)	tqe;
-	bool		ondemand;
-	uid_t		uid;		/* uid to exec server with */
+	struct bootstrap *bootstrap; /* bootstrap context */
 	auditinfo_t	auinfo;		/* server's audit information */
 	mach_port_t	port;		/* server's priv bootstrap port */
 	mach_port_t	task_port;	/* server's task port */
+	uid_t		uid;		/* uid to exec server with */
 	pid_t		pid;		/* server's pid */
 	int		activity;		/* count of checkins/registers this instance */
-	int		active_services;/* count of active services */
-	struct bootstrap *bootstrap; /* bootstrap context */
+	int		active_services;	/* count of active services */
+	unsigned int	ondemand:1, __junk:31;
 	char		cmd[0];		/* server command to exec */
 };
 

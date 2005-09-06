@@ -173,6 +173,7 @@ static void loopback_setup(void);
 static void workaround3048875(int argc, char *argv[]);
 static void reload_launchd_config(void);
 static int dir_has_files(const char *path);
+static void testfd_or_openfd(int fd, const char *path, int flags);
 static void setup_job_env(launch_data_t obj, const char *key, void *context);
 static void unsetup_job_env(launch_data_t obj, const char *key, void *context);
 
@@ -194,20 +195,6 @@ int main(int argc, char *argv[])
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
-	void testfd_or_openfd(int fd, const char *path, int flags) {
-		int tmpfd;
-
-		if (-1 != (tmpfd = dup(fd))) {
-			close(tmpfd);
-		} else {
-			if (-1 == (tmpfd = open(path, flags))) {
-				syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
-			} else if (tmpfd != fd) {
-				dup2(tmpfd, fd);
-				close(tmpfd);
-			}
-		}
-	};
 	pthread_attr_t attr;
 	int pthr_r;
 	struct kevent kev;
@@ -2424,5 +2411,21 @@ static void async_callback(void)
 		break;
 	default:
 		syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
+	}
+}
+
+static void testfd_or_openfd(int fd, const char *path, int flags)
+{
+	int tmpfd;
+
+	if (-1 != (tmpfd = dup(fd))) {
+		close(tmpfd);
+	} else {
+		if (-1 == (tmpfd = open(path, flags))) {
+			syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
+		} else if (tmpfd != fd) {
+			dup2(tmpfd, fd);
+			close(tmpfd);
+		}
 	}
 }

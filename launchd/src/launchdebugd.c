@@ -123,25 +123,29 @@ int main(void)
 	exit(EXIT_SUCCESS);
 }
 
+static void launch_print_obj_dict_callback(launch_data_t obj, const char *key, void *context)
+{
+	FILE *w = context;
+
+	fprintf(w, "<i>%s</i>\n", key);
+	if (launch_data_get_type(obj) != LAUNCH_DATA_ARRAY &&
+			launch_data_get_type(obj) != LAUNCH_DATA_DICTIONARY)
+		fprintf(w, "<ul><li>\n");
+	launch_print_obj(obj, w);
+	if (launch_data_get_type(obj) != LAUNCH_DATA_ARRAY &&
+			launch_data_get_type(obj) != LAUNCH_DATA_DICTIONARY)
+		fprintf(w, "</li></ul>\n");
+}
+
 static void launch_print_obj(launch_data_t o, FILE *w)
 {
 	size_t i;
-	void launch_print_obj_dict_callback(launch_data_t obj, const char *key, void *context __attribute__((unused))) {
-		fprintf(w, "<i>%s</i>\n", key);
-		if (launch_data_get_type(obj) != LAUNCH_DATA_ARRAY &&
-				launch_data_get_type(obj) != LAUNCH_DATA_DICTIONARY)
-			fprintf(w, "<ul><li>\n");
-		launch_print_obj(obj, w);
-		if (launch_data_get_type(obj) != LAUNCH_DATA_ARRAY &&
-				launch_data_get_type(obj) != LAUNCH_DATA_DICTIONARY)
-			fprintf(w, "</li></ul>\n");
-	}
 
 
         switch (launch_data_get_type(o)) {
         case LAUNCH_DATA_DICTIONARY:
 		fprintf(w, "<ul><li>\n");
-		launch_data_dict_iterate(o, launch_print_obj_dict_callback, NULL);
+		launch_data_dict_iterate(o, launch_print_obj_dict_callback, w);
 		fprintf(w, "</li></ul>\n");
                 break;
         case LAUNCH_DATA_ARRAY:
