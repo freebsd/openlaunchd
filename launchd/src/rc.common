@@ -48,6 +48,8 @@ CheckForNetwork()
     fi
 }
 
+alias ConsoleMessage=echo
+
 ##
 # Process management
 ##
