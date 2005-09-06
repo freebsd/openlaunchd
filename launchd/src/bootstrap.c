@@ -699,14 +699,7 @@ exec_server(struct server *serverp)
 	}
 
 
-	if (setsid() < 0) {
-	  	/*
-		 * We can't keep this from happening, but we shouldn't start
-		 * the server not as a process group leader.  So, just fake like
-		 * there was real activity, and exit the child.  If needed,
-		 * we'll re-launch it under another pid.
-		 */
-		serverp->activity = 1;
+	if (-1 == setsid()) {
 		panic("Temporary failure server %x bootstrap %x: \"%s\": setsid(): %s",
 			   serverp->port, serverp->bootstrap->bootstrap_port,
 			   serverp->cmd, strerror(errno));
