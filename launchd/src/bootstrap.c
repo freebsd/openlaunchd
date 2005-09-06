@@ -667,11 +667,37 @@ exec_server(struct server *serverp)
 				 serverp->cmd);
 	}
 
-	if (serverp->uid != inherited_uid)
-		if (setuid(serverp->uid) < 0)
+	if (serverp->uid != inherited_uid) {
+		struct passwd *pwd = getpwuid(serverp->uid);
+		gid_t g;
+
+		if (NULL == pwd) {
+			panic("Disabled server %x bootstrap %x: \"%s\": getpwuid(%d) failed",
+				 serverp->port, serverp->bootstrap->bootstrap_port,
+				 serverp->cmd, serverp->uid);
+		}
+
+		g = pwd->pw_gid;
+
+		if (-1 == setgroups(1, &g)) {
+			panic("Disabled server %x bootstrap %x: \"%s\": setgroups(1, %d): %s",
+					serverp->port, serverp->bootstrap->bootstrap_port,
+					serverp->cmd, g, strerror(errno));
+		}
+
+		if (-1 == setgid(g)) {
+			panic("Disabled server %x bootstrap %x: \"%s\": setgid(%d): %s",
+					serverp->port, serverp->bootstrap->bootstrap_port,
+					serverp->cmd, g, strerror(errno));
+		}
+
+		if (-1 == setuid(serverp->uid)) {
 			panic("Disabled server %x bootstrap %x: \"%s\": setuid(%d): %s",
 					 serverp->port, serverp->bootstrap->bootstrap_port,
 					   serverp->cmd, serverp->uid, strerror(errno));
+		}
+	}
+
 
 	if (setsid() < 0) {
 	  	/*
