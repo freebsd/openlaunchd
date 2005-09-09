@@ -87,7 +87,7 @@ static void launch_client_init(void)
 	struct sockaddr_un sun;
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
 	char *_launchd_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
-	int r, dfd, lfd = -1, tries;
+	int dfd, lfd = -1;
 	
 	_lc = calloc(1, sizeof(struct _launch_client));
 
@@ -117,32 +117,11 @@ static void launch_client_init(void)
 
 		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
 			goto out_bad;
-
-		for (tries = 0; tries < 10; tries++) {
-			r = connect(lfd, (struct sockaddr *)&sun, sizeof(sun));
-			if (r == -1 && getuid() != 0) {
-				pid_t ldp = fork();
-				if (ldp == 0) {
-					execl("/sbin/launchd", "/sbin/launchd", "-d", NULL);
-					fprintf(stderr, "execl(\"/sbin/launchd\", ...): %s\n", strerror(errno));
-					exit(EXIT_FAILURE);
-				} else if (ldp > 0) {
-					waitpid(ldp, NULL, 0);
-				}
-				sleep(1);
-			} else {
-				break;
-			}
-		}
-		if (r == -1) {
-			close(lfd);
+		if (-1 == connect(lfd, (struct sockaddr *)&sun, sizeof(sun)))
 			goto out_bad;
-		}
 	}
-	if (!(_lc->l = launchd_fdopen(lfd))) {
-		close(lfd);
+	if (!(_lc->l = launchd_fdopen(lfd)))
 		goto out_bad;
-	}
 	if (!(_lc->async_resp = launch_data_alloc(LAUNCH_DATA_ARRAY)))
 		goto out_bad;
 
@@ -150,6 +129,8 @@ static void launch_client_init(void)
 out_bad:
 	if (_lc->l)
 		launchd_close(_lc->l);
+	else if (lfd != -1)
+		close(lfd);
 	if (_lc)
 		free(_lc);
 	_lc = NULL;
