@@ -38,7 +38,10 @@ int main(void)
 
 	if (LAUNCH_DATA_ERRNO == launch_data_get_type(resp)) {
 		errno = launch_data_get_errno(resp);
-		syslog(LOG_ERR, "Check-in failed: %m");
+		if (errno == EACCES)
+			syslog(LOG_ERR, "Check-in failed. Did you forget to set ServiceIPC == true in your plist?");
+		else
+			syslog(LOG_ERR, "Check-in failed: %m");
 		exit(EXIT_FAILURE);
 	}
 
