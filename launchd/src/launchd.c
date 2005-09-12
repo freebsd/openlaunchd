@@ -297,22 +297,14 @@ int main(int argc, char *argv[])
 		job_start(TAILQ_FIRST(&jobs));
 
 	for (;;) {
-		static struct timespec timeout = { 30, 0 };
-		struct timespec *timeoutp = NULL;
-
 		if (getpid() == 1) {
 			if (readcfg_pid == 0)
 				init_pre_kevent();
-		} else {
-			if (TAILQ_EMPTY(&jobs) && TAILQ_EMPTY(&connections)) {
-				/* liblaunch will restart launchd if we're needed again */
-				timeoutp = &timeout;
-			} else if (shutdown_in_progress && total_children == 0) {
-				exit(EXIT_SUCCESS);
-			}
+		} else if (shutdown_in_progress && total_children == 0) {
+			exit(EXIT_SUCCESS);
 		}
 
-		switch (kevent(mainkq, NULL, 0, &kev, 1, timeoutp)) {
+		switch (kevent(mainkq, NULL, 0, &kev, 1, NULL)) {
 		case -1:
 			syslog(LOG_DEBUG, "kevent(): %m");
 			break;
@@ -320,10 +312,7 @@ int main(int argc, char *argv[])
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			break;
 		case 0:
-			if (timeoutp)
-				exit(EXIT_SUCCESS);
-			else
-				syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
+			syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
 			break;
 		default:
 			syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
