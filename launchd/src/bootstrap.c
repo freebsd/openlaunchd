@@ -213,7 +213,7 @@ notify_server_loop(mach_port_name_t about)
 
 void mach_start_shutdown(void)
 {
-	shutdown_in_progress = TRUE;
+	shutdown_in_progress = true;
 	inform_server_loop(MACH_PORT_NULL, MACH_SEND_TIMEOUT);
 }
 
@@ -954,7 +954,7 @@ server_demux(
 				     servicep->port, servicep->bootstrap->bootstrap_port,
 					 servicep->name);
 				assert(canReceive(servicep->port));
-				servicep->isActive = FALSE;
+				servicep->isActive = false;
 				serverp->active_services--;
 				dispatch_server(serverp);
 				reply->RetCode = KERN_SUCCESS;
@@ -1016,7 +1016,7 @@ server_demux(
 		syslog(LOG_DEBUG, "Handled request.");
 		return bootstrap_server(Request, Reply);
 	}
-	return TRUE;
+	return true;
 }
 
 /*
@@ -1052,7 +1052,7 @@ canReceive(mach_port_t port)
 	result = mach_port_type(mach_task_self(), port, &p_type);
 	if (result != KERN_SUCCESS) {
 		syslog(LOG_ERR, "port_type(): %s", mach_error_string(result));
-		return FALSE;
+		return false;
 	}
 	return ((p_type & MACH_PORT_TYPE_RECEIVE) != 0);
 }
@@ -1562,8 +1562,8 @@ x_bootstrap_check_in(
 	}
 	syslog(LOG_DEBUG, "Checkin service %s for bootstrap %x", servicename,
 	      bootstrap->bootstrap_port);
-	assert(servicep->isActive == FALSE);
-	servicep->isActive = TRUE;
+	assert(servicep->isActive == false);
+	servicep->isActive = true;
 
 	if (servicep->server != NULL) {
 		/* registered server - service needs backup */
@@ -1694,7 +1694,7 @@ x_bootstrap_register(
 			panic("mach_port_mod_refs(): %s", mach_error_string(result));
 		
 		servicep->port = serviceport;
-		servicep->isActive = TRUE;
+		servicep->isActive = true;
 		syslog(LOG_DEBUG, "Re-registered inactive service %x bootstrap %x: %s",
 			servicep->port, servicep->bootstrap->bootstrap_port, servicename);
 	}
@@ -1806,14 +1806,14 @@ x_bootstrap_look_up_array(
 	if (servicenames_cnt > BOOTSTRAP_MAX_LOOKUP_COUNT)
 		return BOOTSTRAP_BAD_COUNT;
 	*serviceports_cnt = servicenames_cnt;
-	*allservices_known = TRUE;
+	*allservices_known = true;
 	for (i = 0; i < servicenames_cnt; i++) {
 		if (   x_bootstrap_look_up(bootstrapport,
 					  servicenames[i],
 					  &service_ports[i])
 		    != BOOTSTRAP_SUCCESS)
 		{
-			*allservices_known = FALSE;
+			*allservices_known = false;
 			service_ports[i] = MACH_PORT_NULL;
 		}
 	}
