@@ -81,12 +81,6 @@ struct bootstrap {
 	unsigned int			ref_count;
 };
 
-/* Service types */
-typedef enum {
-	DECLARED,	/* Declared in config file */
-	REGISTERED	/* Registered dynamically */
-} servicetype_t;
-
 struct service {
 	TAILQ_ENTRY(service)	tqe;
 	mach_port_name_t	port;		/* service port,
@@ -94,7 +88,6 @@ struct service {
 	struct bootstrap	*bootstrap;	/* bootstrap port(s) used at this
 					 * level. */
 	boolean_t		isActive;	/* server is running */
-	servicetype_t		servicetype;	/* Declared, Registered, or Machport */
 	struct server		*server;	/* server, declared services only */
 	char			name[0];	/* service name */
 };
@@ -125,7 +118,6 @@ static struct service 		*new_service(
 	const char		*name,
 	mach_port_t		serviceport,
 	boolean_t		isActive,
-	servicetype_t		servicetype,
 	struct server		*serverp);
 
 static struct bootstrap *new_bootstrap(
@@ -1109,7 +1101,6 @@ new_service(
 	const char	*name,
 	mach_port_t		serviceport,
 	boolean_t	isActive,
-	servicetype_t	servicetype,
 	struct server	*serverp)
 {
         struct service *servicep;
@@ -1121,7 +1112,6 @@ new_service(
 	TAILQ_INSERT_TAIL(&services, servicep, tqe);
 	
 	strcpy(servicep->name, name);
-	servicep->servicetype = servicetype;
 	servicep->bootstrap = bootstrap;
 	servicep->port = serviceport;
 	servicep->server = serverp;
@@ -1215,20 +1205,13 @@ delete_service(struct service *servicep)
 {
 	TAILQ_REMOVE(&services, servicep, tqe);
 
-	switch (servicep->servicetype) {
-	case REGISTERED:
-		syslog(LOG_INFO, "Registered service %s deleted", servicep->name);
-		mach_port_deallocate(mach_task_self(), servicep->port);
-		break;
-	case DECLARED:
+	if (servicep->server) {
 		syslog(LOG_INFO, "Declared service %s now unavailable", servicep->name);
 		mach_port_deallocate(mach_task_self(), servicep->port);
-		mach_port_mod_refs(mach_task_self(), servicep->port,
-				   MACH_PORT_RIGHT_RECEIVE, -1);
-		break;
-	default:
-		syslog(LOG_ERR, "unknown service type %d", servicep->servicetype);
-		break;
+		mach_port_mod_refs(mach_task_self(), servicep->port, MACH_PORT_RIGHT_RECEIVE, -1);
+	} else {
+		syslog(LOG_INFO, "Registered service %s deleted", servicep->name);
+		mach_port_deallocate(mach_task_self(), servicep->port);
 	}
 	free(servicep);
 }
@@ -1598,7 +1581,6 @@ x_bootstrap_check_in(
 			panic("mach_port_request_notification(): %s", mach_error_string(result));
 	} else {
 		/* one time use/created service */
-		servicep->servicetype = REGISTERED;
 		result = mach_port_request_notification(
 					mach_task_self(),
 					servicep->port,
@@ -1681,7 +1663,6 @@ x_bootstrap_register(
 				       servicename,
 				       serviceport,
 				       true,
-				       REGISTERED,
 				       NULL);
 		syslog(LOG_DEBUG, "Registered new service %s", servicename);
 	} else {
@@ -1692,15 +1673,11 @@ x_bootstrap_register(
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
 		old_port = servicep->port;
-		if (servicep->servicetype == DECLARED) {
-			servicep->servicetype = REGISTERED;
-
-			if (servicep->server) {
-				assert(servicep->server == serverp);
-				assert(active_server(serverp));
-				servicep->server = NULL;
-				serverp->activity++;
-			}
+		if (servicep->server) {
+			assert(servicep->server == serverp);
+			assert(active_server(serverp));
+			servicep->server = NULL;
+			serverp->activity++;
 
 			result = mach_port_mod_refs(
 					mach_task_self(),
@@ -2185,7 +2162,6 @@ x_bootstrap_create_service(
 				servicename,
 				*serviceportp,
 				false,
-				DECLARED,
 				serverp);
 
 	syslog(LOG_INFO, "Created new service %x in bootstrap %x: %s", 
