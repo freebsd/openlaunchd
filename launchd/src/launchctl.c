@@ -536,6 +536,9 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 		
 	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHNAME))) {
 		struct sockaddr_un sun;
+		mode_t sun_mode = 0;
+		mode_t oldmask;
+		bool setm = false;
 
 		memset(&sun, 0, sizeof(sun));
 
@@ -546,14 +549,25 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 		if ((sfd = _fd(socket(AF_UNIX, st, 0))) == -1)
 			return;
 
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHMODE))) {
+			sun_mode = (mode_t)launch_data_get_integer(val);
+			setm = true;
+		}
+
 		if (passive) {                  
 			if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
 				close(sfd);     
 				return;
 			}
+			oldmask = umask(S_IRWXG|S_IRWXO);
 			if (bind(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
 				close(sfd);
+				umask(oldmask);
 				return;
+			}
+			umask(oldmask);
+			if (setm) {
+				chmod(sun.sun_path, sun_mode);
 			}
 			if ((st == SOCK_STREAM || st == SOCK_SEQPACKET)
 					&& listen(sfd, SOMAXCONN) == -1) {
