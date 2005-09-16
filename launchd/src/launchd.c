@@ -58,6 +58,7 @@
 #include <paths.h>
 #include <pwd.h>
 #include <grp.h>
+#include <ttyent.h>
 #include <dlfcn.h>
 #include <dirent.h>
 
@@ -130,6 +131,7 @@ static kq_callback kqasync_callback = (kq_callback)async_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqreadcfg_callback = readcfg_callback;
+static kq_callback kqshutdown_callback = (kq_callback)do_shutdown;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static void job_watch(struct jobcb *j);
@@ -158,7 +160,7 @@ static bool launchd_check_pid(pid_t p);
 #endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
 static void launchd_server_init(void);
-static void conceive_firstborn(char *argv[]);
+static void conceive_firstborn(char *argv[], const char *session_user);
 
 #ifdef EVFILT_MACH_IMPLEMENTED
 static void *mach_demand_loop(void *);
@@ -171,6 +173,7 @@ static int _fd(int fd);
 
 static void loopback_setup(void);
 static void workaround3048875(int argc, char *argv[]);
+static void testfd_or_openfd(int fd, const char *path, int flags);
 static void reload_launchd_config(void);
 static int dir_has_files(const char *path);
 static void testfd_or_openfd(int fd, const char *path, int flags);
@@ -194,33 +197,62 @@ int main(int argc, char *argv[])
 	static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
-		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2 };
+		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
+	};
+	bool sflag = false, xflag = false, vflag = false, dflag = false, Aflag = false, Tflag = false, Xflag = false;
+	const char *session_user = NULL;
+	const char *optargs = NULL;
+	struct jobcb *fbj;
 	pthread_attr_t attr;
-	int pthr_r;
 	struct kevent kev;
 	size_t i;
-	bool sflag = false, xflag = false, vflag = false, dflag = false;
+	int pthr_r;
 	int ch;
 
-	if (getpid() == 1)
+	/* main() phase one: sanitize the process */
+
+	if (getpid() == 1) {
 		workaround3048875(argc, argv);
+	} else {
+		int sigi, fdi, dts = getdtablesize();
+		sigset_t emptyset;
+
+		for (fdi = STDERR_FILENO + 1; fdi < dts; fdi++)
+			close(fdi);
+		for (sigi = 1; sigi < NSIG; sigi++)
+			signal(sigi, SIG_DFL);
+		sigemptyset(&emptyset);
+		sigprocmask(SIG_SETMASK, &emptyset, NULL);
+	}
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
 	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
 	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
 
-	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
-	setlogmask(LOG_UPTO(LOG_NOTICE));
-	
-	while ((ch = getopt(argc, argv, "dhsvx")) != -1) {
+	/* main phase two: parse arguments */
+
+	if (getpid() == 1) {
+		optargs = "svx";
+	} else if (getuid() == 0) {
+		optargs = "ATXS:dh";
+	} else {
+		optargs = "dh";
+	}
+
+	while ((ch = getopt(argc, argv, optargs)) != -1) {
 		switch (ch) {
-		case 'd': dflag = true;   break;
-		case 's': sflag = true;   break;
-		case 'x': xflag = true;   break;
-		case 'v': vflag = true;   break;
-		case 'h': usage(stdout);  break;
+		case 'S': session_user = optarg; break;	/* which user to create a session as */
+		case 'A': Aflag = true;   break;	/* create an Apple Aqua GUI session */
+		case 'T': Tflag = true;   break;	/* create a TTY session */
+		case 'X': Xflag = true;   break;	/* create a X11 session */
+		case 'd': dflag = true;   break;	/* daemonize */
+		case 's': sflag = true;   break;	/* single user */
+		case 'x': xflag = true;   break;	/* safe boot */
+		case 'v': vflag = true;   break;	/* verbose boot */
+		case 'h': usage(stdout);  break;	/* help */
+		case '?': /* we should do something with the global optopt variable here */
 		default:
-			syslog(LOG_WARNING, "ignoring unknown arguments");
+			fprintf(stderr, "ignoring unknown arguments\n");
 			usage(stderr);
 			break;
 		}
@@ -228,11 +260,53 @@ int main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	if ((Tflag || Aflag || Xflag) && session_user == NULL) {
+		char f = 'T';
+		if (Aflag)
+			f = 'A';
+		else if (Xflag)
+			f = 'X';
+
+		fprintf(stderr, "-%c requires -S\n", f);
+		exit(EXIT_FAILURE);
+	}
+
+	/* main phase three: if we need to become a user, do so ASAP */
+	
+	if (session_user) {
+		struct passwd *pwe = getpwnam(session_user);
+		uid_t u = pwe ? pwe->pw_uid : 0;
+		gid_t g = pwe ? pwe->pw_gid : 0;
+		
+		if (pwe == NULL) {
+			fprintf(stderr, "lookup of user %s failed!\n", session_user);
+			exit(EXIT_FAILURE);
+		}
+
+		if (initgroups(session_user, g) == -1) {
+			fprintf(stderr, "initgroups(\"%s\", %u): %s\n", session_user, g, strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		if (setgid(g) == -1) {
+			syslog(LOG_ERR, "setgid(%u): %s\n", g, strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		if (setuid(u) == -1) {
+			syslog(LOG_ERR, "setuid(%u): %s\n", u, strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	/* main phase four: get the party started */
+
 	if (dflag && daemon(0, 0) == -1)
-		syslog(LOG_WARNING, "couldn't daemonize: %m");
+		fprintf(stderr, "daemon(0, 0): %s\n", strerror(errno));
+
+	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
+	setlogmask(LOG_UPTO(LOG_NOTICE));
 
 	if ((mainkq = kqueue()) == -1) {
-		syslog(LOG_EMERG, "kqueue(): %m");
+		syslog(LOG_ERR, "kqueue(): %m");
 		abort();
 	}
 
@@ -258,6 +332,9 @@ int main(int argc, char *argv[])
 	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
 	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
+
+	if (argv[0] || Tflag)
+		conceive_firstborn(argv, session_user);
 	
 	launchd_bootstrap_port = mach_init_init();
 	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
@@ -274,6 +351,9 @@ int main(int argc, char *argv[])
 
 	pthread_attr_destroy(&attr);
 
+	if (NULL == getenv("PATH"))
+		setenv("PATH", _PATH_STDPATH, 1);
+
 	if (getpid() == 1) {
 		pid1_magic_init(sflag, vflag, xflag);
 	} else {
@@ -284,14 +364,34 @@ int main(int argc, char *argv[])
 	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
 		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
 
+	if (Aflag || Tflag || Xflag) {
+		pid_t pp = getppid();
 
-	if (argv[0])
-		conceive_firstborn(argv);
+		/* As a per session launchd, we need to exit if our parent dies.
+		 *
+		 * Normally, in Unix, SIGHUP would cause us to exit, but we're a
+		 * daemon, and daemons use SIGHUP to signal the need to reread
+		 * configuration files.
+		 *
+		 * if Aflag, then loginwindow is our parent.
+		 * if Tflag, then login(1) or sshd(8) is our parent.
+		 * if Xflag, then xdm(1) or something like it is our parent.
+		 */
+
+		if (pp == 1)
+			exit(EXIT_SUCCESS);
+
+		if (kevent_mod(pp, EVFILT_PROC, EV_ADD, 0, 0, &kqshutdown_callback) == -1) {
+			syslog(LOG_ERR, "kevent_mod(pp, EVFILT_PROC, &kqshutdown_callback): %m", pp);
+			exit(EXIT_FAILURE);
+		}
+	}
 
 	reload_launchd_config();
 
-	if (argv[0])
-		job_start(TAILQ_FIRST(&jobs));
+	fbj = TAILQ_FIRST(&jobs);
+	if (fbj && fbj->firstborn)
+		job_start(fbj);
 
 	for (;;) {
 		if (getpid() == 1) {
@@ -362,8 +462,6 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 	if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
 		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
 
-	setenv("PATH", _PATH_STDPATH, 1);
-
 	init_boot(sflag, vflag, xflag);
 }
 
@@ -416,25 +514,8 @@ static void launchd_server_init(void)
 	sun.sun_family = AF_UNIX;
 
 	if (getpid() == 1) {
-		snprintf(ourdir, sizeof(ourdir), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
-		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u/sock", LAUNCHD_SOCK_PREFIX, getuid());
-
-		if (mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH) == -1) {
-			if (errno == EROFS) {
-				goto out_bad;
-			} else if (errno == EEXIST) {
-				struct stat sb;
-				stat(LAUNCHD_SOCK_PREFIX, &sb);
-				if (!S_ISDIR(sb.st_mode)) {
-					errno = EEXIST;
-					syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
-					goto out_bad;
-				}
-			} else {
-				syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
-				goto out_bad;
-			}
-		}
+		strcpy(ourdir, LAUNCHD_SOCK_PREFIX);
+		strncpy(sun.sun_path, LAUNCHD_SOCK_PREFIX "/sock", sizeof(sun.sun_path));
 
 		unlink(ourdir);
 		if (mkdir(ourdir, S_IRWXU) == -1) {
@@ -1183,9 +1264,22 @@ static launch_data_t get_jobs(const char *which)
 
 static void usage(FILE *where)
 {
-	fprintf(where, "%s: [-d] [-- command [args ...]]\n", getprogname());
-	fprintf(where, "\t-d\tdaemonize\n");
-	fprintf(where, "\t-h\tthis usage statement\n");
+	const char *opts = "[-d]";
+
+	if (getuid() == 0)
+		opts = "[-dATX] [-S user]";
+
+	fprintf(where, "%s: %s [-- command [args ...]]\n", getprogname(), opts);
+
+	fprintf(where, "\t-d          Daemonize.\n");
+	fprintf(where, "\t-h          This usage statement.\n");
+
+	if (getuid() == 0) {
+		fprintf(where, "\t-A          Create an Apple Aqua session.\n");
+		fprintf(where, "\t-T          Create a TTY session.\n");
+		fprintf(where, "\t-X          Create a X11 session.\n");
+		fprintf(where, "\t-S <user>   Which user to create the session as.\n");
+	}
 
 	if (where == stdout)
 		exit(EXIT_SUCCESS);
@@ -1806,7 +1900,8 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 {
 	switch (kev->ident) {
 	case SIGHUP:
-		update_ttys();
+		if (getpid() == 1)
+			update_ttys();
 		reload_launchd_config();
 		break;
 	case SIGTERM:
@@ -2014,15 +2109,59 @@ static void reload_launchd_config(void)
 	}
 }
 
-static void conceive_firstborn(char *argv[])
+static void conceive_firstborn(char *argv[], const char *session_user)
 {
 	launch_data_t r, d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	launch_data_t args = launch_data_alloc(LAUNCH_DATA_ARRAY);
 	launch_data_t l = launch_data_new_string("com.apple.launchd.firstborn");
 	size_t i;
 
-	for (i = 0; *argv; argv++, i++)
-		launch_data_array_set_index(args, launch_data_new_string(*argv), i);
+	if (session_user) {
+		launch_data_t ed = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+		struct passwd *pw = getpwnam(session_user);
+		const char *sh = (pw && pw->pw_shell) ? pw->pw_shell : _PATH_BSHELL;
+		const char *wd = (pw && pw->pw_dir) ? pw->pw_dir : NULL;
+		const char *un = (pw && pw->pw_name) ? pw->pw_name : NULL;
+		const char *tty, *ttyn = ttyname(STDIN_FILENO);
+		char *p, arg0[PATH_MAX] = "-";
+
+		strcpy(arg0 + 1, (p = strrchr(sh, '/')) ?  p + 1 : sh);
+
+		if (wd) {
+			launch_data_dict_insert(d, launch_data_new_string(wd), LAUNCH_JOBKEY_WORKINGDIRECTORY);
+			launch_data_dict_insert(ed, launch_data_new_string(wd), "HOME");
+		}
+		if (sh) {
+			launch_data_dict_insert(ed, launch_data_new_string(sh), "SHELL");
+		}
+		if (un) {
+			launch_data_dict_insert(ed, launch_data_new_string(un), "USER");
+			launch_data_dict_insert(ed, launch_data_new_string(un), "LOGNAME");
+		}
+		if (ttyn && NULL == getenv("TERM")) {
+			struct ttyent *t;
+			const char *term;
+
+			if ((tty = strrchr(ttyn, '/')))
+				tty++;
+			else
+				tty = ttyn;
+
+			if ((t = getttynam(tty)))
+				term = t->ty_type;
+			else
+				term = "su"; /* I don't know why login(8) defaulted to this value... */
+
+			launch_data_dict_insert(ed, launch_data_new_string(term), "TERM");
+		}
+
+		launch_data_dict_insert(d, launch_data_new_string(sh), LAUNCH_JOBKEY_PROGRAM);
+		launch_data_dict_insert(d, ed, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES);
+		launch_data_array_set_index(args, launch_data_new_string(arg0), 0);
+	} else {
+		for (i = 0; *argv; argv++, i++)
+			launch_data_array_set_index(args, launch_data_new_string(*argv), i);
+	}
 
 	launch_data_dict_insert(d, args, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	launch_data_dict_insert(d, l, LAUNCH_JOBKEY_LABEL);

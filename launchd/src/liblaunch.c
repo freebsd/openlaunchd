@@ -113,7 +113,7 @@ static void launch_client_init(void)
 		if (where) {
 			strncpy(sun.sun_path, where, sizeof(sun.sun_path));
 		} else if (getuid() == 0) {
-			snprintf(sun.sun_path, sizeof(sun.sun_path), LAUNCHD_SOCK_PREFIX "/0/sock");
+			strncpy(sun.sun_path, LAUNCHD_SOCK_PREFIX "/sock", sizeof(sun.sun_path));
 		} else {
 			goto out_bad;
 		}
