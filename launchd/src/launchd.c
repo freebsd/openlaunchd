@@ -157,7 +157,7 @@ static void pid1waitpid(void);
 static bool launchd_check_pid(pid_t p);
 #endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
-static void launchd_server_init(bool create_session);
+static void launchd_server_init(void);
 static void conceive_firstborn(char *argv[]);
 
 #ifdef EVFILT_MACH_IMPLEMENTED
@@ -204,9 +204,6 @@ int main(int argc, char *argv[])
 
 	if (getpid() == 1)
 		workaround3048875(argc, argv);
-
-	setegid(getgid());
-	seteuid(getuid());
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
 	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
@@ -280,7 +277,7 @@ int main(int argc, char *argv[])
 	if (getpid() == 1) {
 		pid1_magic_init(sflag, vflag, xflag);
 	} else {
-		launchd_server_init(argv[0] ? true : false);
+		launchd_server_init();
 	}
 
 	/* do this after pid1_magic_init() to not catch ourselves mounting stuff */
@@ -402,94 +399,65 @@ static void launchd_clean_up(void)
 	if (launchd_proper_pid != getpid())
 		return;
 
-	seteuid(0);
-	setegid(0);
-
 	if (-1 == unlink(sockpath))
 		syslog(LOG_WARNING, "unlink(\"%s\"): %m", sockpath);
 	else if (-1 == rmdir(sockdir))
 		syslog(LOG_WARNING, "rmdir(\"%s\"): %m", sockdir);
-
-	setegid(getgid());
-	seteuid(getuid());
 }
 
-static void launchd_server_init(bool create_session)
+static void launchd_server_init(void)
 {
 	struct sockaddr_un sun;
 	mode_t oldmask;
-	int r, fd = -1, ourdirfd = -1;
+	int r, fd = -1;
 	char ourdir[1024];
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 
-	if (create_session) {
-		snprintf(ourdir, sizeof(ourdir), "%s/%u.%u", LAUNCHD_SOCK_PREFIX, getuid(), getpid());
-		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u.%u/sock", LAUNCHD_SOCK_PREFIX, getuid(), getpid());
-		setenv(LAUNCHD_SOCKET_ENV, sun.sun_path, 1);
-	} else {
+	if (getpid() == 1) {
 		snprintf(ourdir, sizeof(ourdir), "%s/%u", LAUNCHD_SOCK_PREFIX, getuid());
 		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u/sock", LAUNCHD_SOCK_PREFIX, getuid());
-	}
 
-	seteuid(0);
-	setegid(0);
-
-	if (mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH) == -1) {
-		if (errno == EROFS) {
-			goto out_bad;
-		} else if (errno == EEXIST) {
-			struct stat sb;
-			stat(LAUNCHD_SOCK_PREFIX, &sb);
-			if (!S_ISDIR(sb.st_mode)) {
-				errno = EEXIST;
+		if (mkdir(LAUNCHD_SOCK_PREFIX, S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH) == -1) {
+			if (errno == EROFS) {
+				goto out_bad;
+			} else if (errno == EEXIST) {
+				struct stat sb;
+				stat(LAUNCHD_SOCK_PREFIX, &sb);
+				if (!S_ISDIR(sb.st_mode)) {
+					errno = EEXIST;
+					syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+					goto out_bad;
+				}
+			} else {
 				syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
 				goto out_bad;
 			}
-		} else {
-			syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
-			goto out_bad;
 		}
-	}
 
-	unlink(ourdir);
-	if (mkdir(ourdir, S_IRWXU) == -1) {
-		if (errno == EROFS) {
-			goto out_bad;
-		} else if (errno == EEXIST) {
-			struct stat sb;
-			stat(ourdir, &sb);
-			if (!S_ISDIR(sb.st_mode)) {
-				errno = EEXIST;
-				syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+		unlink(ourdir);
+		if (mkdir(ourdir, S_IRWXU) == -1) {
+			if (errno == EROFS) {
+				goto out_bad;
+			} else if (errno == EEXIST) {
+				struct stat sb;
+				stat(ourdir, &sb);
+				if (!S_ISDIR(sb.st_mode)) {
+					errno = EEXIST;
+					syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+					goto out_bad;
+				}
+			} else {
+				syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
 				goto out_bad;
 			}
-		} else {
-			syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
-			goto out_bad;
 		}
-	}
-
-	if (chown(ourdir, getuid(), getgid()) == -1)
-		syslog(LOG_WARNING, "chown(\"%s\"): %m", ourdir);
-
-	setegid(getgid());
-	seteuid(getuid());
-
-	ourdirfd = _fd(open(ourdir, O_RDONLY));
-	if (ourdirfd == -1) {
-		syslog(LOG_ERR, "open(\"%s\"): %m", ourdir);
-		goto out_bad;
-	}
-
-	if (flock(ourdirfd, LOCK_EX|LOCK_NB) == -1) {
-		if (errno == EWOULDBLOCK) {
-			exit(EXIT_SUCCESS);
-		} else {
-			syslog(LOG_ERR, "flock(\"%s\"): %m", ourdir);
-			goto out_bad;
-		}
+	} else {
+		snprintf(ourdir, sizeof(ourdir), "/tmp/launchd-%u.XXXXXX", getpid());
+		mkdtemp(ourdir);
+		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/sock", ourdir);
+		setenv(LAUNCHD_SOCKET_ENV, sun.sun_path, 1);
 	}
 
 	if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
@@ -501,9 +469,11 @@ static void launchd_server_init(bool create_session)
 		syslog(LOG_ERR, "socket(\"thesocket\"): %m");
 		goto out_bad;
 	}
-	oldmask = umask(077);
+
+	oldmask = umask(S_IRWXG|S_IRWXO);
 	r = bind(fd, (struct sockaddr *)&sun, sizeof(sun));
 	umask(oldmask);
+
 	if (r == -1) {
 		if (errno != EROFS)
 			syslog(LOG_ERR, "bind(\"thesocket\"): %m");
@@ -529,15 +499,8 @@ static void launchd_server_init(bool create_session)
 	atexit(launchd_clean_up);
 
 out_bad:
-	setegid(getgid());
-	seteuid(getuid());
-
-	if (!launchd_inited) {
-		if (fd != -1)
-			close(fd);
-		if (ourdirfd != -1)
-			close(ourdirfd);
-	}
+	if (!launchd_inited && fd != -1)
+		close(fd);
 }
 
 static long long job_get_integer(launch_data_t j, const char *key)
@@ -1903,7 +1866,7 @@ static void fs_callback(void)
 	}
 
 	if (!launchd_inited)
-		launchd_server_init(false);
+		launchd_server_init();
 }
 
 static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))

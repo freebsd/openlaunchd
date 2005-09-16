@@ -110,10 +110,13 @@ static void launch_client_init(void)
 		memset(&sun, 0, sizeof(sun));
 		sun.sun_family = AF_UNIX;
 		
-		if (where)
+		if (where) {
 			strncpy(sun.sun_path, where, sizeof(sun.sun_path));
-		else
-			snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/%u/sock", LAUNCHD_SOCK_PREFIX, getuid());
+		} else if (getuid() == 0) {
+			snprintf(sun.sun_path, sizeof(sun.sun_path), LAUNCHD_SOCK_PREFIX "/0/sock");
+		} else {
+			goto out_bad;
+		}
 
 		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
 			goto out_bad;

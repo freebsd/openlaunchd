@@ -798,8 +798,6 @@ install-data-am: install-man
 
 install-exec-am: install-binPROGRAMS install-libexecPROGRAMS \
 	install-sbinPROGRAMS install-sbinSCRIPTS install-sysconfDATA
-	@$(NORMAL_INSTALL)
-	$(MAKE) $(AM_MAKEFLAGS) install-exec-hook
 
 install-info: install-info-am
 
@@ -867,9 +865,6 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
-
-install-exec-hook:
-	chmod u+s $(DESTDIR)/$(sbindir)/launchd
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

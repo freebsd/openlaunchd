@@ -70,6 +70,3 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
-
-install-exec-hook:
-	chmod u+s $(DESTDIR)/$(sbindir)/launchd
