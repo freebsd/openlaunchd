@@ -42,6 +42,9 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+	if (stat(argv[1], &sb) == 0)
+		exit(EXIT_SUCCESS);
+
 	EV_SET(&kev, 0, EVFILT_FS, EV_ADD, 0, 0, 0);
 
 	if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1) {
