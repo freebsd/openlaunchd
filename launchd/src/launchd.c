@@ -259,8 +259,8 @@ int main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (session_type && session_user == NULL) {
-		fprintf(stderr, "-S requires -U\n");
+	if ((session_type && !session_user) || (!session_user && session_type)) {
+		fprintf(stderr, "-S and -U must be used together\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -326,7 +326,7 @@ int main(int argc, char *argv[])
 	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
 
-	if (argv[0] || 0 == strcasecmp(session_type, "tty"))
+	if (argv[0] || (session_type != NULL && 0 == strcasecmp(session_type, "tty")))
 		conceive_firstborn(argv, session_user);
 	
 	launchd_bootstrap_port = mach_init_init();
