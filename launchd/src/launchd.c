@@ -199,7 +199,8 @@ int main(int argc, char *argv[])
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
-	bool sflag = false, xflag = false, vflag = false, dflag = false, Aflag = false, Tflag = false, Xflag = false;
+	bool sflag = false, xflag = false, vflag = false, dflag = false;
+	const char *session_type = NULL;
 	const char *session_user = NULL;
 	const char *optargs = NULL;
 	struct jobcb *fbj;
@@ -234,17 +235,15 @@ int main(int argc, char *argv[])
 	if (getpid() == 1) {
 		optargs = "svx";
 	} else if (getuid() == 0) {
-		optargs = "ATXS:dh";
+		optargs = "S:U:dh";
 	} else {
 		optargs = "dh";
 	}
 
 	while ((ch = getopt(argc, argv, optargs)) != -1) {
 		switch (ch) {
-		case 'S': session_user = optarg; break;	/* which user to create a session as */
-		case 'A': Aflag = true;   break;	/* create an Apple Aqua GUI session */
-		case 'T': Tflag = true;   break;	/* create a TTY session */
-		case 'X': Xflag = true;   break;	/* create a X11 session */
+		case 'S': session_type = optarg; break;	/* what type of session we're creating */
+		case 'U': session_user = optarg; break;	/* which user to create a session as */
 		case 'd': dflag = true;   break;	/* daemonize */
 		case 's': sflag = true;   break;	/* single user */
 		case 'x': xflag = true;   break;	/* safe boot */
@@ -260,14 +259,8 @@ int main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if ((Tflag || Aflag || Xflag) && session_user == NULL) {
-		char f = 'T';
-		if (Aflag)
-			f = 'A';
-		else if (Xflag)
-			f = 'X';
-
-		fprintf(stderr, "-%c requires -S\n", f);
+	if (session_type && session_user == NULL) {
+		fprintf(stderr, "-S requires -U\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -333,7 +326,7 @@ int main(int argc, char *argv[])
 	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
 		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
 
-	if (argv[0] || Tflag)
+	if (argv[0] || 0 == strcasecmp(session_type, "tty"))
 		conceive_firstborn(argv, session_user);
 	
 	launchd_bootstrap_port = mach_init_init();
@@ -364,18 +357,14 @@ int main(int argc, char *argv[])
 	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
 		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
 
-	if (Aflag || Tflag || Xflag) {
+	if (session_type) {
 		pid_t pp = getppid();
 
 		/* As a per session launchd, we need to exit if our parent dies.
 		 *
 		 * Normally, in Unix, SIGHUP would cause us to exit, but we're a
 		 * daemon, and daemons use SIGHUP to signal the need to reread
-		 * configuration files.
-		 *
-		 * if Aflag, then loginwindow is our parent.
-		 * if Tflag, then login(1) or sshd(8) is our parent.
-		 * if Xflag, then xdm(1) or something like it is our parent.
+		 * configuration files. "Weee."
 		 */
 
 		if (pp == 1)
@@ -1267,7 +1256,7 @@ static void usage(FILE *where)
 	const char *opts = "[-d]";
 
 	if (getuid() == 0)
-		opts = "[-dATX] [-S user]";
+		opts = "[-d] [-S <type> -U <user>]";
 
 	fprintf(where, "%s: %s [-- command [args ...]]\n", getprogname(), opts);
 
@@ -1275,10 +1264,8 @@ static void usage(FILE *where)
 	fprintf(where, "\t-h          This usage statement.\n");
 
 	if (getuid() == 0) {
-		fprintf(where, "\t-A          Create an Apple Aqua session.\n");
-		fprintf(where, "\t-T          Create a TTY session.\n");
-		fprintf(where, "\t-X          Create a X11 session.\n");
-		fprintf(where, "\t-S <user>   Which user to create the session as.\n");
+		fprintf(where, "\t-S <type>   What type of session to create (Aqua, tty or X11).\n");
+		fprintf(where, "\t-U <user>   Which user to create the session as.\n");
 	}
 
 	if (where == stdout)
@@ -2116,7 +2103,7 @@ static void conceive_firstborn(char *argv[], const char *session_user)
 	launch_data_t l = launch_data_new_string("com.apple.launchd.firstborn");
 	size_t i;
 
-	if (session_user) {
+	if (argv[0] == NULL && session_user) {
 		launch_data_t ed = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		struct passwd *pw = getpwnam(session_user);
 		const char *sh = (pw && pw->pw_shell) ? pw->pw_shell : _PATH_BSHELL;
