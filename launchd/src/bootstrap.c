@@ -121,11 +121,11 @@ static struct server *server_lookup_by_task_port(mach_port_t port);
 
 static struct service *service_new(struct bootstrap *bootstrap, const char *name, mach_port_t serviceport, bool isActive, struct server	*serverp);
 static void service_delete(struct service *servicep);
-static struct service *service_lookup_by_name(struct bootstrap *bootstrap, name_t name);
+static struct service *service_lookup_by_name(struct bootstrap *bootstrap, const char *name);
 static struct service *service_lookup_by_port(mach_port_t port);
 static struct service *service_lookup_by_server(struct server *serverp);
 
-static struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t bootstrapport, mach_port_name_t requestorport);
+static struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
 static void bootstrap_delete(struct bootstrap *bootstrap);
 static void bootstrap_deactivate(struct bootstrap *bootstrap);
 static bool bootstrap_active(struct bootstrap *bootstrap);
@@ -183,16 +183,13 @@ mach_port_t mach_init_init(void)
 
 	getaudit(&inherited_audit);
 
-	bootstrap = calloc(1, sizeof(struct bootstrap));
-	if (NULL == bootstrap)
-		abort();
-
-	TAILQ_INSERT_HEAD(&bootstraps, bootstrap, tqe);
-
-	bootstrap->ref_count = 2; /* make sure we never deallocate this one */
-	bootstrap->parent = bootstrap;
 	init_ports();
 
+	if ((bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) == NULL) {
+		syslog(LOG_ALERT, "root bootstrap allocation failed!");
+		exit(EXIT_FAILURE);
+	}
+	
 	result = task_get_bootstrap_port(mach_task_self(), &inherited_bootstrap_port);
 	if (result != KERN_SUCCESS) {
 		syslog(LOG_ALERT, "task_get_bootstrap_port(): %s", mach_error_string(result));
@@ -229,74 +226,36 @@ mach_port_t mach_init_init(void)
 	return bootstrap->bootstrap_port;
 }
 
-static void
+void
 init_ports(void)
 {
-	struct bootstrap *bootstrap = TAILQ_FIRST(&bootstraps);
 	kern_return_t result;
 
-	/*
-	 *	This task will become the bootstrap task.
-	 */
 	/* Create port set that server loop listens to */
-	result = mach_port_allocate(mach_task_self(),
-						MACH_PORT_RIGHT_PORT_SET,
-						&bootstrap_port_set);
+	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &bootstrap_port_set);
 	if (result != KERN_SUCCESS)
 		panic("port_set_allocate(): %s", mach_error_string(result));
 
 	/* Create demand port set that second thread listens to */
-	result = mach_port_allocate(mach_task_self(),
-						MACH_PORT_RIGHT_PORT_SET,
-						&demand_port_set);
+	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &demand_port_set);
 	if (result != KERN_SUCCESS)
 		panic("port_set_allocate(): %s", mach_error_string(result));
 
 	/* Create notify port and add to server port set */
-	result = mach_port_allocate(mach_task_self(),
-						MACH_PORT_RIGHT_RECEIVE,
-						&notify_port);
+	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &notify_port);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_allocate(): %s", mach_error_string(result));
 
-	result = mach_port_move_member(mach_task_self(),
-						notify_port,
-						bootstrap_port_set);
+	result = mach_port_move_member(mach_task_self(), notify_port, bootstrap_port_set);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_move_member(): %s", mach_error_string(result));
 	
 	/* Create backup port and add to server port set */
-	result = mach_port_allocate(mach_task_self(),
-						MACH_PORT_RIGHT_RECEIVE,
-						&backup_port);
+	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &backup_port);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_allocate(): %s", mach_error_string(result));
 
-	result = mach_port_move_member(mach_task_self(),
-						backup_port,
-						bootstrap_port_set);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_move_member(): %s", mach_error_string(result));
-	
-	/* Create "self" port and add to server port set */
-	result = mach_port_allocate(mach_task_self(),
-						MACH_PORT_RIGHT_RECEIVE,
-						&bootstrap->bootstrap_port);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_allocate(): %s", mach_error_string(result));
-	result = mach_port_insert_right(mach_task_self(),
-						bootstrap->bootstrap_port,
-						bootstrap->bootstrap_port,
-						MACH_MSG_TYPE_MAKE_SEND);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_insert_right(): %s", mach_error_string(result));
-
-	/* keep the root bootstrap port "active" */
-	bootstrap->requestor_port = bootstrap->bootstrap_port;
-
-	result = mach_port_move_member(mach_task_self(),
-						bootstrap->bootstrap_port,
-						bootstrap_port_set);
+	result = mach_port_move_member(mach_task_self(), backup_port, bootstrap_port_set);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_move_member(): %s", mach_error_string(result));
 }
@@ -446,9 +405,7 @@ server_setup(struct server *serverp)
 	mach_port_t old_port;
 	
 	/* Allocate privileged port for requests from service */
-	result = mach_port_allocate(mach_task_self(),
-						MACH_PORT_RIGHT_RECEIVE ,
-						&serverp->port);
+	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &serverp->port);
 	syslog(LOG_INFO, "Allocating port %x for server %s", serverp->port, serverp->cmd);
 	if (result != KERN_SUCCESS)	
 		panic("port_allocate(): %s", mach_error_string(result));
@@ -465,9 +422,7 @@ server_setup(struct server *serverp)
 		panic("mach_port_request_notification(): %s", mach_error_string(result));
 
 	/* Add privileged server port to bootstrap port set */
-	result = mach_port_move_member(mach_task_self(),
-						serverp->port,
-						bootstrap_port_set);
+	result = mach_port_move_member(mach_task_self(), serverp->port, bootstrap_port_set);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_move_member(): %s", mach_error_string(result));
 }
@@ -1076,28 +1031,59 @@ out:
 }
 
 struct bootstrap *
-bootstrap_new(
-	struct bootstrap	*parent,
-	mach_port_t	bootstrapport,
-	mach_port_t	requestorport)
+bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
 {
 	struct bootstrap *bootstrap;
+	kern_return_t result;
 
-	bootstrap = malloc(sizeof(struct bootstrap));
-	if (NULL == bootstrap)
-		goto out;
+	if ((bootstrap = calloc(1, sizeof(struct bootstrap))) == NULL)
+		goto out_bad;
+
+	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &bootstrap->bootstrap_port);
+	if (result != KERN_SUCCESS) {
+		syslog(LOG_ERR, "mach_port_allocate(): %s", mach_error_string(result));
+		goto out_bad;
+	}
+
+	result = mach_port_insert_right(mach_task_self(), bootstrap->bootstrap_port,
+			bootstrap->bootstrap_port, MACH_MSG_TYPE_MAKE_SEND);
+	if (result != KERN_SUCCESS) {
+		syslog(LOG_ERR, "failed to insert send right(): %s", mach_error_string(result));
+		goto out_bad;
+	}
+
+	result = mach_port_insert_member(mach_task_self(), bootstrap->bootstrap_port, bootstrap_port_set);
+	if (result != KERN_SUCCESS) {
+		syslog(LOG_ERR, "port_set_add(): %s", mach_error_string(result));
+		goto out_bad;
+	}
 
 	TAILQ_INSERT_TAIL(&bootstraps, bootstrap, tqe);
 	
-	bootstrap->bootstrap_port = bootstrapport;
-	bootstrap->requestor_port = requestorport;
+	if (requestorport != MACH_PORT_NULL) {
+		bootstrap->requestor_port = requestorport;
+	} else {
+		bootstrap->requestor_port = bootstrap->bootstrap_port;
+	}
 
 	bootstrap->ref_count = 1;
-	bootstrap->parent = parent;
-	parent->ref_count++;
 
-out:
+	if (parent) {
+		bootstrap->parent = parent;
+		parent->ref_count++;
+	} else {
+		bootstrap->ref_count = 2;
+	}
+
 	return bootstrap;
+
+out_bad:
+	if (bootstrap) {
+		if (bootstrap->bootstrap_port != MACH_PORT_NULL)
+			mach_port_deallocate(mach_task_self(), bootstrap->bootstrap_port);
+		free(bootstrap);
+	}
+	return NULL;
 }
 
 struct bootstrap *
@@ -1133,22 +1119,19 @@ bootstrap_lookup_by_req_port(mach_port_t port)
 }
 
 struct service *
-service_lookup_by_name(struct bootstrap *bootstrap, name_t name)
+service_lookup_by_name(struct bootstrap *bootstrap, const char *name)
 {
 	struct service *servicep = NULL;
 
-	if (NULL == bootstrap)
-		goto out;
-
-	do {
+	for (; bootstrap; bootstrap = bootstrap->parent) {
 		TAILQ_FOREACH(servicep, &services, tqe) {
-			if (0 != strcmp(name, servicep->name))
+			if (servicep->bootstrap != bootstrap)
 				continue;
-			if (bootstrap && servicep->bootstrap != bootstrap)
+			if (0 != strcmp(name, servicep->name))
 				continue;
 			goto out;
 		}
-	} while (bootstrap != TAILQ_FIRST(&bootstraps) && (bootstrap = bootstrap->parent));
+	}
 
 out:
 	return servicep;
@@ -1343,14 +1326,16 @@ bootstrap_deactivate(struct bootstrap *bootstrap)
 void
 bootstrap_delete(struct bootstrap *bootstrap)
 {
+	struct bootstrap *parent = bootstrap->parent;
+
 	if (--bootstrap->ref_count > 0)
 		return;
 
 	TAILQ_REMOVE(&bootstraps, bootstrap, tqe);
-
-	bootstrap_delete(bootstrap->parent);
-
 	free(bootstrap);
+
+	if (parent)
+		bootstrap_delete(parent);
 }
 
 #define bsstatus(servicep) \
@@ -1816,10 +1801,12 @@ x_bootstrap_parent(
 		       bootstrapport, sectoken.val[0]);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
-	if (bootstrap->parent == bootstrap && MACH_PORT_NULL != inherited_bootstrap_port) {
+	if (bootstrap->parent) {
+		*parentport = bootstrap->parent->bootstrap_port;
+	} else if (MACH_PORT_NULL != inherited_bootstrap_port) {
 		*parentport = inherited_bootstrap_port;
 	} else {
-		*parentport = bootstrap->parent->bootstrap_port;
+		*parentport = bootstrap->bootstrap_port;
 	}
 	syslog(LOG_DEBUG, "Returning bootstrap parent %x for bootstrap %x", *parentport, bootstrapport);
 	return BOOTSTRAP_SUCCESS;
@@ -1986,8 +1973,8 @@ x_bootstrap_info(
  * registered with an ancestor port may be registered with the subset port
  * are allowed.  Services already advertised may then be effectively removed
  * by registering MACH_PORT_NULL for the service.
- * When it is detected that the requestor_port is destroied the subset
- * port and all services advertized by it are destroied as well.
+ * When it is detected that the requestor_port is destroyed the subset
+ * port and all services advertized by it are destroyed as well.
  *
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
@@ -2000,7 +1987,6 @@ x_bootstrap_subset(
 	kern_return_t result;
 	struct bootstrap *bootstrap;
 	struct bootstrap *subset;
-	mach_port_t new_bootstrapport;
 	mach_port_t previous;
 
 	syslog(LOG_DEBUG, "Subset create attempt: bootstrap %x, requestor: %x",
@@ -2010,52 +1996,24 @@ x_bootstrap_subset(
 	if (!bootstrap || !bootstrap_active(bootstrap))
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
-	result = mach_port_allocate(mach_task_self(), 
-				MACH_PORT_RIGHT_RECEIVE,
-				&new_bootstrapport);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_allocate(): %s", mach_error_string(result));
+	subset = bootstrap_new(bootstrap, requestorport);
 
-	result = mach_port_insert_right(mach_task_self(),
-				new_bootstrapport,
-				new_bootstrapport,
-				MACH_MSG_TYPE_MAKE_SEND);
-	if (result != KERN_SUCCESS)
-		panic("failed to insert send right(): %s", mach_error_string(result));
-
-	result = mach_port_insert_member(mach_task_self(),
-				new_bootstrapport,
-				bootstrap_port_set);
-	if (result != KERN_SUCCESS)
-		panic("port_set_add(): %s", mach_error_string(result));
-
-	subset = bootstrap_new(bootstrap, new_bootstrapport, requestorport);
-
-	result = mach_port_request_notification(mach_task_self(),
-				requestorport,
-				MACH_NOTIFY_DEAD_NAME,
-				0,
-				notify_port,
-				MACH_MSG_TYPE_MAKE_SEND_ONCE,
-				&previous); 
+	result = mach_port_request_notification(mach_task_self(), requestorport, MACH_NOTIFY_DEAD_NAME, 0,
+			notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous); 
 	if (result != KERN_SUCCESS) {
 		syslog(LOG_ERR, "mach_port_request_notification(): %s", mach_error_string(result));
 		mach_port_deallocate(mach_task_self(), requestorport);
 		subset->requestor_port = MACH_PORT_NULL;
 		bootstrap_deactivate(subset);
 	} else if (previous != MACH_PORT_NULL) {
-		syslog(LOG_DEBUG, "deallocating old notification port (%x) for requestor %x",
-			  previous, requestorport);
-		result = mach_port_deallocate(
-				mach_task_self(),
-				previous);
+		syslog(LOG_DEBUG, "deallocating old notification port (%x) for requestor %x", previous, requestorport);
+		result = mach_port_deallocate(mach_task_self(), previous);
 		if (result != KERN_SUCCESS)
 			panic("mach_port_deallocate(): %s", mach_error_string(result));
 	}
 
-	syslog(LOG_INFO, "Created bootstrap subset %x parent %x requestor %x", 
-		new_bootstrapport, bootstrapport, requestorport);
-	*subsetportp = new_bootstrapport;
+	*subsetportp = subset->bootstrap_port;
+	syslog(LOG_INFO, "Created bootstrap subset %x parent %x requestor %x", *subsetportp, bootstrapport, requestorport);
 	return BOOTSTRAP_SUCCESS;
 }
 
