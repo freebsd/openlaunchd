@@ -977,7 +977,10 @@ server_demux(
  * server_loop -- pick requests off our service port and process them
  * Also handles notifications
  */
-#define	bootstrapMaxRequestSize	1024
+union bootstrapMaxRequestSize {
+	union __RequestUnion__x_bootstrap_subsystem req;
+	union __ReplyUnion__x_bootstrap_subsystem rep;
+};
 
 void *
 mach_server_loop(void *arg __attribute__((unused)))
@@ -985,7 +988,7 @@ mach_server_loop(void *arg __attribute__((unused)))
 	mach_msg_return_t mresult;
 
 	for (;;) {
-		mresult = mach_msg_server(server_demux, bootstrapMaxRequestSize, bootstrap_port_set,
+		mresult = mach_msg_server(server_demux, sizeof(union bootstrapMaxRequestSize), bootstrap_port_set,
                         MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|
                         MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
 		if (mresult != MACH_MSG_SUCCESS)
