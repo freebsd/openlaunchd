@@ -49,39 +49,11 @@
 #define kRunSuccess CFSTR("success")
 #define kRunFailure CFSTR("failure")
 
-typedef enum {
-	kPriorityLast = 1,
-	kPriorityLate = 2,
-	kPriorityNone = 3,
-	kPriorityEarly = 4,
-	kPriorityFirst = 5,
-	kPriorityNetwork = 10,
-	kPriorityLocal = 20,
-}               Priority;
-
-static Priority 
-priorityFromString(CFStringRef aPriority)
-{
-	if (aPriority) {
-		if (CFEqual(aPriority, CFSTR("Last")))
-			return kPriorityLast;
-		else if (CFEqual(aPriority, CFSTR("Late")))
-			return kPriorityLate;
-		else if (CFEqual(aPriority, CFSTR("None")))
-			return kPriorityNone;
-		else if (CFEqual(aPriority, CFSTR("Early")))
-			return kPriorityEarly;
-		else if (CFEqual(aPriority, CFSTR("First")))
-			return kPriorityFirst;
-	}
-	return kPriorityNone;
-}
-
-static const char *
-argumentForAction(Action anAction)
+static const char *argumentForAction(Action anAction)
 {
 	switch (anAction) {
-		case kActionStart:return "start";
+	case kActionStart:
+		return "start";
 	case kActionStop:
 		return "stop";
 	case kActionRestart:
@@ -98,8 +70,7 @@ argumentForAction(Action anAction)
       return FALSE;							\
   }
 
-static int 
-StartupItemValidate(CFDictionaryRef aConfig)
+static int StartupItemValidate(CFDictionaryRef aConfig)
 {
 	if (aConfig && CFGetTypeID(aConfig) == CFDictionaryGetTypeID()) {
 		checkTypeOfValue(kProvidesKey, CFArrayGetTypeID());
@@ -113,13 +84,12 @@ StartupItemValidate(CFDictionaryRef aConfig)
 /*
  *	remove item from waiting list
  */
-void 
-RemoveItemFromWaitingList(StartupContext aStartupContext, CFMutableDictionaryRef anItem)
+void RemoveItemFromWaitingList(StartupContext aStartupContext, CFMutableDictionaryRef anItem)
 {
 	/* Remove the item from the waiting list. */
 	if (aStartupContext && anItem && aStartupContext->aWaitingList) {
-		CFRange         aRange = {0, CFArrayGetCount(aStartupContext->aWaitingList)};
-		CFIndex         anIndex = CFArrayGetFirstIndexOfValue(aStartupContext->aWaitingList, aRange, anItem);
+		CFRange aRange = { 0, CFArrayGetCount(aStartupContext->aWaitingList) };
+		CFIndex anIndex = CFArrayGetFirstIndexOfValue(aStartupContext->aWaitingList, aRange, anItem);
 
 		if (anIndex >= 0) {
 			CFArrayRemoveValueAtIndex(aStartupContext->aWaitingList, anIndex);
@@ -131,8 +101,7 @@ RemoveItemFromWaitingList(StartupContext aStartupContext, CFMutableDictionaryRef
  *	add item to failed list, create list if it doesn't exist
  *	return and fail quietly if it can't create list
  */
-void 
-AddItemToFailedList(StartupContext aStartupContext, CFMutableDictionaryRef anItem)
+void AddItemToFailedList(StartupContext aStartupContext, CFMutableDictionaryRef anItem)
 {
 	if (aStartupContext && anItem) {
 		/* create the failed list if it doesn't exist */
@@ -145,24 +114,22 @@ AddItemToFailedList(StartupContext aStartupContext, CFMutableDictionaryRef anIte
 	}
 }
 
-
 /**
  * startupItemListGetMatches returns an array of items which contain the string aService in the key aKey
  **/
-static CFMutableArrayRef 
-startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef aService)
+static CFMutableArrayRef startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef aService)
 {
 	CFMutableArrayRef aResult = NULL;
 
 	if (anItemList && aKey && aService) {
-		CFIndex         anItemCount = CFArrayGetCount(anItemList);
-		CFIndex         anItemIndex = 0;
+		CFIndex anItemCount = CFArrayGetCount(anItemList);
+		CFIndex anItemIndex = 0;
 
 		aResult = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 
 		for (anItemIndex = 0; anItemIndex < anItemCount; ++anItemIndex) {
 			CFMutableDictionaryRef anItem = (CFMutableDictionaryRef) CFArrayGetValueAtIndex(anItemList, anItemIndex);
-			CFArrayRef      aList = CFDictionaryGetValue(anItem, aKey);
+			CFArrayRef aList = CFDictionaryGetValue(anItem, aKey);
 
 			if (aList) {
 				if (CFArrayContainsValue(aList, CFRangeMake(0, CFArrayGetCount(aList)), aService) &&
@@ -175,8 +142,7 @@ startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef a
 	return aResult;
 }
 
-static void 
-SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
+static void SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 {
 	static const CFStringRef stubitems[] = {
 		CFSTR("Accounting"),
@@ -198,11 +164,11 @@ SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		NULL
 	};
 	CFMutableArrayRef aList, aNewList;
-	CFIndex	i, aCount;
+	CFIndex i, aCount;
 	CFStringRef ci, type = kRequiresKey;
 	const CFStringRef *c;
 
-again:
+      again:
 	aList = (CFMutableArrayRef) CFDictionaryGetValue(aConfig, type);
 	if (aList) {
 		aCount = CFArrayGetCount(aList);
@@ -231,18 +197,17 @@ again:
 	goto again;
 }
 
-CFIndex 
-StartupItemListCountServices(CFArrayRef anItemList)
+CFIndex StartupItemListCountServices(CFArrayRef anItemList)
 {
-	CFIndex         aResult = 0;
+	CFIndex aResult = 0;
 
 	if (anItemList) {
-		CFIndex         anItemCount = CFArrayGetCount(anItemList);
-		CFIndex         anItemIndex = 0;
+		CFIndex anItemCount = CFArrayGetCount(anItemList);
+		CFIndex anItemIndex = 0;
 
 		for (anItemIndex = 0; anItemIndex < anItemCount; ++anItemIndex) {
 			CFDictionaryRef anItem = CFArrayGetValueAtIndex(anItemList, anItemIndex);
-			CFArrayRef      aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
+			CFArrayRef aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
 
 			if (aProvidesList)
 				aResult += CFArrayGetCount(aProvidesList);
@@ -251,8 +216,7 @@ StartupItemListCountServices(CFArrayRef anItemList)
 	return aResult;
 }
 
-static bool 
-StartupItemSecurityCheck(const char *aPath)
+static bool StartupItemSecurityCheck(const char *aPath)
 {
 	struct stat aStatBuf;
 	bool r = true;
@@ -281,23 +245,22 @@ StartupItemSecurityCheck(const char *aPath)
 	}
 	if (r == false) {
 		mkdir(kFixerDir, ACCESSPERMS);
-		close(open(kFixerPath, O_RDWR|O_CREAT, DEFFILEMODE));
+		close(open(kFixerPath, O_RDWR | O_CREAT, DEFFILEMODE));
 	}
 	return r;
 }
 
-CFMutableArrayRef 
-StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
+CFMutableArrayRef StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 {
 	CFMutableArrayRef anItemList = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 
-	char            aPath[PATH_MAX];
-	CFIndex         aDomainIndex = 0;
+	char aPath[PATH_MAX];
+	CFIndex aDomainIndex = 0;
 
 	NSSearchPathEnumerationState aState = NSStartSearchPathEnumeration(NSLibraryDirectory, aMask);
 
 	while ((aState = NSGetNextSearchPathEnumeration(aState, aPath))) {
-		DIR            *aDirectory;
+		DIR *aDirectory;
 
 		strcpy(aPath + strlen(aPath), kStartupItemsPath);
 		++aDomainIndex;
@@ -306,7 +269,7 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 			continue;
 
 		if ((aDirectory = opendir(aPath))) {
-			struct dirent  *aBundle;
+			struct dirent *aBundle;
 
 			while ((aBundle = readdir(aDirectory))) {
 				struct stat aStatBuf;
@@ -321,10 +284,10 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 
 				syslog(LOG_DEBUG, "Found item: %s", aBundleName);
 
-				sprintf(aBundlePath,           "%s/%s", aPath,       aBundleName);
+				sprintf(aBundlePath, "%s/%s", aPath, aBundleName);
 				sprintf(aBundleExecutablePath, "%s/%s", aBundlePath, aBundleName);
-				sprintf(aConfigFile,           "%s/%s", aBundlePath, kParametersFile);
-				sprintf(aDisabledFile,         "%s/%s", aBundlePath, kDisabledFile);
+				sprintf(aConfigFile, "%s/%s", aBundlePath, kParametersFile);
+				sprintf(aDisabledFile, "%s/%s", aBundlePath, kDisabledFile);
 
 				if (lstat(aDisabledFile, &aStatBuf) == 0) {
 					syslog(LOG_NOTICE, "Skipping disabled StartupItem: %s", aBundlePath);
@@ -339,20 +302,20 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 
 				/* Stow away the plist data for each bundle */
 				{
-					int             aConfigFileDescriptor;
+					int aConfigFileDescriptor;
 
 					if ((aConfigFileDescriptor = open(aConfigFile, O_RDONLY, (mode_t) 0)) != -1) {
-						struct stat     aConfigFileStatBuffer;
+						struct stat aConfigFileStatBuffer;
 
 						if (stat(aConfigFile, &aConfigFileStatBuffer) != -1) {
-							off_t           aConfigFileContentsSize = aConfigFileStatBuffer.st_size;
-							char           *aConfigFileContentsBuffer;
+							off_t aConfigFileContentsSize = aConfigFileStatBuffer.st_size;
+							char *aConfigFileContentsBuffer;
 
 							if ((aConfigFileContentsBuffer =
 							     mmap((caddr_t) 0, aConfigFileContentsSize,
 								  PROT_READ, MAP_FILE | MAP_PRIVATE,
 								  aConfigFileDescriptor, (off_t) 0)) != (caddr_t) - 1) {
-								CFDataRef       aConfigData = NULL;
+								CFDataRef aConfigData = NULL;
 								CFMutableDictionaryRef aConfig = NULL;
 
 								aConfigData =
@@ -363,17 +326,21 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 
 								if (aConfigData) {
 									aConfig = (CFMutableDictionaryRef)
-										CFPropertyListCreateFromXMLData(NULL, aConfigData,
-														kCFPropertyListMutableContainers, NULL);
+									    CFPropertyListCreateFromXMLData(NULL, aConfigData,
+													    kCFPropertyListMutableContainers,
+													    NULL);
 								}
 								if (StartupItemValidate(aConfig)) {
-									CFStringRef     aBundlePathString =
-									CFStringCreateWithCString(NULL, aBundlePath, kCFStringEncodingUTF8);
+									CFStringRef aBundlePathString =
+									    CFStringCreateWithCString(NULL, aBundlePath,
+												      kCFStringEncodingUTF8);
 
-									CFNumberRef     aDomainNumber =
-									CFNumberCreate(NULL, kCFNumberCFIndexType, &aDomainIndex);
+									CFNumberRef aDomainNumber =
+									    CFNumberCreate(NULL, kCFNumberCFIndexType,
+											   &aDomainIndex);
 
-									CFDictionarySetValue(aConfig, kBundlePathKey, aBundlePathString);
+									CFDictionarySetValue(aConfig, kBundlePathKey,
+											     aBundlePathString);
 									CFDictionarySetValue(aConfig, kDomainKey, aDomainNumber);
 									CFRelease(aDomainNumber);
 									SpecialCasesStartupItemHandler(aConfig);
@@ -381,7 +348,8 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 
 									CFRelease(aBundlePathString);
 								} else {
-									syslog(LOG_ERR, "Malformatted parameters file: %s", aConfigFile);
+									syslog(LOG_ERR, "Malformatted parameters file: %s",
+									       aConfigFile);
 								}
 
 								if (aConfig)
@@ -389,21 +357,29 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 								if (aConfigData)
 									CFRelease(aConfigData);
 
-								if (munmap(aConfigFileContentsBuffer, aConfigFileContentsSize) == -1) {
-									syslog(LOG_WARNING, "Unable to unmap parameters file %s for item %s: %m", aConfigFile, aBundleName);
+								if (munmap(aConfigFileContentsBuffer, aConfigFileContentsSize) ==
+								    -1) {
+									syslog(LOG_WARNING,
+									       "Unable to unmap parameters file %s for item %s: %m",
+									       aConfigFile, aBundleName);
 								}
 							} else {
-								syslog(LOG_ERR, "Unable to map parameters file %s for item %s: %m", aConfigFile, aBundleName);
+								syslog(LOG_ERR,
+								       "Unable to map parameters file %s for item %s: %m",
+								       aConfigFile, aBundleName);
 							}
 						} else {
-							syslog(LOG_ERR, "Unable to stat parameters file %s for item %s: %m", aConfigFile, aBundleName);
+							syslog(LOG_ERR, "Unable to stat parameters file %s for item %s: %m",
+							       aConfigFile, aBundleName);
 						}
 
 						if (close(aConfigFileDescriptor) == -1) {
-							syslog(LOG_ERR, "Unable to close parameters file %s for item %s: %m", aConfigFile, aBundleName);
+							syslog(LOG_ERR, "Unable to close parameters file %s for item %s: %m",
+							       aConfigFile, aBundleName);
 						}
 					} else {
-						syslog(LOG_ERR, "Unable to open parameters file %s for item %s: %m", aConfigFile, aBundleName);
+						syslog(LOG_ERR, "Unable to open parameters file %s for item %s: %m", aConfigFile,
+						       aBundleName);
 					}
 				}
 			}
@@ -421,8 +397,7 @@ StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 	return anItemList;
 }
 
-CFMutableDictionaryRef 
-StartupItemListGetProvider(CFArrayRef anItemList, CFStringRef aService)
+CFMutableDictionaryRef StartupItemListGetProvider(CFArrayRef anItemList, CFStringRef aService)
 {
 	CFMutableDictionaryRef aResult = NULL;
 	CFMutableArrayRef aList = startupItemListGetMatches(anItemList, kProvidesKey, aService);
@@ -433,16 +408,15 @@ StartupItemListGetProvider(CFArrayRef anItemList, CFStringRef aService)
 	return aResult;
 }
 
-CFArrayRef 
-StartupItemListGetRunning(CFArrayRef anItemList)
+CFArrayRef StartupItemListGetRunning(CFArrayRef anItemList)
 {
 	CFMutableArrayRef aResult = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 	if (aResult) {
-		CFIndex         anIndex, aCount = CFArrayGetCount(anItemList);
+		CFIndex anIndex, aCount = CFArrayGetCount(anItemList);
 		for (anIndex = 0; anIndex < aCount; ++anIndex) {
 			CFDictionaryRef anItem = CFArrayGetValueAtIndex(anItemList, anIndex);
 			if (anItem) {
-				CFNumberRef     aPID = CFDictionaryGetValue(anItem, kPIDKey);
+				CFNumberRef aPID = CFDictionaryGetValue(anItem, kPIDKey);
 				if (aPID)
 					CFArrayAppendValue(aResult, anItem);
 			}
@@ -459,13 +433,10 @@ StartupItemListGetRunning(CFArrayRef anItemList)
  * If anAction is kActionStop, dependent items are those which provide
  *  any service required by aParentItem.
  */
-static void 
-appendDependents(CFMutableArrayRef aDependents,
-		 CFArrayRef anItemList, CFDictionaryRef aParentItem,
-		 Action anAction)
+static void appendDependents(CFMutableArrayRef aDependents, CFArrayRef anItemList, CFDictionaryRef aParentItem, Action anAction)
 {
-	CFStringRef     anInnerKey, anOuterKey;
-	CFArrayRef      anOuterList;
+	CFStringRef anInnerKey, anOuterKey;
+	CFArrayRef anOuterList;
 
 	/* Append the parent item to the list (avoiding duplicates) */
 	if (!CFArrayContainsValue(aDependents, CFRangeMake(0, CFArrayGetCount(aDependents)), aParentItem))
@@ -491,29 +462,29 @@ appendDependents(CFMutableArrayRef aDependents,
 	anOuterList = CFDictionaryGetValue(aParentItem, anOuterKey);
 
 	if (anOuterList) {
-		CFIndex         anOuterCount = CFArrayGetCount(anOuterList);
-		CFIndex         anOuterIndex;
+		CFIndex anOuterCount = CFArrayGetCount(anOuterList);
+		CFIndex anOuterIndex;
 
 		for (anOuterIndex = 0; anOuterIndex < anOuterCount; anOuterIndex++) {
-			CFStringRef     anOuterElement = CFArrayGetValueAtIndex(anOuterList, anOuterIndex);
-			CFIndex         anItemCount = CFArrayGetCount(anItemList);
-			CFIndex         anItemIndex;
+			CFStringRef anOuterElement = CFArrayGetValueAtIndex(anOuterList, anOuterIndex);
+			CFIndex anItemCount = CFArrayGetCount(anItemList);
+			CFIndex anItemIndex;
 
 			for (anItemIndex = 0; anItemIndex < anItemCount; anItemIndex++) {
 				CFDictionaryRef anItem = CFArrayGetValueAtIndex(anItemList, anItemIndex);
-				CFArrayRef      anInnerList = CFDictionaryGetValue(anItem, anInnerKey);
+				CFArrayRef anInnerList = CFDictionaryGetValue(anItem, anInnerKey);
 
 				if (anInnerList &&
-				    CFArrayContainsValue(anInnerList, CFRangeMake(0, CFArrayGetCount(anInnerList)), anOuterElement) &&
-				    !CFArrayContainsValue(aDependents, CFRangeMake(0, CFArrayGetCount(aDependents)), anItem))
+				    CFArrayContainsValue(anInnerList, CFRangeMake(0, CFArrayGetCount(anInnerList)),
+							 anOuterElement)
+				    && !CFArrayContainsValue(aDependents, CFRangeMake(0, CFArrayGetCount(aDependents)), anItem))
 					appendDependents(aDependents, anItemList, anItem, anAction);
 			}
 		}
 	}
 }
 
-CFMutableArrayRef 
-StartupItemListCreateDependentsList(CFMutableArrayRef anItemList, CFStringRef aService, Action anAction)
+CFMutableArrayRef StartupItemListCreateDependentsList(CFMutableArrayRef anItemList, CFStringRef aService, Action anAction)
 {
 	CFMutableArrayRef aDependents = NULL;
 	CFMutableDictionaryRef anItem = NULL;
@@ -546,16 +517,15 @@ StartupItemListCreateDependentsList(CFMutableArrayRef anItemList, CFStringRef aS
  * countUnmetRequirements counts the number of items in anItemList
  * which are pending in aStatusDict.
  **/
-static int 
-countUnmetRequirements(CFDictionaryRef aStatusDict, CFArrayRef anItemList)
+static int countUnmetRequirements(CFDictionaryRef aStatusDict, CFArrayRef anItemList)
 {
-	int             aCount = 0;
-	CFIndex         anItemCount = CFArrayGetCount(anItemList);
-	CFIndex         anItemIndex;
+	int aCount = 0;
+	CFIndex anItemCount = CFArrayGetCount(anItemList);
+	CFIndex anItemIndex;
 
 	for (anItemIndex = 0; anItemIndex < anItemCount; anItemIndex++) {
-		CFStringRef     anItem = CFArrayGetValueAtIndex(anItemList, anItemIndex);
-		CFStringRef     aStatus = CFDictionaryGetValue(aStatusDict, anItem);
+		CFStringRef anItem = CFArrayGetValueAtIndex(anItemList, anItemIndex);
+		CFStringRef aStatus = CFDictionaryGetValue(aStatusDict, anItem);
 
 		if (!aStatus || !CFEqual(aStatus, kRunSuccess)) {
 			CF_syslog(LOG_DEBUG, CFSTR("\tFailed requirement/uses: %@"), anItem);
@@ -570,16 +540,15 @@ countUnmetRequirements(CFDictionaryRef aStatusDict, CFArrayRef anItemList)
  * countDependantsPresent counts the number of items in aWaitingList
  * which depend on items in anItemList.
  **/
-static int 
-countDependantsPresent(CFArrayRef aWaitingList, CFArrayRef anItemList, CFStringRef aKey)
+static int countDependantsPresent(CFArrayRef aWaitingList, CFArrayRef anItemList, CFStringRef aKey)
 {
-	int             aCount = 0;
-	CFIndex         anItemCount = CFArrayGetCount(anItemList);
-	CFIndex         anItemIndex;
+	int aCount = 0;
+	CFIndex anItemCount = CFArrayGetCount(anItemList);
+	CFIndex anItemIndex;
 
 	for (anItemIndex = 0; anItemIndex < anItemCount; anItemIndex++) {
-		CFStringRef     anItem = CFArrayGetValueAtIndex(anItemList, anItemIndex);
-		CFArrayRef      aMatchesList = startupItemListGetMatches(aWaitingList, aKey, anItem);
+		CFStringRef anItem = CFArrayGetValueAtIndex(anItemList, anItemIndex);
+		CFArrayRef aMatchesList = startupItemListGetMatches(aWaitingList, aKey, anItem);
 
 		if (aMatchesList) {
 			aCount = aCount + CFArrayGetCount(aMatchesList);
@@ -594,29 +563,28 @@ countDependantsPresent(CFArrayRef aWaitingList, CFArrayRef anItemList, CFStringR
  * pendingAntecedents returns TRUE if any antecedents of this item
  * are currently running, have not yet run, or none exist.
  **/
-static Boolean 
+static Boolean
 pendingAntecedents(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFArrayRef anAntecedentList, Action anAction)
 {
-	int             aPendingFlag = FALSE;
+	int aPendingFlag = FALSE;
 
-	CFIndex         anAntecedentCount = CFArrayGetCount(anAntecedentList);
-	CFIndex         anAntecedentIndex;
+	CFIndex anAntecedentCount = CFArrayGetCount(anAntecedentList);
+	CFIndex anAntecedentIndex;
 
 	for (anAntecedentIndex = 0; anAntecedentIndex < anAntecedentCount; ++anAntecedentIndex) {
-		CFStringRef     anAntecedent = CFArrayGetValueAtIndex(anAntecedentList, anAntecedentIndex);
-		CFStringRef     aKey = (anAction == kActionStart) ? kProvidesKey : kUsesKey;
-		CFArrayRef      aMatchesList = startupItemListGetMatches(aWaitingList, aKey, anAntecedent);
+		CFStringRef anAntecedent = CFArrayGetValueAtIndex(anAntecedentList, anAntecedentIndex);
+		CFStringRef aKey = (anAction == kActionStart) ? kProvidesKey : kUsesKey;
+		CFArrayRef aMatchesList = startupItemListGetMatches(aWaitingList, aKey, anAntecedent);
 
 		if (aMatchesList) {
-			CFIndex         aMatchesListCount = CFArrayGetCount(aMatchesList);
-			CFIndex         aMatchesListIndex;
+			CFIndex aMatchesListCount = CFArrayGetCount(aMatchesList);
+			CFIndex aMatchesListIndex;
 
 			for (aMatchesListIndex = 0; aMatchesListIndex < aMatchesListCount; ++aMatchesListIndex) {
 				CFDictionaryRef anItem = CFArrayGetValueAtIndex(aMatchesList, aMatchesListIndex);
 
 				if (!anItem ||
-				    !CFDictionaryGetValue(anItem, kPIDKey) ||
-				    !CFDictionaryGetValue(aStatusDict, anAntecedent)) {
+				    !CFDictionaryGetValue(anItem, kPIDKey) || !CFDictionaryGetValue(aStatusDict, anAntecedent)) {
 					aPendingFlag = TRUE;
 					break;
 				}
@@ -635,20 +603,19 @@ pendingAntecedents(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFArray
  * checkForDuplicates returns TRUE if an item provides the same service as a
  * pending item, or an item that already succeeded.
  **/
-static Boolean 
-checkForDuplicates(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFDictionaryRef anItem)
+static Boolean checkForDuplicates(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFDictionaryRef anItem)
 {
-	int             aDuplicateFlag = FALSE;
+	int aDuplicateFlag = FALSE;
 
-	CFArrayRef      aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
-	CFIndex         aProvidesCount = aProvidesList ? CFArrayGetCount(aProvidesList) : 0;
-	CFIndex         aProvidesIndex;
+	CFArrayRef aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
+	CFIndex aProvidesCount = aProvidesList ? CFArrayGetCount(aProvidesList) : 0;
+	CFIndex aProvidesIndex;
 
 	for (aProvidesIndex = 0; aProvidesIndex < aProvidesCount; ++aProvidesIndex) {
-		CFStringRef     aProvides = CFArrayGetValueAtIndex(aProvidesList, aProvidesIndex);
+		CFStringRef aProvides = CFArrayGetValueAtIndex(aProvidesList, aProvidesIndex);
 
 		/* If the service succeeded, return true. */
-		CFStringRef     aStatus = CFDictionaryGetValue(aStatusDict, aProvides);
+		CFStringRef aStatus = CFDictionaryGetValue(aStatusDict, aProvides);
 		if (aStatus && CFEqual(aStatus, kRunSuccess)) {
 			aDuplicateFlag = TRUE;
 			break;
@@ -658,10 +625,10 @@ checkForDuplicates(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFDicti
 		 * might provide that service.
 		 */
 		else {
-			CFArrayRef      aMatchesList = startupItemListGetMatches(aWaitingList, kProvidesKey, aProvides);
+			CFArrayRef aMatchesList = startupItemListGetMatches(aWaitingList, kProvidesKey, aProvides);
 			if (aMatchesList) {
-				CFIndex         aMatchesListCount = CFArrayGetCount(aMatchesList);
-				CFIndex         aMatchesListIndex;
+				CFIndex aMatchesListCount = CFArrayGetCount(aMatchesList);
+				CFIndex aMatchesListIndex;
 
 				for (aMatchesListIndex = 0; aMatchesListIndex < aMatchesListCount; ++aMatchesListIndex) {
 					CFDictionaryRef anDupItem = CFArrayGetValueAtIndex(aMatchesList, aMatchesListIndex);
@@ -673,8 +640,8 @@ checkForDuplicates(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFDicti
 						aDuplicateFlag = TRUE;
 						break;
 					} else {
-						CFNumberRef     anItemDomain = CFDictionaryGetValue(anItem, kDomainKey);
-						CFNumberRef     anotherItemDomain = CFDictionaryGetValue(anDupItem, kDomainKey);
+						CFNumberRef anItemDomain = CFDictionaryGetValue(anItem, kDomainKey);
+						CFNumberRef anotherItemDomain = CFDictionaryGetValue(anDupItem, kDomainKey);
 						/*
 						 * If anItem was found later
 						 * than aDupItem, stall
@@ -683,7 +650,8 @@ checkForDuplicates(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFDicti
 						 */
 						if (anItemDomain &&
 						    anotherItemDomain &&
-						    CFNumberCompare(anItemDomain, anotherItemDomain, NULL) == kCFCompareGreaterThan) {
+						    CFNumberCompare(anItemDomain, anotherItemDomain,
+								    NULL) == kCFCompareGreaterThan) {
 							/*
 							 * Item not running,
 							 * but takes
@@ -704,11 +672,12 @@ checkForDuplicates(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFDicti
 	return (aDuplicateFlag);
 }
 
-CFMutableDictionaryRef 
-StartupItemListGetNext(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, Action anAction)
+CFMutableDictionaryRef StartupItemListGetNext(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, Action anAction)
 {
 	CFMutableDictionaryRef aNextItem = NULL;
-	CFIndex         aWaitingCount = CFArrayGetCount(aWaitingList);
+	CFIndex aWaitingCount = CFArrayGetCount(aWaitingList);
+	int aMinFailedAntecedents = INT_MAX;
+	CFIndex aWaitingIndex;
 
 	switch (anAction) {
 	case kActionStart:
@@ -721,149 +690,123 @@ StartupItemListGetNext(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, Act
 		return NULL;
 	}
 
-	if (aWaitingList && aStatusDict && aWaitingCount > 0) {
-		Priority        aMaxPriority = kPriorityLast;
-		int             aMinFailedAntecedents = INT_MAX;
-		CFIndex         aWaitingIndex;
+	if (!aWaitingList || !aStatusDict || aWaitingCount <= 0)
+		return NULL;
 
-		/**
-	         * Iterate through the items in aWaitingList and look for an optimally ready item.
-	         **/
-		for (aWaitingIndex = 0; aWaitingIndex < aWaitingCount; aWaitingIndex++) {
-			CFMutableDictionaryRef anItem = (CFMutableDictionaryRef) CFArrayGetValueAtIndex(aWaitingList, aWaitingIndex);
-			CFArrayRef      anAntecedentList;
+	/**
+         * Iterate through the items in aWaitingList and look for an optimally ready item.
+         **/
+	for (aWaitingIndex = 0; aWaitingIndex < aWaitingCount; aWaitingIndex++) {
+		CFMutableDictionaryRef anItem = (CFMutableDictionaryRef) CFArrayGetValueAtIndex(aWaitingList, aWaitingIndex);
+		CFArrayRef anAntecedentList;
+		int aFailedAntecedentsCount = 0;	/* Number of unmet soft
+							 * depenancies */
+		Boolean aBestPick = FALSE;	/* Is this the best pick
+						 * so far?    */
 
-			/* Filter out running items. */
-			if (CFDictionaryGetValue(anItem, kPIDKey))
-				goto next_item;
+		/* Filter out running items. */
+		if (CFDictionaryGetValue(anItem, kPIDKey))
+			continue;
 
-			/*
-			 * Filter out dupilicate services; if someone has
-			 * provided what we provide, we don't run.
-			 */
-			if (checkForDuplicates(aWaitingList, aStatusDict, anItem)) {
-				CF_syslog(LOG_DEBUG, CFSTR("Skipping %@ because of duplicate service."), CFDictionaryGetValue(anItem, kDescriptionKey));
-				goto next_item;
-			}
-			/*
-			 * Dependencies don't matter when restarting an item;
-			 * stop here.
-			 */
-			if (anAction == kActionRestart) {
-				aNextItem = anItem;
-				break;
-			}
-			anAntecedentList = CFDictionaryGetValue(anItem, ((anAction == kActionStart) ? kRequiresKey : kProvidesKey));
+		/*
+		 * Filter out dupilicate services; if someone has
+		 * provided what we provide, we don't run.
+		 */
+		if (checkForDuplicates(aWaitingList, aStatusDict, anItem)) {
+			CF_syslog(LOG_DEBUG, CFSTR("Skipping %@ because of duplicate service."),
+				  CFDictionaryGetValue(anItem, kDescriptionKey));
+			continue;
+		}
+		/*
+		 * Dependencies don't matter when restarting an item;
+		 * stop here.
+		 */
+		if (anAction == kActionRestart) {
+			aNextItem = anItem;
+			break;
+		}
+		anAntecedentList = CFDictionaryGetValue(anItem, ((anAction == kActionStart) ? kRequiresKey : kProvidesKey));
 
-			CF_syslog(LOG_DEBUG, CFSTR("Checking %@"), CFDictionaryGetValue(anItem, kDescriptionKey));
+		CF_syslog(LOG_DEBUG, CFSTR("Checking %@"), CFDictionaryGetValue(anItem, kDescriptionKey));
 
-			if (anAntecedentList)
-				CF_syslog(LOG_DEBUG, CFSTR("Antecedents: %@"), anAntecedentList);
-			else
-				syslog(LOG_DEBUG, "No antecedents");
+		if (anAntecedentList)
+			CF_syslog(LOG_DEBUG, CFSTR("Antecedents: %@"), anAntecedentList);
+		else
+			syslog(LOG_DEBUG, "No antecedents");
 
 			/**
 	                 * Filter out the items which have unsatisfied antecedents.
 	                 **/
-			if (anAntecedentList &&
-			    ((anAction == kActionStart) ?
-			     countUnmetRequirements(aStatusDict, anAntecedentList) :
-			     countDependantsPresent(aWaitingList, anAntecedentList, kRequiresKey)))
-				goto next_item;
+		if (anAntecedentList &&
+		    ((anAction == kActionStart) ?
+		     countUnmetRequirements(aStatusDict, anAntecedentList) :
+		     countDependantsPresent(aWaitingList, anAntecedentList, kRequiresKey)))
+			continue;
 
 			/**
 	                 * anItem has all hard dependancies met; check for soft dependancies.
 	                 * We'll favor the item with the fewest unmet soft dependancies here.
 	                 **/
-			{
-				int             aFailedAntecedentsCount = 0;	/* Number of unmet soft
-										 * depenancies */
-				Boolean         aBestPick = FALSE;	/* Is this the best pick
-									 * so far?    */
+		anAntecedentList = CFDictionaryGetValue(anItem, ((anAction == kActionStart) ? kUsesKey : kProvidesKey));
 
-				anAntecedentList = CFDictionaryGetValue(anItem, ((anAction == kActionStart) ?
-						  kUsesKey : kProvidesKey));
+		if (anAntecedentList)
+			CF_syslog(LOG_DEBUG, CFSTR("Soft dependancies: %@"), anAntecedentList);
+		else
+			syslog(LOG_DEBUG, "No soft dependancies");
 
-				if (anAntecedentList)
-					CF_syslog(LOG_DEBUG, CFSTR("Soft dependancies: %@"), anAntecedentList);
-				else
-					syslog(LOG_DEBUG, "No soft dependancies");
+		if (anAntecedentList) {
+			aFailedAntecedentsCount =
+			    ((anAction == kActionStart) ?
+			     countUnmetRequirements(aStatusDict, anAntecedentList) :
+			     countDependantsPresent(aWaitingList, anAntecedentList, kUsesKey));
+		} else {
+			if (aMinFailedAntecedents > 0)
+				aBestPick = TRUE;
+		}
 
-				if (anAntecedentList) {
-					aFailedAntecedentsCount =
-						((anAction == kActionStart) ?
-						 countUnmetRequirements(aStatusDict, anAntecedentList) :
-						 countDependantsPresent(aWaitingList, anAntecedentList, kUsesKey));
-				} else {
-					if (aMinFailedAntecedents > 0)
-						aBestPick = TRUE;
-				}
+		/*
+		 * anItem has unmet dependencies that will
+		 * likely be met in the future, so delay it
+		 */
+		if (aFailedAntecedentsCount > 0 && pendingAntecedents(aWaitingList, aStatusDict, anAntecedentList, anAction)) {
+			continue;
+		}
+		if (aFailedAntecedentsCount > 0)
+			syslog(LOG_DEBUG, "Total: %d", aFailedAntecedentsCount);
 
-				/*
-				 * anItem has unmet dependencies that will
-				 * likely be met in the future, so delay it
-				 */
-				if (aFailedAntecedentsCount > 0 &&
-				    pendingAntecedents(aWaitingList, aStatusDict, anAntecedentList, anAction)) {
-					goto next_item;
-				}
-				if (aFailedAntecedentsCount > 0)
-					syslog(LOG_DEBUG, "Total: %d", aFailedAntecedentsCount);
+		if (aFailedAntecedentsCount > aMinFailedAntecedents)
+			continue;	/* Another item already won out */
 
-				if (aFailedAntecedentsCount > aMinFailedAntecedents)
-					goto next_item;	/* Another item already
-							 * won out */
-				if (aFailedAntecedentsCount < aMinFailedAntecedents)
-					aBestPick = TRUE;
+		if (aFailedAntecedentsCount < aMinFailedAntecedents)
+			aBestPick = TRUE;
 
-				{
-					Priority        aPriority = priorityFromString(CFDictionaryGetValue(anItem, kPriorityKey));
-
-					if (aBestPick) {
-						/*
-						 * anItem has less unmet
-						 * dependancies than any
-						 * other item so far, so it
-						 * wins.
-						 */
-						syslog(LOG_DEBUG, "Best pick so far, based on failed dependancies (%d->%d)",
-						       aMinFailedAntecedents, aFailedAntecedentsCount);
-					} else if ((anAction == kActionStart) ?
-						(aPriority >= aMaxPriority) :
-					      (aPriority <= aMaxPriority)) {
-						/*
-						 * anItem has a best
-						 * priority, so it wins.
-						 */
-						syslog(LOG_DEBUG, "Best pick so far, based on Priority (%d->%d)",
-						   aMaxPriority, aPriority);
-					} else
-						goto next_item;	/* No soup for you! */
-
-					/*
-					 * We have a winner!  Update success
-					 * parameters to match anItem.
-					 */
-					aMinFailedAntecedents = aFailedAntecedentsCount;
-					aMaxPriority = aPriority;
-					aNextItem = anItem;
-				}
-
-			}	/* End of uses section. */
-
-	next_item:
+		if (!aBestPick)
 			continue;
 
-		}		/* End of waiting list loop. */
+		/*
+		 * anItem has less unmet
+		 * dependancies than any
+		 * other item so far, so it
+		 * wins.
+		 */
+		syslog(LOG_DEBUG, "Best pick so far, based on failed dependancies (%d->%d)",
+		       aMinFailedAntecedents, aFailedAntecedentsCount);
 
-	}			/* if (aWaitingList && aWaitingCount > 0) */
+		/*
+		 * We have a winner!  Update success
+		 * parameters to match anItem.
+		 */
+		aMinFailedAntecedents = aFailedAntecedentsCount;
+		aNextItem = anItem;
+
+	}			/* End of waiting list loop. */
+
 	return aNextItem;
 }
 
-CFStringRef 
-StartupItemGetDescription(CFMutableDictionaryRef anItem)
+CFStringRef StartupItemGetDescription(CFMutableDictionaryRef anItem)
 {
-	CFStringRef     aString = NULL;
+	CFStringRef aString = NULL;
 
 	if (anItem)
 		aString = CFDictionaryGetValue(anItem, kDescriptionKey);
@@ -872,27 +815,25 @@ StartupItemGetDescription(CFMutableDictionaryRef anItem)
 	return aString;
 }
 
-pid_t 
-StartupItemGetPID(CFDictionaryRef anItem)
+pid_t StartupItemGetPID(CFDictionaryRef anItem)
 {
-	CFIndex         anItemPID = 0;
-	CFNumberRef     aPIDNumber = anItem ? CFDictionaryGetValue(anItem, kPIDKey) : NULL;
+	CFIndex anItemPID = 0;
+	CFNumberRef aPIDNumber = anItem ? CFDictionaryGetValue(anItem, kPIDKey) : NULL;
 	if (aPIDNumber && CFNumberGetValue(aPIDNumber, kCFNumberCFIndexType, &anItemPID))
 		return (pid_t) anItemPID;
 	else
 		return 0;
 }
 
-CFMutableDictionaryRef 
-StartupItemWithPID(CFArrayRef anItemList, pid_t aPID)
+CFMutableDictionaryRef StartupItemWithPID(CFArrayRef anItemList, pid_t aPID)
 {
-	CFIndex         anItemCount = CFArrayGetCount(anItemList);
-	CFIndex         anItemIndex;
+	CFIndex anItemCount = CFArrayGetCount(anItemList);
+	CFIndex anItemIndex;
 
 	for (anItemIndex = 0; anItemIndex < anItemCount; anItemIndex++) {
 		CFMutableDictionaryRef anItem = (CFMutableDictionaryRef) CFArrayGetValueAtIndex(anItemList, anItemIndex);
-		CFNumberRef     aPIDNumber = CFDictionaryGetValue(anItem, kPIDKey);
-		CFIndex         anItemPID;
+		CFNumberRef aPIDNumber = CFDictionaryGetValue(anItem, kPIDKey);
+		CFIndex anItemPID;
 
 		if (aPIDNumber) {
 			CFNumberGetValue(aPIDNumber, kCFNumberCFIndexType, &anItemPID);
@@ -905,8 +846,7 @@ StartupItemWithPID(CFArrayRef anItemList, pid_t aPID)
 	return NULL;
 }
 
-int 
-StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Action anAction)
+int StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Action anAction)
 {
 	int             anError = -1;
 	CFArrayRef      aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
@@ -952,11 +892,11 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 		StartupItemExit(aStatusDict, anItem, TRUE);
 		anError = 0;
 	} else {
-		CFStringRef     aBundlePathString = CFDictionaryGetValue(anItem, kBundlePathKey);
-		size_t          aBundlePathCLength =
-		CFStringGetMaximumSizeForEncoding(CFStringGetLength(aBundlePathString), kCFStringEncodingUTF8) + 1;
-		char           *aBundlePath = (char *) malloc(aBundlePathCLength);
-		char            anExecutable[PATH_MAX] = "";
+		CFStringRef aBundlePathString = CFDictionaryGetValue(anItem, kBundlePathKey);
+		size_t aBundlePathCLength =
+		    CFStringGetMaximumSizeForEncoding(CFStringGetLength(aBundlePathString), kCFStringEncodingUTF8) + 1;
+		char *aBundlePath = (char *)malloc(aBundlePathCLength);
+		char anExecutable[PATH_MAX] = "";
 
 		if (!aBundlePath) {
 			syslog(LOG_EMERG, "malloc() failed; out of memory while running item %s", aBundlePathString);
@@ -985,8 +925,8 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 			 * Add PID key so that this item is marked as having
 			 * been run.
 			 */
-			CFIndex         aPID = -1;
-			CFNumberRef     aProcessNumber = CFNumberCreate(NULL, kCFNumberCFIndexType, &aPID);
+			CFIndex aPID = -1;
+			CFNumberRef aProcessNumber = CFNumberCreate(NULL, kCFNumberCFIndexType, &aPID);
 
 			CFDictionarySetValue(anItem, kPIDKey, aProcessNumber);
 			CFRelease(aProcessNumber);
@@ -995,22 +935,21 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 			StartupItemExit(aStatusDict, anItem, FALSE);
 			syslog(LOG_ERR, "No executable file %s", anExecutable);
 		} else {
-			pid_t           aProccessID = fork();
+			pid_t aProccessID = fork();
 
 			switch (aProccessID) {
 			case -1:	/* SystemStarter (fork failed) */
 				CFDictionarySetValue(anItem, kErrorKey, kErrorFork);
 				StartupItemExit(aStatusDict, anItem, FALSE);
 
-				CF_syslog(LOG_ERR, CFSTR("Failed to fork for item %@: %s"),
-					aBundlePathString, strerror(errno));
+				CF_syslog(LOG_ERR, CFSTR("Failed to fork for item %@: %s"), aBundlePathString, strerror(errno));
 
 				break;
 
 			default:	/* SystemStarter (fork succeeded) */
 				{
-					CFIndex         aPID = (CFIndex) aProccessID;
-					CFNumberRef     aProcessNumber = CFNumberCreate(NULL, kCFNumberCFIndexType, &aPID);
+					CFIndex aPID = (CFIndex) aProccessID;
+					CFNumberRef aProcessNumber = CFNumberCreate(NULL, kCFNumberCFIndexType, &aPID);
 
 					CFDictionarySetValue(anItem, kPIDKey, aProcessNumber);
 					CFRelease(aProcessNumber);
@@ -1021,7 +960,7 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 				}
 				break;
 
-			case 0:/* Child */
+			case 0:	/* Child */
 				{
 					setpriority(PRIO_PROCESS, 0, 0);
 					if (setsid() == -1)
@@ -1042,31 +981,32 @@ StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem
 	return (anError);
 }
 
-void 
-StartupItemSetStatus(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, CFStringRef aServiceName, Boolean aSuccess, Boolean aReplaceFlag)
+void
+StartupItemSetStatus(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, CFStringRef aServiceName,
+		     Boolean aSuccess, Boolean aReplaceFlag)
 {
-	void            (*anAction) (CFMutableDictionaryRef, const void *, const void *) = aReplaceFlag ?
-	CFDictionarySetValue : CFDictionaryAddValue;
+	void (*anAction) (CFMutableDictionaryRef, const void *, const void *) = aReplaceFlag ?
+	    CFDictionarySetValue : CFDictionaryAddValue;
 
 	if (aStatusDict && anItem) {
-		CFArrayRef      aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
+		CFArrayRef aProvidesList = CFDictionaryGetValue(anItem, kProvidesKey);
 		if (aProvidesList) {
-			CFIndex         aProvidesCount = CFArrayGetCount(aProvidesList);
-			CFIndex         aProvidesIndex;
+			CFIndex aProvidesCount = CFArrayGetCount(aProvidesList);
+			CFIndex aProvidesIndex;
 
 			/*
 			 * If a service name was specified, and it is valid,
 			 * use only it.
 			 */
 			if (aServiceName && CFArrayContainsValue(aProvidesList, CFRangeMake(0, aProvidesCount), aServiceName)) {
-				aProvidesList = CFArrayCreate(NULL, (const void **) &aServiceName, 1, &kCFTypeArrayCallBacks);
+				aProvidesList = CFArrayCreate(NULL, (const void **)&aServiceName, 1, &kCFTypeArrayCallBacks);
 				aProvidesCount = 1;
 			} else {
 				CFRetain(aProvidesList);
 			}
 
 			for (aProvidesIndex = 0; aProvidesIndex < aProvidesCount; aProvidesIndex++) {
-				CFStringRef     aService = CFArrayGetValueAtIndex(aProvidesList, aProvidesIndex);
+				CFStringRef aService = CFArrayGetValueAtIndex(aProvidesList, aProvidesIndex);
 
 				if (aSuccess)
 					anAction(aStatusDict, aService, kRunSuccess);
@@ -1079,8 +1019,7 @@ StartupItemSetStatus(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef 
 	}
 }
 
-void 
-StartupItemExit(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Boolean aSuccess)
+void StartupItemExit(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Boolean aSuccess)
 {
 	StartupItemSetStatus(aStatusDict, anItem, NULL, aSuccess, FALSE);
 }

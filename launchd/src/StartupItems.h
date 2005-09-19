@@ -42,7 +42,6 @@
 #define kDescriptionKey     CFSTR("Description")
 #define kUsesKey            CFSTR("Uses")
 #define kErrorKey           CFSTR("Error")
-#define kPriorityKey        CFSTR("OrderPreference")
 #define kBundlePathKey      CFSTR("PathToBundle")
 #define kPIDKey             CFSTR("ProcessID")
 #define kDomainKey          CFSTR("Domain")
@@ -72,14 +71,12 @@ CFMutableArrayRef StartupItemListCreateDependentsList (CFMutableArrayRef anItemL
 						       Action            anAction  );
 
 /*
- * Given aWaitingList of startup items, and aStatusDict describing the
- * current startup state, returns the next startup item to run, if any.
- * Returns nil if none is available.
- * The startup order depends on the dependancies between items and the
- * priorities of the items.
- * Note that this is not necessarily deterministic; if more than one
- * startup item with the same priority is ready to run, which item gets
- * returned is not specified.
+ * Given aWaitingList of startup items, and aStatusDict describing the current
+ * startup state, returns the next startup item to run, if any. Returns nil if
+ * none is available.
+ * Note that this is not necessarily deterministic; if more than one startup
+ * item is ready to run, which item gets returned is not specified. An item is
+ * not ready to run if the specified dependencies are not satisfied yet.
  */
 CFMutableDictionaryRef StartupItemListGetNext (CFArrayRef      aWaitingList,
                                                CFDictionaryRef aStatusDict ,
