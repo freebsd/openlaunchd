@@ -123,7 +123,6 @@ static struct service *service_new(struct bootstrap *bootstrap, const char *name
 static void service_delete(struct service *servicep);
 static struct service *service_lookup_by_name(struct bootstrap *bootstrap, const char *name);
 static struct service *service_lookup_by_port(mach_port_t port);
-static struct service *service_lookup_by_server(struct server *serverp);
 
 static struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
 static void bootstrap_delete(struct bootstrap *bootstrap);
@@ -269,7 +268,17 @@ bootstrap_active(struct bootstrap *bootstrap)
 bool
 server_useless(struct server *serverp)
 {
-	return (!bootstrap_active(serverp->bootstrap) || !service_lookup_by_server(serverp) || !serverp->activity);
+	bool server_has_services = false;
+	struct service *servicep;
+	
+	TAILQ_FOREACH(servicep, &services, tqe) {
+	  	if (serverp == servicep->server) {
+			server_has_services = true;
+			break;
+		}
+	}
+
+	return (!bootstrap_active(serverp->bootstrap) || !server_has_services || !serverp->activity);
 }
 
 bool
@@ -1187,18 +1196,6 @@ service_lookup_by_port(mach_port_t port)
 	
 	TAILQ_FOREACH(servicep, &services, tqe) {
 	  	if (port == servicep->port)
-			return servicep;
-	}
-        return NULL;
-}
-
-static struct service *
-service_lookup_by_server(struct server *serverp)
-{
-	struct service *servicep;
-	
-	TAILQ_FOREACH(servicep, &services, tqe) {
-	  	if (serverp == servicep->server)
 			return servicep;
 	}
         return NULL;
