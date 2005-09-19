@@ -179,56 +179,60 @@ else
 	fi
 fi
 
-echo "Starting virtual memory"
-
-swapdir=/private/var/vm
-if [ "${NetBoot}" = "-N" ]; then
-    sh /etc/rc.netboot setup_vm ${swapdir}
-fi
-
-if [ ! -d ${swapdir} ]; then
-    echo "Creating default swap directory"
-    mkdir -p -m 755 ${swapdir}
-    chown root:wheel ${swapdir}
-else
-    RMRF_ITEMS="${RMRF_ITEMS} ${swapdir}/swap*"
-fi
-		    
 echo Removing $RMRF_ITEMS
 rm -rf $RMRF_ITEMS
 
-if [ ${ENCRYPTSWAP:=-NO-} = "-YES-" ]; then
-    encryptswap="-E"
-else
-    encryptswap=""
-fi
-/sbin/dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
+if [ ! -f /System/Library/LaunchDaemons/com.apple.dynamic_pager.plist ]; then
+	echo "Starting virtual memory"
 
-appprofiledir=/private/var/vm/app_profile
-
-if [ ! -d ${appprofiledir} ]; then
-	if [ -f  ${appprofiledir} ]; then
-		mv -f ${appprofiledir} "${appprofiledir}_" 
+	swapdir=/private/var/vm
+	if [ "${NetBoot}" = "-N" ]; then
+		sh /etc/rc.netboot setup_vm ${swapdir}
 	fi
-	mkdir -p -m 711 ${appprofiledir}
-	chown root:wheel ${appprofiledir}
+
+	if [ ! -d ${swapdir} ]; then
+		echo "Creating default swap directory"
+		mkdir -p -m 755 ${swapdir}
+		chown root:wheel ${swapdir}
+	else
+		rm -f ${swapdir}/swap*
+	fi
+			    
+	if [ ${ENCRYPTSWAP:=-NO-} = "-YES-" ]; then
+	    encryptswap="-E"
+	else
+	    encryptswap=""
+	fi
+	/sbin/dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
+
+	appprofiledir=/private/var/vm/app_profile
+
+	if [ ! -d ${appprofiledir} ]; then
+		if [ -f  ${appprofiledir} ]; then
+			mv -f ${appprofiledir} "${appprofiledir}_" 
+		fi
+		mkdir -p -m 711 ${appprofiledir}
+		chown root:wheel ${appprofiledir}
+	fi
 fi
 
-# Create mach symbol file
-sysctl -n kern.symfile
-if [ -f /mach.sym ]; then
-	ln -sf /mach.sym /mach
-else
-	ln -sf /mach_kernel /mach
-fi
+if [ ! -f /private/etc/mach_init.d/kextd.plist ]; then
+	# Create mach symbol file
+	sysctl -n kern.symfile
+	if [ -f /mach.sym ]; then
+		ln -sf /mach.sym /mach
+	else
+		ln -sf /mach_kernel /mach
+	fi
 
-if [ "${SafeBoot}" = "-x" ]; then
-	echo "Configuring kernel extensions for safe boot"
-	touch /private/tmp/.SafeBoot
-	kextd -x
-else
-	echo "Configuring kernel extensions"
-	kextd
+	if [ "${SafeBoot}" = "-x" ]; then
+		echo "Configuring kernel extensions for safe boot"
+		touch /private/tmp/.SafeBoot
+		kextd -x
+	else
+		echo "Configuring kernel extensions"
+		kextd
+	fi
 fi
 
 if [  "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
@@ -260,7 +264,9 @@ else
 	SystemStarter ${VerboseFlag}
 fi
 
-/usr/sbin/update
+if [ ! -f /System/Library/LaunchDaemons/com.apple.update.plist  ]; then
+	/usr/sbin/update
+fi
 
 if [ "${NetBoot}" = "-N" ]; then
     sh /etc/rc.netboot setup_computername

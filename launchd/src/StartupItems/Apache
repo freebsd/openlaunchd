@@ -4,6 +4,8 @@
 # Apache HTTP Server
 ##
 
+[ -f /System/Library/LaunchDaemons/org.apache.httpd.plist ] && exit 0
+
 . /etc/rc.common
 
 StartService ()

@@ -4,6 +4,8 @@
 # Apple File Protocol
 ##
 
+[ -f /System/Library/LaunchDaemons/com.apple.AppleFileServer.plist ] && exit 0
+
 . /etc/rc.common
 
 StartService ()

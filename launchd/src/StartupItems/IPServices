@@ -4,6 +4,8 @@
 # IP Services
 ##
 
+[ -f /System/Library/LaunchDaemons/com.apache.httpd.plist ] && exit 0
+
 . /etc/rc.common
 
 StartService ()

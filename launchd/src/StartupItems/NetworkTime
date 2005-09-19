@@ -4,6 +4,8 @@
 # Network Time
 ##
 
+[ -f /System/Library/LaunchDaemons/org.ntp.ntpd.plist ] && exit 0
+
 . /etc/rc.common
 
 StartService ()
