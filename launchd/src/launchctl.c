@@ -50,6 +50,7 @@
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
 
+static void myCFDictionaryApplyFunction(const void *key, const void *value, void *context);
 static bool launch_data_array_append(launch_data_t a, launch_data_t o);
 static void distill_config_file(launch_data_t);
 static void sock_dict_cb(launch_data_t what, const char *key, void *context);
@@ -82,7 +83,7 @@ static int logupdate_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
 static int getrusage_cmd(int argc, char *const argv[]);
 
-static int exit_cmd(int argc, char *const argv[]);
+static int exit_cmd(int argc, char *const argv[]) __attribute__((noreturn));
 static int help_cmd(int argc, char *const argv[]);
 
 static const struct {
@@ -932,7 +933,7 @@ static int help_cmd(int argc, char *const argv[])
 	return 0;
 }
 
-static int exit_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
+int exit_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
 {
 	exit(0);
 }

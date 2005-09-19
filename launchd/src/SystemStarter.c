@@ -43,6 +43,7 @@ bool gNoRunFlag = false;
 
 static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
+static void	displayErrorMessages(StartupContext aStartupContext);
 static void	doCFnote(void);
 
 int 

@@ -1,4 +1,4 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Werror -fconstant-cfstrings
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings
 
 sbin_SCRIPTS = service
 
@@ -32,12 +32,12 @@ launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c
 
 launchproxy_LDFLAGS = -weak_framework Security
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h
 
-bootstrap.c:: bootstrap.h
+bootstrap.c:: bootstrap.h bootstrapServer.h
 
-bootstrap.h bootstrapServer.c bootstrapUser.c: $(srcdir)/bootstrap.defs
-	mig $(MIGFLAGS) $(srcdir)/bootstrap.defs
+bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
+	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
 
 man1_MANS = wait4path.1 launchctl.1
 

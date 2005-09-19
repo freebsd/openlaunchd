@@ -137,7 +137,7 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_start(struct jobcb *j);
-static void job_start_child(struct jobcb *j, int execfd);
+static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
 static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
@@ -1675,7 +1675,8 @@ static void job_start(struct jobcb *j)
 	}
 }
 
-static void job_start_child(struct jobcb *j, int execfd)
+void
+job_start_child(struct jobcb *j, int execfd)
 {
 	launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);

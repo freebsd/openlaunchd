@@ -72,6 +72,7 @@ struct _launch {
 
 static void make_msg_and_cmsg(launch_data_t, void **, size_t *, int **, size_t *);
 static launch_data_t make_data(launch_t, size_t *, size_t *);
+static launch_data_t launch_data_array_pop_first(launch_data_t where);
 static int _fd(int fd);
 
 static pthread_once_t _lc_once = PTHREAD_ONCE_INIT;
