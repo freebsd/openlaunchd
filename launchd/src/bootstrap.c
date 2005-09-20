@@ -198,7 +198,7 @@ void mach_init_init(void)
 	}
 
 	/* We set this explicitly as we start each child */
-	//task_set_bootstrap_port(mach_task_self(), MACH_PORT_NULL);
+	task_set_bootstrap_port(mach_task_self(), MACH_PORT_NULL);
 
 	/* register "self" port with anscestor */		
 	if (forward_ok) {
@@ -227,8 +227,6 @@ void mach_init_init(void)
 	pthread_attr_destroy(&attr);
 
 	launchd_bootstrap_port = bootstrap->bootstrap_port;
-
-	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
 
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
@@ -448,19 +446,7 @@ fork_with_bootstrap_port(mach_port_t p)
 	r = fork();
 
 	if (r > 0) {
-		/* Post Tiger:
-		 *
-		 * We should set the bootstrap back to MACH_PORT_NULL instead
-		 * of launchd_bootstrap_port. This will expose rare latent race
-		 * condition bugs, given that some programs assume that the PID
-		 * 1's bootstrap port is constant. This function clearly
-		 * demonstrates that is no longer true.
-		 *
-		 * Those programs should be calling bootstrap_parent(), and not
-		 * task_for_pid(1) followed by a call to get the bootstrap port
-		 * on the task.
-		 */
-		result = task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
+		result = task_set_bootstrap_port(mach_task_self(), MACH_PORT_NULL);
 		if (result != KERN_SUCCESS)
 			panic("task_set_bootstrap_port(): %s", mach_error_string(result));
 	} else if (0 == r) {
