@@ -54,19 +54,17 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdbool.h>
-#include <pthread.h>
 #include <paths.h>
 #include <pwd.h>
 #include <grp.h>
 #include <ttyent.h>
 #include <dlfcn.h>
 #include <dirent.h>
+#include <string.h>
 
 #include "launch.h"
 #include "launch_priv.h"
 #include "launchd.h"
-
-#include "bootstrap_internal.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_REWARD_JOB_RUN_TIME 60
@@ -186,8 +184,6 @@ static pid_t readcfg_pid = 0;
 static pid_t launchd_proper_pid = 0;
 static bool launchd_inited = false;
 static bool shutdown_in_progress = false;
-static pthread_t mach_server_loop_thread;
-mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 sigset_t blocked_signals = 0;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
@@ -204,10 +200,8 @@ int main(int argc, char *argv[])
 	const char *session_user = NULL;
 	const char *optargs = NULL;
 	struct jobcb *fbj;
-	pthread_attr_t attr;
 	struct kevent kev;
 	size_t i;
-	int pthr_r;
 	int ch;
 
 	/* main() phase one: sanitize the process */
@@ -329,20 +323,7 @@ int main(int argc, char *argv[])
 	if (argv[0] || (session_type != NULL && 0 == strcasecmp(session_type, "tty")))
 		conceive_firstborn(argv, session_user);
 	
-	launchd_bootstrap_port = mach_init_init();
-	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
-	bootstrap_port = MACH_PORT_NULL;
-
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-	pthr_r = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
-	if (pthr_r != 0) {
-		syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(pthr_r));
-		exit(EXIT_FAILURE);
-	}
-
-	pthread_attr_destroy(&attr);
+	mach_init_init();
 
 	if (NULL == getenv("PATH"))
 		setenv("PATH", _PATH_STDPATH, 1);
@@ -1619,7 +1600,7 @@ static void job_start(struct jobcb *j)
 
 	time(&j->start_time);
 
-	switch (c = fork_with_bootstrap_port(launchd_bootstrap_port)) {
+	switch (c = launchd_fork()) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		close(execspair[0]);
@@ -2067,7 +2048,7 @@ static void reload_launchd_config(void)
 	if (lstat(ldconf, &sb) == 0) {
 		int spair[2];
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
-		readcfg_pid = fork_with_bootstrap_port(launchd_bootstrap_port);
+		readcfg_pid = launchd_fork();
 		if (readcfg_pid == 0) {
 			char nbuf[100];
 			close(spair[0]);

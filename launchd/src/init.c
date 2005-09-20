@@ -61,8 +61,6 @@
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
 
-#include <mach/port.h>
-
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/param.h>
@@ -90,7 +88,6 @@
 #include <termios.h>
 
 #include "launchd.h"
-#include "bootstrap_internal.h"
 
 #define _PATH_RUNCOM            "/etc/rc"
 
@@ -313,7 +310,7 @@ single_user(void)
 	if (getsecuritylevel() > 0)
 		setsecuritylevel(0);
 
-	if ((single_user_pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
+	if ((single_user_pid = launchd_fork()) == -1) {
 		syslog(LOG_ERR, "can't fork single-user shell, trying again: %m");
 		return;
 	} else if (single_user_pid == 0) {
@@ -396,7 +393,7 @@ runcom(void)
 
 	gettimeofday(&runcom_start_tv, NULL);
 
-	if ((runcom_pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
+	if ((runcom_pid = launchd_fork()) == -1) {
 		syslog(LOG_ERR, "can't fork for %s on %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
 		sleep(STALL_TIMEOUT);
 		runcom_pid = 0;
@@ -656,8 +653,7 @@ session_launch(session_t s)
 		break;
 	}
 
-	/* fork(), not vfork() -- we can't afford to block. */
-	if ((pid = fork_with_bootstrap_port(launchd_bootstrap_port)) == -1) {
+	if ((pid = launchd_fork()) == -1) {
 		syslog(LOG_ERR, "can't fork for %s on port %s: %m",
 				session_type, s->se_device);
 		update_ttys();

@@ -63,10 +63,9 @@
 
 #include "bootstrap.h"
 #include "bootstrapServer.h"
-#include "bootstrap_internal.h"
 #include "launchd.h"
 
-#define DEMAND_REQUEST   MACH_NOTIFY_LAST        /* demand service messaged */
+#define DEMAND_REQUEST   MACH_NOTIFY_LAST	/* demand service messaged */
 
 
 /* Bootstrap info */
@@ -137,6 +136,7 @@ static TAILQ_HEAD(serviceshead, service) services = TAILQ_HEAD_INITIALIZER(servi
 static boolean_t server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
+static mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 static bool forward_ok = true;
 static char *register_name = NULL;
 
@@ -144,10 +144,11 @@ static bool shutdown_in_progress = false;
 
 static bool canReceive(mach_port_t);
 
+static pid_t fork_with_bootstrap_port(mach_port_t p);
 static void init_ports(void);
 static char **argvize(const char *string);
 static void *demand_loop(void *arg);
-void *mach_server_loop(void *);
+static void *mach_server_loop(void *);
 
 /*
  * Private ports we hold receive rights for.  We also hold receive rights
@@ -156,6 +157,7 @@ void *mach_server_loop(void *);
  */
 static mach_port_t bootstrap_port_set;
 static mach_port_t demand_port_set;
+static pthread_t mach_server_loop_thread;
 static pthread_t demand_thread;
 
 static mach_port_t notify_port;
@@ -170,7 +172,7 @@ void mach_start_shutdown(void)
 	inform_server_loop(MACH_PORT_NULL, MACH_SEND_TIMEOUT);
 }
 
-mach_port_t mach_init_init(void)
+void mach_init_init(void)
 {
 	struct bootstrap *bootstrap;
 	kern_return_t result;
@@ -196,7 +198,7 @@ mach_port_t mach_init_init(void)
 	}
 
 	/* We set this explicitly as we start each child */
-	task_set_bootstrap_port(mach_task_self(), MACH_PORT_NULL);
+	//task_set_bootstrap_port(mach_task_self(), MACH_PORT_NULL);
 
 	/* register "self" port with anscestor */		
 	if (forward_ok) {
@@ -214,7 +216,22 @@ mach_port_t mach_init_init(void)
 		panic("pthread_create(): %s", strerror(result));
 	pthread_attr_destroy(&attr);
 
-	return bootstrap->bootstrap_port;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+	result = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
+	if (result != 0) {
+		syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(result));
+		exit(EXIT_FAILURE);
+	}
+	pthread_attr_destroy(&attr);
+
+	launchd_bootstrap_port = bootstrap->bootstrap_port;
+
+	task_set_bootstrap_port(mach_task_self(), launchd_bootstrap_port);
+
+	/* cut off the Libc cache, we don't want to deadlock against ourself */
+	bootstrap_port = MACH_PORT_NULL;
 }
 
 void
@@ -401,6 +418,11 @@ server_setup(struct server *serverp)
 		panic("mach_port_move_member(): %s", mach_error_string(result));
 }
 
+pid_t launchd_fork(void)
+{
+	return fork_with_bootstrap_port(launchd_bootstrap_port);
+}
+
 pid_t
 fork_with_bootstrap_port(mach_port_t p)
 {
@@ -411,13 +433,13 @@ fork_with_bootstrap_port(mach_port_t p)
 
 	pthread_mutex_lock(&forklock);
 
-        sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
+	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
-        result = task_set_bootstrap_port(mach_task_self(), p);
+	result = task_set_bootstrap_port(mach_task_self(), p);
 	if (result != KERN_SUCCESS)
 		panic("task_set_bootstrap_port(): %s", mach_error_string(result));
 
-        if (launchd_bootstrap_port != p) {
+	if (launchd_bootstrap_port != p) {
 		result = mach_port_deallocate(mach_task_self(), p);
 		if (result != KERN_SUCCESS)
 			panic("mach_port_deallocate(): %s", mach_error_string(result));
@@ -823,7 +845,7 @@ mach_server_loop(void *arg __attribute__((unused)))
 
 	for (;;) {
 		mresult = mach_msg_server(server_demux, sizeof(union bootstrapMaxRequestSize), bootstrap_port_set,
-                        MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
+				MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
 		if (mresult != MACH_MSG_SUCCESS)
 				syslog(LOG_ERR, "mach_msg_server(): %s", mach_error_string(mresult));
 	}
@@ -874,8 +896,8 @@ out:
 struct service *
 service_new(struct bootstrap *bootstrap, const char *name, mach_port_t serviceport, bool isActive, struct server *serverp)
 {
-        struct service *servicep;
-        
+	struct service *servicep;
+
 	if ((servicep = calloc(1, sizeof(struct service) + strlen(name) + 1)) == NULL)
 		goto out;
 
@@ -1091,7 +1113,7 @@ port_to_service(mach_port_t port)
 	  	if (port == servicep->port)
 			return servicep;
 	}
-        return NULL;
+	return NULL;
 }
 
 static struct server *
