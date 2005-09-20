@@ -116,21 +116,21 @@ static void server_start(struct server *serverp);
 static void server_exec(struct server *serverp);
 static void server_reap(struct server *serverp);
 static void server_dispatch(struct server *serverp);
-static struct server *server_lookup_by_port(mach_port_t port);
-static struct server *server_lookup_by_task_port(mach_port_t port);
+
+static struct server *port_to_server(mach_port_t port);
+static struct server *taskport_to_server(mach_port_t port);
+static struct service *port_to_service(mach_port_t port);
+static struct bootstrap *port_to_bootstrap(mach_port_t port, bool active);
+static struct bootstrap *reqport_to_bootstrap(mach_port_t port);
 
 static struct service *service_new(struct bootstrap *bootstrap, const char *name, mach_port_t serviceport, bool isActive, struct server	*serverp);
 static void service_delete(struct service *servicep);
-static struct service *service_lookup_by_name(struct bootstrap *bootstrap, const char *name);
-static struct service *service_lookup_by_port(mach_port_t port);
 
 static struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
 static void bootstrap_delete(struct bootstrap *bootstrap);
 static void bootstrap_deactivate(struct bootstrap *bootstrap);
-static bool bootstrap_active(struct bootstrap *bootstrap);
 static void bootstrap_delete_services(struct bootstrap *bootstrap);
-static struct bootstrap *bootstrap_lookup_by_port(mach_port_t port);
-static struct bootstrap *bootstrap_lookup_by_req_port(mach_port_t port);
+static struct service *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name);
 
 static TAILQ_HEAD(bootstrapshead, bootstrap) bootstraps = TAILQ_HEAD_INITIALIZER(bootstraps);
 static TAILQ_HEAD(servershead, server) servers = TAILQ_HEAD_INITIALIZER(servers);
@@ -260,15 +260,10 @@ init_ports(void)
 }
 
 bool
-bootstrap_active(struct bootstrap *bootstrap)
-{
-	return (bootstrap->requestor_port != MACH_PORT_NULL);
-}
-
-bool
 server_useless(struct server *serverp)
 {
 	bool server_has_services = false;
+	bool active_bstrap = (serverp->bootstrap->requestor_port != MACH_PORT_NULL);
 	struct service *servicep;
 	
 	TAILQ_FOREACH(servicep, &services, tqe) {
@@ -278,7 +273,7 @@ server_useless(struct server *serverp)
 		}
 	}
 
-	return (!bootstrap_active(serverp->bootstrap) || !server_has_services || !serverp->activity);
+	return (!active_bstrap || !server_has_services || !serverp->activity);
 }
 
 bool
@@ -791,7 +786,7 @@ server_demux(
 			/*
 			 * Check to see if a subset requestor port was deleted.
 			 */
-			while ((bootstrap = bootstrap_lookup_by_req_port(np)) != NULL) {
+			while ((bootstrap = reqport_to_bootstrap(np)) != NULL) {
 				syslog(LOG_DEBUG, "Received dead name notification for bootstrap subset %x requestor port %x",
 					 bootstrap->bootstrap_port, bootstrap->requestor_port);
 				mach_port_deallocate(mach_task_self(), bootstrap->requestor_port);
@@ -803,7 +798,7 @@ server_demux(
 			 * Check to see if a defined service has gone
 			 * away.
 			 */
-			while ((servicep = service_lookup_by_port(np)) != NULL) {
+			while ((servicep = port_to_service(np)) != NULL) {
 				/*
 				 * Port gone, registered service died.
 				 */
@@ -818,7 +813,7 @@ server_demux(
 			 * Check to see if a launched server task has gone
 			 * away.
 			 */
-			if ((serverp = server_lookup_by_task_port(np)) != NULL) {
+			if ((serverp = taskport_to_server(np)) != NULL) {
 				/*
 				 * Port gone, server died or picked up new task.
 				 */
@@ -856,7 +851,7 @@ server_demux(
 		memset(reply, 0, sizeof(*reply));
 
 		np = ((mach_port_destroyed_notification_t *)Request)->not_port.name; 
-		servicep = service_lookup_by_port(np);
+		servicep = port_to_service(np);
 		if (servicep != NULL) {
 			serverp = servicep->server;
 
@@ -899,7 +894,7 @@ server_demux(
 	else if (Request->msgh_id == MACH_NOTIFY_NO_SENDERS) {
 		mach_port_t ns = Request->msgh_local_port;
 
-		if ((serverp = server_lookup_by_port(ns)) != NULL) {
+		if ((serverp = port_to_server(ns)) != NULL) {
 	  		/*
 			 * A server we launched has released his bootstrap
 			 * port send right.  We won't re-launch him unless
@@ -909,7 +904,7 @@ server_demux(
 			syslog(LOG_DEBUG, "server %s dropped server port", serverp->cmd);
 			serverp->port = MACH_PORT_NULL;
 			server_dispatch(serverp);
-		} else if ((bootstrap = bootstrap_lookup_by_port(ns)) != NULL) {
+		} else if ((bootstrap = port_to_bootstrap(ns, false)) != NULL) {
 			/*
 			 * The last direct user of a deactivated bootstrap went away.
 			 * We can finally free it.
@@ -1096,26 +1091,31 @@ out_bad:
 }
 
 struct bootstrap *
-bootstrap_lookup_by_port(mach_port_t port)
+port_to_bootstrap(mach_port_t port, bool active)
 {
-	struct bootstrap *bootstrap;
+	struct bootstrap *bootstrap = NULL;
 	struct server *serverp;
 
 	TAILQ_FOREACH(bootstrap, &bootstraps, tqe) {  
 		if (bootstrap->bootstrap_port == port)
-			return bootstrap;
+			goto out;
 	}
 	
 	TAILQ_FOREACH(serverp, &servers, tqe) {
-	  	if (port == serverp->port)
-			return serverp->bootstrap;
+	  	if (port == serverp->port) {
+			bootstrap = serverp->bootstrap;
+			goto out;
+		}
 	}
 
-	return NULL;
+out:
+	if (bootstrap && active && bootstrap->requestor_port == MACH_PORT_NULL)
+		bootstrap = NULL;
+	return bootstrap;
 }
 
 struct bootstrap *
-bootstrap_lookup_by_req_port(mach_port_t port)
+reqport_to_bootstrap(mach_port_t port)
 {
 	struct bootstrap *bootstrap;
 
@@ -1128,7 +1128,7 @@ bootstrap_lookup_by_req_port(mach_port_t port)
 }
 
 struct service *
-service_lookup_by_name(struct bootstrap *bootstrap, const char *name)
+bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name)
 {
 	struct service *servicep = NULL;
 
@@ -1190,7 +1190,7 @@ bootstrap_delete_services(struct bootstrap *bootstrap)
 }
 
 static struct service *
-service_lookup_by_port(mach_port_t port)
+port_to_service(mach_port_t port)
 {
 	struct service *servicep;
 	
@@ -1202,7 +1202,7 @@ service_lookup_by_port(mach_port_t port)
 }
 
 static struct server *
-server_lookup_by_task_port(mach_port_t port)
+taskport_to_server(mach_port_t port)
 {
 	struct server *serverp;
 	
@@ -1214,7 +1214,7 @@ server_lookup_by_task_port(mach_port_t port)
 }
 
 static struct server *
-server_lookup_by_port(mach_port_t port)
+port_to_server(mach_port_t port)
 {
 	struct server *serverp;
 	
@@ -1371,12 +1371,12 @@ x_bootstrap_create_server(
 
 	uid_t client_euid;
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
+	bootstrap = port_to_bootstrap(bootstrapport, true);
 	syslog(LOG_DEBUG, "Server create attempt: \"%s\" bootstrap %x",
 	      server_cmd, bootstrapport);
 
 	/* No forwarding allowed for this call - security risk (we run as root) */
-	if (!bootstrap || !bootstrap_active(bootstrap)) {
+	if (!bootstrap) {
 		syslog(LOG_DEBUG, "Server create: \"%s\": invalid bootstrap %x",
 			server_cmd, bootstrapport);
 		return BOOTSTRAP_NOT_PRIVILEGED;
@@ -1432,7 +1432,7 @@ x_bootstrap_unprivileged(
 
 	syslog(LOG_DEBUG, "Get unprivileged attempt for bootstrap %x", bootstrapport);
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
+	bootstrap = port_to_bootstrap(bootstrapport, true);
 	if (!bootstrap) {
 		syslog(LOG_DEBUG, "Get unprivileged: invalid bootstrap %x", bootstrapport);
 		return BOOTSTRAP_NOT_PRIVILEGED;
@@ -1473,12 +1473,12 @@ x_bootstrap_check_in(
 	struct server *serverp;
 	struct bootstrap *bootstrap;
 
-	serverp = server_lookup_by_port(bootstrapport);
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
+	serverp = port_to_server(bootstrapport);
+	bootstrap = port_to_bootstrap(bootstrapport, true);
 	syslog(LOG_DEBUG, "Service checkin attempt for service %s bootstrap %x",
 	      servicename, bootstrapport);
 
-	servicep = service_lookup_by_name(bootstrap, servicename);
+	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s unknown%s", servicename,
 			forward_ok ? " forwarding" : "");
@@ -1583,16 +1583,16 @@ x_bootstrap_register(
 	/*
 	 * Validate the bootstrap.
 	 */
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
-	if (!bootstrap || !bootstrap_active(bootstrap))
+	bootstrap = port_to_bootstrap(bootstrapport, true);
+	if (!bootstrap)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	  
 	/*
 	 * If this bootstrap port is for a server, or it's an unprivileged
 	 * bootstrap can't register the port.
 	 */
-	serverp = server_lookup_by_port(bootstrapport);
-	servicep = service_lookup_by_name(bootstrap, servicename);
+	serverp = port_to_server(bootstrapport);
+	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep && servicep->server && servicep->server != serverp)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
@@ -1686,8 +1686,8 @@ x_bootstrap_look_up(
 	struct service *servicep;
 	struct bootstrap *bootstrap;
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
-	servicep = service_lookup_by_name(bootstrap, servicename);
+	bootstrap = port_to_bootstrap(bootstrapport, true);
+	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
 		if (forward_ok) {
 			syslog(LOG_DEBUG, "bootstrap_look_up service %s forwarding",
@@ -1787,7 +1787,7 @@ x_bootstrap_parent(
 
 	syslog(LOG_DEBUG, "Parent attempt for bootstrap %x", bootstrapport);
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
+	bootstrap = port_to_bootstrap(bootstrapport, true);
 	if (!bootstrap) { 
 		syslog(LOG_DEBUG, "Parent attempt for bootstrap %x: invalid bootstrap",
 		      bootstrapport);
@@ -1829,8 +1829,8 @@ x_bootstrap_status(
 	struct service *servicep;
 	struct bootstrap *bootstrap;
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
-	servicep = service_lookup_by_name(bootstrap, servicename);
+	bootstrap = port_to_bootstrap(bootstrapport, true);
+	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL) {
 		if (forward_ok) {
 			syslog(LOG_DEBUG, "bootstrap_status forwarding status, server %s",
@@ -1884,11 +1884,11 @@ x_bootstrap_info(
 	name_array_t server_names;
 	bootstrap_status_array_t service_actives;
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
+	bootstrap = port_to_bootstrap(bootstrapport, true);
 
 	cnt = 0;
 	TAILQ_FOREACH(servicep, &services, tqe) {
-	    if (service_lookup_by_name(bootstrap, servicep->name) == servicep)
+	    if (bootstrap_lookup_service(bootstrap, servicep->name) == servicep)
 	    	cnt++;
 	}
 	result = vm_allocate(mach_task_self(),
@@ -1924,7 +1924,7 @@ x_bootstrap_info(
 
 	i = 0;
 	TAILQ_FOREACH(servicep, &services, tqe) {
-	    if (service_lookup_by_name(bootstrap, servicep->name) != servicep)
+	    if (bootstrap_lookup_service(bootstrap, servicep->name) != servicep)
 		continue;
 	    strncpy(service_names[i],
 		    servicep->name,
@@ -1989,8 +1989,8 @@ x_bootstrap_subset(
 	syslog(LOG_DEBUG, "Subset create attempt: bootstrap %x, requestor: %x",
 	      bootstrapport, requestorport);
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
-	if (!bootstrap || !bootstrap_active(bootstrap))
+	bootstrap = port_to_bootstrap(bootstrapport, true);
+	if (!bootstrap)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	subset = bootstrap_new(bootstrap, requestorport);
@@ -2038,21 +2038,21 @@ x_bootstrap_create_service(
 	struct bootstrap *bootstrap;
 	kern_return_t result;
 
-	bootstrap = bootstrap_lookup_by_port(bootstrapport);
-	if (!bootstrap || !bootstrap_active(bootstrap))
+	bootstrap = port_to_bootstrap(bootstrapport, true);
+	if (!bootstrap)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	syslog(LOG_DEBUG, "Service creation attempt for service %s bootstrap %x",
 	      servicename, bootstrapport);
 
-	servicep = service_lookup_by_name(bootstrap, servicename);
+	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep) {
 		syslog(LOG_DEBUG, "Service creation attempt for service %s failed, "
 			"service already exists", servicename);
 		return BOOTSTRAP_NAME_IN_USE;
 	}
 
-	serverp = server_lookup_by_port(bootstrapport);
+	serverp = port_to_server(bootstrapport);
 
 	result = mach_port_allocate(mach_task_self(),
 				    MACH_PORT_RIGHT_RECEIVE,
