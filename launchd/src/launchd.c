@@ -1878,10 +1878,10 @@ static void do_shutdown(void)
 	TAILQ_FOREACH(j, &jobs, tqe)
 		job_stop(j);
 
-	if (getpid() == 1) {
+	mach_start_shutdown();
+
+	if (getpid() == 1)
 		catatonia();
-		mach_start_shutdown();
-	}
 }
 
 static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
