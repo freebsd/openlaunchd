@@ -69,7 +69,6 @@
 #include "launchd.h"
 
 #define DEMAND_REQUEST   MACH_NOTIFY_LAST        /* demand service messaged */
-#define	NO_PID	(-1)
 
 
 /* Bootstrap info */
@@ -125,6 +124,7 @@ static struct bootstrap *reqport_to_bootstrap(mach_port_t port);
 
 static struct service *service_new(struct bootstrap *bootstrap, const char *name, mach_port_t serviceport, bool isActive, struct server	*serverp);
 static void service_delete(struct service *servicep);
+static void service_watch(struct service *servicep);
 
 static struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
 static void bootstrap_delete(struct bootstrap *bootstrap);
@@ -286,12 +286,9 @@ static void
 server_reap(struct server *serverp)
 {
 	kern_return_t result;
-	pid_t	presult;
-	int		wstatus;
+	pid_t presult;
+	int wstatus;
 
-	/*
-	 * Reap our children.
-	 */
 	presult = waitpid(serverp->pid, &wstatus, WNOHANG);
 	switch (presult) {
 	case -1:
@@ -307,9 +304,7 @@ server_reap(struct server *serverp)
 		mach_port_deallocate(mach_task_self(), old_port);
 		serverp->task_port = MACH_PORT_NULL;
 
-		result = task_for_pid(	mach_task_self(),
-					serverp->pid,
-					&serverp->task_port);
+		result = task_for_pid(mach_task_self(), serverp->pid, &serverp->task_port);
 		if (result != KERN_SUCCESS) {
 			syslog(LOG_INFO, "race getting new server task port for pid[%d]: %s",
 			     serverp->pid, mach_error_string(result));
@@ -317,14 +312,8 @@ server_reap(struct server *serverp)
 		}
 
 		/* Request dead name notification to tell when new task dies */
-		result = mach_port_request_notification(
-					mach_task_self(),
-					serverp->task_port,
-					MACH_NOTIFY_DEAD_NAME,
-					0,
-					notify_port,
-					MACH_MSG_TYPE_MAKE_SEND_ONCE,
-					&old_port);
+		result = mach_port_request_notification(mach_task_self(), serverp->task_port, MACH_NOTIFY_DEAD_NAME,
+				0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
 		if (result != KERN_SUCCESS) {
 			syslog(LOG_INFO, "race setting up notification for new server task port for pid[%d]: %s",
 			     serverp->pid, mach_error_string(result));
@@ -347,7 +336,7 @@ server_reap(struct server *serverp)
 	}
 		
 
-	serverp->pid = 0;
+	serverp->pid = -1;
 
 	/*
 	 * Release the server task port reference, if we ever
@@ -662,7 +651,7 @@ demand_loop(void *arg __attribute__((unused)))
 	kern_return_t dresult;
 
 
-	for(;;) {
+	for (;;) {
 		mach_port_name_array_t members;
 		mach_msg_type_number_t membersCnt;
 		mach_port_status_t status;
@@ -674,14 +663,7 @@ demand_loop(void *arg __attribute__((unused)))
 		 * ports without actually receiving the message (we'll
 		 * let the actual server do that.
 		 */
-		dresult = mach_msg(
-							&dummy.header,
-							MACH_RCV_MSG|MACH_RCV_LARGE,
-							0,
-							0,
-							demand_port_set,
-							0,
-							MACH_PORT_NULL);
+		dresult = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
 		if (dresult != MACH_RCV_TOO_LARGE) {
 			syslog(LOG_ERR, "demand_loop: mach_msg(): %s", mach_error_string(dresult));
 			continue;
@@ -692,11 +674,7 @@ demand_loop(void *arg __attribute__((unused)))
 		 * which ones (there is no indication of which port
 		 * triggered in the MACH_RCV_TOO_LARGE indication).
 		 */
-		dresult = mach_port_get_set_status(
-							mach_task_self(),
-							demand_port_set,
-							&members,
-							&membersCnt);
+		dresult = mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt);
 		if (dresult != KERN_SUCCESS) {
 			syslog(LOG_ERR, "demand_loop: mach_port_get_set_status(): %s", mach_error_string(dresult));
 			continue;
@@ -704,12 +682,8 @@ demand_loop(void *arg __attribute__((unused)))
 
 		for (i = 0; i < membersCnt; i++) {
 			statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-			dresult = mach_port_get_attributes(
-								mach_task_self(),
-								members[i],
-								MACH_PORT_RECEIVE_STATUS,
-								(mach_port_info_t)&status,
-								&statusCnt);
+			dresult = mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
+					(mach_port_info_t)&status, &statusCnt);
 			if (dresult != KERN_SUCCESS) {
 				syslog(LOG_ERR, "demand_loop: mach_port_get_attributes(): %s", mach_error_string(dresult));
 				continue;
@@ -722,10 +696,7 @@ demand_loop(void *arg __attribute__((unused)))
 			 * for it.
 			 */
 			if (status.mps_msgcount) {
-				dresult = mach_port_move_member(
-								mach_task_self(),
-								members[i],
-								MACH_PORT_NULL);
+				dresult = mach_port_move_member(mach_task_self(), members[i], MACH_PORT_NULL);
 				if (dresult != KERN_SUCCESS) {
 					syslog(LOG_ERR, "demand_loop: mach_port_move_member(): %s", mach_error_string(dresult));
 					continue;
@@ -734,10 +705,7 @@ demand_loop(void *arg __attribute__((unused)))
 			}
 		}
 
-		dresult = vm_deallocate(
-						mach_task_self(),
-						(vm_address_t) members,
-						(vm_size_t) membersCnt * sizeof(mach_port_name_t));
+		dresult = vm_deallocate(mach_task_self(), (vm_address_t)members,(vm_size_t) membersCnt * sizeof(mach_port_name_t));
 		if (dresult != KERN_SUCCESS) {
 			syslog(LOG_ERR, "demand_loop: vm_deallocate(): %s", mach_error_string(dresult));
 			continue;
@@ -972,17 +940,12 @@ canReceive(mach_port_t port)
 
 
 struct server *
-server_new(
-	struct bootstrap	*bootstrap,
-	const char		*cmd,
-	uid_t			uid,
-	bool			ond,
-	auditinfo_t		auinfo)
+server_new(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond, auditinfo_t auinfo)
 {
 	struct server *serverp;
 
 	syslog(LOG_DEBUG, "adding new server \"%s\" with uid %d", cmd, uid);	
-	serverp = malloc(sizeof(struct server) + strlen(cmd) + 1);
+	serverp = calloc(1, sizeof(struct server) + strlen(cmd) + 1);
 
 	if (NULL == serverp)
 		goto out;
@@ -992,16 +955,11 @@ server_new(
 	bootstrap->ref_count++;
 	serverp->bootstrap = bootstrap;
 
-	serverp->pid = NO_PID;
-	serverp->task_port = MACH_PORT_NULL;
-
+	serverp->pid = -1;
 	serverp->uid = uid;
 	serverp->auinfo = auinfo;
 
-	serverp->port = MACH_PORT_NULL;
 	serverp->ondemand = ond;
-	serverp->activity = 0;
-	serverp->active_services = 0;
 	strcpy(serverp->cmd, cmd);
 
 out:
@@ -1009,17 +967,11 @@ out:
 }
 	
 struct service *
-service_new(
-	struct bootstrap	*bootstrap,
-	const char	*name,
-	mach_port_t		serviceport,
-	bool	isActive,
-	struct server	*serverp)
+service_new(struct bootstrap *bootstrap, const char *name, mach_port_t serviceport, bool isActive, struct server *serverp)
 {
         struct service *servicep;
         
-	servicep = malloc(sizeof(struct service) + strlen(name) + 1);
-	if (NULL == servicep)
+	if ((servicep = calloc(1, sizeof(struct service) + strlen(name) + 1)) == NULL)
 		goto out;
 
 	TAILQ_INSERT_TAIL(&services, servicep, tqe);
@@ -1031,6 +983,9 @@ service_new(
 	servicep->isActive = isActive;
 
 out:
+	if (servicep)
+		syslog(LOG_INFO, "Created new service %x in bootstrap %x: %s", servicep->port, bootstrap->bootstrap_port, name);
+
 	return servicep;
 }
 
@@ -1160,6 +1115,39 @@ service_delete(struct service *servicep)
 		mach_port_deallocate(mach_task_self(), servicep->port);
 	}
 	free(servicep);
+}
+
+void
+service_watch(struct service *servicep)
+{
+	kern_return_t result;
+	mach_port_t previous;
+
+	servicep->isActive = true;
+
+	if (servicep->server) {
+		/* registered server - service needs backup */
+		servicep->server->activity++;
+		servicep->server->active_services++;
+		result = mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_PORT_DESTROYED,
+				0, backup_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
+		if (result != KERN_SUCCESS)
+			panic("mach_port_request_notification(): %s", mach_error_string(result));
+	} else {
+		/* one time use/created service */
+		result = mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_DEAD_NAME,
+				0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
+		if (result != KERN_SUCCESS) {
+			//should service_delete(servicep) instead of panic()
+			panic("mach_port_request_notification(): %s", mach_error_string(result));
+		} else if (previous != MACH_PORT_NULL) {
+			syslog(LOG_DEBUG, "deallocating old notification port (%x) for checked in service %x",
+				previous, servicep->port);
+			result = mach_port_deallocate(mach_task_self(), previous);
+			if (result != KERN_SUCCESS)
+				panic("mach_port_deallocate(): %s", mach_error_string(result));
+		}
+	}
 }
 
 static void
@@ -1468,7 +1456,6 @@ x_bootstrap_check_in(
 	mach_port_t	*serviceportp)
 {
 	kern_return_t result;
-	mach_port_t previous;
 	struct service *servicep;
 	struct server *serverp;
 	struct bootstrap *bootstrap;
@@ -1498,48 +1485,10 @@ x_bootstrap_check_in(
 			servicename);
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
-	syslog(LOG_DEBUG, "Checkin service %s for bootstrap %x", servicename,
-	      bootstrap->bootstrap_port);
-	assert(servicep->isActive == false);
-	servicep->isActive = true;
 
-	if (servicep->server != NULL) {
-		/* registered server - service needs backup */
-		serverp->activity++;
-		serverp->active_services++;
-		result = mach_port_request_notification(
-					mach_task_self(),
-					servicep->port,
-					MACH_NOTIFY_PORT_DESTROYED,
-					0,
-					backup_port,
-					MACH_MSG_TYPE_MAKE_SEND_ONCE,
-					&previous);
-		if (result != KERN_SUCCESS)
-			panic("mach_port_request_notification(): %s", mach_error_string(result));
-	} else {
-		/* one time use/created service */
-		result = mach_port_request_notification(
-					mach_task_self(),
-					servicep->port,
-					MACH_NOTIFY_DEAD_NAME,
-					0,
-					notify_port,
-					MACH_MSG_TYPE_MAKE_SEND_ONCE,
-					&previous);
-		if (result != KERN_SUCCESS)
-			panic("mach_port_request_notification(): %s", mach_error_string(result));
-		else if (previous != MACH_PORT_NULL) {
-			syslog(LOG_DEBUG, "deallocating old notification port (%x) for checked in service %x",
-				previous, servicep->port);
-			result = mach_port_deallocate(mach_task_self(), previous);
-			if (result != KERN_SUCCESS)
-				panic("mach_port_deallocate(): %s", mach_error_string(result));
-		}
-	}
+	service_watch(servicep);
 
-	syslog(LOG_INFO, "Check-in service %x in bootstrap %x: %s",
-	      servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
+	syslog(LOG_INFO, "Checkin service %x in bootstrap %x: %s", servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 
 	*serviceportp = servicep->port;
 	return BOOTSTRAP_SUCCESS;
@@ -1571,14 +1520,11 @@ x_bootstrap_register(
 	name_t	servicename,
 	mach_port_t	serviceport)
 {
-	kern_return_t result;
 	struct service *servicep;
 	struct server *serverp;
 	struct bootstrap *bootstrap;
-	mach_port_t old_port;
 
-	syslog(LOG_DEBUG, "Register attempt for service %s port %x",
-	      servicename, serviceport);
+	syslog(LOG_DEBUG, "Register attempt for service %s port %x", servicename, serviceport);
 
 	/*
 	 * Validate the bootstrap.
@@ -1596,72 +1542,23 @@ x_bootstrap_register(
 	if (servicep && servicep->server && servicep->server != serverp)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
-	if (servicep == NULL || servicep->bootstrap != bootstrap) {
-		servicep = service_new(bootstrap,
-				       servicename,
-				       serviceport,
-				       true,
-				       NULL);
-		syslog(LOG_DEBUG, "Registered new service %s", servicename);
-	} else {
+	if (servicep && servicep->bootstrap == bootstrap) {
 		if (servicep->isActive) {
-			syslog(LOG_DEBUG, "Register: service %s already active, port %x",
-		 	      servicep->name, servicep->port);
+			syslog(LOG_DEBUG, "Register: service %s already active, port %x", servicep->name, servicep->port);
 			assert(!canReceive(servicep->port));
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
-		old_port = servicep->port;
-		if (servicep->server) {
-			assert(servicep->server == serverp);
-			assert(server_active(serverp));
-			servicep->server = NULL;
+		if (servicep->server)
 			serverp->activity++;
-
-			result = mach_port_mod_refs(
-					mach_task_self(),
-					old_port,
-					MACH_PORT_RIGHT_RECEIVE, 
-					-1);
-			if (result != KERN_SUCCESS)
-				panic("mach_port_mod_refs(): %s", mach_error_string(result));
-		}
-		result = mach_port_deallocate(
-				mach_task_self(),
-				old_port);
-		if (result != KERN_SUCCESS)
-			panic("mach_port_mod_refs(): %s", mach_error_string(result));
-		
-		servicep->port = serviceport;
-		servicep->isActive = true;
-		syslog(LOG_DEBUG, "Re-registered inactive service %x bootstrap %x: %s",
-			servicep->port, servicep->bootstrap->bootstrap_port, servicename);
-	}
-
-	/* detect the new service port going dead */
-	result = mach_port_request_notification(
-			mach_task_self(),
-			serviceport,
-			MACH_NOTIFY_DEAD_NAME,
-			0,
-			notify_port,
-			MACH_MSG_TYPE_MAKE_SEND_ONCE,
-			&old_port);
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_DEBUG, "Can't request notification on service %x bootstrap %x: %s",
-		       service_port, servicep->bootstrap->bootstrap_port, "must be dead");
 		service_delete(servicep);
-		return BOOTSTRAP_SUCCESS;
-	} else if (old_port != MACH_PORT_NULL) {
-		syslog(LOG_DEBUG, "deallocating old notification port (%x) for service %x",
-		      old_port, serviceport);
-		result = mach_port_deallocate(
-				mach_task_self(),
-				old_port);
-		if (result != KERN_SUCCESS)
-			panic("mach_port_deallocate(): %s", mach_error_string(result));
 	}
+	servicep = service_new(bootstrap, servicename, serviceport, true, NULL);
+
+	service_watch(servicep);
+
 	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s",
 	     servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
+
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -1891,34 +1788,19 @@ x_bootstrap_info(
 	    if (bootstrap_lookup_service(bootstrap, servicep->name) == servicep)
 	    	cnt++;
 	}
-	result = vm_allocate(mach_task_self(),
-			     (vm_address_t *)&service_names,
-			     cnt * sizeof(service_names[0]),
-			     true);
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&service_names, cnt * sizeof(service_names[0]), true);
 	if (result != KERN_SUCCESS)
 		return BOOTSTRAP_NO_MEMORY;
 
-	result = vm_allocate(mach_task_self(),
-			     (vm_address_t *)&server_names,
-			     cnt * sizeof(server_names[0]),
-			     true);
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&server_names, cnt * sizeof(server_names[0]), true);
 	if (result != KERN_SUCCESS) {
-		(void)vm_deallocate(mach_task_self(),
-				    (vm_address_t)service_names,
-				    cnt * sizeof(service_names[0]));
+		(void)vm_deallocate(mach_task_self(), (vm_address_t)service_names, cnt * sizeof(service_names[0]));
 		return BOOTSTRAP_NO_MEMORY;
 	}
-	result = vm_allocate(mach_task_self(),
-			     (vm_address_t *)&service_actives,
-			     cnt * sizeof(service_actives[0]),
-			     true);
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&service_actives, cnt * sizeof(service_actives[0]), true);
 	if (result != KERN_SUCCESS) {
-		(void)vm_deallocate(mach_task_self(),
-				    (vm_address_t)service_names,
-				    cnt * sizeof(service_names[0]));
-		(void)vm_deallocate(mach_task_self(),
-				    (vm_address_t)server_names,
-				    cnt * sizeof(server_names[0]));
+		(void)vm_deallocate(mach_task_self(), (vm_address_t)service_names, cnt * sizeof(service_names[0]));
+		(void)vm_deallocate(mach_task_self(), (vm_address_t)server_names, cnt * sizeof(server_names[0]));
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
@@ -2042,41 +1924,26 @@ x_bootstrap_create_service(
 	if (!bootstrap)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
-	syslog(LOG_DEBUG, "Service creation attempt for service %s bootstrap %x",
-	      servicename, bootstrapport);
-
+	syslog(LOG_DEBUG, "Service creation attempt for service %s bootstrap %x", servicename, bootstrapport); 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep) {
-		syslog(LOG_DEBUG, "Service creation attempt for service %s failed, "
-			"service already exists", servicename);
+		syslog(LOG_DEBUG, "Service creation attempt for service %s failed, service already exists", servicename);
 		return BOOTSTRAP_NAME_IN_USE;
 	}
 
 	serverp = port_to_server(bootstrapport);
 
-	result = mach_port_allocate(mach_task_self(),
-				    MACH_PORT_RIGHT_RECEIVE,
-				    serviceportp);
+	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, serviceportp);
 	if (result != KERN_SUCCESS)
 		panic("port_allocate(): %s", mach_error_string(result));
-	result = mach_port_insert_right(mach_task_self(),
-					*serviceportp, 
-					*serviceportp,
-					MACH_MSG_TYPE_MAKE_SEND);
+	result = mach_port_insert_right(mach_task_self(), *serviceportp, *serviceportp, MACH_MSG_TYPE_MAKE_SEND);
 	if (result != KERN_SUCCESS)
 		panic("failed to insert send right(): %s", mach_error_string(result));
 
 	if (serverp)
 		serverp->activity++;
 
-	servicep = service_new(bootstrap,
-				servicename,
-				*serviceportp,
-				false,
-				serverp);
-
-	syslog(LOG_INFO, "Created new service %x in bootstrap %x: %s", 
-	    servicep->port, bootstrap->bootstrap_port, servicename);
+	servicep = service_new(bootstrap, servicename, *serviceportp, false, serverp);
 
 	return BOOTSTRAP_SUCCESS;
 }
