@@ -202,9 +202,7 @@ mach_port_t mach_init_init(void)
 	if (forward_ok) {
 		asprintf(&register_name, "com.apple.launchd.%d", getpid());
 
-		result = bootstrap_register(inherited_bootstrap_port,
-							register_name,
-							bootstrap->bootstrap_port);
+		result = bootstrap_register(inherited_bootstrap_port, register_name, bootstrap->bootstrap_port);
 		if (result != KERN_SUCCESS)
 			panic("register self(): %s", mach_error_string(result));
 	}
@@ -300,8 +298,7 @@ server_reap(struct server *serverp)
 
 		result = task_for_pid(mach_task_self(), serverp->pid, &serverp->task_port);
 		if (result != KERN_SUCCESS) {
-			syslog(LOG_INFO, "race getting new server task port for pid[%d]: %s",
-			     serverp->pid, mach_error_string(result));
+			syslog(LOG_INFO, "task_for_pid(%d) race after waitpid(): %s", serverp->pid, mach_error_string(result));
 			break;
 		}
 
@@ -337,9 +334,7 @@ server_reap(struct server *serverp)
 	 * got it in the first place.
 	 */
 	if (serverp->task_port != MACH_PORT_NULL) {
-		result = mach_port_deallocate(
-					mach_task_self(),
-					serverp->task_port);
+		result = mach_port_deallocate(mach_task_self(), serverp->task_port);
 		if (result != KERN_SUCCESS)
 			syslog(LOG_ERR, "mach_port_deallocate(): %s", mach_error_string(result));
 		serverp->task_port = MACH_PORT_NULL;
@@ -362,10 +357,7 @@ server_demand(struct server *serverp)
 
 	TAILQ_FOREACH(servicep, &services, tqe) {
 		if (serverp == servicep->server && !servicep->isActive) {
-			result = mach_port_move_member(
-							mach_task_self(),
-							servicep->port,
-							demand_port_set);
+			result = mach_port_move_member(mach_task_self(), servicep->port, demand_port_set);
 			if (result != KERN_SUCCESS)
 				panic("mach_port_move_member(): %s", mach_error_string(result));
 		}
@@ -398,13 +390,8 @@ server_setup(struct server *serverp)
 		panic("port_allocate(): %s", mach_error_string(result));
 
 	/* Request no-senders notification so we can tell when server dies */
-	result = mach_port_request_notification(mach_task_self(),
-						serverp->port,
-						MACH_NOTIFY_NO_SENDERS,
-						1,
-						serverp->port,
-						MACH_MSG_TYPE_MAKE_SEND_ONCE,
-						&old_port);
+	result = mach_port_request_notification(mach_task_self(), serverp->port, MACH_NOTIFY_NO_SENDERS,
+			1, serverp->port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_request_notification(): %s", mach_error_string(result));
 
@@ -524,10 +511,6 @@ server_exec(struct server *serverp)
 	char **argv;
 	sigset_t mask;
 
-	/*
-	 * Setup environment for server, someday this should be Mach stuff
-	 * rather than Unix crud
-	 */
 	argv = argvize(serverp->cmd);
 	closelog();
 
@@ -537,36 +520,31 @@ server_exec(struct server *serverp)
 
 		if (NULL == pwd) {
 			panic("Disabled server %x bootstrap %x: \"%s\": getpwuid(%d) failed",
-				 serverp->port, serverp->bootstrap->bootstrap_port,
-				 serverp->cmd, serverp->uid);
+				 serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, serverp->uid);
 		}
 
 		g = pwd->pw_gid;
 
 		if (-1 == setgroups(1, &g)) {
 			panic("Disabled server %x bootstrap %x: \"%s\": setgroups(1, %d): %s",
-					serverp->port, serverp->bootstrap->bootstrap_port,
-					serverp->cmd, g, strerror(errno));
+					serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, g, strerror(errno));
 		}
 
 		if (-1 == setgid(g)) {
 			panic("Disabled server %x bootstrap %x: \"%s\": setgid(%d): %s",
-					serverp->port, serverp->bootstrap->bootstrap_port,
-					serverp->cmd, g, strerror(errno));
+					serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, g, strerror(errno));
 		}
 
 		if (-1 == setuid(serverp->uid)) {
 			panic("Disabled server %x bootstrap %x: \"%s\": setuid(%d): %s",
-					 serverp->port, serverp->bootstrap->bootstrap_port,
-					   serverp->cmd, serverp->uid, strerror(errno));
+					 serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, serverp->uid, strerror(errno));
 		}
 	}
 
 
 	if (-1 == setsid()) {
 		panic("Temporary failure server %x bootstrap %x: \"%s\": setsid(): %s",
-			   serverp->port, serverp->bootstrap->bootstrap_port,
-			   serverp->cmd, strerror(errno));
+			   serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, strerror(errno));
 	}
 
 	sigemptyset(&mask);
@@ -575,10 +553,7 @@ server_exec(struct server *serverp)
 	setpriority(PRIO_PROCESS, 0, 0);
 	execv(argv[0], argv);
 	panic("Disabled server %x bootstrap %x: \"%s\": exec(): %s",
-			   serverp->port,
-			   serverp->bootstrap->bootstrap_port,
-			   serverp->cmd,
-			   strerror(errno));
+			   serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, strerror(errno));
 }	
 
 static char **
@@ -694,19 +669,16 @@ server_demux(
 	mach_msg_header_t *Request,
 	mach_msg_header_t *Reply)
 {
-    struct bootstrap *bootstrap;
-    struct service *servicep;
-    struct server *serverp;
-    kern_return_t result;
+	struct bootstrap *bootstrap;
+	struct service *servicep;
+	struct server *serverp;
+	kern_return_t result;
 	mig_reply_error_t *reply;
-        
+
 	syslog(LOG_DEBUG, "received message on port %x", Request->msgh_local_port);
 
 	reply = (mig_reply_error_t *)Reply;
 
-	/*
-	 * Pick off notification messages
-	 */
 	if (Request->msgh_local_port == notify_port) {
 		mach_port_name_t np;
 
@@ -721,10 +693,7 @@ server_demux(
 				forward_ok = false;
 			}
 		
-			/*
-			 * Check to see if a subset requestor port was deleted.
-			 */
-			while ((bootstrap = reqport_to_bootstrap(np)) != NULL) {
+			while ((bootstrap = reqport_to_bootstrap(np))) {
 				syslog(LOG_DEBUG, "Received dead name notification for bootstrap subset %x requestor port %x",
 					 bootstrap->bootstrap_port, bootstrap->requestor_port);
 				mach_port_deallocate(mach_task_self(), bootstrap->requestor_port);
@@ -732,31 +701,15 @@ server_demux(
 				bootstrap_deactivate(bootstrap);
 			}
 
-			/*
-			 * Check to see if a defined service has gone
-			 * away.
-			 */
-			while ((servicep = port_to_service(np)) != NULL) {
-				/*
-				 * Port gone, registered service died.
-				 */
-				syslog(LOG_DEBUG, "Received dead name notification for service %s "
-					  "on bootstrap port %x\n",
+			while ((servicep = port_to_service(np))) {
+				syslog(LOG_DEBUG, "Received dead name notification for service %s on bootstrap port %x\n",
 					  servicep->name, servicep->bootstrap);
 				syslog(LOG_DEBUG, "Service %s failed - deallocate", servicep->name);
 				service_delete(servicep);
 			}
 
-			/*
-			 * Check to see if a launched server task has gone
-			 * away.
-			 */
 			if ((serverp = taskport_to_server(np)) != NULL) {
-				/*
-				 * Port gone, server died or picked up new task.
-				 */
-				syslog(LOG_DEBUG, "Received task death notification for server %s ",
-					  serverp->cmd);
+				syslog(LOG_DEBUG, "Received task death notification for server %s", serverp->cmd);
 				server_reap(serverp);
 				server_dispatch(serverp);
 			}
@@ -764,26 +717,21 @@ server_demux(
 			mach_port_deallocate(mach_task_self(), np);
 			reply->RetCode = KERN_SUCCESS;
 			break;
-
 		case MACH_NOTIFY_PORT_DELETED:
 			np = ((mach_port_deleted_notification_t *)Request)->not_port;
 			syslog(LOG_DEBUG, "port deleted notification on 0x%x", np);
 			reply->RetCode = KERN_SUCCESS;
 			break;
-
 		case MACH_NOTIFY_SEND_ONCE:
 			syslog(LOG_DEBUG, "notification send-once right went unused");
 			reply->RetCode = KERN_SUCCESS;
 			break;
-
 		default:
 			syslog(LOG_ERR, "Unexpected notification: %d", Request->msgh_id);
 			reply->RetCode = KERN_FAILURE;
 			break;
 		}
-	}
-
-	else if (Request->msgh_local_port == backup_port) {
+	} else if (Request->msgh_local_port == backup_port) {
 		mach_port_name_t np;
 
 		memset(reply, 0, sizeof(*reply));
@@ -794,30 +742,25 @@ server_demux(
 			serverp = servicep->server;
 
 			switch (Request->msgh_id) {
-
 			case MACH_NOTIFY_PORT_DESTROYED:
 				/*
 				 * Port sent back to us, server died.
 				 */
-				syslog(LOG_DEBUG, "Received destroyed notification for service %s",
-					  servicep->name);
+				syslog(LOG_DEBUG, "Received destroyed notification for service %s", servicep->name);
 				syslog(LOG_DEBUG, "Service %x bootstrap %x backed up: %s",
-				     servicep->port, servicep->bootstrap->bootstrap_port,
-					 servicep->name);
+				     servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 				assert(canReceive(servicep->port));
 				servicep->isActive = false;
 				serverp->active_services--;
 				server_dispatch(serverp);
 				reply->RetCode = KERN_SUCCESS;
 				break;
-
 			case DEMAND_REQUEST:
 				/* message reflected over from demand start thread */
 				if (!server_active(serverp))
 					server_start(serverp);
 				reply->RetCode = KERN_SUCCESS;
 				break;
-
 			default:
 				syslog(LOG_DEBUG, "Mysterious backup_port notification %d", Request->msgh_id);
 				reply->RetCode = KERN_FAILURE;
@@ -827,9 +770,7 @@ server_demux(
 			syslog(LOG_DEBUG, "Backup_port notification - previously deleted service");
 			reply->RetCode = KERN_FAILURE;
 		}
-	}
-
-	else if (Request->msgh_id == MACH_NOTIFY_NO_SENDERS) {
+	} else if (Request->msgh_id == MACH_NOTIFY_NO_SENDERS) {
 		mach_port_t ns = Request->msgh_local_port;
 
 		if ((serverp = port_to_server(ns)) != NULL) {
@@ -852,18 +793,14 @@ server_demux(
 			bootstrap_delete(bootstrap);
 		}
 		
-		result = mach_port_mod_refs(mach_task_self(),
-						ns,
-						MACH_PORT_RIGHT_RECEIVE,
-						-1);
+		result = mach_port_mod_refs(mach_task_self(), ns, MACH_PORT_RIGHT_RECEIVE, -1);
 		if (result != KERN_SUCCESS)
 			panic("mach_port_mod_refs(): %s", mach_error_string(result));
 
 		memset(reply, 0, sizeof(*reply));
 		reply->RetCode = KERN_SUCCESS;
-	}
-     
-	else {	/* must be a service request */
+	} else {
+		/* must be a service request */
 		syslog(LOG_DEBUG, "Handled request.");
 		return bootstrap_server(Request, Reply);
 	}
@@ -886,8 +823,7 @@ mach_server_loop(void *arg __attribute__((unused)))
 
 	for (;;) {
 		mresult = mach_msg_server(server_demux, sizeof(union bootstrapMaxRequestSize), bootstrap_port_set,
-                        MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|
-                        MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
+                        MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
 		if (mresult != MACH_MSG_SUCCESS)
 				syslog(LOG_ERR, "mach_msg_server(): %s", mach_error_string(mresult));
 	}
@@ -1202,8 +1138,7 @@ server_delete(struct server *serverp)
 	bootstrap_delete(serverp->bootstrap);
 
 	if (serverp->port)
-		mach_port_mod_refs(mach_task_self(), serverp->port,
-				   MACH_PORT_RIGHT_RECEIVE, -1);
+		mach_port_mod_refs(mach_task_self(), serverp->port, MACH_PORT_RIGHT_RECEIVE, -1);
 
 	free(serverp);
 }	
@@ -1224,13 +1159,10 @@ bootstrap_deactivate(struct bootstrap *bootstrap)
 	 */
 	deactivating_bootstraps = bootstrap;
 	bootstrap->deactivate = NULL;
-	for (next_limit = deactivating_bootstraps, limit = NULL
-			 ; deactivating_bootstraps != limit
-			 ; limit = next_limit, next_limit = deactivating_bootstraps)
+	for (next_limit = deactivating_bootstraps, limit = NULL; deactivating_bootstraps != limit;
+			limit = next_limit, next_limit = deactivating_bootstraps)
 	{
-		for (bootstrap = deactivating_bootstraps
-				 ; bootstrap != limit
-				 ; bootstrap = bootstrap->deactivate)
+		for (bootstrap = deactivating_bootstraps; bootstrap != limit; bootstrap = bootstrap->deactivate)
 		{
 			TAILQ_FOREACH(query_bootstrap, &bootstraps, tqe) {
 				if (query_bootstrap->parent == bootstrap &&
@@ -1254,6 +1186,8 @@ bootstrap_deactivate(struct bootstrap *bootstrap)
 	 * in the list).
 	 */
 	do {
+		mach_port_t previous;
+
 		bootstrap = deactivating_bootstraps;
 		deactivating_bootstraps = bootstrap->deactivate;
 
@@ -1263,17 +1197,8 @@ bootstrap_deactivate(struct bootstrap *bootstrap)
 		
 		mach_port_deallocate(mach_task_self(), bootstrap->bootstrap_port);
 
-		{
-			mach_port_t previous;
-			mach_port_request_notification(
-					mach_task_self(),
-					bootstrap->bootstrap_port,
-					MACH_NOTIFY_NO_SENDERS,
-					1,
-					bootstrap->bootstrap_port,
-					MACH_MSG_TYPE_MAKE_SEND_ONCE,
-					&previous);
-		}
+		mach_port_request_notification( mach_task_self(), bootstrap->bootstrap_port, MACH_NOTIFY_NO_SENDERS,
+				1, bootstrap->bootstrap_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
 	} while (deactivating_bootstraps != NULL);
 }
 
@@ -1314,13 +1239,8 @@ bootstrap_delete(struct bootstrap *bootstrap)
  *		Returns BOOTSTRAP_NOT_PRIVILEGED, if bootstrap port invalid.
  */
 __private_extern__ kern_return_t
-x_bootstrap_create_server(
-	mach_port_t bootstrapport,
-	cmd_t server_cmd,
-	uid_t server_uid,
-	boolean_t on_demand,
-	security_token_t sectoken,
-	mach_port_t *server_portp)
+x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
+		security_token_t sectoken, mach_port_t *server_portp)
 {
 	struct server *serverp;
 	struct bootstrap *bootstrap;
@@ -1328,13 +1248,11 @@ x_bootstrap_create_server(
 	uid_t client_euid = sectoken.val[0];
 
 	bootstrap = port_to_bootstrap(bootstrapport, true);
-	syslog(LOG_DEBUG, "Server create attempt: \"%s\" bootstrap %x",
-	      server_cmd, bootstrapport);
+	syslog(LOG_DEBUG, "Server create attempt: \"%s\" bootstrap %x", server_cmd, bootstrapport);
 
 	/* No forwarding allowed for this call - security risk */
 	if (!bootstrap) {
-		syslog(LOG_DEBUG, "Server create: \"%s\": invalid bootstrap %x",
-			server_cmd, bootstrapport);
+		syslog(LOG_DEBUG, "Server create: \"%s\": invalid bootstrap %x", server_cmd, bootstrapport);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -1352,8 +1270,7 @@ x_bootstrap_create_server(
 	serverp = server_new(bootstrap, server_cmd, server_uid, on_demand);
 	server_setup(serverp);
 
-	syslog(LOG_INFO, "New server %x in bootstrap %x: \"%s\"",
-					serverp->port, bootstrapport, server_cmd);
+	syslog(LOG_INFO, "New server %x in bootstrap %x: \"%s\"", serverp->port, bootstrapport, server_cmd);
 	*server_portp = serverp->port;
 	return BOOTSTRAP_SUCCESS;
 }
@@ -1374,9 +1291,7 @@ x_bootstrap_create_server(
  * of the "server" for mach_init registration and re-launch purposes).
  */
 __private_extern__ kern_return_t
-x_bootstrap_unprivileged(
-	mach_port_t bootstrapport,
-	mach_port_t *unprivportp)
+x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 {
 	struct bootstrap *bootstrap;
 
@@ -1390,8 +1305,7 @@ x_bootstrap_unprivileged(
 
 	*unprivportp = bootstrap->bootstrap_port;
 
-	syslog(LOG_DEBUG, "Get unpriv bootstrap %x returned for bootstrap %x",
-	       bootstrap->bootstrap_port, bootstrapport);
+	syslog(LOG_DEBUG, "Get unpriv bootstrap %x returned for bootstrap %x", bootstrap->bootstrap_port, bootstrapport);
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -1412,10 +1326,7 @@ x_bootstrap_unprivileged(
  *			registered or checked-in.
  */
 __private_extern__ kern_return_t
-x_bootstrap_check_in(
-	mach_port_t	bootstrapport,
-	name_t		servicename,
-	mach_port_t	*serviceportp)
+x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
 {
 	kern_return_t result;
 	struct service *servicep;
@@ -1424,27 +1335,23 @@ x_bootstrap_check_in(
 
 	serverp = port_to_server(bootstrapport);
 	bootstrap = port_to_bootstrap(bootstrapport, true);
-	syslog(LOG_DEBUG, "Service checkin attempt for service %s bootstrap %x",
-	      servicename, bootstrapport);
+	syslog(LOG_DEBUG, "Service checkin attempt for service %s bootstrap %x", servicename, bootstrapport);
 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
-		syslog(LOG_DEBUG, "bootstrap_check_in service %s unknown%s", servicename,
-			forward_ok ? " forwarding" : "");
+		syslog(LOG_DEBUG, "bootstrap_check_in service %s unknown%s", servicename, forward_ok ? " forwarding" : "");
 		result = BOOTSTRAP_UNKNOWN_SERVICE;
 		if (forward_ok)
 			result = bootstrap_check_in(inherited_bootstrap_port, servicename, serviceportp);
 		return result;
 	}
 	if (servicep->server != NULL && servicep->server != serverp) {
-		syslog(LOG_DEBUG, "bootstrap_check_in service %s not privileged",
-			servicename);
+		syslog(LOG_DEBUG, "bootstrap_check_in service %s not privileged", servicename);
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (!canReceive(servicep->port)) {
 		assert(servicep->isActive);
-		syslog(LOG_DEBUG, "bootstrap_check_in service %s already active",
-			servicename);
+		syslog(LOG_DEBUG, "bootstrap_check_in service %s already active", servicename);
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
 
@@ -1477,10 +1384,7 @@ x_bootstrap_check_in(
  *			register or checked-in.
  */
 __private_extern__ kern_return_t
-x_bootstrap_register(
-	mach_port_t	bootstrapport,
-	name_t	servicename,
-	mach_port_t	serviceport)
+x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t serviceport)
 {
 	struct service *servicep;
 	struct server *serverp;
@@ -1488,9 +1392,6 @@ x_bootstrap_register(
 
 	syslog(LOG_DEBUG, "Register attempt for service %s port %x", servicename, serviceport);
 
-	/*
-	 * Validate the bootstrap.
-	 */
 	bootstrap = port_to_bootstrap(bootstrapport, true);
 	if (!bootstrap)
 		return BOOTSTRAP_NOT_PRIVILEGED;
@@ -1518,8 +1419,7 @@ x_bootstrap_register(
 
 	service_watch(servicep);
 
-	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s",
-	     servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
+	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 
 	return BOOTSTRAP_SUCCESS;
 }
@@ -1537,10 +1437,7 @@ x_bootstrap_register(
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
 __private_extern__ kern_return_t
-x_bootstrap_look_up(
-	mach_port_t	bootstrapport,
-	name_t	servicename,
-	mach_port_t	*serviceportp)
+x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
 {
 	struct service *servicep;
 	struct bootstrap *bootstrap;
@@ -1549,14 +1446,10 @@ x_bootstrap_look_up(
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
 		if (forward_ok) {
-			syslog(LOG_DEBUG, "bootstrap_look_up service %s forwarding",
-				servicename);
-			return bootstrap_look_up(inherited_bootstrap_port,
-						servicename,
-						serviceportp);
+			syslog(LOG_DEBUG, "bootstrap_look_up service %s forwarding", servicename);
+			return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
 		} else {
-			syslog(LOG_DEBUG, "bootstrap_look_up service %s unknown",
-				servicename);
+			syslog(LOG_DEBUG, "bootstrap_look_up service %s unknown", servicename);
 			return BOOTSTRAP_UNKNOWN_SERVICE;
 		}
 	}
@@ -1589,13 +1482,8 @@ x_bootstrap_look_up(
  *		if any service is unknown, it's false.
  */
 __private_extern__ kern_return_t
-x_bootstrap_look_up_array(
-	mach_port_t	bootstrapport,
-	name_array_t	servicenames,
-	unsigned int	servicenames_cnt,
-	mach_port_array_t	*serviceportsp,
-	unsigned int	*serviceports_cnt,
-	boolean_t	*allservices_known)
+x_bootstrap_look_up_array(mach_port_t bootstrapport, name_array_t servicenames, unsigned int servicenames_cnt,
+		mach_port_array_t *serviceportsp, unsigned int *serviceports_cnt, boolean_t *allservices_known)
 {
 	unsigned int i;
 	static mach_port_t service_ports[BOOTSTRAP_MAX_LOOKUP_COUNT];
@@ -1605,11 +1493,7 @@ x_bootstrap_look_up_array(
 	*serviceports_cnt = servicenames_cnt;
 	*allservices_known = true;
 	for (i = 0; i < servicenames_cnt; i++) {
-		if (   x_bootstrap_look_up(bootstrapport,
-					  servicenames[i],
-					  &service_ports[i])
-		    != BOOTSTRAP_SUCCESS)
-		{
+		if (x_bootstrap_look_up(bootstrapport, servicenames[i], &service_ports[i]) != BOOTSTRAP_SUCCESS) {
 			*allservices_known = false;
 			service_ports[i] = MACH_PORT_NULL;
 		}
@@ -1637,24 +1521,20 @@ x_bootstrap_look_up_array(
  *	token in the message trailer).
  */
 __private_extern__ kern_return_t
-x_bootstrap_parent(
-	mach_port_t bootstrapport,
-	security_token_t sectoken,
-	mach_port_t *parentport)
+x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_port_t *parentport)
 {
 	struct bootstrap *bootstrap;
+	uid_t u = sectoken.val[0];
 
 	syslog(LOG_DEBUG, "Parent attempt for bootstrap %x", bootstrapport);
 
 	bootstrap = port_to_bootstrap(bootstrapport, true);
 	if (!bootstrap) { 
-		syslog(LOG_DEBUG, "Parent attempt for bootstrap %x: invalid bootstrap",
-		      bootstrapport);
+		syslog(LOG_DEBUG, "Parent attempt for bootstrap %x: invalid bootstrap", bootstrapport);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
-	if (sectoken.val[0]) {
-		syslog(LOG_NOTICE, "Bootstrap parent for bootstrap %x: invalid security token (%d)",
-		       bootstrapport, sectoken.val[0]);
+	if (u) {
+		syslog(LOG_NOTICE, "UID %d was denied an answer to bootstrap_parent().", u);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (bootstrap->parent) {
@@ -1680,10 +1560,7 @@ x_bootstrap_parent(
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
 __private_extern__ kern_return_t
-x_bootstrap_status(
-	mach_port_t		bootstrapport,
-	name_t			servicename,
-	bootstrap_status_t	*serviceactivep)
+x_bootstrap_status(mach_port_t bootstrapport, name_t servicename, bootstrap_status_t *serviceactivep)
 {
 	struct service *servicep;
 	struct bootstrap *bootstrap;
@@ -1692,21 +1569,16 @@ x_bootstrap_status(
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL) {
 		if (forward_ok) {
-			syslog(LOG_DEBUG, "bootstrap_status forwarding status, server %s",
-				servicename);
-			return bootstrap_status(inherited_bootstrap_port,
-						servicename,
-						serviceactivep);
+			syslog(LOG_DEBUG, "bootstrap_status forwarding status, server %s", servicename);
+			return bootstrap_status(inherited_bootstrap_port, servicename, serviceactivep);
 		} else {
-			syslog(LOG_DEBUG, "bootstrap_status service %s unknown",
-				servicename);
+			syslog(LOG_DEBUG, "bootstrap_status service %s unknown", servicename);
 			return BOOTSTRAP_UNKNOWN_SERVICE;
 		}
 	}
 	*serviceactivep = bsstatus(servicep);
 
-	syslog(LOG_DEBUG, "bootstrap_status server %s %sactive", servicename,
-		servicep->isActive ? "" : "in");
+	syslog(LOG_DEBUG, "bootstrap_status server %s %sactive", servicename, servicep->isActive ? "" : "in");
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -1725,14 +1597,9 @@ x_bootstrap_status(
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
 __private_extern__ kern_return_t
-x_bootstrap_info(
-	mach_port_t			bootstrapport,
-	name_array_t			*servicenamesp,
-	unsigned int			*servicenames_cnt,
-	name_array_t			*servernamesp,
-	unsigned int			*servernames_cnt,
-	bootstrap_status_array_t	*serviceactivesp,
-	unsigned int			*serviceactives_cnt)
+x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
+		name_array_t *servernamesp, unsigned int *servernames_cnt,
+		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
 	kern_return_t result;
 	unsigned int i, cnt;
@@ -1770,23 +1637,17 @@ x_bootstrap_info(
 	TAILQ_FOREACH(servicep, &services, tqe) {
 	    if (bootstrap_lookup_service(bootstrap, servicep->name) != servicep)
 		continue;
-	    strncpy(service_names[i],
-		    servicep->name,
-		    sizeof(service_names[0]));
+	    strncpy(service_names[i], servicep->name, sizeof(service_names[0]));
 	    service_names[i][sizeof(service_names[0]) - 1] = '\0';
 	    if (servicep->server) {
 		    serverp = servicep->server;
-		    strncpy(server_names[i],
-			    serverp->cmd,
-			    sizeof(server_names[0]));
+		    strncpy(server_names[i], serverp->cmd, sizeof(server_names[0]));
 		    server_names[i][sizeof(server_names[0]) - 1] = '\0';
-		    syslog(LOG_DEBUG, "bootstrap info service %s server %s %sactive",
-			servicep->name,
-			serverp->cmd, servicep->isActive ? "" : "in"); 
+		    syslog(LOG_DEBUG, "bootstrap info service %s server %s %sactive", servicep->name, serverp->cmd,
+				    servicep->isActive ? "" : "in"); 
 	    } else {
 		    server_names[i][0] = '\0';
-		    syslog(LOG_DEBUG, "bootstrap info service %s %sactive",
-			servicep->name, servicep->isActive ? "" : "in"); 
+		    syslog(LOG_DEBUG, "bootstrap info service %s %sactive", servicep->name, servicep->isActive ? "" : "in"); 
 	    }
 	    service_actives[i] = bsstatus(servicep);
 	    i++;
@@ -1820,10 +1681,7 @@ x_bootstrap_info(
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
 __private_extern__ kern_return_t
-x_bootstrap_subset(
-	mach_port_t	bootstrapport,
-	mach_port_t	requestorport,
-	mach_port_t	*subsetportp)
+x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_port_t *subsetportp)
 {
 	kern_return_t result;
 	struct bootstrap *bootstrap;
@@ -1872,10 +1730,7 @@ x_bootstrap_subset(
  *		Returns BOOTSTRAP_NAME_IN_USE, if service already exists.
  */
 __private_extern__ kern_return_t
-x_bootstrap_create_service(
-	mach_port_t bootstrapport,
-	name_t	servicename,
-	mach_port_t *serviceportp)
+x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
 {
 	struct server *serverp;
 	struct service *servicep;
@@ -1925,8 +1780,7 @@ inform_server_loop(mach_port_name_t about, mach_msg_option_t options)
 	not.not_port.type = MACH_MSG_PORT_DESCRIPTOR;
 	not.not_port.disposition = MACH_MSG_TYPE_PORT_NAME;
 	not.not_port.name = about;
-	return mach_msg(&not.not_header, MACH_SEND_MSG|options, size,
-			0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
+	return mach_msg(&not.not_header, MACH_SEND_MSG|options, size, 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
 }
 
 void
