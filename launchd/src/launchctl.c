@@ -107,6 +107,7 @@ static const struct {
 	{ "stdout",	stdio_cmd,		"Redirect launchd's standard out to the given path" },
 	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
+	{ "singleuser",	fyi_cmd,		"Switch to single-user mode" },
 	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
 	{ "getrusage",	getrusage_cmd,		"Get resource usage statistics from launchd" },
 	{ "log",	logupdate_cmd,		"Adjust the logging level or mask of launchd" },
@@ -1230,8 +1231,11 @@ static int fyi_cmd(int argc, char *const argv[])
 		return 1;
 	}
 
-	if (!strcmp(argv[0], "shutdown"))
+	if (!strcmp(argv[0], "shutdown")) {
 		lmsgk = LAUNCH_KEY_SHUTDOWN;
+	} else if (!strcmp(argv[0], "singleuser")) {
+		lmsgk = LAUNCH_KEY_SINGLEUSER;
+	}
 
 	msg = launch_data_new_string(lmsgk);
 	resp = launch_msg(msg);

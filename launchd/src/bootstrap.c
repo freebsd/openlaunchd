@@ -138,9 +138,8 @@ static boolean_t server_demux(mach_msg_header_t *Request, mach_msg_header_t *Rep
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 static bool forward_ok = true;
+static bool mach_init_shutdown_in_progress = false;
 static char *register_name = NULL;
-
-static bool shutdown_in_progress = false;
 
 static bool canReceive(mach_port_t);
 
@@ -168,7 +167,8 @@ static void notify_server_loop(mach_port_name_t about);
 
 void mach_start_shutdown(void)
 {
-	shutdown_in_progress = true;
+	mach_init_shutdown_in_progress = true;
+
 	inform_server_loop(MACH_PORT_NULL, MACH_SEND_TIMEOUT);
 }
 
@@ -210,26 +210,42 @@ void mach_init_init(void)
 	}
 
 	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-	result = pthread_create(&demand_thread, &attr, demand_loop, NULL);
-	if (result)
-		panic("pthread_create(): %s", strerror(result));
-	pthread_attr_destroy(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	result = pthread_create(&demand_thread, &attr, demand_loop, NULL);
+	if (result != 0) {
+		syslog(LOG_ERR, "pthread_create(): %s", strerror(result));
+		exit(EXIT_FAILURE);
+	}
 
 	result = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
 	if (result != 0) {
-		syslog(LOG_ERR, "pthread_create(mach_server_loop): %s", strerror(result));
+		syslog(LOG_ERR, "pthread_create(): %s", strerror(result));
 		exit(EXIT_FAILURE);
 	}
+
 	pthread_attr_destroy(&attr);
 
 	launchd_bootstrap_port = bootstrap->bootstrap_port;
 
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
+}
+
+void mach_init_reap(void)
+{
+	int result;
+	void *status;
+
+	result = pthread_join(demand_thread, &status);
+	if (result != 0) {
+		syslog(LOG_ERR, "pthread_join(): %s", strerror(result));
+	}
+
+	result = pthread_join(mach_server_loop_thread, &status);
+	if (result != 0) {
+		syslog(LOG_ERR, "pthread_join(): %s", strerror(result));
+	}
 }
 
 void
@@ -383,9 +399,9 @@ static void
 server_dispatch(struct server *serverp)
 {
 	if (!server_active(serverp)) {
-		if (server_useless(serverp) || shutdown_in_progress)
+		if (server_useless(serverp))
 			server_delete(serverp);
-		else if (serverp->ondemand)
+		else if (serverp->ondemand || mach_init_shutdown_in_progress)
 			server_demand(serverp);
 		else
 			server_start(serverp);
@@ -612,12 +628,14 @@ demand_loop(void *arg __attribute__((unused)))
 		unsigned int i;
 
 		/*
-		 * Receive indication of message on demand service
-		 * ports without actually receiving the message (we'll
-		 * let the actual server do that.
+		 * Receive indication of message on demand service ports
+		 * without actually receiving the message (we'll let the actual
+		 * server do that.
 		 */
 		dresult = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
-		if (dresult != MACH_RCV_TOO_LARGE) {
+		if (dresult == MACH_RCV_PORT_CHANGED) {
+			pthread_exit(NULL);
+		} else if (dresult != MACH_RCV_TOO_LARGE) {
 			syslog(LOG_ERR, "demand_loop: mach_msg(): %s", mach_error_string(dresult));
 			continue;
 		}
@@ -673,15 +691,20 @@ demand_loop(void *arg __attribute__((unused)))
  */
 
 static boolean_t
-server_demux(
-	mach_msg_header_t *Request,
-	mach_msg_header_t *Reply)
+server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 {
 	struct bootstrap *bootstrap;
 	struct service *servicep;
 	struct server *serverp;
 	kern_return_t result;
 	mig_reply_error_t *reply;
+
+	if (mach_init_shutdown_in_progress) {
+		bootstrap_deactivate(TAILQ_FIRST(&bootstraps));
+		mach_port_destroy(mach_task_self(), demand_port_set);
+		mach_init_shutdown_in_progress = false;
+		pthread_exit(NULL);
+	}
 
 	syslog(LOG_DEBUG, "received message on port %x", Request->msgh_local_port);
 

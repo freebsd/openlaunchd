@@ -116,6 +116,7 @@ static launch_data_t setstdio(int d, launch_data_t o);
 static launch_data_t adjust_rlimits(launch_data_t in);
 static void batch_job_enable(bool e, struct conncb *c);
 static void do_shutdown(void);
+static void do_single_user(void);
 
 static void listen_callback(void *, struct kevent *);
 static void async_callback(void);
@@ -184,6 +185,7 @@ static pid_t readcfg_pid = 0;
 static pid_t launchd_proper_pid = 0;
 static bool launchd_inited = false;
 static bool shutdown_in_progress = false;
+static bool re_exec_in_single_user_mode = false;
 sigset_t blocked_signals = 0;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
@@ -364,11 +366,26 @@ int main(int argc, char *argv[])
 		job_start(fbj);
 
 	for (;;) {
-		if (getpid() == 1) {
-			if (readcfg_pid == 0)
-				init_pre_kevent();
-		} else if (shutdown_in_progress && total_children == 0) {
-			exit(EXIT_SUCCESS);
+		if (getpid() == 1 && readcfg_pid == 0)
+			init_pre_kevent();
+
+		if (shutdown_in_progress && total_children == 0) {
+			struct jobcb *j;
+
+			while ((j = TAILQ_FIRST(&jobs)))
+				job_remove(j);
+			
+			shutdown_in_progress = false;
+
+			mach_init_reap();
+
+			if (getpid() != 1) {
+				exit(EXIT_SUCCESS);
+			} else if (re_exec_in_single_user_mode) {
+				re_exec_in_single_user_mode = false;
+				syslog(LOG_NOTICE, "About to re-exec into single user mode...");
+				execl("/sbin/launchd", "/sbin/launchd", "-s", NULL);
+			}
 		}
 
 		switch (kevent(mainkq, NULL, 0, &kev, 1, NULL)) {
@@ -995,6 +1012,9 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		resp = launch_data_new_errno(0);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SHUTDOWN)) {
 		do_shutdown();
+		resp = launch_data_new_errno(0);
+	} else if (!strcmp(cmd, LAUNCH_KEY_SINGLEUSER)) {
+		do_single_user();
 		resp = launch_data_new_errno(0);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBS)) {
 		resp = get_jobs(NULL);
@@ -1850,19 +1870,40 @@ static void pid1waitpid(void)
 
 static void do_shutdown(void)
 {
-	struct jobcb *j;
+	//struct jobcb *j;
 
 	shutdown_in_progress = true;
 
 	kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback);
 
-	TAILQ_FOREACH(j, &jobs, tqe)
-		job_stop(j);
+	//TAILQ_FOREACH(j, &jobs, tqe)
+	//	job_stop(j);
 
 	mach_start_shutdown();
 
 	if (getpid() == 1)
 		catatonia();
+}
+
+static void do_single_user(void)
+{
+	int tries;
+
+	do_shutdown();
+
+	kill(-1, SIGTERM);
+
+	for (tries = 0; tries < 10; tries++) {
+		sleep(1);
+		if (kill(-1, 0) == -1 && errno == ESRCH)
+			goto out;
+	}
+
+	syslog(LOG_WARNING, "Gave up waiting for processes to exit while going to single user mode, sending SIGKILL");
+	kill(-1, SIGKILL);
+
+out:
+	re_exec_in_single_user_mode = true;
 }
 
 static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
