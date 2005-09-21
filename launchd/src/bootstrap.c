@@ -567,7 +567,7 @@ server_exec(struct server *serverp)
 
 
 	if (-1 == setsid()) {
-		panic("Temporary failure server %x bootstrap %x: \"%s\": setsid(): %s",
+		syslog(LOG_WARNING, "Temporary failure server %x bootstrap %x: \"%s\": setsid(): %s",
 			   serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, strerror(errno));
 	}
 
@@ -1293,9 +1293,9 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (getuid() != 0 && server_uid != getuid()) {
-		syslog(LOG_NOTICE, "Server create: \"%s\" failed: As UID %d, we cannot switch to UID %d",
+		syslog(LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
 			server_cmd, getuid(), server_uid);
-		return BOOTSTRAP_NOT_PRIVILEGED;
+		server_uid = getuid();
 	}
 
 	serverp = server_new(bootstrap, server_cmd, server_uid, on_demand);
