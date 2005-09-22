@@ -1287,14 +1287,20 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (client_euid != 0 && client_euid != getuid()) {
-		syslog(LOG_NOTICE, "Server create: \"%s\": insufficient privilege: The caller is UID %d and we're %d",
-			server_cmd, client_euid, getuid());
+	if (getuid() == 0) {
+		/* this code should go away once the per session launchd is integrated with the rest of the system */
+		if (client_euid != 0 && client_euid != server_uid) {
+			syslog(LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
+					server_cmd, client_euid, server_uid);
+			server_uid = client_euid;
+		}
+	} else if (client_euid != 0 && client_euid != getuid()) {
+		syslog(LOG_ALERT, "Security: UID %d somehow acquired the bootstrap port of UID %d and tried to create a server. Denied.",
+				client_euid, getuid());
 		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-	if (getuid() != 0 && server_uid != getuid()) {
+	} else if (server_uid != getuid()) {
 		syslog(LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
-			server_cmd, getuid(), server_uid);
+				server_cmd, getuid(), server_uid);
 		server_uid = getuid();
 	}
 
