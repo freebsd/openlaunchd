@@ -1287,14 +1287,18 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (getuid() == 0) {
-		/* this code should go away once the per session launchd is integrated with the rest of the system */
+#define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
+	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
+#ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
+	if (getpid() == 1) {
 		if (client_euid != 0 && client_euid != server_uid) {
 			syslog(LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
 					server_cmd, client_euid, server_uid);
 			server_uid = client_euid;
 		}
-	} else if (client_euid != 0 && client_euid != getuid()) {
+	} else
+#endif
+	if (client_euid != 0 && client_euid != getuid()) {
 		syslog(LOG_ALERT, "Security: UID %d somehow acquired the bootstrap port of UID %d and tried to create a server. Denied.",
 				client_euid, getuid());
 		return BOOTSTRAP_NOT_PRIVILEGED;
