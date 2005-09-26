@@ -147,29 +147,23 @@ static pid_t fork_with_bootstrap_port(mach_port_t p);
 static void init_ports(void);
 static char **argvize(const char *string);
 static void *demand_loop(void *arg);
-static void *mach_server_loop(void *);
+static void do_bootstrap_request(mach_port_t bsport);
 
 /*
  * Private ports we hold receive rights for.  We also hold receive rights
  * for all the privileged ports.  Those are maintained in the server
  * structs.
  */
-static mach_port_t bootstrap_port_set;
 static mach_port_t demand_port_set;
-static pthread_t mach_server_loop_thread;
 static pthread_t demand_thread;
 
 static mach_port_t notify_port;
 static mach_port_t backup_port;
 
-static mach_msg_return_t inform_server_loop(mach_port_name_t about, mach_msg_option_t options);
-static void notify_server_loop(mach_port_name_t about);
-
 void mach_start_shutdown(void)
 {
 	mach_init_shutdown_in_progress = true;
-
-	inform_server_loop(MACH_PORT_NULL, MACH_SEND_TIMEOUT);
+	mach_port_destroy(mach_task_self(), demand_port_set);
 }
 
 void mach_init_init(void)
@@ -218,12 +212,6 @@ void mach_init_init(void)
 		exit(EXIT_FAILURE);
 	}
 
-	result = pthread_create(&mach_server_loop_thread, &attr, mach_server_loop, NULL);
-	if (result != 0) {
-		syslog(LOG_ERR, "pthread_create(): %s", strerror(result));
-		exit(EXIT_FAILURE);
-	}
-
 	pthread_attr_destroy(&attr);
 
 	launchd_bootstrap_port = bootstrap->bootstrap_port;
@@ -241,11 +229,6 @@ void mach_init_reap(void)
 	if (result != 0) {
 		syslog(LOG_ERR, "pthread_join(): %s", strerror(result));
 	}
-
-	result = pthread_join(mach_server_loop_thread, &status);
-	if (result != 0) {
-		syslog(LOG_ERR, "pthread_join(): %s", strerror(result));
-	}
 }
 
 void
@@ -253,22 +236,17 @@ init_ports(void)
 {
 	kern_return_t result;
 
-	/* Create port set that server loop listens to */
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &bootstrap_port_set);
-	if (result != KERN_SUCCESS)
-		panic("port_set_allocate(): %s", mach_error_string(result));
-
 	/* Create demand port set that second thread listens to */
 	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &demand_port_set);
 	if (result != KERN_SUCCESS)
 		panic("port_set_allocate(): %s", mach_error_string(result));
-
+	
 	/* Create notify port and add to server port set */
 	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &notify_port);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_allocate(): %s", mach_error_string(result));
 
-	result = mach_port_move_member(mach_task_self(), notify_port, bootstrap_port_set);
+	result = mach_port_move_member(mach_task_self(), notify_port, demand_port_set);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_move_member(): %s", mach_error_string(result));
 	
@@ -277,7 +255,7 @@ init_ports(void)
 	if (result != KERN_SUCCESS)
 		panic("mach_port_allocate(): %s", mach_error_string(result));
 
-	result = mach_port_move_member(mach_task_self(), backup_port, bootstrap_port_set);
+	result = mach_port_move_member(mach_task_self(), backup_port, demand_port_set);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_move_member(): %s", mach_error_string(result));
 }
@@ -427,7 +405,7 @@ server_setup(struct server *serverp)
 		panic("mach_port_request_notification(): %s", mach_error_string(result));
 
 	/* Add privileged server port to bootstrap port set */
-	result = mach_port_move_member(mach_task_self(), serverp->port, bootstrap_port_set);
+	result = mach_port_move_member(mach_task_self(), serverp->port, demand_port_set);
 	if (result != KERN_SUCCESS)
 		panic("mach_port_move_member(): %s", mach_error_string(result));
 }
@@ -618,7 +596,8 @@ demand_loop(void *arg __attribute__((unused)))
 {
 	mach_msg_empty_rcv_t dummy;
 	kern_return_t dresult;
-
+	struct service *servicep;
+	struct server *serverp;
 
 	for (;;) {
 		mach_port_name_array_t members;
@@ -634,6 +613,8 @@ demand_loop(void *arg __attribute__((unused)))
 		 */
 		dresult = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
 		if (dresult == MACH_RCV_PORT_CHANGED) {
+			bootstrap_deactivate(TAILQ_FIRST(&bootstraps));
+			mach_init_shutdown_in_progress = false;
 			pthread_exit(NULL);
 		} else if (dresult != MACH_RCV_TOO_LARGE) {
 			syslog(LOG_ERR, "demand_loop: mach_msg(): %s", mach_error_string(dresult));
@@ -667,12 +648,17 @@ demand_loop(void *arg __attribute__((unused)))
 			 * for it.
 			 */
 			if (status.mps_msgcount) {
-				dresult = mach_port_move_member(mach_task_self(), members[i], MACH_PORT_NULL);
-				if (dresult != KERN_SUCCESS) {
-					syslog(LOG_ERR, "demand_loop: mach_port_move_member(): %s", mach_error_string(dresult));
-					continue;
+				if ((servicep = port_to_service(members[i])) && (serverp = servicep->server)) {
+					dresult = mach_port_move_member(mach_task_self(), members[i], MACH_PORT_NULL);
+					if (dresult != KERN_SUCCESS) {
+						syslog(LOG_ERR, "demand_loop: mach_port_move_member(): %s", mach_error_string(dresult));
+						continue;
+					}
+					if (!server_active(serverp))
+						server_start(serverp);
+				} else {
+					do_bootstrap_request(members[i]);
 				}
-				notify_server_loop(members[i]);
 			}
 		}
 
@@ -698,21 +684,13 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 	struct server *serverp;
 	kern_return_t result;
 	mig_reply_error_t *reply;
-
-	if (mach_init_shutdown_in_progress) {
-		bootstrap_deactivate(TAILQ_FIRST(&bootstraps));
-		mach_port_destroy(mach_task_self(), demand_port_set);
-		mach_init_shutdown_in_progress = false;
-		pthread_exit(NULL);
-	}
+	mach_port_name_t np;
 
 	syslog(LOG_DEBUG, "received message on port %x", Request->msgh_local_port);
 
 	reply = (mig_reply_error_t *)Reply;
 
 	if (Request->msgh_local_port == notify_port) {
-		mach_port_name_t np;
-
 		memset(reply, 0, sizeof(*reply));
 		switch (Request->msgh_id) {
 		case MACH_NOTIFY_DEAD_NAME:
@@ -763,8 +741,6 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 			break;
 		}
 	} else if (Request->msgh_local_port == backup_port) {
-		mach_port_name_t np;
-
 		memset(reply, 0, sizeof(*reply));
 
 		np = ((mach_port_destroyed_notification_t *)Request)->not_port.name; 
@@ -772,8 +748,7 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 		if (servicep != NULL) {
 			serverp = servicep->server;
 
-			switch (Request->msgh_id) {
-			case MACH_NOTIFY_PORT_DESTROYED:
+			if (Request->msgh_id == MACH_NOTIFY_PORT_DESTROYED) {
 				/*
 				 * Port sent back to us, server died.
 				 */
@@ -785,17 +760,9 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 				serverp->active_services--;
 				server_dispatch(serverp);
 				reply->RetCode = KERN_SUCCESS;
-				break;
-			case DEMAND_REQUEST:
-				/* message reflected over from demand start thread */
-				if (!server_active(serverp))
-					server_start(serverp);
-				reply->RetCode = KERN_SUCCESS;
-				break;
-			default:
+			} else {
 				syslog(LOG_DEBUG, "Mysterious backup_port notification %d", Request->msgh_id);
 				reply->RetCode = KERN_FAILURE;
-				break;
 			}
 		} else {
 			syslog(LOG_DEBUG, "Backup_port notification - previously deleted service");
@@ -847,18 +814,15 @@ union bootstrapMaxRequestSize {
 	union __ReplyUnion__x_bootstrap_subsystem rep;
 };
 
-void *
-mach_server_loop(void *arg __attribute__((unused)))
+void
+do_bootstrap_request(mach_port_t bsport)
 {
 	mach_msg_return_t mresult;
 
-	for (;;) {
-		mresult = mach_msg_server(server_demux, sizeof(union bootstrapMaxRequestSize), bootstrap_port_set,
-				MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
-		if (mresult != MACH_MSG_SUCCESS)
-				syslog(LOG_ERR, "mach_msg_server(): %s", mach_error_string(mresult));
-	}
-	return NULL;
+	mresult = mach_msg_server_once(server_demux, sizeof(union bootstrapMaxRequestSize), bsport,
+			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
+	if (mresult != MACH_MSG_SUCCESS)
+		syslog(LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
 }
 
 bool
@@ -947,7 +911,7 @@ bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
 		goto out_bad;
 	}
 
-	result = mach_port_insert_member(mach_task_self(), bootstrap->bootstrap_port, bootstrap_port_set);
+	result = mach_port_insert_member(mach_task_self(), bootstrap->bootstrap_port, demand_port_set);
 	if (result != KERN_SUCCESS) {
 		syslog(LOG_ERR, "port_set_add(): %s", mach_error_string(result));
 		goto out_bad;
@@ -1804,32 +1768,4 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_p
 	servicep = service_new(bootstrap, servicename, *serviceportp, false, serverp);
 
 	return BOOTSTRAP_SUCCESS;
-}
-
-mach_msg_return_t
-inform_server_loop(mach_port_name_t about, mach_msg_option_t options)
-{
-	mach_port_destroyed_notification_t not;
-	mach_msg_size_t size = sizeof(not) - sizeof(not.trailer);
-
-	not.not_header.msgh_id = DEMAND_REQUEST;
-	not.not_header.msgh_remote_port = backup_port;
-	not.not_header.msgh_local_port = MACH_PORT_NULL;
-	not.not_header.msgh_bits = MACH_MSGH_BITS(MACH_MSG_TYPE_MAKE_SEND, 0);
-	not.not_header.msgh_size = size;
-	not.not_body.msgh_descriptor_count = 1;
-	not.not_port.type = MACH_MSG_PORT_DESCRIPTOR;
-	not.not_port.disposition = MACH_MSG_TYPE_PORT_NAME;
-	not.not_port.name = about;
-	return mach_msg(&not.not_header, MACH_SEND_MSG|options, size, 0, MACH_PORT_NULL, MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL);
-}
-
-void
-notify_server_loop(mach_port_name_t about)
-{
-	mach_msg_return_t result;
-
-	result = inform_server_loop(about, MACH_MSG_OPTION_NONE);
-	if (result != MACH_MSG_SUCCESS)
-		syslog(LOG_ERR, "notify_server_loop: mach_msg(): %s", mach_error_string(result));
 }
