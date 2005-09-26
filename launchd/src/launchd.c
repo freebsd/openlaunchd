@@ -2326,10 +2326,19 @@ static launch_data_t adjust_rlimits(launch_data_t in)
 				default:
 					break;
 				}
-				if (sysctl(gmib, 2, NULL, NULL, &gval, sizeof(gval)) == -1)
-					syslog(LOG_WARNING, "sysctl(\"%s\"): %m", gstr);
-				if (sysctl(pmib, 2, NULL, NULL, &pval, sizeof(pval)) == -1)
-					syslog(LOG_WARNING, "sysctl(\"%s\"): %m", pstr);
+
+				if (gval > 0) {
+					if (sysctl(gmib, 2, NULL, NULL, &gval, sizeof(gval)) == -1)
+						syslog(LOG_WARNING, "sysctl(\"%s\"): %m", gstr);
+				} else {
+					syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", gstr);
+				}
+				if (pval > 0) {
+					if (sysctl(pmib, 2, NULL, NULL, &pval, sizeof(pval)) == -1)
+						syslog(LOG_WARNING, "sysctl(\"%s\"): %m", pstr);
+				} else {
+					syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", pstr);
+				}
 			}
 			if (setrlimit(i, ltmp + i) == -1)
 				syslog(LOG_WARNING, "setrlimit(): %m");
