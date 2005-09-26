@@ -161,6 +161,7 @@ static void SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		CFSTR("Core Graphics"),
 		CFSTR("Core Services"),
 		CFSTR("Network"),
+		CFSTR("TIM"),
 		NULL
 	};
 	CFMutableArrayRef aList, aNewList;
