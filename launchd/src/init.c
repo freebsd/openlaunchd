@@ -814,32 +814,6 @@ catatonia(void)
 		s->se_flags |= SE_SHUTDOWN;
 }
 
-/*
- * Bring the system down to single user.
- */
-void
-death(void)
-{
-	int i;
-	static const int death_sigs[3] = { SIGHUP, SIGTERM, SIGKILL };
-
-	catatonia();
-
-	single_user_mode = true;
-
-	/* NB: should send a message to the session logger to avoid blocking. */
-	logwtmp("~", "shutdown", "");
-
-	for (i = 0; i < 3; ++i) {
-		if (kill(-1, death_sigs[i]) == -1 && errno == ESRCH)
-			return;
-		syslog(LOG_ERR, "we should be trying to detect a valid clean-up");
-		sleep(DEATH_WATCH);
-	}
-
-	syslog(LOG_WARNING, "some processes would not die; ps axl advised");
-}
-
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 __private_extern__ bool init_check_pid(pid_t p)
 {

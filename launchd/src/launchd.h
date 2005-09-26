@@ -47,7 +47,6 @@ bool init_check_pid(pid_t);
 
 void update_ttys(void);
 void catatonia(void);
-void death(void);
 
 void mach_start_shutdown(void);
 void mach_init_init(void);
