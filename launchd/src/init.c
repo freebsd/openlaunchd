@@ -629,6 +629,7 @@ session_launch(session_t s)
 	se_cmd_t *se_cmd;
 	const char *session_type = NULL;
 	time_t current_time      = time(NULL);
+	bool is_loginwindow = false;
 
 	// Setup the default values;
 	switch (s->se_flags & SE_GETTY_LAUNCH) {
@@ -653,7 +654,16 @@ session_launch(session_t s)
 		break;
 	}
 
-	if ((pid = launchd_fork()) == -1) {
+	if (strcmp(se_cmd->argv[0], "/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow") == 0)
+		is_loginwindow = true;
+
+	if (is_loginwindow) {
+		pid = launchd_ws_fork();
+	} else {
+		pid = launchd_fork();
+	}
+
+	if (pid == -1) {
 		syslog(LOG_ERR, "can't fork for %s on port %s: %m",
 				session_type, s->se_device);
 		update_ttys();
@@ -681,7 +691,7 @@ session_launch(session_t s)
 
 	setpriority(PRIO_PROCESS, 0, 0);
 
-	if (strcmp(se_cmd->argv[0], "/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow"))
+	if (!is_loginwindow)
 		launchd_SessionCreate(se_cmd->argv[0]);
 
 	execv(se_cmd->argv[0], se_cmd->argv);

@@ -137,9 +137,11 @@ static boolean_t server_demux(mach_msg_header_t *Request, mach_msg_header_t *Rep
 
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
+static mach_port_t ws_bootstrap_port = MACH_PORT_NULL;
 static bool forward_ok = true;
 static bool mach_init_shutdown_in_progress = false;
 static char *register_name = NULL;
+static struct bootstrap *ws_bootstrap = NULL;
 
 static bool canReceive(mach_port_t);
 
@@ -176,6 +178,10 @@ void mach_init_init(void)
 
 	if ((bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) == NULL) {
 		syslog(LOG_ALERT, "root bootstrap allocation failed!");
+		exit(EXIT_FAILURE);
+	}
+	if ((ws_bootstrap = bootstrap_new(bootstrap, MACH_PORT_NULL)) == NULL) {
+		syslog(LOG_ALERT, "WindowServer sub-bootstrap allocation failed!");
 		exit(EXIT_FAILURE);
 	}
 	
@@ -215,6 +221,7 @@ void mach_init_init(void)
 	pthread_attr_destroy(&attr);
 
 	launchd_bootstrap_port = bootstrap->bootstrap_port;
+	ws_bootstrap_port = ws_bootstrap->bootstrap_port;
 
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
@@ -415,6 +422,11 @@ pid_t launchd_fork(void)
 	return fork_with_bootstrap_port(launchd_bootstrap_port);
 }
 
+pid_t launchd_ws_fork(void)
+{
+	return fork_with_bootstrap_port(ws_bootstrap_port);
+}
+
 pid_t
 fork_with_bootstrap_port(mach_port_t p)
 {
@@ -431,7 +443,7 @@ fork_with_bootstrap_port(mach_port_t p)
 	if (result != KERN_SUCCESS)
 		panic("task_set_bootstrap_port(): %s", mach_error_string(result));
 
-	if (launchd_bootstrap_port != p) {
+	if (launchd_bootstrap_port != p && ws_bootstrap_port != p) {
 		result = mach_port_deallocate(mach_task_self(), p);
 		if (result != KERN_SUCCESS)
 			panic("mach_port_deallocate(): %s", mach_error_string(result));
@@ -1260,6 +1272,8 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 					server_cmd, client_euid, server_uid);
 			server_uid = client_euid;
 		}
+		if (client_euid == 0 && strstr(server_cmd, "WindowServer"))
+			bootstrap = ws_bootstrap;
 	} else
 #endif
 	if (client_euid != 0 && client_euid != getuid()) {

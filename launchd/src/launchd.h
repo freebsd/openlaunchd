@@ -23,6 +23,8 @@
 #ifndef __LAUNCHD_H__
 #define __LAUNCHD_H__
 
+#define BUG() syslog(LOG_NOTICE, "Please file a bug. Unexpected condition at %s:%d in: %s", __FILE__, __LINE__, __func__)
+
 struct kevent;
 
 typedef void (*kq_callback)(void *, struct kevent *);
@@ -37,6 +39,7 @@ extern int pid1_child_exit_status;
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 void launchd_SessionCreate(const char *who);
 pid_t launchd_fork(void);
+pid_t launchd_ws_fork(void);
 
 void init_boot(bool sflag, bool vflag, bool xflag);
 void init_pre_kevent(void);
