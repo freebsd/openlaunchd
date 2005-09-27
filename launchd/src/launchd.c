@@ -23,10 +23,6 @@
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
-#ifdef EVFILT_MACH_IMPLEMENTED
-#include <mach/mach_error.h>
-#include <mach/port.h>
-#endif
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
@@ -161,12 +157,6 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
 static void launchd_server_init(void);
 static void conceive_firstborn(char *argv[], const char *session_user);
 
-#ifdef EVFILT_MACH_IMPLEMENTED
-static void *mach_demand_loop(void *);
-static void mach_callback(void *, struct kevent *);
-static kq_callback kqmach_callback = mach_callback;
-#endif
-
 static void usage(FILE *where);
 static int _fd(int fd);
 
@@ -204,7 +194,7 @@ int main(int argc, char *argv[])
 	struct jobcb *fbj;
 	struct kevent kev;
 	size_t i;
-	int ch;
+	int ch, ker;
 
 	/* main() phase one: sanitize the process */
 
@@ -215,11 +205,11 @@ int main(int argc, char *argv[])
 		sigset_t emptyset;
 
 		for (fdi = STDERR_FILENO + 1; fdi < dts; fdi++)
-			close(fdi);
+			launchd_assumes(close(fdi) == 0);
 		for (sigi = 1; sigi < NSIG; sigi++)
-			signal(sigi, SIG_DFL);
+			launchd_assumes(signal(sigi, SIG_DFL) != SIG_ERR);
 		sigemptyset(&emptyset);
-		sigprocmask(SIG_SETMASK, &emptyset, NULL);
+		launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) == 0);
 	}
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
@@ -272,55 +262,44 @@ int main(int argc, char *argv[])
 			exit(EXIT_FAILURE);
 		}
 
-		if (initgroups(session_user, g) == -1) {
-			fprintf(stderr, "initgroups(\"%s\", %u): %s\n", session_user, g, strerror(errno));
+		if (!launchd_assumes(initgroups(session_user, g) != -1))
 			exit(EXIT_FAILURE);
-		}
-		if (setgid(g) == -1) {
-			syslog(LOG_ERR, "setgid(%u): %s\n", g, strerror(errno));
+
+		if (!launchd_assumes(setgid(g) != -1))
 			exit(EXIT_FAILURE);
-		}
-		if (setuid(u) == -1) {
-			syslog(LOG_ERR, "setuid(%u): %s\n", u, strerror(errno));
+
+		if (!launchd_assumes(setuid(u) != -1))
 			exit(EXIT_FAILURE);
-		}
 	}
 
 	/* main phase four: get the party started */
 
-	if (dflag && daemon(0, 0) == -1)
-		fprintf(stderr, "daemon(0, 0): %s\n", strerror(errno));
+	if (dflag)
+		launchd_assumes(daemon(0, 0) == 0);
 
 	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(LOG_NOTICE));
 
-	if ((mainkq = kqueue()) == -1) {
-		syslog(LOG_ERR, "kqueue(): %m");
-		abort();
-	}
+	if (!launchd_assumes((mainkq = kqueue()) != -1))
+		exit(EXIT_FAILURE);
 
-	if ((asynckq = kqueue()) == -1) {
-		syslog(LOG_ERR, "kqueue(): %m");
-		abort();
-	}
+	if (!launchd_assumes((asynckq = kqueue()) != -1))
+		exit(EXIT_FAILURE);
 	
-	if (kevent_mod(asynckq, EVFILT_READ, EV_ADD, 0, 0, &kqasync_callback) == -1) {
-		syslog(LOG_ERR, "kevent_mod(asynckq, EVFILT_READ): %m");
-		abort();
-	}
+	if (!launchd_assumes(kevent_mod(asynckq, EVFILT_READ, EV_ADD, 0, 0, &kqasync_callback) != -1))
+		exit(EXIT_FAILURE);
 
 	sigemptyset(&blocked_signals);
 
 	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
-		if (kevent_mod(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
-			syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", sigigns[i]);
+		launchd_assumes(kevent_mod(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
 		sigaddset(&blocked_signals, sigigns[i]);
-		signal(sigigns[i], SIG_IGN);
+		launchd_assumes(signal(sigigns[i], SIG_IGN) != SIG_ERR);
 	}
 
 	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
-	if (kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) == -1)
-		syslog(LOG_ERR, "failed to add kevent for signal: %d: %m", SIGCHLD);
+	if (!launchd_assumes(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1))
+		exit(EXIT_FAILURE);
 
 	if (argv[0] || (session_type != NULL && 0 == strcasecmp(session_type, "tty")))
 		conceive_firstborn(argv, session_user);
@@ -337,8 +316,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* do this after pid1_magic_init() to not catch ourselves mounting stuff */
-	if (kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) == -1)
-		syslog(LOG_ERR, "kevent_mod(EVFILT_FS, &kqfs_callback): %m");
+	launchd_assumes(kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) != -1);
 
 	if (session_type) {
 		pid_t pp = getppid();
@@ -353,10 +331,10 @@ int main(int argc, char *argv[])
 		if (pp == 1)
 			exit(EXIT_SUCCESS);
 
-		if (kevent_mod(pp, EVFILT_PROC, EV_ADD, 0, 0, &kqshutdown_callback) == -1) {
-			syslog(LOG_ERR, "kevent_mod(pp, EVFILT_PROC, &kqshutdown_callback): %m", pp);
-			exit(EXIT_FAILURE);
-		}
+		ker = kevent_mod(pp, EVFILT_PROC, EV_ADD, 0, 0, &kqshutdown_callback);
+
+		if (ker == -1)
+			exit(launchd_assumes(errno == ESRCH) ? EXIT_SUCCESS : EXIT_FAILURE);
 	}
 
 	reload_launchd_config();
@@ -383,25 +361,12 @@ int main(int argc, char *argv[])
 				exit(EXIT_SUCCESS);
 			} else if (re_exec_in_single_user_mode) {
 				re_exec_in_single_user_mode = false;
-				syslog(LOG_NOTICE, "About to re-exec into single user mode...");
-				execl("/sbin/launchd", "/sbin/launchd", "-s", NULL);
+				launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
 			}
 		}
 
-		switch (kevent(mainkq, NULL, 0, &kev, 1, NULL)) {
-		case -1:
-			syslog(LOG_DEBUG, "kevent(): %m");
-			break;
-		case 1:
+		if (launchd_assumes(kevent(mainkq, NULL, 0, &kev, 1, NULL) == 1))
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
-			break;
-		case 0:
-			syslog(LOG_DEBUG, "kevent(): spurious return with infinite timeout");
-			break;
-		default:
-			syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
-			break;
-		}
 	}
 }
 
@@ -568,7 +533,7 @@ static void launchd_server_init(void)
 
 out_bad:
 	if (!launchd_inited && fd != -1)
-		close(fd);
+		launchd_assumes(close(fd) == 0);
 }
 
 static long long job_get_integer(launch_data_t j, const char *key)
@@ -692,7 +657,7 @@ static void launch_data_close_fds(launch_data_t o)
 		break;
 	case LAUNCH_DATA_FD:
 		if (launch_data_get_fd(o) != -1)
-			close(launch_data_get_fd(o));
+			launchd_assumes(close(launch_data_get_fd(o)) == 0);
 		break;
 	default:
 		break;
@@ -874,15 +839,15 @@ static void job_remove(struct jobcb *j)
 	launch_data_close_fds(j->ldj);
 	launch_data_free(j->ldj);
 	if (j->execfd)
-		close(j->execfd);
+		launchd_assumes(close(j->execfd) == 0);
 	for (i = 0; i < j->vnodes_cnt; i++)
 		if (-1 != j->vnodes[i])
-			close(j->vnodes[i]);
+			launchd_assumes(close(j->vnodes[i]) == 0);
 	if (j->vnodes)
 		free(j->vnodes);
 	for (i = 0; i < j->qdirs_cnt; i++)
 		if (-1 != j->qdirs[i])
-			close(j->qdirs[i]);
+			launchd_assumes(close(j->qdirs[i]) == 0);
 	if (j->qdirs)
 		free(j->qdirs);
 	if (j->start_interval)
@@ -1075,7 +1040,7 @@ static launch_data_t setstdio(int d, launch_data_t o)
 			free(*where);
 		*where = strdup(launch_data_get_string(o));
 	} else if (launch_data_get_type(o) == LAUNCH_DATA_FD) {
-		dup2(launch_data_get_fd(o), d);
+		launchd_assumes(dup2(launch_data_get_fd(o), d) != -1);
 	} else {
 		launch_data_set_errno(resp, EINVAL);
 	}
@@ -1273,109 +1238,25 @@ static void usage(FILE *where)
 		exit(EXIT_SUCCESS);
 }
 
-#ifdef EVFILT_MACH_IMPLEMENTED
-static void **machcbtable = NULL;
-static size_t machcbtable_cnt = 0;
-static int machcbreadfd = -1;
-static int machcbwritefd = -1;
-static mach_port_t mach_demand_port_set = MACH_PORT_NULL;
-static pthread_t mach_demand_thread;
-
-static void mach_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
-{
-	struct kevent mkev;
-	mach_port_t mp;
-
-	read(machcbreadfd, &mp, sizeof(mp));
-
-	EV_SET(&mkev, mp, EVFILT_MACHPORT, 0, 0, 0, machcbtable[MACH_PORT_INDEX(mp)]);
-
-	(*((kq_callback *)mkev.udata))(mkev.udata, &mkev);
-}
-#endif
-
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
 	int q = mainkq;
-#ifdef EVFILT_MACH_IMPLEMENTED
-	kern_return_t kr;
-	pthread_attr_t attr;
-	int pthr_r, pfds[2];
-#endif
 
 	if (EVFILT_TIMER == filter || EVFILT_VNODE == filter)
 		q = asynckq;
 
-	if (flags & EV_ADD && NULL == udata) {
-		syslog(LOG_ERR, "%s(): kev.udata == NULL!!!", __func__);
-		syslog(LOG_ERR, "kev: ident %d filter %d flags 0x%x fflags 0x%x",
-				ident, filter, flags, fflags);
+	if (flags & EV_ADD && !launchd_assumes(udata != NULL)) {
 		errno = EINVAL;
 		return -1;
 	}
 
-#ifdef EVFILT_MACH_IMPLEMENTED
-	if (filter != EVFILT_MACHPORT) {
-#endif
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 		if (filter == EVFILT_PROC && getpid() == 1)
 			return 0;
 #endif
-		EV_SET(&kev, ident, filter, flags, fflags, data, udata);
-		return kevent(q, &kev, 1, NULL, 0, NULL);
-#ifdef EVFILT_MACH_IMPLEMENTED
-	}
-
-	if (machcbtable == NULL) {
-		pthread_attr_init(&attr);
-		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
-		pthr_r = pthread_create(&mach_demand_thread, &attr, mach_demand_loop, NULL);
-		if (pthr_r != 0) {
-			syslog(LOG_ERR, "pthread_create(mach_demand_loop): %s", strerror(pthr_r));
-			exit(EXIT_FAILURE);
-		}
-
-		pthread_attr_destroy(&attr);
-
-		machcbtable = malloc(0);
-		pipe(pfds);
-		machcbwritefd = _fd(pfds[1]);
-		machcbreadfd = _fd(pfds[0]);
-		kevent_mod(machcbreadfd, EVFILT_READ, EV_ADD, 0, 0, &kqmach_callback);
-		kr = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &mach_demand_port_set);
-		if (kr != KERN_SUCCESS) {
-			syslog(LOG_ERR, "mach_port_allocate(demand_port_set): %s", mach_error_string(kr));
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	if (flags & EV_ADD) {
-		kr = mach_port_move_member(mach_task_self(), ident, mach_demand_port_set);
-		if (kr != KERN_SUCCESS) {
-			syslog(LOG_ERR, "mach_port_move_member(): %s", mach_error_string(kr));
-			exit(EXIT_FAILURE);
-		}
-
-		if (MACH_PORT_INDEX(ident) > machcbtable_cnt)
-			machcbtable = realloc(machcbtable, MACH_PORT_INDEX(ident) * sizeof(void *));
-
-		machcbtable[MACH_PORT_INDEX(ident)] = udata;
-	} else if (flags & EV_DELETE) {
-		kr = mach_port_move_member(mach_task_self(), ident, MACH_PORT_NULL);
-		if (kr != KERN_SUCCESS) {
-			syslog(LOG_ERR, "mach_port_move_member(): %s", mach_error_string(kr));
-			exit(EXIT_FAILURE);
-		}
-	} else {
-		syslog(LOG_DEBUG, "kevent_mod(EVFILT_MACHPORT) with flags: %d", flags);
-		errno = EINVAL;
-		return -1;
-	}
-
-	return 0;
-#endif
+	EV_SET(&kev, ident, filter, flags, fflags, data, udata);
+	return kevent(q, &kev, 1, NULL, 0, NULL);
 }
 
 static int _fd(int fd)
@@ -1416,7 +1297,7 @@ static void job_reap(struct jobcb *j)
 	job_log(j, LOG_DEBUG, "Reaping");
 
 	if (j->execfd) {
-		close(j->execfd);
+		launchd_assumes(close(j->execfd) == 0);
 		j->execfd = 0;
 	}
 
@@ -1540,7 +1421,7 @@ static void job_callback(void *obj, struct kevent *kev)
 
 				if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
 					job_log(j, LOG_DEBUG, "watch path invalidated: %s", thepath);
-					close(j->vnodes[i]);
+					launchd_assumes(close(j->vnodes[i]) == 0);
 					j->vnodes[i] = -1; /* this will get fixed in job_watch() */
 				}
 			}
@@ -1575,7 +1456,7 @@ static void job_callback(void *obj, struct kevent *kev)
 			j = NULL;
 			startnow = false;
 		} else {
-			close(j->execfd);
+			launchd_assumes(close(j->execfd) == 0);
 			j->execfd = 0;
 		}
 		startnow = false;
@@ -1623,17 +1504,17 @@ static void job_start(struct jobcb *j)
 	switch (c = launchd_fork()) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
-		close(execspair[0]);
-		close(execspair[1]);
+		launchd_assumes(close(execspair[0]) == 0);
+		launchd_assumes(close(execspair[1]) == 0);
 		if (sipc) {
-			close(spair[0]);
-			close(spair[1]);
+			launchd_assumes(close(spair[0]) == 0);
+			launchd_assumes(close(spair[1]) == 0);
 		}
 		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 			job_ignore(j);
 		break;
 	case 0:
-		close(execspair[0]);
+		launchd_assumes(close(execspair[0]) == 0);
 		/* wait for our parent to say they've attached a kevent to us */
 		read(_fd(execspair[1]), &c, sizeof(c));
 		if (j->firstborn) {
@@ -1645,17 +1526,17 @@ static void job_start(struct jobcb *j)
 		}
 
 		if (sipc) {
-			close(spair[0]);
+			launchd_assumes(close(spair[0]) == 0);
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
 		job_start_child(j, execspair[1]);
 		break;
 	default:
-		close(execspair[1]);
+		launchd_assumes(close(execspair[1]) == 0);
 		j->execfd = _fd(execspair[0]);
 		if (sipc) {
-			close(spair[1]);
+			launchd_assumes(close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
 		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1)
@@ -1836,8 +1717,8 @@ static void job_setup_attributes(struct jobcb *j)
 		if (sofd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", tmpstr);
 		} else {
-			dup2(sofd, STDOUT_FILENO);
-			close(sofd);
+			launchd_assumes(dup2(sofd, STDOUT_FILENO) != -1);
+			launchd_assumes(close(sofd) == 0);
 		}
 	}
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH))) {
@@ -1845,8 +1726,8 @@ static void job_setup_attributes(struct jobcb *j)
 		if (sefd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", tmpstr);
 		} else {
-			dup2(sefd, STDERR_FILENO);
-			close(sefd);
+			launchd_assumes(dup2(sefd, STDERR_FILENO) != -1);
+			launchd_assumes(close(sefd) == 0);
 		}
 	}
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES)))
@@ -1934,8 +1815,8 @@ static void fs_callback(void)
 	if (pending_stdout) {
 		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
 		if (fd != -1) {
-			dup2(fd, STDOUT_FILENO);
-			close(fd);
+			launchd_assumes(dup2(fd, STDOUT_FILENO) != -1);
+			launchd_assumes(close(fd) == 0);
 			free(pending_stdout);
 			pending_stdout = NULL;
 		}
@@ -1943,8 +1824,8 @@ static void fs_callback(void)
 	if (pending_stderr) {
 		int fd = open(pending_stderr, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
 		if (fd != -1) {
-			dup2(fd, STDERR_FILENO);
-			close(fd);
+			launchd_assumes(dup2(fd, STDERR_FILENO) != -1);
+			launchd_assumes(close(fd) == 0);
 			free(pending_stderr);
 			pending_stderr = NULL;
 		}
@@ -1995,80 +1876,6 @@ static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *k
 	}
 }
 
-#ifdef EVFILT_MACH_IMPLEMENTED
-static void *mach_demand_loop(void *arg __attribute__((unused)))
-{
-	mach_msg_empty_rcv_t dummy;
-	kern_return_t kr;
-	mach_port_name_array_t members;
-	mach_msg_type_number_t membersCnt;
-	mach_port_status_t status;
-	mach_msg_type_number_t statusCnt;
-	unsigned int i;
-
-	for (;;) {
-
-		/*
-		 * Receive indication of message on demand service
-		 * ports without actually receiving the message (we'll
-		 * let the actual server do that.
-		 */
-		kr = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE,
-				0, 0, mach_demand_port_set, 0, MACH_PORT_NULL);
-		if (kr != MACH_RCV_TOO_LARGE) {
-			syslog(LOG_WARNING, "%s(): mach_msg(): %s", __func__, mach_error_string(kr));
-			continue;
-		}
-
-		/*
-		 * Some port(s) now have messages on them, find out
-		 * which ones (there is no indication of which port
-		 * triggered in the MACH_RCV_TOO_LARGE indication).
-		 */
-		kr = mach_port_get_set_status(mach_task_self(),
-				mach_demand_port_set, &members, &membersCnt);
-		if (kr != KERN_SUCCESS) {
-			syslog(LOG_WARNING, "%s(): mach_port_get_set_status(): %s", __func__, mach_error_string(kr));
-			continue;
-		}
-
-		for (i = 0; i < membersCnt; i++) {
-			statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-			kr = mach_port_get_attributes(mach_task_self(), members[i],
-					MACH_PORT_RECEIVE_STATUS, (mach_port_info_t)&status, &statusCnt);
-			if (kr != KERN_SUCCESS) {
-				syslog(LOG_WARNING, "%s(): mach_port_get_attributes(): %s", __func__, mach_error_string(kr));
-				continue;
-			}
-
-			/*
-			 * For each port with messages, take it out of the
-			 * demand service portset, and inform the main thread
-			 * that it might have to start the server responsible
-			 * for it.
-			 */
-			if (status.mps_msgcount) {
-				kr = mach_port_move_member(mach_task_self(), members[i], MACH_PORT_NULL);
-				if (kr != KERN_SUCCESS) {
-					syslog(LOG_WARNING, "%s(): mach_port_move_member(): %s", __func__, mach_error_string(kr));
-					continue;
-				}
-				write(machcbwritefd, &(members[i]), sizeof(members[i]));
-			}
-		}
-
-		kr = vm_deallocate(mach_task_self(), (vm_address_t) members,
-				(vm_size_t) membersCnt * sizeof(mach_port_name_t));
-		if (kr != KERN_SUCCESS) {
-			syslog(LOG_WARNING, "%s(): vm_deallocate(): %s", __func__, mach_error_string(kr));
-			continue;
-		}
-	}
-
-	return NULL;
-}
-#endif
-
 static void reload_launchd_config(void)
 {
 	struct stat sb;
@@ -2087,7 +1894,7 @@ static void reload_launchd_config(void)
 		readcfg_pid = launchd_fork();
 		if (readcfg_pid == 0) {
 			char nbuf[100];
-			close(spair[0]);
+			launchd_assumes(close(spair[0]) == 0);
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 			int fd = open(ldconf, O_RDONLY);
@@ -2095,18 +1902,18 @@ static void reload_launchd_config(void)
 				syslog(LOG_ERR, "open(\"%s\"): %m", ldconf);
 				exit(EXIT_FAILURE);
 			}
-			dup2(fd, STDIN_FILENO);
-			close(fd);
+			launchd_assumes(dup2(fd, STDIN_FILENO) != -1);
+			launchd_assumes(close(fd) == 0);
 			execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL);
 			syslog(LOG_ERR, "execl(\"%s\", ...): %m", LAUNCHCTL_PATH);
 			exit(EXIT_FAILURE);
 		} else if (readcfg_pid == -1) {
-			close(spair[0]);
-			close(spair[1]);
+			launchd_assumes(close(spair[0]) == 0);
+			launchd_assumes(close(spair[1]) == 0);
 			syslog(LOG_ERR, "fork(): %m");
 			readcfg_pid = 0;
 		} else {
-			close(spair[1]);
+			launchd_assumes(close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), NULL);
 			if (kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) == -1)
 				syslog(LOG_ERR, "kevent_mod(EVFILT_PROC, &kqreadcfg_callback): %m");
@@ -2243,8 +2050,8 @@ static void loopback_setup(void)
 	if (ioctl(s6, SIOCAIFADDR_IN6, &ifra6) == -1)
 		syslog(LOG_ERR, "ioctl(SIOCAIFADDR ipv6): %m");
  
-	close(s);
-	close(s6);
+	launchd_assumes(close(s) == 0);
+	launchd_assumes(close(s6) == 0);
 }
 
 static void workaround3048875(int argc, char *argv[])
@@ -2384,7 +2191,7 @@ static int dir_has_files(const char *path)
 		}
 	}
 
-	closedir(dd);
+	launchd_assumes(closedir(dd) == 0);
 	return r;
 }
 
@@ -2506,17 +2313,8 @@ static void async_callback(void)
 	struct timespec timeout = { 0, 0 };
 	struct kevent kev;
 
-	switch (kevent(asynckq, NULL, 0, &kev, 1, &timeout)) {
-	case -1:
-		syslog(LOG_DEBUG, "kevent(): %m");
-		break;
-	case 1:
+	if (launchd_assumes(kevent(asynckq, NULL, 0, &kev, 1, &timeout) == 1))
 		(*((kq_callback *)kev.udata))(kev.udata, &kev);
-	case 0:
-		break;
-	default:
-		syslog(LOG_DEBUG, "unexpected: kevent() returned something != 0, -1 or 1");
-	}
 }
 
 static void testfd_or_openfd(int fd, const char *path, int flags)
@@ -2524,13 +2322,13 @@ static void testfd_or_openfd(int fd, const char *path, int flags)
 	int tmpfd;
 
 	if (-1 != (tmpfd = dup(fd))) {
-		close(tmpfd);
+		launchd_assumes(close(tmpfd) == 0);
 	} else {
 		if (-1 == (tmpfd = open(path, flags))) {
 			syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
 		} else if (tmpfd != fd) {
-			dup2(tmpfd, fd);
-			close(tmpfd);
+			launchd_assumes(dup2(tmpfd, fd) != -1);
+			launchd_assumes(close(tmpfd) == 0);
 		}
 	}
 }

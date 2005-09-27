@@ -23,7 +23,13 @@
 #ifndef __LAUNCHD_H__
 #define __LAUNCHD_H__
 
-#define BUG() syslog(LOG_NOTICE, "Please file a bug. Unexpected condition at %s:%d in: %s", __FILE__, __LINE__, __func__)
+#include <mach/kern_return.h>
+
+/* 
+ * When we feel that something should always true, but we can't prove it.
+ */
+#define launchd_assumes(e)	\
+	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Please file a bug report: %s:%u in %s() with %u/%u: %s", __FILE__, __LINE__, __func__, errno, mach_errno, #e), false : true)
 
 struct kevent;
 
@@ -31,6 +37,7 @@ typedef void (*kq_callback)(void *, struct kevent *);
 
 extern kq_callback kqsimple_zombie_reaper;
 extern sigset_t blocked_signals;
+extern kern_return_t mach_errno;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 extern int pid1_child_exit_status;
