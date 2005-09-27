@@ -139,9 +139,10 @@ static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t ws_bootstrap_port = MACH_PORT_NULL;
 static bool forward_ok = true;
-static bool mach_init_shutdown_in_progress = false;
+static bool force_on_demand = false;
 static char *register_name = NULL;
 static struct bootstrap *ws_bootstrap = NULL;
+static pthread_mutex_t mach_init_funnel = PTHREAD_MUTEX_INITIALIZER;
 
 static bool canReceive(mach_port_t);
 
@@ -164,8 +165,14 @@ static mach_port_t backup_port;
 
 void mach_start_shutdown(void)
 {
-	mach_init_shutdown_in_progress = true;
-	mach_port_destroy(mach_task_self(), demand_port_set);
+	force_on_demand = true;
+
+	pthread_mutex_lock(&mach_init_funnel);
+
+	bootstrap_deactivate(TAILQ_FIRST(&bootstraps));
+
+	pthread_mutex_unlock(&mach_init_funnel);
+
 }
 
 void mach_init_init(void)
@@ -231,6 +238,8 @@ void mach_init_reap(void)
 {
 	int result;
 	void *status;
+
+	mach_port_destroy(mach_task_self(), demand_port_set);
 
 	result = pthread_join(demand_thread, &status);
 	if (result != 0) {
@@ -386,7 +395,7 @@ server_dispatch(struct server *serverp)
 	if (!server_active(serverp)) {
 		if (server_useless(serverp))
 			server_delete(serverp);
-		else if (serverp->ondemand || mach_init_shutdown_in_progress)
+		else if (serverp->ondemand || force_on_demand)
 			server_demand(serverp);
 		else
 			server_start(serverp);
@@ -623,15 +632,19 @@ demand_loop(void *arg __attribute__((unused)))
 		 * without actually receiving the message (we'll let the actual
 		 * server do that.
 		 */
+		pthread_mutex_unlock(&mach_init_funnel);
+
 		dresult = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
+
+		pthread_mutex_lock(&mach_init_funnel);
+
 		if (dresult == MACH_RCV_PORT_CHANGED) {
-			bootstrap_deactivate(TAILQ_FIRST(&bootstraps));
-			mach_init_shutdown_in_progress = false;
 			pthread_exit(NULL);
 		} else if (dresult != MACH_RCV_TOO_LARGE) {
 			syslog(LOG_ERR, "demand_loop: mach_msg(): %s", mach_error_string(dresult));
 			continue;
 		}
+		
 
 		/*
 		 * Some port(s) now have messages on them, find out

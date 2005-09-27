@@ -1870,14 +1870,9 @@ static void pid1waitpid(void)
 
 static void do_shutdown(void)
 {
-	//struct jobcb *j;
-
 	shutdown_in_progress = true;
 
 	kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback);
-
-	//TAILQ_FOREACH(j, &jobs, tqe)
-	//	job_stop(j);
 
 	mach_start_shutdown();
 
