@@ -262,14 +262,11 @@ int main(int argc, char *argv[])
 			exit(EXIT_FAILURE);
 		}
 
-		if (!launchd_assumes(initgroups(session_user, g) != -1))
-			exit(EXIT_FAILURE);
+		launchd_assert(initgroups(session_user, g) != -1);
 
-		if (!launchd_assumes(setgid(g) != -1))
-			exit(EXIT_FAILURE);
+		launchd_assert(setgid(g) != -1);
 
-		if (!launchd_assumes(setuid(u) != -1))
-			exit(EXIT_FAILURE);
+		launchd_assert(setuid(u) != -1);
 	}
 
 	/* main phase four: get the party started */
@@ -280,14 +277,11 @@ int main(int argc, char *argv[])
 	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(LOG_NOTICE));
 
-	if (!launchd_assumes((mainkq = kqueue()) != -1))
-		exit(EXIT_FAILURE);
+	launchd_assert((mainkq = kqueue()) != -1);
 
-	if (!launchd_assumes((asynckq = kqueue()) != -1))
-		exit(EXIT_FAILURE);
+	launchd_assert((asynckq = kqueue()) != -1);
 	
-	if (!launchd_assumes(kevent_mod(asynckq, EVFILT_READ, EV_ADD, 0, 0, &kqasync_callback) != -1))
-		exit(EXIT_FAILURE);
+	launchd_assert(kevent_mod(asynckq, EVFILT_READ, EV_ADD, 0, 0, &kqasync_callback) != -1);
 
 	sigemptyset(&blocked_signals);
 
@@ -298,8 +292,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
-	if (!launchd_assumes(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1))
-		exit(EXIT_FAILURE);
+	launchd_assert(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
 
 	if (argv[0] || (session_type != NULL && 0 == strcasecmp(session_type, "tty")))
 		conceive_firstborn(argv, session_user);

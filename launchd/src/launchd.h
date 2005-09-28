@@ -25,11 +25,15 @@
 
 #include <mach/kern_return.h>
 
-/* 
- * When we feel that something should always true, but we can't prove it.
+/*
+ * Use launchd_assumes() when we can recover, even if it means we leak or limp along.
+ *
+ * Use launchd_assert() for core initialization routines.
  */
 #define launchd_assumes(e)	\
 	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Please file a bug report: %s:%u in %s() with %u/%u: %s", __FILE__, __LINE__, __func__, errno, mach_errno, #e), false : true)
+
+#define launchd_assert(e)	launchd_assumes(e) ? true : abort();
 
 struct kevent;
 

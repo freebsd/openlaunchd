@@ -47,6 +47,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
+#include <sys/event.h>
 #include <sys/queue.h>
 #include <pthread.h>
 #include <errno.h>
@@ -156,7 +157,9 @@ static kern_return_t launchd_set_bport(mach_port_t name);
 static kern_return_t launchd_get_bport(mach_port_t *name);
 static kern_return_t launchd_mport_watch(mach_port_t name);
 static kern_return_t launchd_mport_ignore(mach_port_t name);
+static kern_return_t launchd_mport_allocate(mach_port_t *name);
 static kern_return_t launchd_mport_deallocate(mach_port_t name);
+static kern_return_t launchd_mport_make_send(mach_port_t name);
 static kern_return_t launchd_mport_close_recv(mach_port_t name);
 
 /*
@@ -232,40 +235,26 @@ void mach_init_init(void)
 
 void mach_init_reap(void)
 {
-	int result;
 	void *status;
 
-	mach_port_destroy(mach_task_self(), demand_port_set);
+	launchd_assumes(mach_port_destroy(mach_task_self(), demand_port_set) == KERN_SUCCESS);
 
-	result = pthread_join(demand_thread, &status);
-	if (result != 0) {
-		syslog(LOG_ERR, "pthread_join(): %s", strerror(result));
-	}
+	launchd_assumes(pthread_join(demand_thread, &status) == 0);
 }
 
 void
 init_ports(void)
 {
-	kern_return_t result;
-
-	/* Create demand port set that second thread listens to */
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &demand_port_set);
-	if (result != KERN_SUCCESS)
-		panic("port_set_allocate(): %s", mach_error_string(result));
+	launchd_assert((mach_errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET,
+					&demand_port_set)) == KERN_SUCCESS);
 	
-	/* Create notify port and add to server port set */
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &notify_port);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_allocate(): %s", mach_error_string(result));
+	launchd_assert(launchd_mport_allocate(&notify_port) == KERN_SUCCESS);
 
-	launchd_assumes(launchd_mport_watch(notify_port) == KERN_SUCCESS);
+	launchd_assert(launchd_mport_watch(notify_port) == KERN_SUCCESS);
 	
-	/* Create backup port and add to server port set */
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &backup_port);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_allocate(): %s", mach_error_string(result));
+	launchd_assert(launchd_mport_allocate(&backup_port) == KERN_SUCCESS);
 
-	launchd_assumes(launchd_mport_watch(backup_port) == KERN_SUCCESS);
+	launchd_assert(launchd_mport_watch(backup_port) == KERN_SUCCESS);
 }
 
 bool
@@ -398,23 +387,25 @@ server_dispatch(struct server *serverp)
 void
 server_setup(struct server *serverp)
 {
-	kern_return_t result;
 	mach_port_t old_port;
 	
-	/* Allocate privileged port for requests from service */
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &serverp->port);
-	syslog(LOG_INFO, "Allocating port %x for server %s", serverp->port, serverp->cmd);
-	if (result != KERN_SUCCESS)	
-		panic("port_allocate(): %s", mach_error_string(result));
+	if (!launchd_assumes(launchd_mport_allocate(&serverp->port) == KERN_SUCCESS))
+		goto out_bad;
 
 	/* Request no-senders notification so we can tell when server dies */
-	result = mach_port_request_notification(mach_task_self(), serverp->port, MACH_NOTIFY_NO_SENDERS,
+	mach_errno = mach_port_request_notification(mach_task_self(), serverp->port, MACH_NOTIFY_NO_SENDERS,
 			1, serverp->port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_request_notification(): %s", mach_error_string(result));
+	if (!launchd_assumes(mach_errno == KERN_SUCCESS))
+		goto out_bad2;
 
 	/* Add privileged server port to bootstrap port set */
 	launchd_assumes(launchd_mport_watch(serverp->port) == KERN_SUCCESS);
+
+	return;
+out_bad2:
+	launchd_assumes(launchd_mport_close_recv(serverp->port) == KERN_SUCCESS);
+out_bad:
+	serverp->port = MACH_PORT_NULL;
 }
 
 pid_t launchd_fork(void)
@@ -477,15 +468,12 @@ server_start(struct server *serverp)
 
 	serverp->activity = 0;
 
-	result = mach_port_insert_right(mach_task_self(),
-			serverp->port, serverp->port, MACH_MSG_TYPE_MAKE_SEND);
-	if (result != KERN_SUCCESS)
-		panic("mach_port_insert_right(): %s", mach_error_string(result));
+	if (!launchd_assumes(launchd_mport_make_send(serverp->port) == KERN_SUCCESS))
+		return;
 
 	pid = fork_with_bootstrap_port(serverp->port, true);
-	if (pid < 0) {
-		syslog(LOG_WARNING, "fork(): %m");
-		goto out;
+	if (!launchd_assumes(pid != -1)) {
+		return;
 	} else if (pid == 0) {
 		server_start_child(serverp);
 	}
@@ -507,7 +495,6 @@ server_start(struct server *serverp)
 		goto out_bad;
 	}
 
-out:
 	return;
 out_bad:
 	server_reap(serverp);
@@ -653,7 +640,8 @@ demand_loop(void *arg __attribute__((unused)))
 			}
 		}
 
-		launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
+		launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
+					(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
 	}
 	return NULL;
 }
@@ -815,13 +803,10 @@ bool
 canReceive(mach_port_t port)
 {
 	mach_port_type_t p_type;
-	kern_return_t result;
 	
-	result = mach_port_type(mach_task_self(), port, &p_type);
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_ERR, "port_type(): %s", mach_error_string(result));
+	if (!launchd_assumes(mach_port_type(mach_task_self(), port, &p_type) == KERN_SUCCESS))
 		return false;
-	}
+
 	return ((p_type & MACH_PORT_TYPE_RECEIVE) != 0);
 }
 
@@ -879,29 +864,18 @@ struct bootstrap *
 bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
 {
 	struct bootstrap *bootstrap;
-	kern_return_t result;
 
 	if ((bootstrap = calloc(1, sizeof(struct bootstrap))) == NULL)
 		goto out_bad;
 
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &bootstrap->bootstrap_port);
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_ERR, "mach_port_allocate(): %s", mach_error_string(result));
+	if (!launchd_assumes(launchd_mport_allocate(&bootstrap->bootstrap_port) == KERN_SUCCESS))
 		goto out_bad;
-	}
 
-	result = mach_port_insert_right(mach_task_self(), bootstrap->bootstrap_port,
-			bootstrap->bootstrap_port, MACH_MSG_TYPE_MAKE_SEND);
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_ERR, "failed to insert send right(): %s", mach_error_string(result));
+	if (!launchd_assumes(launchd_mport_make_send(bootstrap->bootstrap_port) == KERN_SUCCESS))
 		goto out_bad;
-	}
 
-	result = mach_port_insert_member(mach_task_self(), bootstrap->bootstrap_port, demand_port_set);
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_ERR, "port_set_add(): %s", mach_error_string(result));
+	if (!launchd_assumes(launchd_mport_watch(bootstrap->bootstrap_port) == KERN_SUCCESS))
 		goto out_bad;
-	}
 
 	TAILQ_INSERT_TAIL(&bootstraps, bootstrap, tqe);
 	
@@ -1165,7 +1139,7 @@ bootstrap_deactivate(struct bootstrap *bootstrap)
 		
 		launchd_assumes(launchd_mport_deallocate(bootstrap->bootstrap_port) == KERN_SUCCESS);
 
-		mach_port_request_notification( mach_task_self(), bootstrap->bootstrap_port, MACH_NOTIFY_NO_SENDERS,
+		mach_port_request_notification(mach_task_self(), bootstrap->bootstrap_port, MACH_NOTIFY_NO_SENDERS,
 				1, bootstrap->bootstrap_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
 	} while (deactivating_bootstraps != NULL);
 }
@@ -1212,9 +1186,21 @@ launchd_mport_ignore(mach_port_t name)
 }
 
 kern_return_t
+launchd_mport_make_send(mach_port_t name)
+{
+	return mach_errno = mach_port_insert_right(mach_task_self(), name, name, MACH_MSG_TYPE_MAKE_SEND);
+}
+
+kern_return_t
 launchd_mport_close_recv(mach_port_t name)
 {
 	return mach_errno = mach_port_mod_refs(mach_task_self(), name, MACH_PORT_RIGHT_RECEIVE, -1);
+}
+
+kern_return_t
+launchd_mport_allocate(mach_port_t *name)
+{
+	return mach_errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, name);
 }
 
 kern_return_t
@@ -1752,7 +1738,6 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_p
 	struct server *serverp;
 	struct service *servicep;
 	struct bootstrap *bootstrap;
-	kern_return_t result;
 
 	bootstrap = port_to_bootstrap(bootstrapport, true);
 	if (!bootstrap)
@@ -1767,17 +1752,25 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_p
 
 	serverp = port_to_server(bootstrapport);
 
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, serviceportp);
-	if (result != KERN_SUCCESS)
-		panic("port_allocate(): %s", mach_error_string(result));
-	result = mach_port_insert_right(mach_task_self(), *serviceportp, *serviceportp, MACH_MSG_TYPE_MAKE_SEND);
-	if (result != KERN_SUCCESS)
-		panic("failed to insert send right(): %s", mach_error_string(result));
+	if (!launchd_assumes(launchd_mport_allocate(serviceportp) == KERN_SUCCESS))
+		return BOOTSTRAP_NO_MEMORY;
+
+	if (!launchd_assumes(launchd_mport_make_send(*serviceportp) == KERN_SUCCESS))
+		goto out_bad;
 
 	if (serverp)
 		serverp->activity++;
 
 	servicep = service_new(bootstrap, servicename, *serviceportp, false, serverp);
 
+	if (!launchd_assumes(servicep != NULL))
+		goto out_bad2;
+
 	return BOOTSTRAP_SUCCESS;
+
+out_bad2:
+	launchd_assumes(launchd_mport_deallocate(*serviceportp) == KERN_SUCCESS);
+out_bad:
+	launchd_assumes(launchd_mport_close_recv(*serviceportp) == KERN_SUCCESS);
+	return BOOTSTRAP_NO_MEMORY;
 }
