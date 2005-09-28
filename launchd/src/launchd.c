@@ -1746,7 +1746,7 @@ static void do_shutdown(void)
 {
 	shutdown_in_progress = true;
 
-	kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback);
+	launchd_assumes(kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback) != -1);
 
 	mach_start_shutdown();
 
@@ -1852,10 +1852,8 @@ static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *k
 		status = pid1_child_exit_status;
 	else
 #endif
-	if (-1 == waitpid(readcfg_pid, &status, 0)) {
-		syslog(LOG_WARNING, "waitpid(readcfg_pid, ...): %m");
+	if (!launchd_assumes(waitpid(readcfg_pid, &status, 0) != -1))
 		return;
-	}
 
 	readcfg_pid = 0;
 
@@ -1883,7 +1881,7 @@ static void reload_launchd_config(void)
 
 	if (lstat(ldconf, &sb) == 0) {
 		int spair[2];
-		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
+		launchd_assumes(socketpair(AF_UNIX, SOCK_STREAM, 0, spair) == 0);
 		readcfg_pid = launchd_fork();
 		if (readcfg_pid == 0) {
 			char nbuf[100];
@@ -1897,8 +1895,7 @@ static void reload_launchd_config(void)
 			}
 			launchd_assumes(dup2(fd, STDIN_FILENO) != -1);
 			launchd_assumes(close(fd) == 0);
-			execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL);
-			syslog(LOG_ERR, "execl(\"%s\", ...): %m", LAUNCHCTL_PATH);
+			launchd_assumes(execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL) != -1);
 			exit(EXIT_FAILURE);
 		} else if (readcfg_pid == -1) {
 			launchd_assumes(close(spair[0]) == 0);
@@ -1908,8 +1905,7 @@ static void reload_launchd_config(void)
 		} else {
 			launchd_assumes(close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), NULL);
-			if (kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) == -1)
-				syslog(LOG_ERR, "kevent_mod(EVFILT_PROC, &kqreadcfg_callback): %m");
+			launchd_assumes(kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) != -1);
 		}
 	}
 }
@@ -1989,30 +1985,20 @@ static void loopback_setup(void)
 	memset(&ifr, 0, sizeof(ifr));
 	strcpy(ifr.ifr_name, "lo0");
 
-	if (-1 == (s = socket(AF_INET, SOCK_DGRAM, 0)))
-		syslog(LOG_ERR, "%s: socket(%s, ...): %m", __PRETTY_FUNCTION__, "AF_INET");
-	if (-1 == (s6 = socket(AF_INET6, SOCK_DGRAM, 0)))
-		syslog(LOG_ERR, "%s: socket(%s, ...): %m", __PRETTY_FUNCTION__, "AF_INET6");
+	launchd_assumes((s = socket(AF_INET, SOCK_DGRAM, 0)) != -1);
+	launchd_assumes((s6 = socket(AF_INET6, SOCK_DGRAM, 0)) != -1);
 
-	if (ioctl(s, SIOCGIFFLAGS, &ifr) == -1) {
-		syslog(LOG_ERR, "ioctl(SIOCGIFFLAGS): %m");
-	} else {
+	if (launchd_assumes(ioctl(s, SIOCGIFFLAGS, &ifr)) != -1) {
 		ifr.ifr_flags |= IFF_UP;
-
-		if (ioctl(s, SIOCSIFFLAGS, &ifr) == -1)
-			syslog(LOG_ERR, "ioctl(SIOCSIFFLAGS): %m");
+		launchd_assumes(ioctl(s, SIOCSIFFLAGS, &ifr) != -1);
 	}
 
 	memset(&ifr, 0, sizeof(ifr));
 	strcpy(ifr.ifr_name, "lo0");
 
-	if (ioctl(s6, SIOCGIFFLAGS, &ifr) == -1) {
-		syslog(LOG_ERR, "ioctl(SIOCGIFFLAGS): %m");
-	} else {
+	if (launchd_assumes(ioctl(s6, SIOCGIFFLAGS, &ifr) != -1)) {
 		ifr.ifr_flags |= IFF_UP;
-
-		if (ioctl(s6, SIOCSIFFLAGS, &ifr) == -1)
-			syslog(LOG_ERR, "ioctl(SIOCSIFFLAGS): %m");
+		launchd_assumes(ioctl(s6, SIOCSIFFLAGS, &ifr) != -1);
 	}
 
 	memset(&ifra, 0, sizeof(ifra));
@@ -2025,8 +2011,7 @@ static void loopback_setup(void)
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = htonl(IN_CLASSA_NET);
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
 
-	if (ioctl(s, SIOCAIFADDR, &ifra) == -1)
-		syslog(LOG_ERR, "ioctl(SIOCAIFADDR ipv4): %m");
+	launchd_assumes(ioctl(s, SIOCAIFADDR, &ifra) != -1);
 
 	memset(&ifra6, 0, sizeof(ifra6));
 	strcpy(ifra6.ifra_name, "lo0");
@@ -2040,8 +2025,7 @@ static void loopback_setup(void)
 	ifra6.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
 	ifra6.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
 
-	if (ioctl(s6, SIOCAIFADDR_IN6, &ifra6) == -1)
-		syslog(LOG_ERR, "ioctl(SIOCAIFADDR ipv6): %m");
+	launchd_assumes(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1);
  
 	launchd_assumes(close(s) == 0);
 	launchd_assumes(close(s6) == 0);
@@ -2080,10 +2064,8 @@ static launch_data_t adjust_rlimits(launch_data_t in)
 
 	if (l == NULL) {
 		l = malloc(lsz);
-		for (i = 0; i < RLIM_NLIMITS; i++) {
-			if (getrlimit(i, l + i) == -1)
-				syslog(LOG_WARNING, "getrlimit(): %m");
-		}
+		for (i = 0; i < RLIM_NLIMITS; i++)
+			launchd_assumes(getrlimit(i, l + i) != -1);
 	}
 
 	if (in) {
@@ -2123,23 +2105,19 @@ static launch_data_t adjust_rlimits(launch_data_t in)
 				}
 
 				if (gval > 0) {
-					if (sysctl(gmib, 2, NULL, NULL, &gval, sizeof(gval)) == -1)
-						syslog(LOG_WARNING, "sysctl(\"%s\"): %m", gstr);
+					launchd_assumes(sysctl(gmib, 2, NULL, NULL, &gval, sizeof(gval)) != -1);
 				} else {
 					syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", gstr);
 				}
 				if (pval > 0) {
-					if (sysctl(pmib, 2, NULL, NULL, &pval, sizeof(pval)) == -1)
-						syslog(LOG_WARNING, "sysctl(\"%s\"): %m", pstr);
+					launchd_assumes(sysctl(pmib, 2, NULL, NULL, &pval, sizeof(pval)) != -1);
 				} else {
 					syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", pstr);
 				}
 			}
-			if (setrlimit(i, ltmp + i) == -1)
-				syslog(LOG_WARNING, "setrlimit(): %m");
+			launchd_assumes(setrlimit(i, ltmp + i) != -1);
 			/* the kernel may have clamped the values we gave it */
-			if (getrlimit(i, l + i) == -1)
-				syslog(LOG_WARNING, "getrlimit(): %m");
+			launchd_assumes(getrlimit(i, l + i) != -1);
 		}
 	}
 
@@ -2148,23 +2126,13 @@ static launch_data_t adjust_rlimits(launch_data_t in)
 
 __private_extern__ void launchd_SessionCreate(const char *who)
 {
-	void *seclib = dlopen(SECURITY_LIB, RTLD_LAZY);
 	OSStatus (*sescr)(SessionCreationFlags flags, SessionAttributeBits attributes);
+	void *seclib;
 
-	if (seclib) {
-		sescr = dlsym(seclib, "SessionCreate");
-		
-		if (sescr) {
-			OSStatus scr = sescr(0, 0);
-			if (scr != noErr)
-				syslog(LOG_WARNING, "%s: SessionCreate() failed: %d", who, scr);
-		} else {
-			syslog(LOG_WARNING, "%s: couldn't find SessionCreate() in %s", who, SECURITY_LIB);
-		}
-
-		dlclose(seclib);
-	} else {
-		syslog(LOG_WARNING, "%s: dlopen(\"%s\",...): %s", who, SECURITY_LIB, dlerror());
+	if (launchd_assumes((seclib = dlopen(SECURITY_LIB, RTLD_LAZY)) != NULL)) {
+		if (launchd_assumes((sescr = dlsym(seclib, "SessionCreate")) != NULL))
+			launchd_assumes(sescr(0, 0) == noErr);
+		launchd_assumes(dlclose(seclib) != -1);
 	}
 }
 

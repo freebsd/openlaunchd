@@ -60,16 +60,12 @@
 #include <paths.h>
 #include <syslog.h>
 #include <pwd.h>
-#include <assert.h>
 
 #include "bootstrap.h"
 #include "bootstrapServer.h"
 #include "launchd.h"
 
-#define DEMAND_REQUEST   MACH_NOTIFY_LAST	/* demand service messaged */
 
-
-/* Bootstrap info */
 struct bootstrap {
 	TAILQ_ENTRY(bootstrap)		tqe;
 	struct bootstrap		*parent;
@@ -81,12 +77,10 @@ struct bootstrap {
 
 struct service {
 	TAILQ_ENTRY(service)	tqe;
-	mach_port_name_t	port;		/* service port,
-					   may have all rights if inactive */
-	struct bootstrap	*bootstrap;	/* bootstrap port(s) used at this
-					 * level. */
-	bool		isActive;	/* server is running */
+	struct bootstrap	*bootstrap;	/* bootstrap port(s) used at this level. */
 	struct server		*server;	/* server, declared services only */
+	mach_port_name_t	port;		/* service port, may have all rights if inactive */
+	unsigned int		isActive:1, __junk:31;
 	char			name[0];	/* service name */
 };
 
@@ -187,19 +181,12 @@ void mach_start_shutdown(void)
 
 void mach_init_init(void)
 {
-	kern_return_t result;
 	pthread_attr_t attr;
 
 	init_ports();
 
-	if ((root_bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) == NULL) {
-		syslog(LOG_ALERT, "root bootstrap allocation failed!");
-		exit(EXIT_FAILURE);
-	}
-	if ((ws_bootstrap = bootstrap_new(root_bootstrap, MACH_PORT_NULL)) == NULL) {
-		syslog(LOG_ALERT, "WindowServer sub-bootstrap allocation failed!");
-		exit(EXIT_FAILURE);
-	}
+	launchd_assert((root_bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) != NULL);
+	launchd_assert((ws_bootstrap = bootstrap_new(root_bootstrap, MACH_PORT_NULL)) != NULL);
 	
 	launchd_assumes(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
 
@@ -213,19 +200,14 @@ void mach_init_init(void)
 	if (inherited_bootstrap_port != MACH_PORT_NULL) {
 		asprintf(&register_name, "com.apple.launchd.%d", getpid());
 
-		result = bootstrap_register(inherited_bootstrap_port, register_name, root_bootstrap->bootstrap_port);
-		if (result != KERN_SUCCESS)
-			panic("register self(): %s", mach_error_string(result));
+		launchd_assumes(bootstrap_register(inherited_bootstrap_port, register_name,
+					root_bootstrap->bootstrap_port) == KERN_SUCCESS);
 	}
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-	result = pthread_create(&demand_thread, &attr, demand_loop, NULL);
-	if (result != 0) {
-		syslog(LOG_ERR, "pthread_create(): %s", strerror(result));
-		exit(EXIT_FAILURE);
-	}
+	launchd_assert(pthread_create(&demand_thread, &attr, demand_loop, NULL) == 0);
 
 	pthread_attr_destroy(&attr);
 
@@ -501,7 +483,7 @@ out_bad:
 	server_dispatch(serverp);
 }
 
-static void
+void
 server_start_child(struct server *serverp)
 {
 	char **argv;
@@ -510,25 +492,18 @@ server_start_child(struct server *serverp)
 	argv = argvize(serverp->cmd);
 
 	if (serverp->uid != getuid()) {
-		struct passwd *pwd = getpwuid(serverp->uid);
+		struct passwd *pwd;
 		gid_t g;
 
-		if (NULL == pwd) {
-			syslog(LOG_ERR, "Disabled server %x bootstrap %x: \"%s\": getpwuid(%d) failed",
-				 serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, serverp->uid);
-			goto out_bad;
-		}
+	       	launchd_assert((pwd = getpwuid(serverp->uid)) != NULL);
 
 		g = pwd->pw_gid;
 
-		if (!launchd_assumes(setgroups(1, &g) != -1))
-			goto out_bad;
+		launchd_assert(setgroups(1, &g) != -1);
 
-		if (!launchd_assumes(setgid(g) != -1))
-			goto out_bad;
+		launchd_assert(setgid(g) != -1);
 
-		if (!launchd_assumes(setuid(serverp->uid) != -1))
-			goto out_bad;
+		launchd_assert(setuid(serverp->uid) != -1);
 	}
 
 
@@ -539,11 +514,10 @@ server_start_child(struct server *serverp)
 
 	setpriority(PRIO_PROCESS, 0, 0);
 	launchd_assumes(execv(argv[0], argv) != -1);
-out_bad:
 	exit(EXIT_FAILURE);
 }	
 
-static char **
+char **
 argvize(const char *string)
 {
 	static char *argv[100], args[1000];
@@ -727,7 +701,7 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 				syslog(LOG_DEBUG, "Received destroyed notification for service %s", servicep->name);
 				syslog(LOG_DEBUG, "Service %x bootstrap %x backed up: %s",
 				     servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
-				assert(canReceive(servicep->port));
+				launchd_assumes(canReceive(servicep->port));
 				servicep->isActive = false;
 				serverp->active_services--;
 				server_dispatch(serverp);
@@ -1355,7 +1329,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (!canReceive(servicep->port)) {
-		assert(servicep->isActive);
+		launchd_assumes(servicep->isActive);
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s already active", servicename);
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
@@ -1413,7 +1387,7 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 	if (servicep && servicep->bootstrap == bootstrap) {
 		if (servicep->isActive) {
 			syslog(LOG_DEBUG, "Register: service %s already active, port %x", servicep->name, servicep->port);
-			assert(!canReceive(servicep->port));
+			launchd_assumes(!canReceive(servicep->port));
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
 		if (servicep->server)
