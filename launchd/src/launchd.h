@@ -31,7 +31,7 @@
  * Use launchd_assert() for core initialization routines.
  */
 #define launchd_assumes(e)	\
-	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Please file a bug report: %s:%u in %s() with %u/%u: %s", __FILE__, __LINE__, __func__, errno, mach_errno, #e), false : true)
+	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Please file a bug report: %s:%u in %s(): (%s) == %u", __FILE__, __LINE__, __func__, #e, errno), false : true)
 
 #define launchd_assert(e)	launchd_assumes(e) ? true : abort();
 
@@ -41,7 +41,6 @@ typedef void (*kq_callback)(void *, struct kevent *);
 
 extern kq_callback kqsimple_zombie_reaper;
 extern sigset_t blocked_signals;
-extern kern_return_t mach_errno;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 extern int pid1_child_exit_status;

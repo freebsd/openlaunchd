@@ -136,8 +136,6 @@ static bool force_on_demand = false;
 static char *register_name = NULL;
 static struct bootstrap *root_bootstrap = NULL;
 static struct bootstrap *ws_bootstrap = NULL;
-static pthread_mutex_t mach_init_funnel = PTHREAD_MUTEX_INITIALIZER;
-kern_return_t mach_errno = KERN_SUCCESS;
 
 static bool canReceive(mach_port_t);
 
@@ -146,6 +144,11 @@ static void init_ports(void);
 static char **argvize(const char *string);
 static void *demand_loop(void *arg);
 static void do_bootstrap_request(mach_port_t bsport);
+
+static int active_ports_fd = -1;
+static int port_to_main_thread_fd = -1;
+static void mport_callback(void *obj, struct kevent *kev);
+static kq_callback kqmport_callback = mport_callback;
 
 static kern_return_t launchd_set_bport(mach_port_t name);
 static kern_return_t launchd_get_bport(mach_port_t *name);
@@ -171,19 +174,41 @@ void mach_start_shutdown(void)
 {
 	force_on_demand = true;
 
-	pthread_mutex_lock(&mach_init_funnel);
-
 	bootstrap_deactivate(root_bootstrap);
+}
 
-	pthread_mutex_unlock(&mach_init_funnel);
+void mport_callback(void *obj, struct kevent *kev)
+{
+	struct service *servicep;
+	struct server *serverp;
+	kern_return_t result;
+	mach_port_t m;
 
+	launchd_assumes(read(active_ports_fd, &m, sizeof(m)) != -1);
+
+	if ((servicep = port_to_service(m)) && (serverp = servicep->server)) {
+		server_start(serverp);
+	} else {
+		do_bootstrap_request(m);
+		result = launchd_mport_watch(m);
+		/* sometimes this returns KERN_INVALID_NAME, I don't know why yet, but things seem to work */
+		launchd_assumes(result == KERN_SUCCESS || result == KERN_INVALID_NAME);
+	}
 }
 
 void mach_init_init(void)
 {
 	pthread_attr_t attr;
+	int pipepair[2];
 
 	init_ports();
+
+	launchd_assert(pipe(pipepair) != -1);
+
+	active_ports_fd = pipepair[0];
+	port_to_main_thread_fd = pipepair[1];
+
+	launchd_assert(kevent_mod(active_ports_fd, EVFILT_READ, EV_ADD, 0, 0, &kqmport_callback) != -1);
 
 	launchd_assert((root_bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) != NULL);
 	launchd_assert((ws_bootstrap = bootstrap_new(root_bootstrap, MACH_PORT_NULL)) != NULL);
@@ -227,7 +252,7 @@ void mach_init_reap(void)
 void
 init_ports(void)
 {
-	launchd_assert((mach_errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET,
+	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET,
 					&demand_port_set)) == KERN_SUCCESS);
 	
 	launchd_assert(launchd_mport_allocate(&notify_port) == KERN_SUCCESS);
@@ -375,9 +400,9 @@ server_setup(struct server *serverp)
 		goto out_bad;
 
 	/* Request no-senders notification so we can tell when server dies */
-	mach_errno = mach_port_request_notification(mach_task_self(), serverp->port, MACH_NOTIFY_NO_SENDERS,
+	errno = mach_port_request_notification(mach_task_self(), serverp->port, MACH_NOTIFY_NO_SENDERS,
 			1, serverp->port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
-	if (!launchd_assumes(mach_errno == KERN_SUCCESS))
+	if (!launchd_assumes(errno == KERN_SUCCESS))
 		goto out_bad2;
 
 	/* Add privileged server port to bootstrap port set */
@@ -403,10 +428,7 @@ pid_t launchd_ws_fork(void)
 pid_t
 fork_with_bootstrap_port(mach_port_t p, bool dealloc)
 {
-	static pthread_mutex_t forklock = PTHREAD_MUTEX_INITIALIZER;
 	pid_t r = -1;
-
-	pthread_mutex_lock(&forklock);
 
 	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
@@ -430,8 +452,6 @@ fork_with_bootstrap_port(mach_port_t p, bool dealloc)
 
 	sigprocmask(SIG_UNBLOCK, &blocked_signals, NULL);
 	
-	pthread_mutex_unlock(&forklock);
-
 	return r;
 }
 
@@ -555,8 +575,6 @@ demand_loop(void *arg __attribute__((unused)))
 {
 	mach_msg_empty_rcv_t dummy;
 	kern_return_t dresult;
-	struct service *servicep;
-	struct server *serverp;
 
 	for (;;) {
 		mach_port_name_array_t members;
@@ -570,12 +588,7 @@ demand_loop(void *arg __attribute__((unused)))
 		 * without actually receiving the message (we'll let the actual
 		 * server do that.
 		 */
-		pthread_mutex_unlock(&mach_init_funnel);
-
 		dresult = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
-
-		pthread_mutex_lock(&mach_init_funnel);
-
 		if (dresult == MACH_RCV_PORT_CHANGED) {
 			break;
 		} else if (!launchd_assumes(dresult == MACH_RCV_TOO_LARGE)) {
@@ -604,13 +617,8 @@ demand_loop(void *arg __attribute__((unused)))
 			 * for it.
 			 */
 			if (status.mps_msgcount) {
-				if ((servicep = port_to_service(members[i])) && (serverp = servicep->server)) {
-					if (!launchd_assumes(launchd_mport_ignore(members[i]) == KERN_SUCCESS))
-						continue;
-					server_start(serverp);
-				} else {
-					do_bootstrap_request(members[i]);
-				}
+				launchd_assumes(launchd_mport_ignore(members[i]) == KERN_SUCCESS);
+				launchd_assumes(write(port_to_main_thread_fd, &members[i], sizeof(members[0])) != -1);
 			}
 		}
 
@@ -1138,49 +1146,49 @@ bootstrap_delete(struct bootstrap *bootstrap)
 kern_return_t
 launchd_set_bport(mach_port_t name)
 {
-	return mach_errno = task_set_bootstrap_port(mach_task_self(), name);
+	return errno = task_set_bootstrap_port(mach_task_self(), name);
 }
 
 kern_return_t
 launchd_get_bport(mach_port_t *name)
 {
-	return mach_errno = task_get_bootstrap_port(mach_task_self(), name);
+	return errno = task_get_bootstrap_port(mach_task_self(), name);
 }
 
 kern_return_t
 launchd_mport_watch(mach_port_t name)
 {
-	return mach_errno = mach_port_move_member(mach_task_self(), name, demand_port_set);
+	return errno = mach_port_move_member(mach_task_self(), name, demand_port_set);
 }
 
 kern_return_t
 launchd_mport_ignore(mach_port_t name)
 {
-	return mach_errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
+	return errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
 }
 
 kern_return_t
 launchd_mport_make_send(mach_port_t name)
 {
-	return mach_errno = mach_port_insert_right(mach_task_self(), name, name, MACH_MSG_TYPE_MAKE_SEND);
+	return errno = mach_port_insert_right(mach_task_self(), name, name, MACH_MSG_TYPE_MAKE_SEND);
 }
 
 kern_return_t
 launchd_mport_close_recv(mach_port_t name)
 {
-	return mach_errno = mach_port_mod_refs(mach_task_self(), name, MACH_PORT_RIGHT_RECEIVE, -1);
+	return errno = mach_port_mod_refs(mach_task_self(), name, MACH_PORT_RIGHT_RECEIVE, -1);
 }
 
 kern_return_t
 launchd_mport_allocate(mach_port_t *name)
 {
-	return mach_errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, name);
+	return errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, name);
 }
 
 kern_return_t
 launchd_mport_deallocate(mach_port_t name)
 {
-	return mach_errno = mach_port_deallocate(mach_task_self(), name);
+	return errno = mach_port_deallocate(mach_task_self(), name);
 }
 
 
