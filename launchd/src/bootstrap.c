@@ -137,17 +137,16 @@ static TAILQ_HEAD(serviceshead, service) services = TAILQ_HEAD_INITIALIZER(servi
 static boolean_t server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
-static mach_port_t launchd_bootstrap_port = MACH_PORT_NULL;
-static mach_port_t ws_bootstrap_port = MACH_PORT_NULL;
 static bool force_on_demand = false;
 static char *register_name = NULL;
+static struct bootstrap *root_bootstrap = NULL;
 static struct bootstrap *ws_bootstrap = NULL;
 static pthread_mutex_t mach_init_funnel = PTHREAD_MUTEX_INITIALIZER;
 kern_return_t mach_errno = KERN_SUCCESS;
 
 static bool canReceive(mach_port_t);
 
-static pid_t fork_with_bootstrap_port(mach_port_t p);
+static pid_t fork_with_bootstrap_port(mach_port_t p, bool dealloc);
 static void init_ports(void);
 static char **argvize(const char *string);
 static void *demand_loop(void *arg);
@@ -177,7 +176,7 @@ void mach_start_shutdown(void)
 
 	pthread_mutex_lock(&mach_init_funnel);
 
-	bootstrap_deactivate(TAILQ_FIRST(&bootstraps));
+	bootstrap_deactivate(root_bootstrap);
 
 	pthread_mutex_unlock(&mach_init_funnel);
 
@@ -185,17 +184,16 @@ void mach_start_shutdown(void)
 
 void mach_init_init(void)
 {
-	struct bootstrap *bootstrap;
 	kern_return_t result;
 	pthread_attr_t attr;
 
 	init_ports();
 
-	if ((bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) == NULL) {
+	if ((root_bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) == NULL) {
 		syslog(LOG_ALERT, "root bootstrap allocation failed!");
 		exit(EXIT_FAILURE);
 	}
-	if ((ws_bootstrap = bootstrap_new(bootstrap, MACH_PORT_NULL)) == NULL) {
+	if ((ws_bootstrap = bootstrap_new(root_bootstrap, MACH_PORT_NULL)) == NULL) {
 		syslog(LOG_ALERT, "WindowServer sub-bootstrap allocation failed!");
 		exit(EXIT_FAILURE);
 	}
@@ -212,7 +210,7 @@ void mach_init_init(void)
 	if (inherited_bootstrap_port != MACH_PORT_NULL) {
 		asprintf(&register_name, "com.apple.launchd.%d", getpid());
 
-		result = bootstrap_register(inherited_bootstrap_port, register_name, bootstrap->bootstrap_port);
+		result = bootstrap_register(inherited_bootstrap_port, register_name, root_bootstrap->bootstrap_port);
 		if (result != KERN_SUCCESS)
 			panic("register self(): %s", mach_error_string(result));
 	}
@@ -227,9 +225,6 @@ void mach_init_init(void)
 	}
 
 	pthread_attr_destroy(&attr);
-
-	launchd_bootstrap_port = bootstrap->bootstrap_port;
-	ws_bootstrap_port = ws_bootstrap->bootstrap_port;
 
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
@@ -424,16 +419,16 @@ server_setup(struct server *serverp)
 
 pid_t launchd_fork(void)
 {
-	return fork_with_bootstrap_port(launchd_bootstrap_port);
+	return fork_with_bootstrap_port(root_bootstrap->bootstrap_port, false);
 }
 
 pid_t launchd_ws_fork(void)
 {
-	return fork_with_bootstrap_port(ws_bootstrap_port);
+	return fork_with_bootstrap_port(ws_bootstrap->bootstrap_port, false);
 }
 
 pid_t
-fork_with_bootstrap_port(mach_port_t p)
+fork_with_bootstrap_port(mach_port_t p, bool dealloc)
 {
 	static pthread_mutex_t forklock = PTHREAD_MUTEX_INITIALIZER;
 	pid_t r = -1;
@@ -444,7 +439,7 @@ fork_with_bootstrap_port(mach_port_t p)
 
 	launchd_assumes(launchd_set_bport(p) == KERN_SUCCESS);
 
-	if (launchd_bootstrap_port != p && ws_bootstrap_port != p)
+	if (dealloc)
 		launchd_assumes(launchd_mport_deallocate(p) == KERN_SUCCESS);
 
 	r = fork();
@@ -487,7 +482,7 @@ server_start(struct server *serverp)
 	if (result != KERN_SUCCESS)
 		panic("mach_port_insert_right(): %s", mach_error_string(result));
 
-	pid = fork_with_bootstrap_port(serverp->port);
+	pid = fork_with_bootstrap_port(serverp->port, true);
 	if (pid < 0) {
 		syslog(LOG_WARNING, "fork(): %m");
 		goto out;
@@ -526,48 +521,38 @@ server_start_child(struct server *serverp)
 	sigset_t mask;
 
 	argv = argvize(serverp->cmd);
-	closelog();
 
 	if (serverp->uid != getuid()) {
 		struct passwd *pwd = getpwuid(serverp->uid);
 		gid_t g;
 
 		if (NULL == pwd) {
-			panic("Disabled server %x bootstrap %x: \"%s\": getpwuid(%d) failed",
+			syslog(LOG_ERR, "Disabled server %x bootstrap %x: \"%s\": getpwuid(%d) failed",
 				 serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, serverp->uid);
+			goto out_bad;
 		}
 
 		g = pwd->pw_gid;
 
-		if (-1 == setgroups(1, &g)) {
-			panic("Disabled server %x bootstrap %x: \"%s\": setgroups(1, %d): %s",
-					serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, g, strerror(errno));
-		}
+		if (!launchd_assumes(setgroups(1, &g) != -1))
+			goto out_bad;
 
-		if (-1 == setgid(g)) {
-			panic("Disabled server %x bootstrap %x: \"%s\": setgid(%d): %s",
-					serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, g, strerror(errno));
-		}
+		if (!launchd_assumes(setgid(g) != -1))
+			goto out_bad;
 
-		if (-1 == setuid(serverp->uid)) {
-			panic("Disabled server %x bootstrap %x: \"%s\": setuid(%d): %s",
-					 serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd, serverp->uid, strerror(errno));
-		}
+		if (!launchd_assumes(setuid(serverp->uid) != -1))
+			goto out_bad;
 	}
 
 
-	if (-1 == setsid()) {
-		syslog(LOG_WARNING, "Temporary failure server %x bootstrap %x: \"%s\": setsid(): %m",
-			   serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd);
-	}
+	launchd_assumes(setsid() != -1);
 
 	sigemptyset(&mask);
-	(void) sigprocmask(SIG_SETMASK, &mask, (sigset_t *)NULL);
+	sigprocmask(SIG_SETMASK, &mask, (sigset_t *)NULL);
 
 	setpriority(PRIO_PROCESS, 0, 0);
-	execv(argv[0], argv);
-	syslog(LOG_ERR, "Disabled server %x bootstrap %x: \"%s\": exec(): %m",
-			   serverp->port, serverp->bootstrap->bootstrap_port, serverp->cmd);
+	launchd_assumes(execv(argv[0], argv) != -1);
+out_bad:
 	exit(EXIT_FAILURE);
 }	
 
@@ -647,8 +632,8 @@ demand_loop(void *arg __attribute__((unused)))
 
 		for (i = 0; i < membersCnt; i++) {
 			statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-			if (!launchd_assumes(mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
-							(mach_port_info_t)&status, &statusCnt) == KERN_SUCCESS))
+			if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
+							(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
 				continue;
 
 			/*
@@ -1022,31 +1007,19 @@ service_delete(struct service *servicep)
 void
 service_watch(struct service *servicep)
 {
-	kern_return_t result;
 	mach_port_t previous;
 
 	servicep->isActive = true;
 
 	if (servicep->server) {
-		/* registered server - service needs backup */
+		launchd_assumes(mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_PORT_DESTROYED,
+				0, backup_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) == KERN_SUCCESS);
 		servicep->server->activity++;
 		servicep->server->active_services++;
-		result = mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_PORT_DESTROYED,
-				0, backup_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
-		if (result != KERN_SUCCESS)
-			panic("mach_port_request_notification(): %s", mach_error_string(result));
-	} else {
-		/* one time use/created service */
-		result = mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_DEAD_NAME,
-				0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
-		if (result != KERN_SUCCESS) {
-			//should service_delete(servicep) instead of panic()
-			panic("mach_port_request_notification(): %s", mach_error_string(result));
-		} else if (previous != MACH_PORT_NULL) {
-			syslog(LOG_DEBUG, "deallocating old notification port (%x) for checked in service %x",
-				previous, servicep->port);
+	} else if (launchd_assumes(mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_DEAD_NAME,
+					0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) == KERN_SUCCESS)) {
+		if (!launchd_assumes(previous == MACH_PORT_NULL))
 			launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
-		}
 	}
 }
 
