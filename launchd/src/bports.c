@@ -2,11 +2,12 @@
 #include <servers/bootstrap.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 int main(int argc, char *const argv[])
 {
 	kern_return_t result;
-	mach_port_t bport;
+	mach_port_t last_bport, bport = bootstrap_port;
 	name_array_t service_names;
 	unsigned int i, service_cnt, server_cnt, service_active_cnt;
 	name_array_t server_names;
@@ -15,21 +16,37 @@ int main(int argc, char *const argv[])
 	int srvwidth = 0;
 
 	if (argc == 2) {
-		int pid = atoi(argv[1]);
+		bool getrootbs = strcmp(argv[1], "/") == 0;
+		if (strcmp(argv[1], "..") == 0 || getrootbs) {
+			do {
+				last_bport = bport;
+				result = bootstrap_parent(last_bport, &bport);
 
-		result = task_for_pid(mach_task_self(), pid, &task);
+				if (result == BOOTSTRAP_NOT_PRIVILEGED) {
+					fprintf(stderr, "Permission denied\n");
+					exit(EXIT_FAILURE);
+				} else if (result != BOOTSTRAP_SUCCESS) {
+					fprintf(stderr, "bootstrap_parent() %d\n", result);
+					exit(EXIT_FAILURE);
+				}
+			} while (getrootbs && last_bport != bport);
+		} else {
+			int pid = atoi(argv[1]);
 
-		if (result != KERN_SUCCESS) {
-			fprintf(stderr, "task_for_pid() %s\n", mach_error_string(result));
-			exit(EXIT_FAILURE);
+			result = task_for_pid(mach_task_self(), pid, &task);
+
+			if (result != KERN_SUCCESS) {
+				fprintf(stderr, "task_for_pid() %s\n", mach_error_string(result));
+				exit(EXIT_FAILURE);
+			}
+
+			result = task_get_bootstrap_port(task, &bport);
+
+			if (result != KERN_SUCCESS) {
+				fprintf(stderr, "Couldn't get bootstrap port: %s\n", mach_error_string(result));
+				exit(EXIT_FAILURE);
+			}
 		}
-	}
-
-	result = task_get_bootstrap_port(task, &bport);
-
-	if (result != KERN_SUCCESS) {
-		fprintf(stderr, "Couldn't get bootstrap port: %s\n", mach_error_string(result));
-		exit(EXIT_FAILURE);
 	}
 
 	if (bport == MACH_PORT_NULL) {
