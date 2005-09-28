@@ -85,10 +85,10 @@ struct service {
 };
 
 struct server {
+	kq_callback	kqserver_callback;
 	TAILQ_ENTRY(server)	tqe;
 	struct bootstrap *bootstrap; /* bootstrap context */
 	mach_port_t	port;		/* server's priv bootstrap port */
-	mach_port_t	task_port;	/* server's task port */
 	uid_t		uid;		/* uid to exec server with */
 	pid_t		pid;		/* server's pid */
 	int		activity;		/* count of checkins/registers this instance */
@@ -107,9 +107,9 @@ static void server_start_child(struct server *serverp);
 static void server_reap(struct server *serverp);
 static void server_reap_port(struct server *serverp);
 static void server_dispatch(struct server *serverp);
+static void server_callback(void *obj, struct kevent *kev);
 
 static struct server *port_to_server(mach_port_t port);
-static struct server *taskport_to_server(mach_port_t port);
 static struct service *port_to_service(mach_port_t port);
 static struct bootstrap *port_to_bootstrap(mach_port_t port, bool active);
 static struct bootstrap *reqport_to_bootstrap(mach_port_t port);
@@ -284,72 +284,32 @@ server_useless(struct server *serverp)
 bool
 server_active(struct server *serverp)
 {
-	return (serverp->port || serverp->task_port || serverp->active_services);
+	return (serverp->port || serverp->pid || serverp->active_services);
 }
 
 static void
 server_reap(struct server *serverp)
 {
-	kern_return_t result;
-	pid_t presult;
 	int wstatus;
 
-	presult = waitpid(serverp->pid, &wstatus, WNOHANG);
-	switch (presult) {
-	case -1:
-		syslog(LOG_DEBUG, "waitpid: cmd = %s: %m", serverp->cmd);
-		break;
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+	if (getpid() == 1)
+		wstatus = pid1_child_exit_status;
+	else
+#endif
+	launchd_assumes(waitpid(serverp->pid, &wstatus, 0) != -1);
 
-	case 0:
-	{
-		/* process must have switched mach tasks */
-		mach_port_t old_port;
-
-		old_port = serverp->task_port;
-		launchd_assumes(launchd_mport_deallocate(old_port) == KERN_SUCCESS);
-		serverp->task_port = MACH_PORT_NULL;
-
-		result = task_for_pid(mach_task_self(), serverp->pid, &serverp->task_port);
-		if (result != KERN_SUCCESS) {
-			syslog(LOG_INFO, "task_for_pid(%d) race after waitpid(): %s", serverp->pid, mach_error_string(result));
-			break;
-		}
-
-		/* Request dead name notification to tell when new task dies */
-		result = mach_port_request_notification(mach_task_self(), serverp->task_port, MACH_NOTIFY_DEAD_NAME,
-				0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
-		if (result != KERN_SUCCESS) {
-			syslog(LOG_INFO, "race setting up notification for new server task port for pid[%d]: %s",
-			     serverp->pid, mach_error_string(result));
-			break;
-		}
-		return;
+	if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus)) {
+		syslog(LOG_NOTICE, "Server %x in bootstrap %x uid %d: \"%s\"[%d]: exited with status: %d",
+				serverp->port, serverp->bootstrap->bootstrap_port,
+				serverp->uid, serverp->cmd, serverp->pid, WEXITSTATUS(wstatus));
+	} else if (WIFSIGNALED(wstatus)) {
+		syslog(LOG_NOTICE, "Server %x in bootstrap %x uid %d: \"%s\"[%d]: exited abnormally: %s",
+				serverp->port, serverp->bootstrap->bootstrap_port,
+				serverp->uid, serverp->cmd, serverp->pid, strsignal(WTERMSIG(wstatus)));
 	}
 
-	default:
-		if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus)) {
-			syslog(LOG_NOTICE, "Server %x in bootstrap %x uid %d: \"%s\"[%d]: exited with status: %d",
-			       serverp->port, serverp->bootstrap->bootstrap_port,
-			       serverp->uid, serverp->cmd, serverp->pid, WEXITSTATUS(wstatus));
-		} else if (WIFSIGNALED(wstatus)) {
-			syslog(LOG_NOTICE, "Server %x in bootstrap %x uid %d: \"%s\"[%d]: exited abnormally: %s",
-			       serverp->port, serverp->bootstrap->bootstrap_port,
-			       serverp->uid, serverp->cmd, serverp->pid, strsignal(WTERMSIG(wstatus)));
-		}
-		break;
-	}
-		
-
-	serverp->pid = -1;
-
-	/*
-	 * Release the server task port reference, if we ever
-	 * got it in the first place.
-	 */
-	if (serverp->task_port != MACH_PORT_NULL) {
-		launchd_assumes(launchd_mport_deallocate(serverp->task_port) == KERN_SUCCESS);
-		serverp->task_port = MACH_PORT_NULL;
-	}
+	serverp->pid = 0;
 }
 
 static void
@@ -389,6 +349,18 @@ server_dispatch(struct server *serverp)
 		else
 			server_start(serverp);
 	}
+}
+
+void
+server_callback(void *obj, struct kevent *kev)
+{
+	struct server *serverp = obj;
+
+	launchd_assumes((pid_t)kev->ident == serverp->pid);
+	launchd_assumes(kev->filter == EVFILT_PROC);
+
+	server_reap(serverp);
+	server_dispatch(serverp);
 }
 
 void
@@ -458,8 +430,6 @@ fork_with_bootstrap_port(mach_port_t p, bool dealloc)
 static void
 server_start(struct server *serverp)
 {
-	kern_return_t result;
-	mach_port_t old_port;
 	int pid;
 
 	if (server_active(serverp))
@@ -482,20 +452,10 @@ server_start(struct server *serverp)
 
 	syslog(LOG_INFO, "Launched server %x in bootstrap %x uid %d: \"%s\": [pid %d]",
 			serverp->port, serverp->bootstrap->bootstrap_port, serverp->uid, serverp->cmd, pid);
+
 	serverp->pid = pid;
-	result = task_for_pid(mach_task_self(), pid, &serverp->task_port);
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_ERR, "getting server task port(): %s", mach_error_string(result));
+	if (kevent_mod(pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &serverp->kqserver_callback) == -1)
 		goto out_bad;
-	}
-				
-	/* Request dead name notification to tell when task dies */
-	result = mach_port_request_notification(mach_task_self(),
-			serverp->task_port, MACH_NOTIFY_DEAD_NAME, 0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_ERR, "mach_port_request_notification(): %s", mach_error_string(result));
-		goto out_bad;
-	}
 
 	return;
 out_bad:
@@ -671,12 +631,6 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 				service_delete(servicep);
 			}
 
-			if ((serverp = taskport_to_server(np)) != NULL) {
-				syslog(LOG_DEBUG, "Received task death notification for server %s", serverp->cmd);
-				server_reap(serverp);
-				server_dispatch(serverp);
-			}
-
 			launchd_assumes(launchd_mport_deallocate(np) == KERN_SUCCESS);
 			reply->RetCode = KERN_SUCCESS;
 			break;
@@ -804,12 +758,13 @@ server_new(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond)
 	if (NULL == serverp)
 		goto out;
 
+	serverp->kqserver_callback = server_callback;
+
 	TAILQ_INSERT_TAIL(&servers, serverp, tqe);
 
 	bootstrap->ref_count++;
 	serverp->bootstrap = bootstrap;
 
-	serverp->pid = -1;
 	serverp->uid = uid;
 
 	serverp->ondemand = ond;
@@ -1019,18 +974,6 @@ port_to_service(mach_port_t port)
 }
 
 static struct server *
-taskport_to_server(mach_port_t port)
-{
-	struct server *serverp;
-	
-	TAILQ_FOREACH(serverp, &servers, tqe) {
-	  	if (port == serverp->task_port)
-			return serverp;
-	}
-	return NULL;
-}
-
-static struct server *
 port_to_server(mach_port_t port)
 {
 	struct server *serverp;
@@ -1142,6 +1085,24 @@ bootstrap_delete(struct bootstrap *bootstrap)
 	if (parent)
 		bootstrap_delete(parent);
 }
+
+#ifdef PID1_REAP_ADOPTED_CHILDREN
+bool mach_init_check_pid(pid_t p)
+{
+	struct kevent kev;
+	struct server *serverp;
+
+	TAILQ_FOREACH(serverp, &servers, tqe) {
+		if (serverp->pid == p) {
+			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, serverp);
+			serverp->kqserver_callback(serverp, &kev);
+			return true;
+		}
+	}
+	return false;
+}
+#endif
+
 
 kern_return_t
 launchd_set_bport(mach_port_t name)

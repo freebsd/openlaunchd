@@ -1526,6 +1526,8 @@ static void job_start(struct jobcb *j)
 		job_start_child(j, execspair[1]);
 		break;
 	default:
+		j->p = c;
+		total_children++;
 		launchd_assumes(close(execspair[1]) == 0);
 		j->execfd = _fd(execspair[0]);
 		if (sipc) {
@@ -1538,8 +1540,6 @@ static void job_start(struct jobcb *j)
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
-			j->p = c;
-			total_children++;
 			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
 				job_ignore(j);
 		}
@@ -1736,8 +1736,10 @@ static void pid1waitpid(void)
 	pid_t p;
 
 	while ((p = waitpid(-1, &pid1_child_exit_status, WNOHANG)) > 0) {
-		if (!launchd_check_pid(p))
-			init_check_pid(p);
+		if (!launchd_check_pid(p)) {
+			if (!mach_init_check_pid(p))
+				init_check_pid(p);
+		}
 	}
 }
 #endif

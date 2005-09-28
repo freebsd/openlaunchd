@@ -44,6 +44,8 @@ extern sigset_t blocked_signals;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 extern int pid1_child_exit_status;
+bool init_check_pid(pid_t);
+bool mach_init_check_pid(pid_t);
 #endif
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
@@ -53,7 +55,6 @@ pid_t launchd_ws_fork(void);
 
 void init_boot(bool sflag, bool vflag, bool xflag);
 void init_pre_kevent(void);
-bool init_check_pid(pid_t);
 
 void update_ttys(void);
 void catatonia(void);
