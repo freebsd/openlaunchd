@@ -67,17 +67,17 @@
 
 struct bootstrap {
 	kq_callback		kqbstrap_callback;
-	TAILQ_ENTRY(bootstrap)	tqe;
-	TAILQ_HEAD(, bootstrap)	sub_bstraps;
-	TAILQ_HEAD(, server)	servers;
-	TAILQ_HEAD(, service)	services;
+	SLIST_ENTRY(bootstrap)	sle;
+	SLIST_HEAD(, bootstrap)	sub_bstraps;
+	SLIST_HEAD(, server)	servers;
+	SLIST_HEAD(, service)	services;
 	struct bootstrap	*parent;
 	mach_port_name_t	bootstrap_port;
 	mach_port_name_t	requestor_port;
 };
 
 struct service {
-	TAILQ_ENTRY(service)	tqe;
+	SLIST_ENTRY(service)	sle;
 	struct bootstrap	*bootstrap;	/* bootstrap port(s) used at this level. */
 	struct server		*server;	/* server, declared services only */
 	mach_port_name_t	port;		/* service port, may have all rights if inactive */
@@ -87,8 +87,8 @@ struct service {
 
 struct server {
 	kq_callback	kqserver_callback;
-	TAILQ_ENTRY(server)	tqe;
-	TAILQ_HEAD(, service)	services;
+	SLIST_ENTRY(server)	sle;
+	SLIST_HEAD(, service)	services;
 	struct bootstrap *bootstrap; /* bootstrap context */
 	mach_port_t	port;		/* server's priv bootstrap port */
 	uid_t		uid;		/* uid to exec server with */
@@ -257,7 +257,7 @@ server_useless(struct server *serverp)
 {
 	bool active_bstrap = (serverp->bootstrap->requestor_port != MACH_PORT_NULL);
 
-	return (!active_bstrap || TAILQ_EMPTY(&serverp->services) || !serverp->activity);
+	return (!active_bstrap || SLIST_EMPTY(&serverp->services) || !serverp->activity);
 }
 
 bool
@@ -304,7 +304,7 @@ server_demand(struct server *serverp)
 	 * pulled from the set but never checked-in by the server.
 	 */
 
-	TAILQ_FOREACH(servicep, &serverp->services, tqe) {
+	SLIST_FOREACH(servicep, &serverp->services, sle) {
 		if (!servicep->isActive)
 			launchd_assumes(launchd_mport_watch(servicep->port) == KERN_SUCCESS);
 	}
@@ -604,33 +604,27 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 		switch (Request->msgh_id) {
 		case MACH_NOTIFY_DEAD_NAME:
 			np = ((mach_dead_name_notification_t *)Request)->not_port;
-			syslog(LOG_DEBUG, "Notified dead name %x", np);
+			syslog(LOG_DEBUG, "Dead name notification: %d", MACH_PORT_INDEX(np));
 
 			if (np == inherited_bootstrap_port)
 				inherited_bootstrap_port = MACH_PORT_NULL;
 		
-			while ((bootstrap = reqport_to_bootstrap(root_bootstrap, np))) {
-				syslog(LOG_DEBUG, "Received dead name notification for bootstrap subset %x requestor port %x",
-					 bootstrap->bootstrap_port, bootstrap->requestor_port);
+			while ((bootstrap = reqport_to_bootstrap(root_bootstrap, np)))
 				bootstrap_delete(bootstrap);
-			}
 
-			while ((servicep = port_to_service(root_bootstrap, np))) {
-				syslog(LOG_DEBUG, "Received dead name notification for service %s on bootstrap port %x\n",
-					  servicep->name, servicep->bootstrap);
+			while ((servicep = port_to_service(root_bootstrap, np)))
 				service_delete(servicep);
-			}
 
 			launchd_assumes(launchd_mport_deallocate(np) == KERN_SUCCESS);
 			reply->RetCode = KERN_SUCCESS;
 			break;
 		case MACH_NOTIFY_PORT_DELETED:
 			np = ((mach_port_deleted_notification_t *)Request)->not_port;
-			syslog(LOG_DEBUG, "port deleted notification on 0x%x", np);
+			syslog(LOG_DEBUG, "Port deleted notification: %d", MACH_PORT_INDEX(np));
 			reply->RetCode = KERN_SUCCESS;
 			break;
 		case MACH_NOTIFY_SEND_ONCE:
-			syslog(LOG_DEBUG, "notification send-once right went unused");
+			syslog(LOG_DEBUG, "Send-once right went unused");
 			reply->RetCode = KERN_SUCCESS;
 			break;
 		default:
@@ -674,30 +668,17 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 		launchd_assumes(serverp || bootstrap);
 
 		if (serverp) {
-	  		/*
-			 * A server we launched has released his bootstrap
-			 * port send right.  We won't re-launch him unless
-			 * his services came back to roost.  But we need to
-			 * destroy the bootstrap port for fear of leaking.
-			 */
 			syslog(LOG_DEBUG, "server %s dropped server port", serverp->cmd);
 			server_reap_port(serverp);
 			server_dispatch(serverp);
 		} else if (bootstrap) {
-			/*
-			 * The last direct user of a deactivated bootstrap went away.
-			 * We can finally free it.
-			 */
-			syslog(LOG_DEBUG, "Deallocating bootstrap %x: no more clients", ns);
+			syslog(LOG_DEBUG, "Deallocating bootstrap %d: no more clients", MACH_PORT_INDEX(ns));
 			bootstrap_delete(bootstrap);
-		} else {
-			launchd_assumes(launchd_mport_close_recv(ns) == KERN_SUCCESS);
 		}
 
 		memset(reply, 0, sizeof(*reply));
 		reply->RetCode = KERN_SUCCESS;
 	} else {
-		/* must be a service request */
 		syslog(LOG_DEBUG, "Handled request.");
 		return bootstrap_server(Request, Reply);
 	}
@@ -736,11 +717,11 @@ server_new(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond)
 	if (NULL == serverp)
 		goto out;
 
-	TAILQ_INIT(&serverp->services);
+	SLIST_INIT(&serverp->services);
 
 	serverp->kqserver_callback = server_callback;
 
-	TAILQ_INSERT_TAIL(&bootstrap->servers, serverp, tqe);
+	SLIST_INSERT_HEAD(&bootstrap->servers, serverp, sle);
 
 	serverp->bootstrap = bootstrap;
 
@@ -762,7 +743,7 @@ service_new(struct bootstrap *bootstrap, const char *name, mach_port_t *servicep
 		goto out_bad;
 
 	if (serverp) {
-		TAILQ_INSERT_TAIL(&serverp->services, servicep, tqe);
+		SLIST_INSERT_HEAD(&serverp->services, servicep, sle);
 		if (!launchd_assumes(launchd_mport_create_recv(&servicep->port, serverp) == KERN_SUCCESS))
 			goto out_bad;
 
@@ -772,7 +753,7 @@ service_new(struct bootstrap *bootstrap, const char *name, mach_port_t *servicep
 		*serviceport = servicep->port;
 		servicep->isActive = false;
 	} else {
-		TAILQ_INSERT_TAIL(&bootstrap->services, servicep, tqe);
+		SLIST_INSERT_HEAD(&bootstrap->services, servicep, sle);
 		servicep->port = *serviceport;
 		servicep->isActive = true;
 	}
@@ -823,9 +804,9 @@ bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
 
 	bootstrap->kqbstrap_callback = bootstrap_callback;
 
-	TAILQ_INIT(&bootstrap->sub_bstraps);
-	TAILQ_INIT(&bootstrap->servers);
-	TAILQ_INIT(&bootstrap->services);
+	SLIST_INIT(&bootstrap->sub_bstraps);
+	SLIST_INIT(&bootstrap->servers);
+	SLIST_INIT(&bootstrap->services);
 
 	if (!launchd_assumes(launchd_mport_create_recv(&bootstrap->bootstrap_port, bootstrap) == KERN_SUCCESS))
 		goto out_bad;
@@ -844,7 +825,7 @@ bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
 	}
 
 	if (parent) {
-		TAILQ_INSERT_TAIL(&parent->sub_bstraps, bootstrap, tqe);
+		SLIST_INSERT_HEAD(&parent->sub_bstraps, bootstrap, sle);
 		bootstrap->parent = parent;
 	}
 
@@ -867,7 +848,7 @@ reqport_to_bootstrap(struct bootstrap *bootstrap, mach_port_t port)
 	if (bootstrap->requestor_port == port)
 		return bootstrap;
 
-	TAILQ_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, tqe) {
+	SLIST_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, sle) {
 		if ((bstrap_r = reqport_to_bootstrap(sub_bstrap, port)))
 			break;
 	}
@@ -881,14 +862,14 @@ bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name)
 	struct service *servicep;
 	struct server *serverp;
 
-	TAILQ_FOREACH(serverp, &bootstrap->servers, tqe) {
-		TAILQ_FOREACH(servicep, &serverp->services, tqe) {
+	SLIST_FOREACH(serverp, &bootstrap->servers, sle) {
+		SLIST_FOREACH(servicep, &serverp->services, sle) {
 			if (strcmp(name, servicep->name) == 0)
 				return servicep;
 		}
 	}
 
-	TAILQ_FOREACH(servicep, &bootstrap->services, tqe) {
+	SLIST_FOREACH(servicep, &bootstrap->services, sle) {
 		if (strcmp(name, servicep->name) == 0)
 				return servicep;
 	}
@@ -904,11 +885,11 @@ service_delete(struct service *servicep)
 {
 
 	if (servicep->server) {
-		TAILQ_REMOVE(&servicep->server->services, servicep, tqe);
+		SLIST_REMOVE(&servicep->server->services, servicep, service, sle);
 		syslog(LOG_INFO, "Declared service %s now unavailable", servicep->name);
 		launchd_assumes(launchd_mport_close_recv(servicep->port) == KERN_SUCCESS);
 	} else {
-		TAILQ_REMOVE(&servicep->bootstrap->services, servicep, tqe);
+		SLIST_REMOVE(&servicep->bootstrap->services, servicep, service, sle);
 		syslog(LOG_INFO, "Registered service %s deleted", servicep->name);
 	}
 
@@ -943,19 +924,19 @@ port_to_service(struct bootstrap *bootstrap, mach_port_t port)
 	struct service *servicep;
 	struct server *serverp;
 	
-	TAILQ_FOREACH(serverp, &bootstrap->servers, tqe) {
-		TAILQ_FOREACH(servicep, &serverp->services, tqe) {
+	SLIST_FOREACH(serverp, &bootstrap->servers, sle) {
+		SLIST_FOREACH(servicep, &serverp->services, sle) {
 			if (port == servicep->port)
 				return servicep;
 		}
 	}
 
-	TAILQ_FOREACH(servicep, &bootstrap->services, tqe) {
+	SLIST_FOREACH(servicep, &bootstrap->services, sle) {
 	  	if (port == servicep->port)
 			return servicep;
 	}
 
-	TAILQ_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, tqe) {
+	SLIST_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, sle) {
 	  	if ((servicep = port_to_service(sub_bstrap, port)))
 			return servicep;
 	}
@@ -970,9 +951,9 @@ server_delete(struct server *serverp)
 
 	syslog(LOG_INFO, "Deleting server %s", serverp->cmd);
 
-	TAILQ_REMOVE(&serverp->bootstrap->servers, serverp, tqe);
+	SLIST_REMOVE(&serverp->bootstrap->servers, serverp, server, sle);
 
-	while ((servicep = TAILQ_FIRST(&serverp->services)))
+	while ((servicep = SLIST_FIRST(&serverp->services)))
 		service_delete(servicep);
 
 	if (serverp->port)
@@ -993,13 +974,13 @@ bootstrap_delete(struct bootstrap *bootstrap)
 	if (!launchd_assumes(bootstrap != ws_bootstrap))
 		return;
 
-	while ((sub_bstrap = TAILQ_FIRST(&bootstrap->sub_bstraps)))
+	while ((sub_bstrap = SLIST_FIRST(&bootstrap->sub_bstraps)))
 		bootstrap_delete(sub_bstrap);
 
-	while ((serverp = TAILQ_FIRST(&bootstrap->servers)))
+	while ((serverp = SLIST_FIRST(&bootstrap->servers)))
 		server_delete(serverp);
 
-	while ((servicep = TAILQ_FIRST(&bootstrap->services)))
+	while ((servicep = SLIST_FIRST(&bootstrap->services)))
 		service_delete(servicep);
 
 	if (bootstrap->requestor_port != MACH_PORT_NULL && bootstrap->requestor_port != bootstrap->bootstrap_port)
@@ -1008,7 +989,7 @@ bootstrap_delete(struct bootstrap *bootstrap)
 	launchd_assumes(launchd_mport_close_recv(bootstrap->bootstrap_port) == KERN_SUCCESS);
 
 	if (bootstrap->parent)
-		TAILQ_REMOVE(&bootstrap->parent->sub_bstraps, bootstrap, tqe);
+		SLIST_REMOVE(&bootstrap->parent->sub_bstraps, bootstrap, bootstrap, sle);
 
 	free(bootstrap);
 }
@@ -1022,7 +1003,7 @@ bool mach_init_check_pid_with_bs(struct bootstrap *bootstrap, pid_t p)
 	struct server *serverp;
 	struct kevent kev;
 
-	TAILQ_FOREACH(serverp, &bootstrap->servers, tqe) {
+	SLIST_FOREACH(serverp, &bootstrap->servers, sle) {
 		if (serverp->pid == p) {
 			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, serverp);
 			serverp->kqserver_callback(serverp, &kev);
@@ -1030,7 +1011,7 @@ bool mach_init_check_pid_with_bs(struct bootstrap *bootstrap, pid_t p)
 		}
 	}
 
-	TAILQ_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, tqe) {
+	SLIST_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, sle) {
 		if (mach_init_check_pid_with_bs(sub_bstrap, p))
 			return true;
 	}
@@ -1499,11 +1480,11 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 	bootstrap_status_array_t service_actives;
 
 	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bstrap_iter->parent) {
-		TAILQ_FOREACH(serverp, &bstrap_iter->servers, tqe) {
-			TAILQ_FOREACH(servicep, &serverp->services, tqe)
+		SLIST_FOREACH(serverp, &bstrap_iter->servers, sle) {
+			SLIST_FOREACH(servicep, &serverp->services, sle)
 				cnt++;
 		}
-		TAILQ_FOREACH(servicep, &bstrap_iter->services, tqe)
+		SLIST_FOREACH(servicep, &bstrap_iter->services, sle)
 			cnt++;
 	}
 
@@ -1525,15 +1506,15 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 
 	i = 0;
 	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bstrap_iter->parent) {
-		TAILQ_FOREACH(serverp, &bstrap_iter->servers, tqe) {
-			TAILQ_FOREACH(servicep, &serverp->services, tqe) {
+		SLIST_FOREACH(serverp, &bstrap_iter->servers, sle) {
+			SLIST_FOREACH(servicep, &serverp->services, sle) {
 				strlcpy(service_names[i], servicep->name, sizeof(service_names[0]));
 		    		strlcpy(server_names[i], serverp->cmd, sizeof(server_names[0]));
 	    			service_actives[i] = bsstatus(servicep);
 				i++;
 			}
 		}
-		TAILQ_FOREACH(servicep, &bstrap_iter->services, tqe) {
+		SLIST_FOREACH(servicep, &bstrap_iter->services, sle) {
 			strlcpy(service_names[i], servicep->name, sizeof(service_names[0]));
 			server_names[i][0] = '\0';
 	    		service_actives[i] = bsstatus(servicep);

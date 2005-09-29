@@ -75,7 +75,7 @@ extern char **environ;
 
 struct jobcb {
 	kq_callback kqjob_callback;
-	TAILQ_ENTRY(jobcb) tqe;
+	SLIST_ENTRY(jobcb) sle;
 	launch_data_t ldj;
 	pid_t p;
 	int last_exit_status;
@@ -94,14 +94,14 @@ struct jobcb {
 
 struct conncb {
 	kq_callback kqconn_callback;
-	TAILQ_ENTRY(conncb) tqe;
+	SLIST_ENTRY(conncb) sle;
 	launch_t conn;
 	struct jobcb *j;
 	int disabled_batch:1, futureflags:31;
 };
 
-static TAILQ_HEAD(jobcbhead, jobcb) jobs = TAILQ_HEAD_INITIALIZER(jobs);
-static TAILQ_HEAD(conncbhead, conncb) connections = TAILQ_HEAD_INITIALIZER(connections);
+static SLIST_HEAD(, jobcb) jobs = { NULL };
+static SLIST_HEAD(, conncb) connections = { NULL };
 static int mainkq = 0;
 static int asynckq = 0;
 static int batch_disabler_count = 0;
@@ -332,7 +332,7 @@ int main(int argc, char *argv[])
 
 	reload_launchd_config();
 
-	fbj = TAILQ_FIRST(&jobs);
+	fbj = SLIST_FIRST(&jobs);
 	if (fbj && fbj->firstborn)
 		job_start(fbj);
 
@@ -343,7 +343,7 @@ int main(int argc, char *argv[])
 		if (shutdown_in_progress && total_children == 0) {
 			struct jobcb *j;
 
-			while ((j = TAILQ_FIRST(&jobs)))
+			while ((j = SLIST_FIRST(&jobs)))
 				job_remove(j);
 			
 			shutdown_in_progress = false;
@@ -417,7 +417,7 @@ static bool launchd_check_pid(pid_t p)
 	struct kevent kev;
 	struct jobcb *j;
 
-	TAILQ_FOREACH(j, &jobs, tqe) {
+	SLIST_FOREACH(j, &jobs, sle) {
 		if (j->p == p) {
 			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, j);
 			j->kqjob_callback(j, &kev);
@@ -582,7 +582,7 @@ static void ipc_open(int fd, struct jobcb *j)
 	c->kqconn_callback = ipc_callback;
 	c->conn = launchd_fdopen(fd);
 	c->j = j;
-	TAILQ_INSERT_TAIL(&connections, c, tqe);
+	SLIST_INSERT_HEAD(&connections, c, sle);
 	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
 
@@ -819,7 +819,7 @@ static void job_remove(struct jobcb *j)
 
 	job_log(j, LOG_DEBUG, "Removed");
 
-	TAILQ_REMOVE(&jobs, j, tqe);
+	SLIST_REMOVE(&jobs, j, jobcb, sle);
 	if (j->p) {
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
 			job_reap(j);
@@ -897,7 +897,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		return;
 
 	if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
-		TAILQ_FOREACH(j, &jobs, tqe) {
+		SLIST_FOREACH(j, &jobs, sle) {
 			if (!strcmp(j->label, launch_data_get_string(data))) {
 				job_start(j);
 				resp = launch_data_new_errno(0);
@@ -906,7 +906,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		if (NULL == resp)
 			resp = launch_data_new_errno(ESRCH);
 	} else if (!strcmp(cmd, LAUNCH_KEY_STOPJOB)) {
-		TAILQ_FOREACH(j, &jobs, tqe) {
+		SLIST_FOREACH(j, &jobs, sle) {
 			if (!strcmp(j->label, launch_data_get_string(data))) {
 				job_stop(j);
 				resp = launch_data_new_errno(0);
@@ -915,7 +915,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		if (NULL == resp)
 			resp = launch_data_new_errno(ESRCH);
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
-		TAILQ_FOREACH(j, &jobs, tqe) {
+		SLIST_FOREACH(j, &jobs, sle) {
 			if (!strcmp(j->label, launch_data_get_string(data))) {
 				job_remove(j);
 				resp = launch_data_new_errno(0);
@@ -1064,7 +1064,7 @@ static launch_data_t load_job(launch_data_t pload)
 	bool startnow, hasprog = false, hasprogargs = false;
 
 	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL))) {
-		TAILQ_FOREACH(j, &jobs, tqe) {
+		SLIST_FOREACH(j, &jobs, sle) {
 			if (!strcmp(j->label, label)) {
 				resp = launch_data_new_errno(EEXIST);
 				goto out;
@@ -1098,7 +1098,7 @@ static launch_data_t load_job(launch_data_t pload)
 		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_ONDEMAND);
 	}
 
-	TAILQ_INSERT_TAIL(&jobs, j, tqe);
+	SLIST_INSERT_HEAD(&jobs, j, sle);
 
 	j->debug = job_get_bool(j->ldj, LAUNCH_JOBKEY_DEBUG);
 
@@ -1192,7 +1192,7 @@ static launch_data_t get_jobs(const char *which)
 	launch_data_t tmp, resp = NULL;
 
 	if (which) {
-		TAILQ_FOREACH(j, &jobs, tqe) {
+		SLIST_FOREACH(j, &jobs, sle) {
 			if (!strcmp(which, j->label))
 				resp = job_export(j);
 		}
@@ -1201,7 +1201,7 @@ static launch_data_t get_jobs(const char *which)
 	} else {
 		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-		TAILQ_FOREACH(j, &jobs, tqe) {
+		SLIST_FOREACH(j, &jobs, sle) {
 			tmp = job_export(j);
 			launch_data_dict_insert(resp, tmp, j->label);
 		}
@@ -1263,7 +1263,7 @@ static void ipc_close(struct conncb *c)
 {
 	batch_job_enable(true, c);
 
-	TAILQ_REMOVE(&connections, c, tqe);
+	SLIST_REMOVE(&connections, c, conncb, sle);
 	launchd_close(c->conn);
 	free(c);
 }
@@ -1974,7 +1974,7 @@ static void conceive_firstborn(char *argv[], const char *session_user)
 	launch_data_free(r);
 	launch_data_free(d);
 
-	TAILQ_FIRST(&jobs)->firstborn = true;
+	SLIST_FIRST(&jobs)->firstborn = true;
 }
 
 static void loopback_setup(void)
