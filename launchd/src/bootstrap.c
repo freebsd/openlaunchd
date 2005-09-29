@@ -61,6 +61,15 @@
 #include <syslog.h>
 #include <pwd.h>
 
+/* <rdar://problem/2685209> sys/queue.h is not up to date */
+#ifndef SLIST_FOREACH_SAFE
+#define	SLIST_FOREACH_SAFE(var, head, field, tvar)			\
+	for ((var) = SLIST_FIRST((head));				\
+		(var) && ((tvar) = SLIST_NEXT((var), field), 1);	\
+		(var) = (tvar))
+#endif
+
+
 #include "bootstrap.h"
 #include "bootstrapServer.h"
 #include "launchd.h"
@@ -110,15 +119,13 @@ static void server_reap_port(struct server *serverp);
 static void server_dispatch(struct server *serverp);
 static void server_callback(void *obj, struct kevent *kev);
 
-static struct service *port_to_service(struct bootstrap *bootstrap, mach_port_t port);
-static struct bootstrap *reqport_to_bootstrap(struct bootstrap *bootstrap, mach_port_t port);
-
 static struct service *service_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct server *serverp);
 static void service_delete(struct service *servicep);
 static void service_watch(struct service *servicep);
 
 static struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
 static void bootstrap_delete(struct bootstrap *bootstrap);
+static void bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t port);
 static struct service *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name);
 static void bootstrap_callback(void *obj, struct kevent *kev);
 
@@ -606,16 +613,13 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 			np = ((mach_dead_name_notification_t *)Request)->not_port;
 			syslog(LOG_DEBUG, "Dead name notification: %d", MACH_PORT_INDEX(np));
 
-			if (np == inherited_bootstrap_port)
+			if (np == inherited_bootstrap_port) {
+				launchd_assumes(launchd_mport_deallocate(np) == KERN_SUCCESS);
 				inherited_bootstrap_port = MACH_PORT_NULL;
+			}
 		
-			while ((bootstrap = reqport_to_bootstrap(root_bootstrap, np)))
-				bootstrap_delete(bootstrap);
+			bootstrap_delete_anything_with_port(root_bootstrap, np);
 
-			while ((servicep = port_to_service(root_bootstrap, np)))
-				service_delete(servicep);
-
-			launchd_assumes(launchd_mport_deallocate(np) == KERN_SUCCESS);
 			reply->RetCode = KERN_SUCCESS;
 			break;
 		case MACH_NOTIFY_PORT_DELETED:
@@ -636,11 +640,16 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 		memset(reply, 0, sizeof(*reply));
 
 		np = ((mach_port_destroyed_notification_t *)Request)->not_port.name; 
-		servicep = port_to_service(root_bootstrap, np);
-		if (servicep != NULL) {
-			serverp = servicep->server;
 
-			if (Request->msgh_id == MACH_NOTIFY_PORT_DESTROYED) {
+		reply->RetCode = KERN_FAILURE;
+
+		if (launchd_assumes((serverp = port_to_obj[MACH_PORT_INDEX(np)]) != NULL)) {
+			SLIST_FOREACH(servicep, &serverp->services, sle) {
+				if (servicep->port == np)
+					break;
+			}
+			launchd_assumes(servicep != NULL);
+			if (launchd_assumes(Request->msgh_id == MACH_NOTIFY_PORT_DESTROYED)) {
 				/*
 				 * Port sent back to us, server died.
 				 */
@@ -651,13 +660,7 @@ server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 				serverp->active_services--;
 				server_dispatch(serverp);
 				reply->RetCode = KERN_SUCCESS;
-			} else {
-				syslog(LOG_DEBUG, "Mysterious backup_port notification %d", Request->msgh_id);
-				reply->RetCode = KERN_FAILURE;
 			}
-		} else {
-			syslog(LOG_DEBUG, "Backup_port notification - previously deleted service");
-			reply->RetCode = KERN_FAILURE;
 		}
 	} else if (Request->msgh_id == MACH_NOTIFY_NO_SENDERS) {
 		mach_port_t ns = Request->msgh_local_port;
@@ -840,20 +843,47 @@ out_bad:
 	return NULL;
 }
 
-struct bootstrap *
-reqport_to_bootstrap(struct bootstrap *bootstrap, mach_port_t port)
+void
+bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t port)
 {
-	struct bootstrap *sub_bstrap, *bstrap_r = NULL;
+	struct bootstrap *sub_bstrap, *next_bstrap;
+	struct service *servicep, *next_servicep;
+	struct server *serverp, *next_serverp;
+
+	/* Mach ports, unlike Unix descriptors, are reference counted. In other
+	 * words, when some program hands us a second or subsequent send right
+	 * to a port we already have open, the Mach kernel gives us the same
+	 * port number back and increments an reference count associated with
+	 * the port. This forces us, when discovering that a receive right at
+	 * the other end has been deleted, to wander all of our data structures
+	 * to see what weird places clients might have handed us the same send
+	 * right to use in different places.
+	 */
 
 	if (bootstrap->requestor_port == port)
-		return bootstrap;
+		return bootstrap_delete(bootstrap);
 
-	SLIST_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, sle) {
-		if ((bstrap_r = reqport_to_bootstrap(sub_bstrap, port)))
-			break;
+	SLIST_FOREACH_SAFE(sub_bstrap, &bootstrap->sub_bstraps, sle, next_bstrap)
+		bootstrap_delete_anything_with_port(sub_bstrap, port);
+
+	/* My naive intuition about Mach port semantics and their implications
+	 * on our data structures says that we should never need to walk the
+	 * server list in this function. Why? Because if the server dies, we
+	 * get the port back in a backup notification. We'd never want to
+	 * delete it unless the server consciously unregisters the service.
+	 * Oh well, let's use launchd_assumes() to find out if we're wrong.
+	 */
+	SLIST_FOREACH_SAFE(serverp, &bootstrap->servers, sle, next_serverp) {
+		SLIST_FOREACH_SAFE(servicep, &serverp->services, sle, next_servicep) {
+			if (!launchd_assumes(servicep->port != port))
+				service_delete(servicep);
+		}
 	}
 
-	return bstrap_r;
+	SLIST_FOREACH_SAFE(servicep, &bootstrap->services, sle, next_servicep) {
+		if (servicep->port == port)
+			service_delete(servicep);
+	}
 }
 
 struct service *
