@@ -25,16 +25,19 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c
+launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c notifyServer.c
 
 launchproxy_LDFLAGS = -weak_framework Security
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notifyServer.c notifyUser.c notifyServer.h
 
-bootstrap.c:: bootstrap.h bootstrapServer.h
+bootstrap.c:: bootstrap.h bootstrapServer.h notifyServer.h
 
 bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+
+notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
+	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
 
 man1_MANS = wait4path.1 launchctl.1 bports.1
 

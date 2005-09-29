@@ -102,11 +102,11 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c
+launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c notifyServer.c
 
 launchproxy_LDFLAGS = -weak_framework Security
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notifyServer.c notifyUser.c notifyServer.h
 
 man1_MANS = wait4path.1 launchctl.1 bports.1
 
@@ -156,7 +156,8 @@ launchctl_OBJECTS = launchctl.$(OBJEXT)
 launchctl_LDADD = $(LDADD)
 launchctl_DEPENDENCIES =
 am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) launchd-init.$(OBJEXT) \
-	launchd-bootstrap.$(OBJEXT) launchd-bootstrapServer.$(OBJEXT)
+	launchd-bootstrap.$(OBJEXT) launchd-bootstrapServer.$(OBJEXT) \
+	launchd-notifyServer.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
@@ -194,6 +195,7 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-bootstrapServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchd-notifyServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
@@ -347,6 +349,7 @@ launchd-launchd.$(OBJEXT): launchd.c
 launchd-init.$(OBJEXT): init.c
 launchd-bootstrap.$(OBJEXT): bootstrap.c
 launchd-bootstrapServer.$(OBJEXT): bootstrapServer.c
+launchd-notifyServer.$(OBJEXT): notifyServer.c
 launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES) 
 	@rm -f launchd$(EXEEXT)
 	$(LINK) $(launchd_LDFLAGS) $(launchd_OBJECTS) $(launchd_LDADD) $(LIBS)
@@ -396,6 +399,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-notifyServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po@am__quote@
@@ -512,6 +516,18 @@ launchd-bootstrapServer.obj: bootstrapServer.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-bootstrapServer.Po' tmpdepfile='$(DEPDIR)/launchd-bootstrapServer.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-bootstrapServer.obj `cygpath -w bootstrapServer.c`
+
+launchd-notifyServer.o: notifyServer.c
+@AMDEP_TRUE@	source='notifyServer.c' object='launchd-notifyServer.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-notifyServer.Po' tmpdepfile='$(DEPDIR)/launchd-notifyServer.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-notifyServer.o `test -f 'notifyServer.c' || echo '$(srcdir)/'`notifyServer.c
+
+launchd-notifyServer.obj: notifyServer.c
+@AMDEP_TRUE@	source='notifyServer.c' object='launchd-notifyServer.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-notifyServer.Po' tmpdepfile='$(DEPDIR)/launchd-notifyServer.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-notifyServer.obj `cygpath -w notifyServer.c`
 CCDEPMODE = @CCDEPMODE@
 uninstall-info-am:
 
@@ -819,10 +835,13 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 	uninstall-sbinSCRIPTS uninstall-sysconfDATA
 
 
-bootstrap.c:: bootstrap.h bootstrapServer.h
+bootstrap.c:: bootstrap.h bootstrapServer.h notifyServer.h
 
 bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+
+notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
+	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
 
 $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 	mkdir -p $@
