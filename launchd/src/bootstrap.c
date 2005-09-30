@@ -582,12 +582,7 @@ demand_loop(void *arg __attribute__((unused)))
 boolean_t
 server_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 {
-	if (bootstrap_server(Request, Reply)) {
-		return true;
-	} else if (notify_server(Request, Reply)) {
-		return true;
-	}
-	return launchd_assumes(false);
+	return bootstrap_server(Request, Reply) ? true : notify_server(Request, Reply);
 }
 
 /*
@@ -689,7 +684,7 @@ bootstrap_callback(void *obj, struct kevent *kev)
 
 	mresult = mach_msg_server_once(server_demux, sizeof(union bootstrapMaxRequestSize), kev->ident,
 			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
-	if (mresult != MACH_MSG_SUCCESS)
+	if (!launchd_assumes(mresult == MACH_MSG_SUCCESS))
 		syslog(LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
 
 	result = launchd_mport_watch(kev->ident);
@@ -1056,11 +1051,15 @@ launchd_mport_deallocate(mach_port_t name)
  *		Returns BOOTSTRAP_NOT_PRIVILEGED, if bootstrap port invalid.
  */
 __private_extern__ kern_return_t
-x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
+x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd_raw, uid_t server_uid, boolean_t on_demand,
 		security_token_t sectoken, mach_port_t *server_portp)
 {
+	char server_cmd[sizeof(cmd_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct server *serverp;
+
+	/* cmd_t is an array of characters with no promise of being null terminated */
+	strlcpy(server_cmd, server_cmd_raw, sizeof(server_cmd));
 
 	uid_t client_euid = sectoken.val[0];
 
@@ -1140,12 +1139,16 @@ x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
  *			registered or checked-in.
  */
 __private_extern__ kern_return_t
-x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
+x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename_raw, mach_port_t *serviceportp)
 {
+	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct server *serverp = current_rpc_server;
 	kern_return_t result;
 	struct service *servicep;
+
+	/* name_t is an array of characters with no promise of being null terminated */
+	strlcpy(servicename, servicename_raw, sizeof(servicename));
 
 	syslog(LOG_DEBUG, "Service checkin attempt for service %s bootstrap %x", servicename, bootstrapport);
 
@@ -1196,11 +1199,15 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
  *			register or checked-in.
  */
 __private_extern__ kern_return_t
-x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t serviceport)
+x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_port_t serviceport)
 {
+	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct server *serverp = current_rpc_server;
 	struct service *servicep;
+
+	/* name_t is an array of characters with no promise of being null terminated */
+	strlcpy(servicename, servicename_raw, sizeof(servicename));
 
 	syslog(LOG_DEBUG, "Register attempt for service %s port %x", servicename, serviceport);
 
@@ -1244,10 +1251,14 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t 
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
 __private_extern__ kern_return_t
-x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
+x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename_raw, mach_port_t *serviceportp)
 {
+	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct service *servicep;
+
+	/* name_t is an array of characters with no promise of being null terminated */
+	strlcpy(servicename, servicename_raw, sizeof(servicename));
 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
@@ -1361,10 +1372,14 @@ x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_po
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
 __private_extern__ kern_return_t
-x_bootstrap_status(mach_port_t bootstrapport, name_t servicename, bootstrap_status_t *serviceactivep)
+x_bootstrap_status(mach_port_t bootstrapport, name_t servicename_raw, bootstrap_status_t *serviceactivep)
 {
+	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct service *servicep;
+
+	/* name_t is an array of characters with no promise of being null terminated */
+	strlcpy(servicename, servicename_raw, sizeof(servicename));
 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep == NULL) {
@@ -1525,11 +1540,15 @@ x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_po
  *		Returns BOOTSTRAP_NAME_IN_USE, if service already exists.
  */
 __private_extern__ kern_return_t
-x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
+x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename_raw, mach_port_t *serviceportp)
 {
+	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct server *serverp = current_rpc_server;
 	struct service *servicep;
+
+	/* name_t is an array of characters with no promise of being null terminated */
+	strlcpy(servicename, servicename_raw, sizeof(servicename));
 
 	syslog(LOG_DEBUG, "Service creation attempt for service %s bootstrap %x", servicename, bootstrapport); 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
