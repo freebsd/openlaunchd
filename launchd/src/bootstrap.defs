@@ -278,7 +278,7 @@ routine bootstrap_look_up_array(
 routine bootstrap_parent(
 		__bs_port	: mach_port_t;
  ServerSecToken	__token		: security_token_t;
-	out	__parent_port	: mach_port_make_send_t);
+	out	__parent_port	: mach_port_t);
 
 /*
  * kern_return_t
@@ -331,7 +331,7 @@ routine bootstrap_info(
  * are allowed.  Services already advertised may then be effectively removed
  * by registering PORT_NULL for the service.
  * When it is detected that the requestor_port is destroyed the subset
- * port and all services advertized by it are destroied as well.
+ * port and all services advertized by it are destroyed as well.
  *
  * Errors:	Returns appropriate kernel errors on rpc failure.
  */
