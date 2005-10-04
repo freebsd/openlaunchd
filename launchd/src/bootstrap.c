@@ -103,7 +103,6 @@ struct server {
 	mach_port_t	port;		/* server's priv bootstrap port */
 	uid_t		uid;		/* uid to exec server with */
 	pid_t		pid;		/* server's pid */
-	int		active_services;	/* count of active services */
 	unsigned int	ondemand:1, activity:1, __junk:30;
 	char		cmd[0];		/* server command to exec */
 };
@@ -151,8 +150,8 @@ static bool force_on_demand = false;
 static char *register_name = NULL;
 static size_t port_to_obj_size = 0;
 static void **port_to_obj = NULL;
-static int active_ports_fd = -1;
-static int port_to_main_thread_fd = -1;
+static int main_to_demand_loop_fd = -1;
+static int demand_loop_to_main_fd = -1;
 static pthread_t demand_thread;
 static kq_callback kqmport_callback = mport_callback;
 static kq_callback kqbstrap_callback = bootstrap_callback;
@@ -174,12 +173,38 @@ void mach_start_shutdown(void)
 void mport_callback(void *obj, struct kevent *kev)
 {
 	struct kevent newkev;
+	mach_port_name_array_t members;
+	mach_msg_type_number_t membersCnt;
+	mach_port_status_t status;
+	mach_msg_type_number_t statusCnt;
+	unsigned int i;
+	char junk = '\0';
 
-	launchd_assumes(read(active_ports_fd, &newkev, sizeof(newkev)) != -1);
+	launchd_assumes(read(main_to_demand_loop_fd, &junk, sizeof(junk)) != -1);
 
-	newkev.udata = port_to_obj[MACH_PORT_INDEX(newkev.ident)];
+	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
+		goto out;
 
-	(*((kq_callback *)newkev.udata))(newkev.udata, &newkev);
+	for (i = 0; i < membersCnt; i++) {
+		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
+		if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
+					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
+			break;
+
+		if (status.mps_msgcount) {
+			EV_SET(&newkev, members[i], EVFILT_MACHPORT, 0, 0, 0, port_to_obj[MACH_PORT_INDEX(members[i])]);
+			(*((kq_callback *)newkev.udata))(newkev.udata, &newkev);
+
+			/* the callback may have tained our ability to continue this for loop */
+			break;
+		}
+	}
+
+	launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
+				(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
+
+out:
+	launchd_assumes(write(main_to_demand_loop_fd, &junk, sizeof(junk)) != -1);
 }
 
 void mach_init_init(void)
@@ -190,12 +215,12 @@ void mach_init_init(void)
 
 	init_ports();
 
-	launchd_assert(pipe(pipepair) != -1);
+	launchd_assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pipepair) != -1);
 
-	active_ports_fd = pipepair[0];
-	port_to_main_thread_fd = pipepair[1];
+	main_to_demand_loop_fd = pipepair[0];
+	demand_loop_to_main_fd = pipepair[1];
 
-	launchd_assert(kevent_mod(active_ports_fd, EVFILT_READ, EV_ADD, 0, 0, &kqmport_callback) != -1);
+	launchd_assert(kevent_mod(main_to_demand_loop_fd, EVFILT_READ, EV_ADD, 0, 0, &kqmport_callback) != -1);
 
 	launchd_assert((root_bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) != NULL);
 
@@ -259,15 +284,23 @@ init_ports(void)
 bool
 server_useless(struct server *serverp)
 {
-	bool active_bstrap = (serverp->bootstrap->requestor_port != MACH_PORT_NULL);
-
-	return (!active_bstrap || SLIST_EMPTY(&serverp->services) || !serverp->activity);
+	return (SLIST_EMPTY(&serverp->services) || !serverp->activity);
 }
 
 bool
 server_active(struct server *serverp)
 {
-	return (serverp->port || serverp->pid || serverp->active_services);
+	struct service *servicep;
+	bool active_services = false;
+
+	SLIST_FOREACH(servicep, &serverp->services, sle) {
+		if (servicep->isActive) {
+			active_services = true;
+			break;
+		}
+	}
+
+	return (serverp->port || serverp->pid || active_services);
 }
 
 static void
@@ -295,25 +328,6 @@ server_reap(struct server *serverp)
 	serverp->pid = 0;
 }
 
-static void
-server_demand(struct server *serverp)
-{
-	struct service *servicep;
-
-	/*
-	 * For on-demand servers, make sure that the service ports are
-	 * back in on-demand portset.  Active service ports should come
-	 * back through a PORT_DESTROYED notification.  We only have to
-	 * worry about the inactive ports that may have been previously
-	 * pulled from the set but never checked-in by the server.
-	 */
-
-	SLIST_FOREACH(servicep, &serverp->services, sle) {
-		if (!servicep->isActive)
-			launchd_assumes(launchd_mport_watch(servicep->port) == KERN_SUCCESS);
-	}
-}
-
 void
 server_reap_port(struct server *serverp)
 {
@@ -324,13 +338,17 @@ server_reap_port(struct server *serverp)
 void
 server_dispatch(struct server *serverp)
 {
+	struct service *servicep;
+
 	if (!server_active(serverp)) {
-		if (server_useless(serverp))
+		if (server_useless(serverp)) {
 			server_delete(serverp);
-		else if (serverp->ondemand || force_on_demand)
-			server_demand(serverp);
-		else
+		} else if (serverp->ondemand || force_on_demand) {
+			SLIST_FOREACH(servicep, &serverp->services, sle)
+				launchd_assumes(launchd_mport_watch(servicep->port) == KERN_SUCCESS);
+		} else {
 			server_start(serverp);
+		}
 	}
 }
 
@@ -424,6 +442,7 @@ fork_with_bootstrap_port(mach_port_t p, bool dealloc)
 static void
 server_start(struct server *serverp)
 {
+	struct service *servicep;
 	int pid;
 
 	if (server_active(serverp))
@@ -446,6 +465,11 @@ server_start(struct server *serverp)
 
 	syslog(LOG_INFO, "Launched server %x in bootstrap %x uid %d: \"%s\": [pid %d]",
 			serverp->port, serverp->bootstrap->bootstrap_port, serverp->uid, serverp->cmd, pid);
+
+	if (serverp->ondemand || force_on_demand) {
+		SLIST_FOREACH(servicep, &serverp->services, sle)
+			launchd_assumes(launchd_mport_ignore(servicep->port) == KERN_SUCCESS);
+	}
 
 	serverp->pid = pid;
 	if (kevent_mod(pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &serverp->kqserver_callback) == -1)
@@ -529,58 +553,21 @@ demand_loop(void *arg __attribute__((unused)))
 {
 	mach_msg_empty_rcv_t dummy;
 	kern_return_t dresult;
+	char junk = '\0';
 
 	for (;;) {
-		mach_port_name_array_t members;
-		mach_msg_type_number_t membersCnt;
-		mach_port_status_t status;
-		mach_msg_type_number_t statusCnt;
-		unsigned int i;
-
-		/*
-		 * Receive indication of message on demand service ports
-		 * without actually receiving the message (we'll let the actual
-		 * server do that.
-		 */
 		dresult = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
 		if (dresult == MACH_RCV_PORT_CHANGED) {
 			break;
 		} else if (!launchd_assumes(dresult == MACH_RCV_TOO_LARGE)) {
 			continue;
 		}
-		
-
-		/*
-		 * Some port(s) now have messages on them, find out
-		 * which ones (there is no indication of which port
-		 * triggered in the MACH_RCV_TOO_LARGE indication).
+		/* This is our brain dead way of telling the main thread there
+		 * is work to do and waiting for the main thread to tell us
+		 * when it is safe to check the Mach port-set again.
 		 */
-		if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
-			continue;
-
-		for (i = 0; i < membersCnt; i++) {
-			statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-			if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
-							(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
-				continue;
-
-			/*
-			 * For each port with messages, take it out of the
-			 * demand service portset, and inform the main thread
-			 * that it might have to start the server responsible
-			 * for it.
-			 */
-			if (status.mps_msgcount) {
-				struct kevent kev;
-
-				EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, NULL);
-				launchd_assumes(launchd_mport_ignore(members[i]) == KERN_SUCCESS);
-				launchd_assumes(write(port_to_main_thread_fd, &kev, sizeof(kev)) != -1);
-			}
-		}
-
-		launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
-					(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
+		launchd_assumes(write(demand_loop_to_main_fd, &junk, sizeof(junk)) != -1);
+		launchd_assumes(read(demand_loop_to_main_fd, &junk, sizeof(junk)) != -1);
 	}
 	return NULL;
 }
@@ -684,7 +671,6 @@ void
 bootstrap_callback(void *obj, struct kevent *kev)
 {
 	mach_msg_return_t mresult;
-	kern_return_t result;
 
 	current_rpc_bootstrap = obj;
 
@@ -692,10 +678,6 @@ bootstrap_callback(void *obj, struct kevent *kev)
 			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
 	if (!launchd_assumes(mresult == MACH_MSG_SUCCESS))
 		syslog(LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
-
-	result = launchd_mport_watch(kev->ident);
-	/* sometimes this returns KERN_INVALID_NAME, I don't know why yet, but things seem to work */
-	launchd_assumes(result == KERN_SUCCESS || result == KERN_INVALID_NAME);
 
 	current_rpc_bootstrap = NULL;
 }
@@ -724,11 +706,7 @@ bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
 		goto out_bad;
 
 	
-	if (requestorport != MACH_PORT_NULL) {
-		bootstrap->requestor_port = requestorport;
-	} else {
-		bootstrap->requestor_port = bootstrap->bootstrap_port;
-	}
+	bootstrap->requestor_port = requestorport;
 
 	if (parent) {
 		SLIST_INSERT_HEAD(&parent->sub_bstraps, bootstrap, sle);
@@ -842,10 +820,9 @@ service_watch(struct service *servicep)
 		launchd_assumes(mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_PORT_DESTROYED,
 				0, backup_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) == KERN_SUCCESS);
 		servicep->server->activity = true;
-		servicep->server->active_services++;
 	} else if (launchd_assumes(mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_DEAD_NAME,
 					0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) == KERN_SUCCESS)) {
-		if (!launchd_assumes(previous == MACH_PORT_NULL))
+		if (previous != MACH_PORT_NULL)
 			launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
 	}
 }
@@ -916,7 +893,7 @@ bootstrap_delete(struct bootstrap *bootstrap)
 	while ((servicep = SLIST_FIRST(&bootstrap->services)))
 		service_delete(servicep);
 
-	if (bootstrap->requestor_port != MACH_PORT_NULL && bootstrap->requestor_port != bootstrap->bootstrap_port)
+	if (bootstrap->requestor_port != MACH_PORT_NULL)
 		launchd_assumes(launchd_mport_deallocate(bootstrap->requestor_port) == KERN_SUCCESS);
 
 	launchd_assumes(launchd_mport_close_recv(bootstrap->bootstrap_port) == KERN_SUCCESS);
@@ -1601,7 +1578,6 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 			servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 	launchd_assumes(canReceive(servicep->port));
 	servicep->isActive = false;
-	serverp->active_services--;
 	server_dispatch(serverp);
 	return KERN_SUCCESS;
 }
