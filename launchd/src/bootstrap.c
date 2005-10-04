@@ -145,7 +145,6 @@ static struct server *current_rpc_server = NULL;
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t demand_port_set = MACH_PORT_NULL;
 static mach_port_t notify_port = MACH_PORT_NULL;
-static mach_port_t backup_port = MACH_PORT_NULL;
 static bool force_on_demand = false;
 static char *register_name = NULL;
 static size_t port_to_obj_size = 0;
@@ -158,6 +157,7 @@ static kq_callback kqbstrap_callback = bootstrap_callback;
 
 static kern_return_t launchd_set_bport(mach_port_t name);
 static kern_return_t launchd_get_bport(mach_port_t *name);
+static kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
 static kern_return_t launchd_mport_watch(mach_port_t name);
 static kern_return_t launchd_mport_ignore(mach_port_t name);
 static kern_return_t launchd_mport_create_recv(mach_port_t *name, void *obj);
@@ -275,10 +275,6 @@ init_ports(void)
 	launchd_assert(launchd_mport_create_recv(&notify_port, &kqbstrap_callback) == KERN_SUCCESS);
 
 	launchd_assert(launchd_mport_watch(notify_port) == KERN_SUCCESS);
-	
-	launchd_assert(launchd_mport_create_recv(&backup_port, &kqbstrap_callback) == KERN_SUCCESS);
-
-	launchd_assert(launchd_mport_watch(backup_port) == KERN_SUCCESS);
 }
 
 bool
@@ -378,15 +374,11 @@ server_callback(void *obj, struct kevent *kev)
 void
 server_setup(struct server *serverp)
 {
-	mach_port_t old_port;
-	
 	if (!launchd_assumes(launchd_mport_create_recv(&serverp->port, serverp) == KERN_SUCCESS))
 		goto out_bad;
 
 	/* Request no-senders notification so we can tell when server dies */
-	errno = mach_port_request_notification(mach_task_self(), serverp->port, MACH_NOTIFY_NO_SENDERS,
-			1, serverp->port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old_port);
-	if (!launchd_assumes(errno == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_notify_req(serverp->port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS))
 		goto out_bad2;
 
 	/* Add privileged server port to bootstrap port set */
@@ -705,8 +697,12 @@ bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
 	if (!launchd_assumes(launchd_mport_watch(bootstrap->bootstrap_port) == KERN_SUCCESS))
 		goto out_bad;
 
+	if (requestorport != MACH_PORT_NULL) {
+		bootstrap->requestor_port = requestorport;
+		if (!launchd_assumes(launchd_mport_notify_req(requestorport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
+			goto out_bad;
+	}
 	
-	bootstrap->requestor_port = requestorport;
 
 	if (parent) {
 		SLIST_INSERT_HEAD(&parent->sub_bstraps, bootstrap, sle);
@@ -812,46 +808,16 @@ service_delete(struct service *servicep)
 void
 service_watch(struct service *servicep)
 {
-	mach_port_t previous;
+	mach_msg_id_t which = MACH_NOTIFY_DEAD_NAME;
 
 	servicep->isActive = true;
 
 	if (servicep->server) {
-		launchd_assumes(mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_PORT_DESTROYED,
-				0, backup_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) == KERN_SUCCESS);
+		which = MACH_NOTIFY_PORT_DESTROYED;
 		servicep->server->activity = true;
-	} else if (launchd_assumes(mach_port_request_notification(mach_task_self(), servicep->port, MACH_NOTIFY_DEAD_NAME,
-					0, notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous) == KERN_SUCCESS)) {
-		if (previous != MACH_PORT_NULL)
-			launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
-	}
-}
-
-static struct service *
-port_to_service(struct bootstrap *bootstrap, mach_port_t port)
-{
-	struct bootstrap *sub_bstrap;
-	struct service *servicep;
-	struct server *serverp;
-	
-	SLIST_FOREACH(serverp, &bootstrap->servers, sle) {
-		SLIST_FOREACH(servicep, &serverp->services, sle) {
-			if (port == servicep->port)
-				return servicep;
-		}
 	}
 
-	SLIST_FOREACH(servicep, &bootstrap->services, sle) {
-	  	if (port == servicep->port)
-			return servicep;
-	}
-
-	SLIST_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, sle) {
-	  	if ((servicep = port_to_service(sub_bstrap, port)))
-			return servicep;
-	}
-
-	return NULL;
+	launchd_assumes(launchd_mport_notify_req(servicep->port, which) == KERN_SUCCESS);
 }
 
 static void
@@ -884,6 +850,8 @@ bootstrap_delete(struct bootstrap *bootstrap)
 	if (!launchd_assumes(bootstrap != ws_bootstrap))
 		return;
 
+	syslog(LOG_DEBUG, "Deleting bootstrap port: %x", bootstrap->bootstrap_port);
+
 	while ((sub_bstrap = SLIST_FIRST(&bootstrap->sub_bstraps)))
 		bootstrap_delete(sub_bstrap);
 
@@ -896,6 +864,7 @@ bootstrap_delete(struct bootstrap *bootstrap)
 	if (bootstrap->requestor_port != MACH_PORT_NULL)
 		launchd_assumes(launchd_mport_deallocate(bootstrap->requestor_port) == KERN_SUCCESS);
 
+	launchd_assumes(launchd_mport_deallocate(bootstrap->bootstrap_port) == KERN_SUCCESS);
 	launchd_assumes(launchd_mport_close_recv(bootstrap->bootstrap_port) == KERN_SUCCESS);
 
 	if (bootstrap->parent)
@@ -946,6 +915,21 @@ kern_return_t
 launchd_get_bport(mach_port_t *name)
 {
 	return errno = task_get_bootstrap_port(mach_task_self(), name);
+}
+
+kern_return_t
+launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
+{
+	mach_port_mscount_t msgc = (which == MACH_NOTIFY_NO_SENDERS) ? 1 : 0;
+	mach_port_t previous, where = (which == MACH_NOTIFY_NO_SENDERS) ? name : notify_port;
+
+	errno = mach_port_request_notification(mach_task_self(), name, which, msgc, where,
+			MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
+
+	if (errno == 0 && previous != MACH_PORT_NULL)
+		launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
+
+	return errno;
 }
 
 kern_return_t
@@ -1486,23 +1470,27 @@ __private_extern__ kern_return_t
 x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_port_t *subsetportp)
 {
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	kern_return_t result;
 	struct bootstrap *subset;
-	mach_port_t previous;
+	int bsdepth = 0;
+
+	while ((bootstrap = bootstrap->parent) != NULL)
+		bsdepth++;
+
+	bootstrap = current_rpc_bootstrap;
+
+	/* Since we use recursion, we need an artificial depth for subsets */
+	if (bsdepth > 100)
+		return BOOTSTRAP_NO_MEMORY;
+
+	if (!launchd_assumes(requestorport != MACH_PORT_NULL))
+		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	syslog(LOG_DEBUG, "Subset create attempt: bootstrap %x, requestor: %x", bootstrapport, requestorport);
 
 	subset = bootstrap_new(bootstrap, requestorport);
 
-	result = mach_port_request_notification(mach_task_self(), requestorport, MACH_NOTIFY_DEAD_NAME, 0,
-			notify_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous); 
-	if (result != KERN_SUCCESS) {
-		syslog(LOG_ERR, "mach_port_request_notification(): %s", mach_error_string(result));
-		bootstrap_delete(subset);
-	} else if (previous != MACH_PORT_NULL) {
-		syslog(LOG_DEBUG, "deallocating old notification port (%x) for requestor %x", previous, requestorport);
-		launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
-	}
+	if (subset == NULL)
+		return BOOTSTRAP_NO_MEMORY;
 
 	*subsetportp = subset->bootstrap_port;
 	syslog(LOG_INFO, "Created bootstrap subset %x parent %x requestor %x", *subsetportp, bootstrapport, requestorport);
@@ -1561,7 +1549,7 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 	struct service *servicep;
 	struct server *serverp;
 
-	launchd_assumes(notify == backup_port);
+	/* This message is sent to us when a receive right is returned to us. */
 
 	if (!launchd_assumes((serverp = port_to_obj[MACH_PORT_INDEX(rights)]) != NULL))
 		return KERN_FAILURE;
@@ -1570,10 +1558,9 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 		if (servicep->port == rights)
 			break;
 	}
+
 	launchd_assumes(servicep != NULL);
-	/*
-	 * Port sent back to us, server died.
-	 */
+
 	syslog(LOG_DEBUG, "Service %x bootstrap %x backed up: %s",
 			servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 	launchd_assumes(canReceive(servicep->port));
@@ -1585,16 +1572,27 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 kern_return_t
 do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
 {
-	syslog(LOG_DEBUG, "Port deleted notification: %d", MACH_PORT_INDEX(name));
+	/* If we deallocate/destroy/mod_ref away a port with a pending notification,
+	 * the original notification message is replaced with this message.
+	 *
+	 * To quote a Mach kernel expert, "the kernel has a send-once right that has
+	 * to be used somehow."
+	 */
 	return KERN_SUCCESS;
 }
 
 kern_return_t
 do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 {
-	struct bootstrap *bootstrap = port_to_obj[MACH_PORT_INDEX(notify)];
-	struct server *serverp = port_to_obj[MACH_PORT_INDEX(notify)];
-		
+	void *oai = port_to_obj[MACH_PORT_INDEX(notify)];
+	kq_callback *kqcb = oai;
+	struct bootstrap *bootstrap = (*kqcb == bootstrap_callback) ? oai : NULL;
+	struct server *serverp = (*kqcb == server_callback) ? oai : NULL;
+
+	/* This message is sent to us when the last customer of one of our objects
+	 * goes away.
+	 */
+
 	launchd_assumes(serverp || bootstrap);
 
 	if (serverp) {
@@ -1612,14 +1610,16 @@ do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 kern_return_t
 do_mach_notify_send_once(mach_port_t notify)
 {
-	syslog(LOG_DEBUG, "Send-once right went unused");
+	launchd_assumes(false);
 	return KERN_SUCCESS;
 }
 
 kern_return_t
 do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 {
-	launchd_assumes(notify == notify_port);
+	/* This message is sent to us when one of our send rights no longer has
+	 * a receiver somewhere else on the system.
+	 */
 
 	syslog(LOG_DEBUG, "Dead name notification: %d", MACH_PORT_INDEX(name));
 
