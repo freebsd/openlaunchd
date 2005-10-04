@@ -1990,7 +1990,7 @@ static void loopback_setup(void)
 	launchd_assumes((s = socket(AF_INET, SOCK_DGRAM, 0)) != -1);
 	launchd_assumes((s6 = socket(AF_INET6, SOCK_DGRAM, 0)) != -1);
 
-	if (launchd_assumes(ioctl(s, SIOCGIFFLAGS, &ifr)) != -1) {
+	if (launchd_assumes(ioctl(s, SIOCGIFFLAGS, &ifr) != -1)) {
 		ifr.ifr_flags |= IFF_UP;
 		launchd_assumes(ioctl(s, SIOCSIFFLAGS, &ifr) != -1);
 	}
