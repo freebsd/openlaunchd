@@ -1584,16 +1584,20 @@ do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
 kern_return_t
 do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 {
-	void *oai = port_to_obj[MACH_PORT_INDEX(notify)];
-	kq_callback *kqcb = oai;
-	struct bootstrap *bootstrap = (*kqcb == bootstrap_callback) ? oai : NULL;
-	struct server *serverp = (*kqcb == server_callback) ? oai : NULL;
+	struct bootstrap *bootstrap = current_rpc_bootstrap;
+	struct server *serverp = current_rpc_server;
 
 	/* This message is sent to us when the last customer of one of our objects
 	 * goes away.
 	 */
 
-	launchd_assumes(serverp || bootstrap);
+	if (serverp && serverp->port != notify)
+		serverp = NULL;
+	if (bootstrap && bootstrap->bootstrap_port != notify)
+		bootstrap = NULL;
+
+	if (!launchd_assumes(serverp || bootstrap))
+		return KERN_FAILURE;
 
 	if (serverp) {
 		syslog(LOG_DEBUG, "server %s dropped server port", serverp->cmd);
