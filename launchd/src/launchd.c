@@ -88,10 +88,21 @@ static void watchpath_watch(struct jobcb *j, struct watchpath *wp);
 static void watchpath_ignore(struct jobcb *j, struct watchpath *wp);
 static bool watchpath_callback(struct jobcb *j, struct kevent *kev);
 
+struct calendarinterval {
+	SLIST_ENTRY(calendarinterval) sle;
+	struct tm when;
+};
+
+static bool calendarinterval_new(struct jobcb *j, struct tm *w);
+static void calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci);
+static void calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci);
+static bool calendarinterval_callback(struct jobcb *j, struct kevent *kev);
+
 struct jobcb {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(jobcb) sle;
 	SLIST_HEAD(, watchpath) vnodes;
+	SLIST_HEAD(, calendarinterval) cal_intervals;
 	launch_data_t ldj;
 	pid_t p;
 	int last_exit_status;
@@ -99,7 +110,6 @@ struct jobcb {
 	time_t start_time;
 	size_t failed_exits;
 	unsigned int start_interval;
-	struct tm *start_cal_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, futureflags:28;
 	char label[0];
 };
@@ -151,7 +161,6 @@ static void job_setup_attributes(struct jobcb *j);
 static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
-static void job_set_alarm(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
@@ -792,8 +801,9 @@ static launch_data_t job_export(struct jobcb *j)
 
 static void job_remove(struct jobcb *j)
 {
-	launch_data_t tmp;
+	struct calendarinterval *ci;
 	struct watchpath *wp;
+	launch_data_t tmp;
 
 	job_log(j, LOG_DEBUG, "Removed");
 
@@ -815,12 +825,12 @@ static void job_remove(struct jobcb *j)
 	while ((wp = SLIST_FIRST(&j->vnodes)))
 		watchpath_delete(j, wp);
 
+	while ((ci = SLIST_FIRST(&j->cal_intervals)))
+		calendarinterval_delete(j, ci);
+
 	if (j->start_interval)
 		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
-	if (j->start_cal_interval) {
-		kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
-		free(j->start_cal_interval);
-	}
+
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	free(j);
 }
@@ -1106,29 +1116,43 @@ static struct jobcb *job_import(launch_data_t pload)
 	}
 
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTCALENDARINTERVAL))) {
-		launch_data_t tmp_k;
+		size_t i = 0, ci_cnt = 1;
 
-		j->start_cal_interval = calloc(1, sizeof(struct tm));
-		j->start_cal_interval->tm_min = -1;
-		j->start_cal_interval->tm_hour = -1;
-		j->start_cal_interval->tm_mday = -1;
-		j->start_cal_interval->tm_wday = -1;
-		j->start_cal_interval->tm_mon = -1;
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_ARRAY)
+			ci_cnt = launch_data_array_get_count(tmp);
 
-		if (LAUNCH_DATA_DICTIONARY == launch_data_get_type(tmp)) {
-			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_MINUTE)))
-				j->start_cal_interval->tm_min = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_HOUR)))
-				j->start_cal_interval->tm_hour = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_DAY)))
-				j->start_cal_interval->tm_mday = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_WEEKDAY)))
-				j->start_cal_interval->tm_wday = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp, LAUNCH_JOBKEY_CAL_MONTH)))
-				j->start_cal_interval->tm_mon = launch_data_get_integer(tmp_k);
+		for (i = 0; i < ci_cnt; i++) {
+			launch_data_t tmp_k, tmp_oai;
+			struct tm tmptm;
+
+			if (launch_data_get_type(tmp) == LAUNCH_DATA_ARRAY)
+				tmp_oai = launch_data_array_get_index(tmp, i);
+			else
+				tmp_oai = tmp;
+
+			memset(&tmptm, 0, sizeof(0));
+
+			tmptm.tm_min = -1;
+			tmptm.tm_hour = -1;
+			tmptm.tm_mday = -1;
+			tmptm.tm_wday = -1;
+			tmptm.tm_mon = -1;
+
+			if (LAUNCH_DATA_DICTIONARY != launch_data_get_type(tmp_oai))
+				continue;
+
+			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_MINUTE)))
+				tmptm.tm_min = launch_data_get_integer(tmp_k);
+			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_HOUR)))
+				tmptm.tm_hour = launch_data_get_integer(tmp_k);
+			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_DAY)))
+				tmptm.tm_mday = launch_data_get_integer(tmp_k);
+			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_WEEKDAY)))
+				tmptm.tm_wday = launch_data_get_integer(tmp_k);
+			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_MONTH)))
+				tmptm.tm_mon = launch_data_get_integer(tmp_k);
+			calendarinterval_new(j, &tmptm);
 		}
-
-		job_set_alarm(j);
 	}
 	
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
@@ -1364,8 +1388,7 @@ static void job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_TIMER:
-		if ((void *)kev->ident == j->start_cal_interval)
-			job_set_alarm(j);
+		startnow = calendarinterval_callback(j, kev);
 		break;
 	case EVFILT_VNODE:
 		startnow = watchpath_callback(j, kev);
@@ -2098,7 +2121,7 @@ static int dir_has_files(const char *path)
 	return r;
 }
 
-static void job_set_alarm(struct jobcb *j)
+static void calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci)
 {
 	struct tm otherlatertm, latertm, *nowtm;
 	time_t later, otherlater = 0, now = time(NULL);
@@ -2111,21 +2134,21 @@ static void job_set_alarm(struct jobcb *j)
 	latertm.tm_isdst = -1;
 
 
-	if (-1 != j->start_cal_interval->tm_min)
-		latertm.tm_min = j->start_cal_interval->tm_min;
-	if (-1 != j->start_cal_interval->tm_hour)
-		latertm.tm_hour = j->start_cal_interval->tm_hour;
+	if (-1 != ci->when.tm_min)
+		latertm.tm_min = ci->when.tm_min;
+	if (-1 != ci->when.tm_hour)
+		latertm.tm_hour = ci->when.tm_hour;
 
 	otherlatertm = latertm;
 
-	if (-1 != j->start_cal_interval->tm_mday)
-		latertm.tm_mday = j->start_cal_interval->tm_mday;
-	if (-1 != j->start_cal_interval->tm_mon)
-		latertm.tm_mon = j->start_cal_interval->tm_mon;
+	if (-1 != ci->when.tm_mday)
+		latertm.tm_mday = ci->when.tm_mday;
+	if (-1 != ci->when.tm_mon)
+		latertm.tm_mon = ci->when.tm_mon;
 
 	/* cron semantics are fun */
-	if (-1 != j->start_cal_interval->tm_wday) {
-		int delta, realwday = j->start_cal_interval->tm_wday;
+	if (-1 != ci->when.tm_wday) {
+		int delta, realwday = ci->when.tm_wday;
 
 		if (realwday == 7)
 			realwday = 0;
@@ -2142,9 +2165,9 @@ static void job_set_alarm(struct jobcb *j)
 			otherlatertm.tm_mday += delta;
 		} else if (delta < 0) {
 			otherlatertm.tm_mday += 7 + delta;
-		} else if (-1 != j->start_cal_interval->tm_hour && otherlatertm.tm_hour <= nowtm->tm_hour) {
+		} else if (-1 != ci->when.tm_hour && otherlatertm.tm_hour <= nowtm->tm_hour) {
 			otherlatertm.tm_mday += 7;
-		} else if (-1 != j->start_cal_interval->tm_min && otherlatertm.tm_min <= nowtm->tm_min) {
+		} else if (-1 != ci->when.tm_min && otherlatertm.tm_min <= nowtm->tm_min) {
 			otherlatertm.tm_hour++;
 		} else {
 			otherlatertm.tm_min++;
@@ -2153,13 +2176,13 @@ static void job_set_alarm(struct jobcb *j)
 		otherlater = mktime(&otherlatertm);
 	}
 
-	if (-1 != j->start_cal_interval->tm_mon && latertm.tm_mon <= nowtm->tm_mon) {
+	if (-1 != ci->when.tm_mon && latertm.tm_mon <= nowtm->tm_mon) {
 		latertm.tm_year++;
-	} else if (-1 != j->start_cal_interval->tm_mday && latertm.tm_mday <= nowtm->tm_mday) {
+	} else if (-1 != ci->when.tm_mday && latertm.tm_mday <= nowtm->tm_mday) {
 		latertm.tm_mon++;
-	} else if (-1 != j->start_cal_interval->tm_hour && latertm.tm_hour <= nowtm->tm_hour) {
+	} else if (-1 != ci->when.tm_hour && latertm.tm_hour <= nowtm->tm_hour) {
 		latertm.tm_mday++;
-	} else if (-1 != j->start_cal_interval->tm_min && latertm.tm_min <= nowtm->tm_min) {
+	} else if (-1 != ci->when.tm_min && latertm.tm_min <= nowtm->tm_min) {
 		latertm.tm_hour++;
 	} else {
 		latertm.tm_min++;
@@ -2168,13 +2191,13 @@ static void job_set_alarm(struct jobcb *j)
 	later = mktime(&latertm);
 
 	if (otherlater) {
-		if (-1 != j->start_cal_interval->tm_mday)
+		if (-1 != ci->when.tm_mday)
 			later = later < otherlater ? later : otherlater;
 		else
 			later = otherlater;
 	}
 
-	if (-1 == kevent_mod((uintptr_t)j->start_cal_interval, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, &j->kqjob_callback)) {
+	if (-1 == kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, j)) {
 		job_log_error(j, LOG_ERR, "adding kevent alarm");
 	} else {
 		job_log(j, LOG_INFO, "scheduled to run again at %s", ctime(&later));
@@ -2335,4 +2358,47 @@ watchpath_callback(struct jobcb *j, struct kevent *kev)
 	}
 
 	return startnow;
+}
+
+bool
+calendarinterval_new(struct jobcb *j, struct tm *w)
+{
+	struct calendarinterval *ci = calloc(1, sizeof(struct calendarinterval));
+
+	if (!launchd_assumes(ci != NULL))
+		return false;
+
+	ci->when = *w;
+
+	SLIST_INSERT_HEAD(&j->cal_intervals, ci, sle);
+
+	calendarinterval_setalarm(j, ci);
+
+	return true;
+}
+
+void
+calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci)
+{
+	launchd_assumes(kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+
+	SLIST_REMOVE(&j->cal_intervals, ci, calendarinterval, sle);
+
+	free(ci);
+}
+
+bool
+calendarinterval_callback(struct jobcb *j, struct kevent *kev)
+{
+	struct calendarinterval *ci;
+
+	SLIST_FOREACH(ci, &j->cal_intervals, sle) {
+		if ((uintptr_t)ci == kev->ident)
+			break;
+	}
+
+	if (ci != NULL)
+		calendarinterval_setalarm(j, ci);
+
+	return true;
 }
