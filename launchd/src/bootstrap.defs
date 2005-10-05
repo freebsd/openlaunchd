@@ -160,7 +160,7 @@ routine bootstrap_create_server(
  */
 routine bootstrap_unprivileged(
 		__bs_port	: mach_port_t;
-	out	__unpriv_port	: mach_port_t);
+	out	__unpriv_port	: mach_port_make_send_t);
 
 /*
  * kern_return_t
@@ -278,7 +278,7 @@ routine bootstrap_look_up_array(
 routine bootstrap_parent(
 		__bs_port	: mach_port_t;
  ServerSecToken	__token		: security_token_t;
-	out	__parent_port	: mach_port_t);
+	out	__parent_port	: mach_port_poly_t);
 
 /*
  * kern_return_t
@@ -338,7 +338,7 @@ routine bootstrap_info(
 routine bootstrap_subset(
 		__bs_port	: mach_port_t;
 		__requestor_port: mach_port_t;
-	out	__subset_port	: mach_port_t);
+	out	__subset_port	: mach_port_make_send_t);
 
 /*
  * kern_return_t
