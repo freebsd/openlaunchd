@@ -73,19 +73,31 @@
 
 extern char **environ;
 
+struct jobcb;
+
+struct watchpath {
+	SLIST_ENTRY(watchpath) sle;
+	int fd;
+	bool is_qdir;
+	char name[0];
+};
+
+static bool watchpath_new(struct jobcb *j, const char *name, bool qdir);
+static void watchpath_delete(struct jobcb *j, struct watchpath *wp);
+static void watchpath_watch(struct jobcb *j, struct watchpath *wp);
+static void watchpath_ignore(struct jobcb *j, struct watchpath *wp);
+static bool watchpath_callback(struct jobcb *j, struct kevent *kev);
+
 struct jobcb {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(jobcb) sle;
+	SLIST_HEAD(, watchpath) vnodes;
 	launch_data_t ldj;
 	pid_t p;
 	int last_exit_status;
 	int execfd;
 	time_t start_time;
 	size_t failed_exits;
-	int *vnodes;
-	size_t vnodes_cnt;
-	int *qdirs;
-	size_t qdirs_cnt;
 	unsigned int start_interval;
 	struct tm *start_cal_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, futureflags:28;
@@ -706,17 +718,13 @@ static void job_ignore_fds(launch_data_t o, const char *key __attribute__((unuse
 static void job_ignore(struct jobcb *j)
 {
 	launch_data_t j_sockets = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS);
-	size_t i;
+	struct watchpath *wp;
 
 	if (j_sockets)
 		job_ignore_fds(j_sockets, NULL, j);
 
-	for (i = 0; i < j->vnodes_cnt; i++) {
-		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_DELETE, 0, 0, NULL);
-	}
-	for (i = 0; i < j->qdirs_cnt; i++) {
-		kevent_mod(j->qdirs[i], EVFILT_VNODE, EV_DELETE, 0, 0, NULL);
-	}
+	SLIST_FOREACH(wp, &j->vnodes, sle)
+		watchpath_ignore(j, wp);
 }
 
 static void job_watch_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie)
@@ -747,44 +755,14 @@ static void job_watch_fds(launch_data_t o, const char *key __attribute__((unused
 
 static void job_watch(struct jobcb *j)
 {
-	launch_data_t ld_qdirs = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES);
-	launch_data_t ld_vnodes = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS);
 	launch_data_t j_sockets = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS);
-	size_t i;
+	struct watchpath *wp;
 
 	if (j_sockets)
 		job_watch_fds(j_sockets, NULL, &j->kqjob_callback);
 
-	for (i = 0; i < j->vnodes_cnt; i++) {
-		if (-1 == j->vnodes[i]) {
-			launch_data_t ld_idx = launch_data_array_get_index(ld_vnodes, i);
-			const char *thepath = launch_data_get_string(ld_idx);
-
-			if (-1 == (j->vnodes[i] = _fd(open(thepath, O_EVTONLY))))
-				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
-		}
-		kevent_mod(j->vnodes[i], EVFILT_VNODE, EV_ADD|EV_CLEAR,
-				NOTE_WRITE|NOTE_EXTEND|NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_ATTRIB|NOTE_LINK,
-				0, &j->kqjob_callback);
-	}
-
-	for (i = 0; i < j->qdirs_cnt; i++) {
-		kevent_mod(j->qdirs[i], EVFILT_VNODE, EV_ADD|EV_CLEAR,
-				NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK, 0, &j->kqjob_callback);
-	}
-
-	for (i = 0; i < j->qdirs_cnt; i++) {
-		launch_data_t ld_idx = launch_data_array_get_index(ld_qdirs, i);
-		const char *thepath = launch_data_get_string(ld_idx);
-		int dcc_r;
-
-		if (-1 == (dcc_r = dir_has_files(thepath))) {
-			job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", thepath);
-		} else if (dcc_r > 0 && !shutdown_in_progress) {
-			job_start(j);
-			break;
-		}
-	}
+	SLIST_FOREACH(wp, &j->vnodes, sle)
+		watchpath_watch(j, wp);
 }
 
 static void job_stop(struct jobcb *j)
@@ -815,7 +793,7 @@ static launch_data_t job_export(struct jobcb *j)
 static void job_remove(struct jobcb *j)
 {
 	launch_data_t tmp;
-	size_t i;
+	struct watchpath *wp;
 
 	job_log(j, LOG_DEBUG, "Removed");
 
@@ -833,16 +811,10 @@ static void job_remove(struct jobcb *j)
 	launch_data_free(j->ldj);
 	if (j->execfd)
 		launchd_assumes(close(j->execfd) == 0);
-	for (i = 0; i < j->vnodes_cnt; i++)
-		if (-1 != j->vnodes[i])
-			launchd_assumes(close(j->vnodes[i]) == 0);
-	if (j->vnodes)
-		free(j->vnodes);
-	for (i = 0; i < j->qdirs_cnt; i++)
-		if (-1 != j->qdirs[i])
-			launchd_assumes(close(j->qdirs[i]) == 0);
-	if (j->qdirs)
-		free(j->qdirs);
+
+	while ((wp = SLIST_FIRST(&j->vnodes)))
+		watchpath_delete(j, wp);
+
 	if (j->start_interval)
 		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	if (j->start_cal_interval) {
@@ -1106,18 +1078,22 @@ static struct jobcb *job_import(launch_data_t pload)
 		startnow = true;
 
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
-		size_t i;
-
-		j->qdirs_cnt = launch_data_array_get_count(tmp);
-		j->qdirs = malloc(sizeof(int) * j->qdirs_cnt);
-
-		for (i = 0; i < j->qdirs_cnt; i++) {
-			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
-
-			if (-1 == (j->qdirs[i] = _fd(open(thepath, O_EVTONLY))))
-				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
+		size_t i, qdirs_cnt = launch_data_array_get_count(tmp);
+		const char *thepath;
+		for (i = 0; i < qdirs_cnt; i++) {
+			thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
+			watchpath_new(j, thepath, true);
 		}
 
+	}
+
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS))) {
+		size_t i, wp_cnt = launch_data_array_get_count(tmp);
+		const char *thepath;
+		for (i = 0; i < wp_cnt; i++) {
+			thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
+			watchpath_new(j, thepath, false);
+		}
 	}
 
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTINTERVAL))) {
@@ -1155,21 +1131,6 @@ static struct jobcb *job_import(launch_data_t pload)
 		job_set_alarm(j);
 	}
 	
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS))) {
-		size_t i;
-
-		j->vnodes_cnt = launch_data_array_get_count(tmp);
-		j->vnodes = malloc(sizeof(int) * j->vnodes_cnt);
-
-		for (i = 0; i < j->vnodes_cnt; i++) {
-			const char *thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
-
-			if (-1 == (j->vnodes[i] = _fd(open(thepath, O_EVTONLY))))
-				job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", thepath);
-		}
-
-	}
-
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
 		launch_data_dict_iterate(tmp, setup_job_env, NULL);
 	
@@ -1385,7 +1346,8 @@ static void job_callback(void *obj, struct kevent *kev)
 		job_log(j, LOG_DEBUG, "log level debug temporarily enabled while processing job");
 	}
 
-	if (kev->filter == EVFILT_PROC) {
+	switch (kev->filter) {
+	case EVFILT_PROC:
 		job_reap(j);
 
 		startnow = job_restart_fitness_test(j);
@@ -1400,47 +1362,17 @@ static void job_callback(void *obj, struct kevent *kev)
 				startnow = false;
 			}
 		}
-	} else if (kev->filter == EVFILT_TIMER && (void *)kev->ident == j->start_cal_interval) {
-		job_set_alarm(j);
-	} else if (kev->filter == EVFILT_VNODE) {
-		size_t i;
-		const char *thepath = NULL;
-
-		for (i = 0; i < j->vnodes_cnt; i++) {
-			if (j->vnodes[i] == (int)kev->ident) {
-				launch_data_t ld_vnodes = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS);
-
-				thepath = launch_data_get_string(launch_data_array_get_index(ld_vnodes, i));
-
-				job_log(j, LOG_DEBUG, "watch path modified: %s", thepath);
-
-				if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
-					job_log(j, LOG_DEBUG, "watch path invalidated: %s", thepath);
-					launchd_assumes(close(j->vnodes[i]) == 0);
-					j->vnodes[i] = -1; /* this will get fixed in job_watch() */
-				}
-			}
-		}
-
-		for (i = 0; i < j->qdirs_cnt; i++) {
-			if (j->qdirs[i] == (int)kev->ident) {
-				launch_data_t ld_qdirs = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES);
-				int dcc_r;
-
-				thepath = launch_data_get_string(launch_data_array_get_index(ld_qdirs, i));
-
-				job_log(j, LOG_DEBUG, "queue directory modified: %s", thepath);
-
-				if (-1 == (dcc_r = dir_has_files(thepath))) {
-					job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", thepath);
-				} else if (0 == dcc_r) {
-					job_log(j, LOG_DEBUG, "spurious wake up, directory empty: %s", thepath);
-					startnow = false;
-				}
-			}
-		}
-		/* if we get here, then the vnodes either wasn't a qdir, or if it was, it has entries in it */
-	} else if (kev->filter == EVFILT_READ && (int)kev->ident == j->execfd) {
+		break;
+	case EVFILT_TIMER:
+		if ((void *)kev->ident == j->start_cal_interval)
+			job_set_alarm(j);
+		break;
+	case EVFILT_VNODE:
+		startnow = watchpath_callback(j, kev);
+		break;
+	case EVFILT_READ:
+		if ((int)kev->ident != j->execfd)
+			break;
 		if (kev->data > 0) {
 			int e;
 
@@ -1455,6 +1387,10 @@ static void job_callback(void *obj, struct kevent *kev)
 			j->execfd = 0;
 		}
 		startnow = false;
+		break;
+	default:
+		launchd_assumes(false);
+		break;
 	}
 
 	if (startnow)
@@ -2298,4 +2234,105 @@ static void testfd_or_openfd(int fd, const char *path, int flags)
 			launchd_assumes(close(tmpfd) == 0);
 		}
 	}
+}
+
+bool
+watchpath_new(struct jobcb *j, const char *name, bool qdir)
+{
+	struct watchpath *wp = calloc(1, sizeof(struct watchpath) + strlen(name) + 1);
+
+	if (!launchd_assumes(wp != NULL))
+		return false;
+
+	wp->is_qdir = qdir;
+
+	wp->fd = -1; /* watchpath_watch() will open this */
+
+	strcpy(wp->name, name);
+
+	SLIST_INSERT_HEAD(&j->vnodes, wp, sle);
+
+	return true;
+}       
+
+void
+watchpath_delete(struct jobcb *j, struct watchpath *wp) 
+{
+	if (wp->fd != -1)
+		launchd_assumes(close(wp->fd) != -1);
+
+	SLIST_REMOVE(&j->vnodes, wp, watchpath, sle);
+
+	free(wp);
+}       
+
+void    
+watchpath_ignore(struct jobcb *j, struct watchpath *wp)
+{       
+	if (wp->fd != -1) {
+		job_log(j, LOG_DEBUG, "Ignoring Vnode: %d", wp->fd);
+		launchd_assumes(kevent_mod(wp->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
+	}
+}
+
+void
+watchpath_watch(struct jobcb *j, struct watchpath *wp)
+{
+	int fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_ATTRIB|NOTE_LINK;
+	int qdir_file_cnt;
+
+	if (wp->is_qdir)
+		fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK;
+
+	if (wp->fd == -1)
+		wp->fd = _fd(open(wp->name, O_EVTONLY));
+
+	if (wp->fd == -1)
+		return job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", wp->name);
+
+	job_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
+	launchd_assumes(kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
+
+	if (!wp->is_qdir)
+		return;
+
+	if (-1 == (qdir_file_cnt = dir_has_files(wp->name))) {
+		job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
+	} else if (qdir_file_cnt > 0 && !shutdown_in_progress) {
+		job_start(j);
+	}
+}
+
+bool
+watchpath_callback(struct jobcb *j, struct kevent *kev)
+{
+	struct watchpath *wp;
+	int dir_file_cnt;
+	bool startnow = true;
+
+	SLIST_FOREACH(wp, &j->vnodes, sle) {
+		if (wp->fd == (int)kev->ident)
+			break;
+	}
+
+	launchd_assumes(wp != NULL);
+
+	if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
+		job_log(j, LOG_DEBUG, "Path invalidated: %s", wp->name);
+		launchd_assumes(close(wp->fd) == 0);
+		wp->fd = -1; /* this will get fixed in watchpath_watch() */
+	} else if (!wp->is_qdir) {
+		job_log(j, LOG_DEBUG, "Watch path modified: %s", wp->name);
+	} else {
+		job_log(j, LOG_DEBUG, "Queue directory modified: %s", wp->name);
+
+		if (-1 == (dir_file_cnt = dir_has_files(wp->name))) {
+			job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
+		} else if (0 == dir_file_cnt) {
+			job_log(j, LOG_DEBUG, "Spurious wake up, directory is empty again: %s", wp->name);
+			startnow = false;
+		}
+	}
+
+	return startnow;
 }
