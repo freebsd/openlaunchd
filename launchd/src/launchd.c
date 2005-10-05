@@ -106,13 +106,11 @@ static int mainkq = 0;
 static int asynckq = 0;
 static int batch_disabler_count = 0;
 
-static launch_data_t load_job(launch_data_t pload);
-static launch_data_t get_jobs(const char *which);
 static launch_data_t setstdio(int d, launch_data_t o);
 static launch_data_t adjust_rlimits(launch_data_t in);
 static void batch_job_enable(bool e, struct conncb *c);
-static void do_shutdown(void);
-static void do_single_user(void);
+static void launchd_shutdown(void);
+static void launchd_single_user(void);
 
 static void listen_callback(void *, struct kevent *);
 static void async_callback(void);
@@ -126,9 +124,13 @@ static kq_callback kqasync_callback = (kq_callback)async_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqreadcfg_callback = readcfg_callback;
-static kq_callback kqshutdown_callback = (kq_callback)do_shutdown;
+static kq_callback kqshutdown_callback = (kq_callback)launchd_shutdown;
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
+static struct jobcb *job_find(const char *label);
+static struct jobcb *job_import(launch_data_t pload);
+static launch_data_t job_export(struct jobcb *j);
+static launch_data_t job_export_all(void);
 static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_start(struct jobcb *j);
@@ -138,7 +140,6 @@ static void job_stop(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static void job_remove(struct jobcb *j);
 static void job_set_alarm(struct jobcb *j);
-static launch_data_t job_export(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
@@ -155,7 +156,7 @@ static bool launchd_check_pid(pid_t p);
 #endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
 static void launchd_server_init(void);
-static void conceive_firstborn(char *argv[], const char *session_user);
+static struct jobcb *conceive_firstborn(char *argv[], const char *session_user);
 
 static void usage(FILE *where);
 static int _fd(int fd);
@@ -179,6 +180,7 @@ static bool re_exec_in_single_user_mode = false;
 sigset_t blocked_signals = 0;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
+static struct jobcb *fbj = NULL;
 
 int main(int argc, char *argv[])
 {
@@ -191,7 +193,6 @@ int main(int argc, char *argv[])
 	const char *session_type = NULL;
 	const char *session_user = NULL;
 	const char *optargs = NULL;
-	struct jobcb *fbj;
 	struct kevent kev;
 	size_t i;
 	int ch, ker;
@@ -295,7 +296,7 @@ int main(int argc, char *argv[])
 	launchd_assert(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
 
 	if (argv[0] || (session_type != NULL && 0 == strcasecmp(session_type, "tty")))
-		conceive_firstborn(argv, session_user);
+		fbj = conceive_firstborn(argv, session_user);
 	
 	mach_init_init();
 
@@ -332,7 +333,6 @@ int main(int argc, char *argv[])
 
 	reload_launchd_config();
 
-	fbj = SLIST_FIRST(&jobs);
 	if (fbj && fbj->firstborn)
 		job_start(fbj);
 
@@ -897,45 +897,37 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		return;
 
 	if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
-		SLIST_FOREACH(j, &jobs, sle) {
-			if (!strcmp(j->label, launch_data_get_string(data))) {
-				job_start(j);
-				resp = launch_data_new_errno(0);
-			}
+		if ((j = job_find(launch_data_get_string(data))) != NULL) {
+			job_start(j);
+			errno = 0;
 		}
-		if (NULL == resp)
-			resp = launch_data_new_errno(ESRCH);
+		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_STOPJOB)) {
-		SLIST_FOREACH(j, &jobs, sle) {
-			if (!strcmp(j->label, launch_data_get_string(data))) {
-				job_stop(j);
-				resp = launch_data_new_errno(0);
-			}
+		if ((j = job_find(launch_data_get_string(data))) != NULL) {
+			job_stop(j);
+			errno = 0;
 		}
-		if (NULL == resp)
-			resp = launch_data_new_errno(ESRCH);
+		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
-		SLIST_FOREACH(j, &jobs, sle) {
-			if (!strcmp(j->label, launch_data_get_string(data))) {
-				job_remove(j);
-				resp = launch_data_new_errno(0);
-				break;
-			}
+		if ((j = job_find(launch_data_get_string(data))) != NULL) {
+			job_remove(j);
+			errno = 0;
 		}
-		if (NULL == resp)
-			resp = launch_data_new_errno(ESRCH);
+		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SUBMITJOB)) {
 		if (launch_data_get_type(data) == LAUNCH_DATA_ARRAY) {
-			launch_data_t tmp;
 			size_t i;
 
 			resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
 			for (i = 0; i < launch_data_array_get_count(data); i++) {
-				tmp = load_job(launch_data_array_get_index(data, i));
-				launch_data_array_set_index(resp, tmp, i);
+				if (job_import(launch_data_array_get_index(data, i)))
+					errno = 0;
+				launch_data_array_set_index(resp, launch_data_new_errno(errno), i);
 			}
 		} else {
-			resp = load_job(data);
+			if (job_import(data))
+				errno = 0;
+			resp = launch_data_new_errno(errno);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_UNSETUSERENVIRONMENT)) {
 		unsetenv(launch_data_get_string(data));
@@ -969,23 +961,31 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		update_ttys();
 		resp = launch_data_new_errno(0);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SHUTDOWN)) {
-		do_shutdown();
+		launchd_shutdown();
 		resp = launch_data_new_errno(0);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SINGLEUSER)) {
-		do_single_user();
+		launchd_single_user();
 		resp = launch_data_new_errno(0);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBS)) {
-		resp = get_jobs(NULL);
+		resp = job_export_all();
 		launch_data_revoke_fds(resp);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETRESOURCELIMITS)) {
 		resp = adjust_rlimits(NULL);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETRESOURCELIMITS)) {
 		resp = adjust_rlimits(data);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOB)) {
-		resp = get_jobs(launch_data_get_string(data));
-		launch_data_revoke_fds(resp);
+		if ((j = job_find(launch_data_get_string(data))) == NULL) {
+			resp = launch_data_new_errno(errno);
+		} else {
+			resp = job_export(j);
+			launch_data_revoke_fds(resp);
+		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBWITHHANDLES)) {
-		resp = get_jobs(launch_data_get_string(data));
+		if ((j = job_find(launch_data_get_string(data))) == NULL) {
+			resp = launch_data_new_errno(errno);
+		} else {
+			resp = job_export(j);
+		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETLOGMASK)) {
 		resp = launch_data_new_integer(setlogmask(launch_data_get_integer(data)));
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETLOGMASK)) {
@@ -1056,23 +1056,21 @@ static void batch_job_enable(bool e, struct conncb *c)
 	}
 }
 
-static launch_data_t load_job(launch_data_t pload)
+static struct jobcb *job_import(launch_data_t pload)
 {
-	launch_data_t tmp, resp;
+	launch_data_t tmp;
 	const char *label;
 	struct jobcb *j;
 	bool startnow, hasprog = false, hasprogargs = false;
 
-	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL))) {
-		SLIST_FOREACH(j, &jobs, sle) {
-			if (!strcmp(j->label, label)) {
-				resp = launch_data_new_errno(EEXIST);
-				goto out;
-			}
-		}
-	} else {
-		resp = launch_data_new_errno(EINVAL);
-		goto out;
+	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL)) == NULL) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	if ((j = job_find(label)) != NULL) {
+		errno = EEXIST;
+		return NULL;
 	}
 
 	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM))
@@ -1081,8 +1079,8 @@ static launch_data_t load_job(launch_data_t pload)
 		hasprogargs = true;
 
 	if (!hasprog && !hasprogargs) {
-		resp = launch_data_new_errno(EINVAL);
-		goto out;
+		errno = EINVAL;
+		return NULL;
 	}
 
 	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
@@ -1181,36 +1179,40 @@ static launch_data_t load_job(launch_data_t pload)
 	if (startnow)
 		job_start(j);
 
-	resp = launch_data_new_errno(0);
-out:
-	return resp;
+	return j;
 }
 
-static launch_data_t get_jobs(const char *which)
+struct jobcb *job_find(const char *label)
 {
-	struct jobcb *j;
+	struct jobcb *j = NULL;
+
+	SLIST_FOREACH(j, &jobs, sle) {
+		if (strcmp(j->label, label) == 0)
+			break;
+	}
+
+	if (j == NULL)
+		errno = ESRCH;
+
+	return j;
+}
+
+launch_data_t job_export_all(void)
+{
 	launch_data_t tmp, resp = NULL;
+	struct jobcb *j;
 
-	if (which) {
-		SLIST_FOREACH(j, &jobs, sle) {
-			if (!strcmp(which, j->label))
-				resp = job_export(j);
-		}
-		if (resp == NULL)
-			resp = launch_data_new_errno(ESRCH);
-	} else {
-		resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-		SLIST_FOREACH(j, &jobs, sle) {
-			tmp = job_export(j);
-			launch_data_dict_insert(resp, tmp, j->label);
-		}
+	SLIST_FOREACH(j, &jobs, sle) {
+		tmp = job_export(j);
+		launch_data_dict_insert(resp, tmp, j->label);
 	}
 
 	return resp;
 }
 
-static void usage(FILE *where)
+void usage(FILE *where)
 {
 	const char *opts = "[-d]";
 
@@ -1351,7 +1353,7 @@ static bool job_restart_fitness_test(struct jobcb *j)
 
 	if (j->firstborn) {
 		job_log(j, LOG_DEBUG, "first born died, begin shutdown");
-		do_shutdown();
+		launchd_shutdown();
 		return false;
 	} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !j->checkedin) {
 		job_log(j, LOG_WARNING, "failed to checkin");
@@ -1744,7 +1746,7 @@ static void pid1waitpid(void)
 }
 #endif
 
-static void do_shutdown(void)
+static void launchd_shutdown(void)
 {
 	shutdown_in_progress = true;
 
@@ -1756,11 +1758,11 @@ static void do_shutdown(void)
 		catatonia();
 }
 
-static void do_single_user(void)
+static void launchd_single_user(void)
 {
 	int tries;
 
-	do_shutdown();
+	launchd_shutdown();
 
 	kill(-1, SIGTERM);
 
@@ -1786,7 +1788,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 		reload_launchd_config();
 		break;
 	case SIGTERM:
-		do_shutdown();
+		launchd_shutdown();
 		break;
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 	case SIGCHLD:
@@ -1912,11 +1914,12 @@ static void reload_launchd_config(void)
 	}
 }
 
-static void conceive_firstborn(char *argv[], const char *session_user)
+struct jobcb *conceive_firstborn(char *argv[], const char *session_user)
 {
-	launch_data_t r, d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+	launch_data_t d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	launch_data_t args = launch_data_alloc(LAUNCH_DATA_ARRAY);
 	launch_data_t l = launch_data_new_string("com.apple.launchd.firstborn");
+	struct jobcb *j;
 	size_t i;
 
 	if (argv[0] == NULL && session_user) {
@@ -1969,12 +1972,13 @@ static void conceive_firstborn(char *argv[], const char *session_user)
 	launch_data_dict_insert(d, args, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	launch_data_dict_insert(d, l, LAUNCH_JOBKEY_LABEL);
 
-	r = load_job(d);
+	j = job_import(d);
 
-	launch_data_free(r);
 	launch_data_free(d);
 
-	SLIST_FIRST(&jobs)->firstborn = true;
+	j->firstborn = true;
+
+	return j;
 }
 
 static void loopback_setup(void)
