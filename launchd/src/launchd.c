@@ -1644,7 +1644,7 @@ static void job_setup_attributes(struct jobcb *j)
 	}
 
 	if (!inetcompat && job_get_bool(j->ldj, LAUNCH_JOBKEY_SESSIONCREATE))
-		launchd_SessionCreate(job_get_file2exec(j->ldj));
+		launchd_SessionCreate();
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_LOWPRIORITYIO)) {
 		int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
@@ -2126,7 +2126,7 @@ static launch_data_t adjust_rlimits(launch_data_t in)
 	return launch_data_new_opaque(l, sizeof(struct rlimit) * RLIM_NLIMITS);
 }
 
-__private_extern__ void launchd_SessionCreate(const char *who)
+__private_extern__ void launchd_SessionCreate(void)
 {
 	OSStatus (*sescr)(SessionCreationFlags flags, SessionAttributeBits attributes);
 	void *seclib;

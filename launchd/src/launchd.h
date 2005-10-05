@@ -49,7 +49,7 @@ bool mach_init_check_pid(pid_t);
 #endif
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
-void launchd_SessionCreate(const char *who);
+void launchd_SessionCreate(void);
 pid_t launchd_fork(void);
 pid_t launchd_ws_fork(void);
 

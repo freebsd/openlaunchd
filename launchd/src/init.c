@@ -692,7 +692,7 @@ session_launch(session_t s)
 	setpriority(PRIO_PROCESS, 0, 0);
 
 	if (!is_loginwindow)
-		launchd_SessionCreate(se_cmd->argv[0]);
+		launchd_SessionCreate();
 
 	execv(se_cmd->argv[0], se_cmd->argv);
 	stall("can't exec %s '%s' for port %s: %m", session_type,
