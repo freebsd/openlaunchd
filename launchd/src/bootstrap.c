@@ -119,6 +119,8 @@ static void server_reap_port(struct server *serverp);
 static void server_dispatch(struct server *serverp);
 static void server_callback(void *obj, struct kevent *kev);
 
+#define ANY_SERVER ((void *)-1)
+
 static struct service *service_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct server *serverp);
 static void service_delete(struct service *servicep);
 static void service_watch(struct service *servicep);
@@ -631,14 +633,18 @@ service_new(struct bootstrap *bootstrap, const char *name, mach_port_t *servicep
 
 		if (!launchd_assumes(launchd_mport_make_send(servicep->port) == KERN_SUCCESS))
 			goto out_bad2;
-		SLIST_INSERT_HEAD(&serverp->services, servicep, sle);
-		servicep->server = serverp;
 		*serviceport = servicep->port;
 		servicep->isActive = false;
 	} else {
-		SLIST_INSERT_HEAD(&bootstrap->services, servicep, sle);
 		servicep->port = *serviceport;
 		servicep->isActive = true;
+	}
+
+	if (serverp == ANY_SERVER || serverp == NULL) {
+		SLIST_INSERT_HEAD(&bootstrap->services, servicep, sle);
+	} else {
+		SLIST_INSERT_HEAD(&serverp->services, servicep, sle);
+		servicep->server = serverp;
 	}
 	
 	strcpy(servicep->name, name);
@@ -1525,7 +1531,7 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename_raw, ma
 	if (serverp)
 		serverp->activity = true;
 
-	servicep = service_new(bootstrap, servicename, serviceportp, serverp);
+	servicep = service_new(bootstrap, servicename, serviceportp, serverp ? serverp : ANY_SERVER);
 
 	if (!launchd_assumes(servicep != NULL))
 		goto out_bad;
