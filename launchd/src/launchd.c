@@ -92,7 +92,7 @@ static void socketgroup_setup(launch_data_t obj, const char *key, void *context)
 struct watchpath {
 	SLIST_ENTRY(watchpath) sle;
 	int fd;
-	bool is_qdir;
+	unsigned int is_qdir:1, __junk:31;
 	char name[0];
 };
 
