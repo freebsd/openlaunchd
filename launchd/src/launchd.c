@@ -75,6 +75,20 @@ extern char **environ;
 
 struct jobcb;
 
+struct socketgroup {
+	SLIST_ENTRY(socketgroup) sle;
+	int *fds;
+	int fd_cnt;
+	char name[0];
+};
+
+static bool socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt);
+static void socketgroup_delete(struct jobcb *j, struct socketgroup *sg);
+static void socketgroup_watch(struct jobcb *j, struct socketgroup *sg);
+static void socketgroup_ignore(struct jobcb *j, struct socketgroup *sg);
+static bool socketgroup_callback(struct jobcb *j, struct kevent *kev);
+static void socketgroup_setup(launch_data_t obj, const char *key, void *context);
+
 struct watchpath {
 	SLIST_ENTRY(watchpath) sle;
 	int fd;
@@ -101,6 +115,7 @@ static bool calendarinterval_callback(struct jobcb *j, struct kevent *kev);
 struct jobcb {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(jobcb) sle;
+	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, watchpath) vnodes;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	launch_data_t ldj;
@@ -386,7 +401,7 @@ int main(int argc, char *argv[])
 
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 {
-	int memmib[2] = { CTL_HW, HW_PHYSMEM };
+	int memmib[2] = { CTL_HW, HW_MEMSIZE };
 	int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
 	int hnmib[2] = { CTL_KERN, KERN_HOSTNAME };
 	uint64_t mem = 0;
@@ -404,15 +419,6 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 	if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
 		syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "hw.physmem");
 	} else {
-		/* The following assignment of mem to itself if the size
-		 * of data returned is 32 bits instead of 64 is a clever
-		 * C trick to move the 32 bits on big endian systems to
-		 * the least significant bytes of the 64 mem variable.
-		 *
-		 * On little endian systems, this is effectively a no-op.
-		 */
-		if (memsz == 4)
-			mem = *(uint32_t *)&mem;
 		mvn = mem / (64 * 1024) + 1024;
 		if (sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) == -1)
 			syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "kern.maxvnodes");
@@ -698,77 +704,25 @@ static void launch_data_revoke_fds(launch_data_t o)
 	}
 }
 
-static void job_ignore_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie)
-{
-	struct jobcb *j = cookie;
-	size_t i;
-	int fd;
-
-	switch (launch_data_get_type(o)) {
-	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, job_ignore_fds, cookie);
-		break;
-	case LAUNCH_DATA_ARRAY:
-		for (i = 0; i < launch_data_array_get_count(o); i++)
-			job_ignore_fds(launch_data_array_get_index(o, i), NULL, cookie);
-		break;
-	case LAUNCH_DATA_FD:
-		fd = launch_data_get_fd(o);
-		if (-1 != fd) {
-			job_log(j, LOG_DEBUG, "Ignoring FD: %d", fd);
-			kevent_mod(fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-		}
-		break;
-	default:
-		break;
-	}
-}
-
 static void job_ignore(struct jobcb *j)
 {
-	launch_data_t j_sockets = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS);
+	struct socketgroup *sg;
 	struct watchpath *wp;
 
-	if (j_sockets)
-		job_ignore_fds(j_sockets, NULL, j);
+	SLIST_FOREACH(sg, &j->sockets, sle)
+		socketgroup_ignore(j, sg);
 
 	SLIST_FOREACH(wp, &j->vnodes, sle)
 		watchpath_ignore(j, wp);
 }
 
-static void job_watch_fds(launch_data_t o, const char *key __attribute__((unused)), void *cookie)
-{
-	struct jobcb *j = cookie;
-	size_t i;
-	int fd;
-
-	switch (launch_data_get_type(o)) {
-	case LAUNCH_DATA_DICTIONARY:
-		launch_data_dict_iterate(o, job_watch_fds, cookie);
-		break;
-	case LAUNCH_DATA_ARRAY:
-		for (i = 0; i < launch_data_array_get_count(o); i++)
-			job_watch_fds(launch_data_array_get_index(o, i), NULL, cookie);
-		break;
-	case LAUNCH_DATA_FD:
-		fd = launch_data_get_fd(o);
-		if (-1 != fd) {
-			job_log(j, LOG_DEBUG, "Watching FD: %d", fd);
-			kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, cookie);
-		}
-		break;
-	default:
-		break;
-	}
-}
-
 static void job_watch(struct jobcb *j)
 {
-	launch_data_t j_sockets = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS);
+	struct socketgroup *sg;
 	struct watchpath *wp;
 
-	if (j_sockets)
-		job_watch_fds(j_sockets, NULL, &j->kqjob_callback);
+	SLIST_FOREACH(sg, &j->sockets, sle)
+		socketgroup_watch(j, sg);
 
 	SLIST_FOREACH(wp, &j->vnodes, sle)
 		watchpath_watch(j, wp);
@@ -799,9 +753,11 @@ static launch_data_t job_export(struct jobcb *j)
 	return r;
 }
 
-static void job_remove(struct jobcb *j)
+void
+job_remove(struct jobcb *j)
 {
 	struct calendarinterval *ci;
+	struct socketgroup *sg;
 	struct watchpath *wp;
 	launch_data_t tmp;
 
@@ -821,6 +777,9 @@ static void job_remove(struct jobcb *j)
 	launch_data_free(j->ldj);
 	if (j->execfd)
 		launchd_assumes(close(j->execfd) == 0);
+
+	while ((sg = SLIST_FIRST(&j->sockets)))
+		socketgroup_delete(j, sg);
 
 	while ((wp = SLIST_FIRST(&j->vnodes)))
 		watchpath_delete(j, wp);
@@ -1038,6 +997,31 @@ static void batch_job_enable(bool e, struct conncb *c)
 	}
 }
 
+void
+socketgroup_setup(launch_data_t obj, const char *key, void *context)
+{
+	launch_data_t tmp_oai;
+	struct jobcb *j = context;
+	int i, fd_cnt = 1;
+	int *fds;
+
+	if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY)
+		fd_cnt = launch_data_array_get_count(obj);
+
+	fds = alloca(fd_cnt * sizeof(int));
+
+	for (i = 0; i < fd_cnt; i++) {
+		if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY)
+			tmp_oai = launch_data_array_get_index(obj, i);
+		else
+			tmp_oai = obj;
+
+		fds[i] = launch_data_get_fd(tmp_oai);
+	}
+
+	socketgroup_new(j, key, fds, fd_cnt);
+}
+
 static struct jobcb *job_import(launch_data_t pload)
 {
 	launch_data_t tmp;
@@ -1086,6 +1070,11 @@ static struct jobcb *job_import(launch_data_t pload)
 
 	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_RUNATLOAD))
 		startnow = true;
+
+	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
+			launch_data_dict_iterate(tmp, socketgroup_setup, j);
+	}
 
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
 		size_t i, qdirs_cnt = launch_data_array_get_count(tmp);
@@ -1394,8 +1383,10 @@ static void job_callback(void *obj, struct kevent *kev)
 		startnow = watchpath_callback(j, kev);
 		break;
 	case EVFILT_READ:
-		if ((int)kev->ident != j->execfd)
+		if ((int)kev->ident != j->execfd) {
+			startnow = socketgroup_callback(j, kev);
 			break;
+		}
 		if (kev->data > 0) {
 			int e;
 
@@ -2400,5 +2391,71 @@ calendarinterval_callback(struct jobcb *j, struct kevent *kev)
 	if (ci != NULL)
 		calendarinterval_setalarm(j, ci);
 
+	return true;
+}
+
+bool
+socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt)
+{
+	struct socketgroup *sg = calloc(1, sizeof(struct socketgroup) + strlen(name) + 1);
+
+	if (!launchd_assumes(sg != NULL))
+		return false;
+
+	sg->fds = calloc(1, fd_cnt * sizeof(int));
+	sg->fd_cnt = fd_cnt;
+
+	if (!launchd_assumes(sg->fds != NULL)) {
+		free(sg);
+		return false;
+	}
+
+	memcpy(sg->fds, fds, fd_cnt * sizeof(int));
+	strcpy(sg->name, name);
+
+	SLIST_INSERT_HEAD(&j->sockets, sg, sle);
+
+	return true;
+}
+
+void
+socketgroup_delete(struct jobcb *j, struct socketgroup *sg)
+{
+	int i;
+
+	for (i = 0; i < sg->fd_cnt; i++)
+		launchd_assumes(close(sg->fds[i]) != -1);
+
+	SLIST_REMOVE(&j->sockets, sg, socketgroup, sle);
+
+	free(sg->fds);
+	free(sg);
+}
+
+void
+socketgroup_ignore(struct jobcb *j, struct socketgroup *sg)
+{
+	int i;
+
+	for (i = 0; i < sg->fd_cnt; i++) {
+		job_log(j, LOG_DEBUG, "Ignoring Socket: %d", sg->fds[i]);
+		launchd_assumes(kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
+	}
+}
+
+void
+socketgroup_watch(struct jobcb *j, struct socketgroup *sg)
+{
+	int i;
+
+	for (i = 0; i < sg->fd_cnt; i++) {
+		job_log(j, LOG_DEBUG, "Watching Socket: %d", sg->fds[i]);
+		launchd_assumes(kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
+	}
+}
+
+bool
+socketgroup_callback(struct jobcb *j, struct kevent *kev)
+{
 	return true;
 }
