@@ -231,7 +231,7 @@ routine bootstrap_register(
 routine bootstrap_look_up(
 		__bs_port	: mach_port_t;
 		__service_name	: name_t;
-	out	__service_port	: mach_port_t);
+	out	__service_port	: mach_port_send_t);
 
 /*
  * kern_return_t
@@ -278,7 +278,7 @@ routine bootstrap_look_up_array(
 routine bootstrap_parent(
 		__bs_port	: mach_port_t;
  ServerSecToken	__token		: security_token_t;
-	out	__parent_port	: mach_port_poly_t);
+	out	__parent_port	: mach_port_send_t);
 
 /*
  * kern_return_t

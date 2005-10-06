@@ -1214,7 +1214,7 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
  *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
  */
 __private_extern__ kern_return_t
-x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename_raw, mach_port_t *serviceportp)
+x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename_raw, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
 	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
@@ -1223,19 +1223,22 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename_raw, mach_port
 	/* name_t is an array of characters with no promise of being null terminated */
 	strlcpy(servicename, servicename_raw, sizeof(servicename));
 
+
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
-	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
-		if (inherited_bootstrap_port != MACH_PORT_NULL) {
-			syslog(LOG_DEBUG, "bootstrap_look_up service %s forwarding", servicename);
-			return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
-		} else {
-			syslog(LOG_DEBUG, "bootstrap_look_up service %s unknown", servicename);
-			return BOOTSTRAP_UNKNOWN_SERVICE;
-		}
+	if (servicep) {
+		launchd_assumes(servicep->port != MACH_PORT_NULL);
+		syslog(LOG_DEBUG, "bootstrap_look_up service %s returned %x", servicename, servicep->port);
+		*serviceportp = servicep->port;
+		*ptype = MACH_MSG_TYPE_COPY_SEND;
+		return BOOTSTRAP_SUCCESS;
+	} else if (inherited_bootstrap_port != MACH_PORT_NULL) {
+		syslog(LOG_DEBUG, "bootstrap_look_up service %s forwarding", servicename);
+		*ptype = MACH_MSG_TYPE_MOVE_SEND;
+		return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
+	} else {
+		syslog(LOG_DEBUG, "bootstrap_look_up service %s unknown", servicename);
+		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
-	*serviceportp = servicep->port;
-	syslog(LOG_DEBUG, "Lookup returns port %x for service %s", servicep->port, servicep->name);
-	return BOOTSTRAP_SUCCESS;
 }
 
 /*
@@ -1267,13 +1270,14 @@ x_bootstrap_look_up_array(mach_port_t bootstrapport, name_array_t servicenames, 
 {
 	unsigned int i;
 	static mach_port_t service_ports[BOOTSTRAP_MAX_LOOKUP_COUNT];
+	mach_msg_type_name_t ptype;
 	
 	if (servicenames_cnt > BOOTSTRAP_MAX_LOOKUP_COUNT)
 		return BOOTSTRAP_BAD_COUNT;
 	*serviceports_cnt = servicenames_cnt;
 	*allservices_known = true;
 	for (i = 0; i < servicenames_cnt; i++) {
-		if (x_bootstrap_look_up(bootstrapport, servicenames[i], &service_ports[i]) != BOOTSTRAP_SUCCESS) {
+		if (x_bootstrap_look_up(bootstrapport, servicenames[i], &service_ports[i], &ptype) != BOOTSTRAP_SUCCESS) {
 			*allservices_known = false;
 			service_ports[i] = MACH_PORT_NULL;
 		}
