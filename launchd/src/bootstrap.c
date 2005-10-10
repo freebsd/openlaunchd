@@ -211,7 +211,9 @@ out:
 
 void mach_init_init(void)
 {
+#ifdef PROTECT_WINDOWSERVER_BS_PORT
 	struct stat sb;
+#endif
 	pthread_attr_t attr;
 	int pipepair[2];
 
@@ -226,11 +228,15 @@ void mach_init_init(void)
 
 	launchd_assert((root_bootstrap = bootstrap_new(NULL, MACH_PORT_NULL)) != NULL);
 
+#ifdef PROTECT_WINDOWSERVER_BS_PORT
 	if (stat("/System/Installation", &sb) == 0 && stat("/etc/rc.cdrom", &sb) == 0) {
+#endif
 		ws_bootstrap = root_bootstrap;
+#ifdef PROTECT_WINDOWSERVER_BS_PORT
 	} else {
 		launchd_assert((ws_bootstrap = bootstrap_new(root_bootstrap, MACH_PORT_NULL)) != NULL);
 	}
+#endif
 	
 	launchd_assumes(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
 
