@@ -407,7 +407,22 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 	uint64_t mem = 0;
 	uint32_t mvn;
 	size_t memsz = sizeof(mem);
+#ifdef KERN_TFP
+	struct group *tfp_gr;
 		
+	if (launchd_assumes((tfp_gr = getgrnam("procview")) != NULL)) {
+		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
+		gid_t tfp_r_gid = tfp_gr->gr_gid;
+		launchd_assumes(sysctl(tfp_r_mib, 3, NULL, NULL, &tfp_r_gid, sizeof(tfp_r_gid)) != -1);
+	}
+
+	if (launchd_assumes((tfp_gr = getgrnam("procmod")) != NULL)) {
+		int tfp_rw_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_RW_GROUP };
+		gid_t tfp_rw_gid = tfp_gr->gr_gid;
+		launchd_assumes(sysctl(tfp_rw_mib, 3, NULL, NULL, &tfp_rw_gid, sizeof(tfp_rw_gid)) != -1);
+	}
+#endif
+
 	setpriority(PRIO_PROCESS, 0, -1);
 
 	if (setsid() == -1)
