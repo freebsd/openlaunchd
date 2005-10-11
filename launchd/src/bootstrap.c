@@ -221,8 +221,8 @@ void mach_init_init(void)
 
 	launchd_assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pipepair) != -1);
 
-	main_to_demand_loop_fd = pipepair[0];
-	demand_loop_to_main_fd = pipepair[1];
+	main_to_demand_loop_fd = _fd(pipepair[0]);
+	demand_loop_to_main_fd = _fd(pipepair[1]);
 
 	launchd_assert(kevent_mod(main_to_demand_loop_fd, EVFILT_READ, EV_ADD, 0, 0, &kqmport_callback) != -1);
 

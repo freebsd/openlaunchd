@@ -63,4 +63,6 @@ void mach_start_shutdown(void);
 void mach_init_init(void);
 void mach_init_reap(void);
 
+int _fd(int fd);
+
 #endif

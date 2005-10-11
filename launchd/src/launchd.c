@@ -195,7 +195,6 @@ static void launchd_server_init(void);
 static struct jobcb *conceive_firstborn(char *argv[], const char *session_user);
 
 static void usage(FILE *where);
-static int _fd(int fd);
 
 static void loopback_setup(void);
 static void workaround3048875(int argc, char *argv[]);
@@ -1243,7 +1242,7 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 	return kevent(q, &kev, 1, NULL, 0, NULL);
 }
 
-static int _fd(int fd)
+int _fd(int fd)
 {
 	if (fd >= 0)
 		fcntl(fd, F_SETFD, 1);
