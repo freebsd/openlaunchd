@@ -130,7 +130,7 @@ struct jobcb {
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	SLIST_HEAD(, envitem) global_env;
 	SLIST_HEAD(, envitem) env;
-	int argc;
+	launch_data_t ldj;
 	char **argv;
 	char *prog;
 	char *rootdir;
@@ -139,17 +139,19 @@ struct jobcb {
 	char *groupname;
 	char *stdoutpath;
 	char *stderrpath;
-	launch_data_t ldj;
 	pid_t p;
+	int argc;
 	int last_exit_status;
 	int execfd;
 	int nice;
+	int timeout;
 	time_t start_time;
 	size_t failed_exits;
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, sipc:1,
 			ondemand:1, session_create:1, low_pri_io:1, init_groups:1,
-			importing_global_env:1, futureflags:21;
+			importing_global_env:1, setmask:1, __pad:4;
+	mode_t mask;
 	char label[0];
 };
 
@@ -766,6 +768,11 @@ static launch_data_t job_export(struct jobcb *j)
 			if (tmp)
 				launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PID);
 		}
+
+		if (launch_data_dict_lookup(r, LAUNCH_JOBKEY_TIMEOUT) == NULL) {
+			launch_data_t to = launch_data_new_integer(j->timeout);
+			launch_data_dict_insert(r, to, LAUNCH_JOBKEY_TIMEOUT);
+		}
 	}
 
 	return r;
@@ -938,11 +945,7 @@ static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		resp = launch_data_new_errno(0);
 	} else if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
 		if (rmc->c->j) {
-			resp = launch_data_copy(rmc->c->j->ldj);
-			if (NULL == launch_data_dict_lookup(resp, LAUNCH_JOBKEY_TIMEOUT)) {
-				launch_data_t to = launch_data_new_integer(LAUNCHD_MIN_JOB_RUN_TIME);
-				launch_data_dict_insert(resp, to, LAUNCH_JOBKEY_TIMEOUT);
-			}
+			resp = job_export(rmc->c->j);
 			rmc->c->j->checkedin = true;
 		} else {
 			resp = launch_data_new_errno(EACCES);
@@ -1157,6 +1160,16 @@ static struct jobcb *job_import(launch_data_t pload)
 		startnow = true;
 
 	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
+
+	if ((j->timeout = job_get_integer(pload, LAUNCH_JOBKEY_TIMEOUT)) <= 0)
+		j->timeout = LAUNCHD_REWARD_JOB_RUN_TIME;
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_UMASK))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_INTEGER) {
+			j->mask = launch_data_get_integer(tmp);
+			j->setmask = true;
+		}
+	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ROOTDIRECTORY))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
@@ -1752,8 +1765,8 @@ static void job_setup_attributes(struct jobcb *j)
 	}
 	if (j->workingdir)
 		chdir(j->workingdir);
-	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
-		umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
+	if (j->setmask) 
+		umask(j->mask);
 	if (j->stdoutpath) {
 		int sofd = open(j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sofd == -1) {
