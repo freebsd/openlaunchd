@@ -112,12 +112,24 @@ static void calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci
 static void calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci);
 static bool calendarinterval_callback(struct jobcb *j, struct kevent *kev);
 
+struct envitem {
+	SLIST_ENTRY(envitem) sle;
+	char *value;
+	char key[0];
+};
+
+static bool envitem_new(struct jobcb *j, const char *k, const char *v, bool global);
+static void envitem_delete(struct jobcb *j, struct envitem *ei, bool global);
+static void envitem_setup(launch_data_t obj, const char *key, void *context);
+
 struct jobcb {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(jobcb) sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, watchpath) vnodes;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
+	SLIST_HEAD(, envitem) global_env;
+	SLIST_HEAD(, envitem) env;
 	int argc;
 	char **argv;
 	char *prog;
@@ -130,7 +142,8 @@ struct jobcb {
 	size_t failed_exits;
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, sipc:1,
-		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, futureflags:22;
+			ondemand:1, session_create:1, low_pri_io:1, init_groups:1,
+			importing_global_env:1, futureflags:21;
 	char label[0];
 };
 
@@ -207,9 +220,6 @@ static void testfd_or_openfd(int fd, const char *path, int flags);
 static void reload_launchd_config(void);
 static int dir_has_files(const char *path);
 static void testfd_or_openfd(int fd, const char *path, int flags);
-static void setup_job_env(launch_data_t obj, const char *key, void *context);
-static void unsetup_job_env(launch_data_t obj, const char *key, void *context);
-
 
 static size_t total_children = 0;
 static pid_t readcfg_pid = 0;
@@ -761,11 +771,12 @@ job_remove(struct jobcb *j)
 	struct calendarinterval *ci;
 	struct socketgroup *sg;
 	struct watchpath *wp;
-	launch_data_t tmp;
+	struct envitem *ei;
 
 	job_log(j, LOG_DEBUG, "Removed");
 
 	SLIST_REMOVE(&jobs, j, jobcb, sle);
+
 	if (j->p) {
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
 			job_reap(j);
@@ -773,10 +784,10 @@ job_remove(struct jobcb *j)
 			job_stop(j);
 		}
 	}
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
-		launch_data_dict_iterate(tmp, unsetup_job_env, NULL);
+
 	launch_data_close_fds(j->ldj);
 	launch_data_free(j->ldj);
+
 	if (j->execfd)
 		launchd_assumes(close(j->execfd) == 0);
 
@@ -789,8 +800,15 @@ job_remove(struct jobcb *j)
 	while ((ci = SLIST_FIRST(&j->cal_intervals)))
 		calendarinterval_delete(j, ci);
 
+	while ((ei = SLIST_FIRST(&j->env)))
+		envitem_delete(j, ei, false);
+
+	while ((ei = SLIST_FIRST(&j->global_env)))
+		envitem_delete(j, ei, true);
+
 	if (j->prog)
 		free(j->prog);
+
 	if (j->argv)
 		free(j->argv);
 
@@ -1116,6 +1134,19 @@ static struct jobcb *job_import(launch_data_t pload)
 
 	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
 
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
+			launch_data_dict_iterate(tmp, envitem_setup, j);
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES))) {
+		j->importing_global_env = true;
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
+			launch_data_dict_iterate(tmp, envitem_setup, j);
+		j->importing_global_env = false;
+	}
+
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOCKETS))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
 			launch_data_dict_iterate(tmp, socketgroup_setup, j);
@@ -1188,9 +1219,6 @@ static struct jobcb *job_import(launch_data_t pload)
 			calendarinterval_new(j, &tmptm);
 		}
 	}
-	
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
-		launch_data_dict_iterate(tmp, setup_job_env, NULL);
 	
 	if (j->ondemand)
 		job_watch(j);
@@ -1288,18 +1316,6 @@ static void ipc_close(struct conncb *c)
 	SLIST_REMOVE(&connections, c, conncb, sle);
 	launchd_close(c->conn);
 	free(c);
-}
-
-static void setup_job_env(launch_data_t obj, const char *key, void *context __attribute__((unused)))
-{
-	if (LAUNCH_DATA_STRING == launch_data_get_type(obj))
-		setenv(key, launch_data_get_string(obj), 1);
-}
-
-static void unsetup_job_env(launch_data_t obj, const char *key, void *context __attribute__((unused)))
-{
-	if (LAUNCH_DATA_STRING == launch_data_get_type(obj))
-		unsetenv(key);
 }
 
 static void job_reap(struct jobcb *j)
@@ -1582,7 +1598,8 @@ static void job_setup_attributes(struct jobcb *j)
 {
 	launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
 	launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
-	launch_data_t tmp;
+	struct envitem *ei;
+	struct jobcb *ji;
 	size_t i;
 	const char *tmpstr;
 	struct group *gre = NULL;
@@ -1703,8 +1720,14 @@ static void job_setup_attributes(struct jobcb *j)
 			launchd_assumes(close(sefd) == 0);
 		}
 	}
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES)))
-		launch_data_dict_iterate(tmp, setup_job_env, NULL);
+
+	SLIST_FOREACH(ji, &jobs, sle) {
+		SLIST_FOREACH(ei, &ji->global_env, sle)
+			setenv(ei->key, ei->value, 1);
+	}
+
+	SLIST_FOREACH(ei, &j->env, sle)
+		setenv(ei->key, ei->value, 1);
 
 	setsid();
 }
@@ -2494,4 +2517,48 @@ bool
 socketgroup_callback(struct jobcb *j, struct kevent *kev)
 {
 	return true;
+}
+
+bool
+envitem_new(struct jobcb *j, const char *k, const char *v, bool global)
+{
+	struct envitem *ei = calloc(1, sizeof(struct envitem) + strlen(k) + 1 + strlen(v) + 1);
+
+	if (!launchd_assumes(ei != NULL))
+		return false;
+
+	strcpy(ei->key, k);
+	ei->value = ei->key + strlen(v) + 1;
+	strcpy(ei->value, v);
+
+	if (global) {
+		SLIST_INSERT_HEAD(&j->global_env, ei, sle);
+	} else {
+		SLIST_INSERT_HEAD(&j->env, ei, sle);
+	}
+
+	return true;
+}
+
+void
+envitem_delete(struct jobcb *j, struct envitem *ei, bool global)
+{
+	if (global) {
+		SLIST_REMOVE(&j->global_env, ei, envitem, sle);
+	} else {
+		SLIST_REMOVE(&j->env, ei, envitem, sle);
+	}
+
+	free(ei);
+}
+
+void
+envitem_setup(launch_data_t obj, const char *key, void *context)
+{
+	struct jobcb *j = context;
+
+	if (launch_data_get_type(obj) != LAUNCH_DATA_STRING)
+		return;
+
+	envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
 }
