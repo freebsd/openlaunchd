@@ -73,6 +73,21 @@
 
 extern char **environ;
 
+static const struct {
+	const char *key;
+	int val;
+} launchd_keys2limits[] = {
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
+};
+
 struct jobcb;
 
 struct socketgroup {
@@ -141,7 +156,6 @@ struct jobcb {
 	SLIST_HEAD(, envitem) global_env;
 	SLIST_HEAD(, envitem) env;
 	SLIST_HEAD(, limititem) limits;
-	launch_data_t ldj;
 	char **argv;
 	char *prog;
 	char *rootdir;
@@ -159,9 +173,9 @@ struct jobcb {
 	time_t start_time;
 	size_t failed_exits;
 	unsigned int start_interval;
-	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, sipc:1,
-			ondemand:1, session_create:1, low_pri_io:1, init_groups:1,
-			importing_global_env:1, importing_hard_limits:1, setmask:1, __pad:3;
+	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, inetcompat_wait:1,
+			sipc:1, ondemand:1, session_create:1, low_pri_io:1, init_groups:1,
+			importing_global_env:1, importing_hard_limits:1, setmask:1, __pad:2;
 	mode_t mask;
 	char label[0];
 };
@@ -735,7 +749,8 @@ static void launch_data_revoke_fds(launch_data_t o)
 	}
 }
 
-static void job_ignore(struct jobcb *j)
+void
+job_ignore(struct jobcb *j)
 {
 	struct socketgroup *sg;
 	struct watchpath *wp;
@@ -747,7 +762,8 @@ static void job_ignore(struct jobcb *j)
 		watchpath_ignore(j, wp);
 }
 
-static void job_watch(struct jobcb *j)
+void
+job_watch(struct jobcb *j)
 {
 	struct socketgroup *sg;
 	struct watchpath *wp;
@@ -759,31 +775,74 @@ static void job_watch(struct jobcb *j)
 		watchpath_watch(j, wp);
 }
 
-static void job_stop(struct jobcb *j)
+void
+job_stop(struct jobcb *j)
 {
 	if (j->p)
 		kill(j->p, SIGTERM);
 }
 
-static launch_data_t job_export(struct jobcb *j)
+launch_data_t
+job_export(struct jobcb *j)
 {
-	launch_data_t tmp, r = launch_data_copy(j->ldj);
+	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	if (r) {
-		tmp = launch_data_new_integer(j->last_exit_status);
-		if (tmp)
-			launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LASTEXITSTATUS);
+	if (r == NULL)
+		return NULL;
 
-		if (j->p) {
-			tmp = launch_data_new_integer(j->p);
-			if (tmp)
-				launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PID);
+	if ((tmp = launch_data_new_string(j->label)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LABEL);
+
+	if ((tmp = launch_data_new_integer(j->last_exit_status)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LASTEXITSTATUS);
+
+	if (j->p && (tmp = launch_data_new_integer(j->p)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PID);
+
+	if ((tmp = launch_data_new_integer(j->timeout)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_TIMEOUT);
+
+	if (j->prog && (tmp = launch_data_new_string(j->prog)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PROGRAM);
+
+	if (j->stdoutpath && (tmp = launch_data_new_string(j->stdoutpath)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDOUTPATH);
+
+	if (j->stderrpath && (tmp = launch_data_new_string(j->stderrpath)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDERRORPATH);
+
+	if (j->argv && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
+		int i;
+
+		for (i = 0; i < j->argc; i++) {
+			if ((tmp2 = launch_data_new_string(j->argv[i])))
+				launch_data_array_set_index(tmp, tmp2, i);
 		}
 
-		if (launch_data_dict_lookup(r, LAUNCH_JOBKEY_TIMEOUT) == NULL) {
-			launch_data_t to = launch_data_new_integer(j->timeout);
-			launch_data_dict_insert(r, to, LAUNCH_JOBKEY_TIMEOUT);
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+	}
+
+	if (j->inetcompat && (tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY))) {
+		if ((tmp2 = launch_data_new_bool(j->inetcompat_wait)))
+			launch_data_dict_insert(tmp, tmp2, LAUNCH_JOBINETDCOMPATIBILITY_WAIT);
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
+	}
+
+	if (!SLIST_EMPTY(&j->sockets) && (tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY))) {
+		struct socketgroup *sg;
+		int i;
+
+		SLIST_FOREACH(sg, &j->sockets, sle) {
+			if ((tmp2 = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
+				for (i = 0; i < sg->fd_cnt; i++) {
+					if ((tmp3 = launch_data_new_fd(sg->fds[i])))
+						launch_data_array_set_index(tmp2, tmp3, i);
+				}
+				launch_data_dict_insert(tmp, tmp2, sg->name);
+			}
 		}
+
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_SOCKETS);
 	}
 
 	return r;
@@ -809,9 +868,6 @@ job_remove(struct jobcb *j)
 			job_stop(j);
 		}
 	}
-
-	launch_data_close_fds(j->ldj);
-	launch_data_free(j->ldj);
 
 	if (j->execfd)
 		launchd_assumes(close(j->execfd) == 0);
@@ -1116,7 +1172,6 @@ static struct jobcb *job_import(launch_data_t pload)
 
 	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
 	strcpy(j->label, label);
-	j->ldj = launch_data_copy(pload);
 	j->kqjob_callback = job_callback;
 
 	if (ldpa) {
@@ -1156,7 +1211,10 @@ static struct jobcb *job_import(launch_data_t pload)
 
 	j->debug = job_get_bool(pload, LAUNCH_JOBKEY_DEBUG);
 
-	j->inetcompat = job_get_bool(pload, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_INETDCOMPATIBILITY))) {
+		j->inetcompat = true;
+		j->inetcompat_wait = job_get_bool(tmp, LAUNCH_JOBINETDCOMPATIBILITY_WAIT);
+	}
 
 	j->sipc = job_get_bool(pload, LAUNCH_JOBKEY_SERVICEIPC);
 
@@ -2678,22 +2736,8 @@ limititem_delete(struct jobcb *j, struct limititem *li)
 void
 limititem_setup(launch_data_t obj, const char *key, void *context)
 {
-	static const struct {
-		const char *key;
-		int val;
-	} limits[] = {
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
-	};
 	struct jobcb *j = context;
-	int i, limits_cnt = (sizeof(limits) / sizeof(limits[0]));
+	int i, limits_cnt = (sizeof(launchd_keys2limits) / sizeof(launchd_keys2limits[0]));
 	rlim_t rl;
 
 	if (launch_data_get_type(obj) != LAUNCH_DATA_INTEGER)
@@ -2702,12 +2746,12 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 	rl = launch_data_get_integer(obj);
 
 	for (i = 0; i < limits_cnt; i++) {
-		if (strcasecmp(limits[i].key, key) == 0)
+		if (strcasecmp(launchd_keys2limits[i].key, key) == 0)
 			break;
 	}
 
 	if (i == limits_cnt)
 		return;
 
-	limititem_update(j, limits[i].val, rl);
+	limititem_update(j, launchd_keys2limits[i].val, rl);
 }
