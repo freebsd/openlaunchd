@@ -133,6 +133,8 @@ struct jobcb {
 	int argc;
 	char **argv;
 	char *prog;
+	char *rootdir;
+	char *workingdir;
 	launch_data_t ldj;
 	pid_t p;
 	int last_exit_status;
@@ -812,6 +814,12 @@ job_remove(struct jobcb *j)
 	if (j->argv)
 		free(j->argv);
 
+	if (j->rootdir)
+		free(j->rootdir);
+
+	if (j->workingdir)
+		free(j->workingdir);
+
 	if (j->start_interval)
 		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 
@@ -1134,6 +1142,15 @@ static struct jobcb *job_import(launch_data_t pload)
 
 	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
 
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ROOTDIRECTORY))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
+			j->rootdir = strdup(launch_data_get_string(tmp));
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_WORKINGDIRECTORY))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
+			j->workingdir = strdup(launch_data_get_string(tmp));
+	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
@@ -1650,8 +1667,8 @@ static void job_setup_attributes(struct jobcb *j)
 		if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
 			job_log_error(j, LOG_WARNING, "sysctl(\"%s\")", "kern.proc_low_pri_io");
 	}
-	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_ROOTDIRECTORY))) {
-		chroot(tmpstr);
+	if (j->rootdir) {
+		chroot(j->rootdir);
 		chdir(".");
 	}
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_GROUPNAME))) {
@@ -1698,8 +1715,8 @@ static void job_setup_attributes(struct jobcb *j)
 			exit(EXIT_FAILURE);
 		}
 	}
-	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_WORKINGDIRECTORY)))
-		chdir(tmpstr);
+	if (j->workingdir)
+		chdir(j->workingdir);
 	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
 		umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
 	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH))) {
