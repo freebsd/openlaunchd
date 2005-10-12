@@ -122,6 +122,16 @@ static bool envitem_new(struct jobcb *j, const char *k, const char *v, bool glob
 static void envitem_delete(struct jobcb *j, struct envitem *ei, bool global);
 static void envitem_setup(launch_data_t obj, const char *key, void *context);
 
+struct limititem {
+	SLIST_ENTRY(limititem) sle;
+	struct rlimit lim;
+	unsigned int setsoft:1, sethard:1, which:30;
+};
+
+static bool limititem_update(struct jobcb *j, int w, rlim_t r);
+static void limititem_delete(struct jobcb *j, struct limititem *li);
+static void limititem_setup(launch_data_t obj, const char *key, void *context);
+
 struct jobcb {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(jobcb) sle;
@@ -130,6 +140,7 @@ struct jobcb {
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	SLIST_HEAD(, envitem) global_env;
 	SLIST_HEAD(, envitem) env;
+	SLIST_HEAD(, limititem) limits;
 	launch_data_t ldj;
 	char **argv;
 	char *prog;
@@ -150,7 +161,7 @@ struct jobcb {
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, sipc:1,
 			ondemand:1, session_create:1, low_pri_io:1, init_groups:1,
-			importing_global_env:1, setmask:1, __pad:4;
+			importing_global_env:1, importing_hard_limits:1, setmask:1, __pad:3;
 	mode_t mask;
 	char label[0];
 };
@@ -784,6 +795,7 @@ job_remove(struct jobcb *j)
 	struct calendarinterval *ci;
 	struct socketgroup *sg;
 	struct watchpath *wp;
+	struct limititem *li;
 	struct envitem *ei;
 
 	job_log(j, LOG_DEBUG, "Removed");
@@ -818,6 +830,9 @@ job_remove(struct jobcb *j)
 
 	while ((ei = SLIST_FIRST(&j->global_env)))
 		envitem_delete(j, ei, true);
+
+	while ((li = SLIST_FIRST(&j->limits)))
+		limititem_delete(j, li);
 
 	if (j->prog)
 		free(j->prog);
@@ -1211,6 +1226,18 @@ static struct jobcb *job_import(launch_data_t pload)
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
 			launch_data_dict_iterate(tmp, envitem_setup, j);
 		j->importing_global_env = false;
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOFTRESOURCELIMITS))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
+			launch_data_dict_iterate(tmp, limititem_setup, j);
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_HARDRESOURCELIMITS))) {
+		j->importing_hard_limits = true;
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
+			launch_data_dict_iterate(tmp, limititem_setup, j);
+		j->importing_hard_limits = false;
 	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOCKETS))) {
@@ -1662,47 +1689,29 @@ job_start_child(struct jobcb *j, int execfd)
 
 static void job_setup_attributes(struct jobcb *j)
 {
-	launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
-	launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
+	struct limititem *li;
 	struct envitem *ei;
 	struct jobcb *ji;
-	size_t i;
 	struct group *gre = NULL;
 	gid_t gre_g = 0;
-	static const struct {
-		const char *key;
-		int val;
-	} limits[] = {
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
-		{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
-	};
 
 	setpriority(PRIO_PROCESS, 0, j->nice);
 
-	if (srl || hrl) {
-		for (i = 0; i < (sizeof(limits) / sizeof(limits[0])); i++) {
-			struct rlimit rl;
+	SLIST_FOREACH(li, &j->limits, sle) {
+		struct rlimit rl;
 
-			if (getrlimit(limits[i].val, &rl) == -1) {
-				job_log_error(j, LOG_WARNING, "getrlimit()");
-				continue;
-			}
-
-			if (hrl)
-				rl.rlim_max = job_get_integer(hrl, limits[i].key);
-			if (srl)
-				rl.rlim_cur = job_get_integer(srl, limits[i].key);
-
-			if (setrlimit(limits[i].val, &rl) == -1)
-				job_log_error(j, LOG_WARNING, "setrlimit()");
+		if (getrlimit(li->which, &rl) == -1) {
+			job_log_error(j, LOG_WARNING, "getrlimit()");
+			continue;
 		}
+
+		if (li->sethard)
+			rl.rlim_max = li->lim.rlim_max;
+		if (li->setsoft)
+			rl.rlim_cur = li->lim.rlim_cur;
+
+		if (setrlimit(li->which, &rl) == -1)
+			job_log_error(j, LOG_WARNING, "setrlimit()");
 	}
 
 	if (!j->inetcompat && j->session_create)
@@ -2626,4 +2635,79 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 		return;
 
 	envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
+}
+
+bool
+limititem_update(struct jobcb *j, int w, rlim_t r)
+{
+	struct limititem *li;
+
+	SLIST_FOREACH(li, &j->limits, sle) {
+		if (li->which == w)
+			break;
+	}
+
+	if (li == NULL) {
+		li = calloc(1, sizeof(struct limititem));
+
+		if (!launchd_assumes(li != NULL))
+			return false;
+
+		li->which = w;
+	}
+
+	if (j->importing_hard_limits) {
+		li->lim.rlim_max = r;
+		li->sethard = true;
+	} else {
+		li->lim.rlim_cur = r;
+		li->setsoft = true;
+	}
+
+	return true;
+}
+
+void
+limititem_delete(struct jobcb *j, struct limititem *li)
+{
+	SLIST_REMOVE(&j->limits, li, limititem, sle);
+
+	free(li);
+}
+
+void
+limititem_setup(launch_data_t obj, const char *key, void *context)
+{
+	static const struct {
+		const char *key;
+		int val;
+	} limits[] = {
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
+		{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
+	};
+	struct jobcb *j = context;
+	int i, limits_cnt = (sizeof(limits) / sizeof(limits[0]));
+	rlim_t rl;
+
+	if (launch_data_get_type(obj) != LAUNCH_DATA_INTEGER)
+		return;
+
+	rl = launch_data_get_integer(obj);
+
+	for (i = 0; i < limits_cnt; i++) {
+		if (strcasecmp(limits[i].key, key) == 0)
+			break;
+	}
+
+	if (i == limits_cnt)
+		return;
+
+	limititem_update(j, limits[i].val, rl);
 }
