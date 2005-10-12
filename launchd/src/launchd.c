@@ -137,6 +137,8 @@ struct jobcb {
 	char *workingdir;
 	char *username;
 	char *groupname;
+	char *stdoutpath;
+	char *stderrpath;
 	launch_data_t ldj;
 	pid_t p;
 	int last_exit_status;
@@ -828,6 +830,12 @@ job_remove(struct jobcb *j)
 	if (j->groupname)
 		free(j->groupname);
 
+	if (j->stdoutpath)
+		free(j->stdoutpath);
+
+	if (j->stderrpath)
+		free(j->stderrpath);
+
 	if (j->start_interval)
 		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 
@@ -1168,6 +1176,16 @@ static struct jobcb *job_import(launch_data_t pload)
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_GROUPNAME))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
 			j->groupname = strdup(launch_data_get_string(tmp));
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STANDARDOUTPATH))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
+			j->stdoutpath = strdup(launch_data_get_string(tmp));
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STANDARDERRORPATH))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
+			j->stderrpath = strdup(launch_data_get_string(tmp));
 	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))) {
@@ -1636,7 +1654,6 @@ static void job_setup_attributes(struct jobcb *j)
 	struct envitem *ei;
 	struct jobcb *ji;
 	size_t i;
-	const char *tmpstr;
 	struct group *gre = NULL;
 	gid_t gre_g = 0;
 	static const struct {
@@ -1737,19 +1754,19 @@ static void job_setup_attributes(struct jobcb *j)
 		chdir(j->workingdir);
 	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_UMASK))
 		umask(job_get_integer(j->ldj, LAUNCH_JOBKEY_UMASK));
-	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDOUTPATH))) {
-		int sofd = open(tmpstr, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+	if (j->stdoutpath) {
+		int sofd = open(j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sofd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", tmpstr);
+			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdoutpath);
 		} else {
 			launchd_assumes(dup2(sofd, STDOUT_FILENO) != -1);
 			launchd_assumes(close(sofd) == 0);
 		}
 	}
-	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_STANDARDERRORPATH))) {
-		int sefd = open(tmpstr, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+	if (j->stderrpath) {
+		int sefd = open(j->stderrpath, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sefd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", tmpstr);
+			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stderrpath);
 		} else {
 			launchd_assumes(dup2(sefd, STDERR_FILENO) != -1);
 			launchd_assumes(close(sefd) == 0);
