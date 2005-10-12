@@ -118,14 +118,19 @@ struct jobcb {
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, watchpath) vnodes;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
+	int argc;
+	char **argv;
+	char *prog;
 	launch_data_t ldj;
 	pid_t p;
 	int last_exit_status;
 	int execfd;
+	int nice;
 	time_t start_time;
 	size_t failed_exits;
 	unsigned int start_interval;
-	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, futureflags:28;
+	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, sipc:1,
+		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, futureflags:22;
 	char label[0];
 };
 
@@ -588,23 +593,6 @@ static const char *job_get_string(launch_data_t j, const char *key)
 		return NULL;
 }
 
-static const char *job_get_file2exec(launch_data_t j)
-{
-	launch_data_t tmpi, tmp = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PROGRAM);
-
-	if (tmp) {
-		return launch_data_get_string(tmp);
-	} else {
-		tmp = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-		if (tmp) {
-			tmpi = launch_data_array_get_index(tmp, 0);
-			if (tmpi)
-				return launch_data_get_string(tmpi);
-		}
-		return NULL;
-	}
-}
-
 static bool job_get_bool(launch_data_t j, const char *key)
 {
 	launch_data_t t = launch_data_dict_lookup(j, key);
@@ -800,6 +788,11 @@ job_remove(struct jobcb *j)
 
 	while ((ci = SLIST_FIRST(&j->cal_intervals)))
 		calendarinterval_delete(j, ci);
+
+	if (j->prog)
+		free(j->prog);
+	if (j->argv)
+		free(j->argv);
 
 	if (j->start_interval)
 		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
@@ -1038,10 +1031,10 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 
 static struct jobcb *job_import(launch_data_t pload)
 {
-	launch_data_t tmp;
+	launch_data_t tmp, ldpa, ldp;
 	const char *label;
 	struct jobcb *j;
-	bool startnow, hasprog = false, hasprogargs = false;
+	bool startnow;
 
 	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL)) == NULL) {
 		errno = EINVAL;
@@ -1053,12 +1046,10 @@ static struct jobcb *job_import(launch_data_t pload)
 		return NULL;
 	}
 
-	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM))
-		hasprog = true;
-	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS))
-		hasprogargs = true;
+	ldp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM);
+	ldpa = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 
-	if (!hasprog && !hasprogargs) {
+	if (ldp == NULL && ldpa == NULL) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1066,31 +1057,71 @@ static struct jobcb *job_import(launch_data_t pload)
 	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
 	strcpy(j->label, label);
 	j->ldj = launch_data_copy(pload);
-	launch_data_revoke_fds(pload);
 	j->kqjob_callback = job_callback;
 
+	if (ldpa) {
+		size_t i, c, cc = 0;
+		char *co;
 
-	if (launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
-		tmp = launch_data_alloc(LAUNCH_DATA_BOOL);
-		launch_data_set_bool(tmp, true);
-		launch_data_dict_insert(j->ldj, tmp, LAUNCH_JOBKEY_ONDEMAND);
+		c = launch_data_array_get_count(ldpa);
+
+		for (i = 0; i < c; i++)
+			cc += strlen(launch_data_get_string(launch_data_array_get_index(ldpa, i))) + 1;
+
+		j->argv = malloc((c + 1) * sizeof(char *) + cc);
+
+		co = ((char *)j->argv) + ((c + 1) * sizeof(char *));
+
+		for (i = 0; i < c; i++) {
+			const char *sai = launch_data_get_string(launch_data_array_get_index(ldpa, i));
+			j->argv[i] = co;
+			strcpy(co, sai);
+			co += strlen(sai) + 1;
+		}
+		j->argc = c;
+		j->argv[i] = NULL;
+	}
+
+	if (ldp) {
+		j->prog = strdup(launch_data_get_string(ldp));
+	}
+
+	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
+		j->ondemand = true;
+	} else {
+		j->ondemand = job_get_bool(pload, LAUNCH_JOBKEY_ONDEMAND);
 	}
 
 	SLIST_INSERT_HEAD(&jobs, j, sle);
 
-	j->debug = job_get_bool(j->ldj, LAUNCH_JOBKEY_DEBUG);
+	j->debug = job_get_bool(pload, LAUNCH_JOBKEY_DEBUG);
 
-	startnow = !job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
+	j->inetcompat = job_get_bool(pload, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
 
-	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_RUNATLOAD))
+	j->sipc = job_get_bool(pload, LAUNCH_JOBKEY_SERVICEIPC);
+
+	j->session_create = job_get_bool(pload, LAUNCH_JOBKEY_SESSIONCREATE);
+
+	j->low_pri_io = job_get_bool(pload, LAUNCH_JOBKEY_LOWPRIORITYIO);
+
+	j->init_groups = job_get_bool(pload, LAUNCH_JOBKEY_INITGROUPS);
+
+	if (j->inetcompat)
+		j->sipc = true;
+
+	startnow = !j->ondemand;
+
+	if (job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD))
 		startnow = true;
 
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOCKETS))) {
+	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOCKETS))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
 			launch_data_dict_iterate(tmp, socketgroup_setup, j);
 	}
 
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
 		size_t i, qdirs_cnt = launch_data_array_get_count(tmp);
 		const char *thepath;
 		for (i = 0; i < qdirs_cnt; i++) {
@@ -1100,7 +1131,7 @@ static struct jobcb *job_import(launch_data_t pload)
 
 	}
 
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_WATCHPATHS))) {
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_WATCHPATHS))) {
 		size_t i, wp_cnt = launch_data_array_get_count(tmp);
 		const char *thepath;
 		for (i = 0; i < wp_cnt; i++) {
@@ -1109,7 +1140,7 @@ static struct jobcb *job_import(launch_data_t pload)
 		}
 	}
 
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTINTERVAL))) {
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STARTINTERVAL))) {
 		j->start_interval = launch_data_get_integer(tmp);
 
 		if (j->start_interval == 0)
@@ -1118,7 +1149,7 @@ static struct jobcb *job_import(launch_data_t pload)
 			job_log_error(j, LOG_ERR, "adding kevent timer");
 	}
 
-	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_STARTCALENDARINTERVAL))) {
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STARTCALENDARINTERVAL))) {
 		size_t i = 0, ci_cnt = 1;
 
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_ARRAY)
@@ -1161,12 +1192,13 @@ static struct jobcb *job_import(launch_data_t pload)
 	if ((tmp = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES)))
 		launch_data_dict_iterate(tmp, setup_job_env, NULL);
 	
-	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+	if (j->ondemand)
 		job_watch(j);
 
 	if (startnow)
 		job_start(j);
 
+	launch_data_revoke_fds(pload);
 	return j;
 }
 
@@ -1272,7 +1304,6 @@ static void unsetup_job_env(launch_data_t obj, const char *key, void *context __
 
 static void job_reap(struct jobcb *j)
 {
-	bool od = job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
 	time_t td = time(NULL) - j->start_time;
 	bool bad_exit = false;
 	int status;
@@ -1309,7 +1340,7 @@ static void job_reap(struct jobcb *j)
 		}
 	}
 
-	if (!od) {
+	if (!j->ondemand) {
 		if (td < LAUNCHD_MIN_JOB_RUN_TIME) {
 			job_log(j, LOG_WARNING, "respawning too quickly! throttling");
 			bad_exit = true;
@@ -1337,13 +1368,11 @@ static void job_reap(struct jobcb *j)
 
 static bool job_restart_fitness_test(struct jobcb *j)
 {
-	bool od = job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND);
-
 	if (j->firstborn) {
 		job_log(j, LOG_DEBUG, "first born died, begin shutdown");
 		launchd_shutdown();
 		return false;
-	} else if (job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC) && !j->checkedin) {
+	} else if (j->sipc && !j->checkedin) {
 		job_log(j, LOG_WARNING, "failed to checkin");
 		job_remove(j);
 		return false;
@@ -1351,8 +1380,8 @@ static bool job_restart_fitness_test(struct jobcb *j)
 		job_log(j, LOG_WARNING, "too many failures in succession");
 		job_remove(j);
 		return false;
-	} else if (od || shutdown_in_progress) {
-		if (!od && shutdown_in_progress)
+	} else if (j->ondemand || shutdown_in_progress) {
+		if (!j->ondemand && shutdown_in_progress)
 			job_log(j, LOG_NOTICE, "exited while shutdown is in progress, will not restart unless demand requires it");
 		job_watch(j);
 		return false;
@@ -1435,7 +1464,6 @@ static void job_start(struct jobcb *j)
 {
 	int spair[2];
 	int execspair[2];
-	bool sipc;
 	char nbuf[64];
 	pid_t c;
 
@@ -1448,12 +1476,7 @@ static void job_start(struct jobcb *j)
 
 	j->checkedin = false;
 
-	sipc = job_get_bool(j->ldj, LAUNCH_JOBKEY_SERVICEIPC);
-
-	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY))
-		sipc = true;
-
-	if (sipc)
+	if (j->sipc)
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
 
 	socketpair(AF_UNIX, SOCK_STREAM, 0, execspair);
@@ -1465,11 +1488,11 @@ static void job_start(struct jobcb *j)
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		launchd_assumes(close(execspair[0]) == 0);
 		launchd_assumes(close(execspair[1]) == 0);
-		if (sipc) {
+		if (j->sipc) {
 			launchd_assumes(close(spair[0]) == 0);
 			launchd_assumes(close(spair[1]) == 0);
 		}
-		if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+		if (j->ondemand)
 			job_ignore(j);
 		break;
 	case 0:
@@ -1484,7 +1507,7 @@ static void job_start(struct jobcb *j)
 			}
 		}
 
-		if (sipc) {
+		if (j->sipc) {
 			launchd_assumes(close(spair[0]) == 0);
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
@@ -1496,7 +1519,7 @@ static void job_start(struct jobcb *j)
 		total_children++;
 		launchd_assumes(close(execspair[1]) == 0);
 		j->execfd = _fd(execspair[0]);
-		if (sipc) {
+		if (j->sipc) {
 			launchd_assumes(close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
@@ -1506,7 +1529,7 @@ static void job_start(struct jobcb *j)
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
-			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_ONDEMAND))
+			if (j->ondemand)
 				job_ignore(j);
 		}
 		/* this unblocks the child and avoids a race
@@ -1519,38 +1542,30 @@ static void job_start(struct jobcb *j)
 void
 job_start_child(struct jobcb *j, int execfd)
 {
-	launch_data_t ldpa = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
-	size_t i, argv_cnt;
 	const char **argv, *file2exec = "/usr/libexec/launchproxy";
-	int r;
-	bool hasprog = false;
+	int i, r;
 
 	job_setup_attributes(j);
 
-	if (ldpa) {
-		argv_cnt = launch_data_array_get_count(ldpa);
-		argv = alloca((argv_cnt + 2) * sizeof(char *));
-		for (i = 0; i < argv_cnt; i++)
-			argv[i + 1] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
-		argv[argv_cnt + 1] = NULL;
+	if (j->argv) {
+		argv = alloca((j->argc + 2) * sizeof(char *));
+		for (i = 0; i < j->argc; i++)
+			argv[i + 1] = j->argv[i];
+		argv[i + 1] = NULL;
 	} else {
 		argv = alloca(3 * sizeof(char *));
-		argv[1] = job_get_string(j->ldj, LAUNCH_JOBKEY_PROGRAM);
+		argv[1] = j->prog;
 		argv[2] = NULL;
 	}
 
-	if (job_get_string(j->ldj, LAUNCH_JOBKEY_PROGRAM))
-		hasprog = true;
-
-	if (inetcompat) {
+	if (j->inetcompat) {
 		argv[0] = file2exec;
 	} else {
 		argv++;
-		file2exec = job_get_file2exec(j->ldj);
+		file2exec = j->prog ? j->prog : j->argv[0];
 	}
 
-	if (hasprog) {
+	if (j->prog) {
 		r = execv(file2exec, (char *const*)argv);
 	} else {
 		r = execvp(file2exec, (char *const*)argv);
@@ -1558,7 +1573,7 @@ job_start_child(struct jobcb *j, int execfd)
 
 	if (-1 == r) {
 		write(execfd, &errno, sizeof(errno));
-		job_log_error(j, LOG_ERR, "execv%s(\"%s\", ...)", hasprog ? "" : "p", file2exec);
+		job_log_error(j, LOG_ERR, "execv%s(\"%s\", ...)", j->prog ? "" : "p", file2exec);
 	}
 	exit(EXIT_FAILURE);
 }
@@ -1567,7 +1582,6 @@ static void job_setup_attributes(struct jobcb *j)
 {
 	launch_data_t srl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_SOFTRESOURCELIMITS);
 	launch_data_t hrl = launch_data_dict_lookup(j->ldj, LAUNCH_JOBKEY_HARDRESOURCELIMITS);
-	bool inetcompat = job_get_bool(j->ldj, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
 	launch_data_t tmp;
 	size_t i;
 	const char *tmpstr;
@@ -1588,7 +1602,7 @@ static void job_setup_attributes(struct jobcb *j)
 		{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
 	};
 
-	setpriority(PRIO_PROCESS, 0, job_get_integer(j->ldj, LAUNCH_JOBKEY_NICE));
+	setpriority(PRIO_PROCESS, 0, j->nice);
 
 	if (srl || hrl) {
 		for (i = 0; i < (sizeof(limits) / sizeof(limits[0])); i++) {
@@ -1609,10 +1623,10 @@ static void job_setup_attributes(struct jobcb *j)
 		}
 	}
 
-	if (!inetcompat && job_get_bool(j->ldj, LAUNCH_JOBKEY_SESSIONCREATE))
+	if (!j->inetcompat && j->session_create)
 		launchd_SessionCreate();
 
-	if (job_get_bool(j->ldj, LAUNCH_JOBKEY_LOWPRIORITYIO)) {
+	if (j->low_pri_io) {
 		int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
 		int val = 1;
 
@@ -1646,7 +1660,7 @@ static void job_setup_attributes(struct jobcb *j)
 				job_log(j, LOG_ERR, "expired account: %s", tmpstr);
 				exit(EXIT_FAILURE);
 			}
-			if (job_get_bool(j->ldj, LAUNCH_JOBKEY_INITGROUPS)) {
+			if (j->init_groups) {
 				if (-1 == initgroups(tmpstr, gre ? gre_g : pwe_g)) {
 					job_log_error(j, LOG_ERR, "initgroups()");
 					exit(EXIT_FAILURE);
@@ -2449,23 +2463,31 @@ socketgroup_delete(struct jobcb *j, struct socketgroup *sg)
 void
 socketgroup_ignore(struct jobcb *j, struct socketgroup *sg)
 {
-	int i;
+	char buf[10000];
+	int i, buf_off = 0;
 
-	for (i = 0; i < sg->fd_cnt; i++) {
-		job_log(j, LOG_DEBUG, "Ignoring Socket: %d", sg->fds[i]);
+	for (i = 0; i < sg->fd_cnt; i++)
+		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
+
+	job_log(j, LOG_DEBUG, "Ignoring Sockets:%s", buf);
+
+	for (i = 0; i < sg->fd_cnt; i++)
 		launchd_assumes(kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
-	}
 }
 
 void
 socketgroup_watch(struct jobcb *j, struct socketgroup *sg)
 {
-	int i;
+	char buf[10000];
+	int i, buf_off = 0;
 
-	for (i = 0; i < sg->fd_cnt; i++) {
-		job_log(j, LOG_DEBUG, "Watching Socket: %d", sg->fds[i]);
+	for (i = 0; i < sg->fd_cnt; i++)
+		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
+
+	job_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
+
+	for (i = 0; i < sg->fd_cnt; i++)
 		launchd_assumes(kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
-	}
 }
 
 bool
