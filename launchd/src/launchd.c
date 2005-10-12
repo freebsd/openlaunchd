@@ -135,6 +135,8 @@ struct jobcb {
 	char *prog;
 	char *rootdir;
 	char *workingdir;
+	char *username;
+	char *groupname;
 	launch_data_t ldj;
 	pid_t p;
 	int last_exit_status;
@@ -820,6 +822,12 @@ job_remove(struct jobcb *j)
 	if (j->workingdir)
 		free(j->workingdir);
 
+	if (j->username)
+		free(j->username);
+
+	if (j->groupname)
+		free(j->groupname);
+
 	if (j->start_interval)
 		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 
@@ -1150,6 +1158,16 @@ static struct jobcb *job_import(launch_data_t pload)
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_WORKINGDIRECTORY))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
 			j->workingdir = strdup(launch_data_get_string(tmp));
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_USERNAME))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
+			j->username = strdup(launch_data_get_string(tmp));
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_GROUPNAME))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
+			j->groupname = strdup(launch_data_get_string(tmp));
 	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))) {
@@ -1671,8 +1689,8 @@ static void job_setup_attributes(struct jobcb *j)
 		chroot(j->rootdir);
 		chdir(".");
 	}
-	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_GROUPNAME))) {
-		gre = getgrnam(tmpstr);
+	if (j->groupname) {
+		gre = getgrnam(j->groupname);
 		if (gre) {
 			gre_g = gre->gr_gid;
 			if (-1 == setgid(gre_g)) {
@@ -1680,22 +1698,22 @@ static void job_setup_attributes(struct jobcb *j)
 				exit(EXIT_FAILURE);
 			}
 		} else {
-			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", tmpstr);
+			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", j->groupname);
 			exit(EXIT_FAILURE);
 		}
 	}
-	if ((tmpstr = job_get_string(j->ldj, LAUNCH_JOBKEY_USERNAME))) {
-		struct passwd *pwe = getpwnam(tmpstr);
+	if (j->username) {
+		struct passwd *pwe = getpwnam(j->username);
 		if (pwe) {
 			uid_t pwe_u = pwe->pw_uid;
 			uid_t pwe_g = pwe->pw_gid;
 
 			if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
-				job_log(j, LOG_ERR, "expired account: %s", tmpstr);
+				job_log(j, LOG_ERR, "expired account: %s", j->username);
 				exit(EXIT_FAILURE);
 			}
 			if (j->init_groups) {
-				if (-1 == initgroups(tmpstr, gre ? gre_g : pwe_g)) {
+				if (-1 == initgroups(j->username, gre ? gre_g : pwe_g)) {
 					job_log_error(j, LOG_ERR, "initgroups()");
 					exit(EXIT_FAILURE);
 				}
@@ -1711,7 +1729,7 @@ static void job_setup_attributes(struct jobcb *j)
 				exit(EXIT_FAILURE);
 			}
 		} else {
-			job_log(j, LOG_WARNING, "getpwnam(\"%s\") failed", tmpstr);
+			job_log(j, LOG_WARNING, "getpwnam(\"%s\") failed", j->username);
 			exit(EXIT_FAILURE);
 		}
 	}
