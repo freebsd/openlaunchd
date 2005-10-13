@@ -1143,6 +1143,8 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 	}
 
 	socketgroup_new(j, key, fds, fd_cnt);
+
+	launch_data_revoke_fds(obj);
 }
 
 static struct jobcb *job_import(launch_data_t pload)
@@ -1377,7 +1379,6 @@ static struct jobcb *job_import(launch_data_t pload)
 	if (startnow)
 		job_start(j);
 
-	launch_data_revoke_fds(pload);
 	return j;
 }
 
