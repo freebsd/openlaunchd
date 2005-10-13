@@ -23,7 +23,8 @@
 #ifndef __LAUNCHD_H__
 #define __LAUNCHD_H__
 
-#include <mach/kern_return.h>
+#include <mach/mach.h>
+#include "launch.h"
 
 /*
  * Use launchd_assumes() when we can recover, even if it means we leak or limp along.
@@ -35,12 +36,17 @@
 
 #define launchd_assert(e)	launchd_assumes(e) ? true : abort();
 
+#define PID1_REAP_ADOPTED_CHILDREN
+
 struct kevent;
+struct conncb;
 
 typedef void (*kq_callback)(void *, struct kevent *);
 
 extern kq_callback kqsimple_zombie_reaper;
 extern sigset_t blocked_signals;
+extern bool shutdown_in_progress;
+extern int batch_disabler_count;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 extern int pid1_child_exit_status;
@@ -49,9 +55,25 @@ bool mach_init_check_pid(pid_t);
 #endif
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
+void batch_job_enable(bool e, struct conncb *c);
+
+launch_data_t launchd_setstdio(int d, launch_data_t o);
 void launchd_SessionCreate(void);
+void launchd_shutdown(void);
+void launchd_single_user(void);
 pid_t launchd_fork(void);
 pid_t launchd_ws_fork(void);
+boolean_t launchd_mach_ipc_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
+
+kern_return_t launchd_set_bport(mach_port_t name);
+kern_return_t launchd_get_bport(mach_port_t *name);
+kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
+kern_return_t launchd_mport_watch(mach_port_t name);
+kern_return_t launchd_mport_ignore(mach_port_t name);
+kern_return_t launchd_mport_create_recv(mach_port_t *name, void *obj);
+kern_return_t launchd_mport_deallocate(mach_port_t name);
+kern_return_t launchd_mport_make_send(mach_port_t name);
+kern_return_t launchd_mport_close_recv(mach_port_t name);
 
 void init_boot(bool sflag, bool vflag, bool xflag);
 void init_pre_kevent(void);

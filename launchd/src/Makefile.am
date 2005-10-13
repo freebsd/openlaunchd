@@ -23,15 +23,17 @@ SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-launchd_CFLAGS = -DPID1_REAP_ADOPTED_CHILDREN -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
+launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c init.c bootstrap.c bootstrapServer.c notifyServer.c
+launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
 
 launchproxy_LDFLAGS = -weak_framework Security
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notifyServer.c notifyUser.c notifyServer.h
 
-bootstrap.c:: bootstrap.h bootstrapServer.h notifyServer.h
+launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
+
+launchd_core_logic.c:: bootstrap.h bootstrapServer.h notifyServer.h
 
 bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
