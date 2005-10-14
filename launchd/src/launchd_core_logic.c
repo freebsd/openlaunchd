@@ -1974,40 +1974,50 @@ bool job_reap_pid(pid_t p)
 }
 #endif
 
+#define NELEM(x)                (sizeof(x)/sizeof(x[0]))
+#define END_OF(x)               (&(x)[NELEM(x)])
+
 char **
 mach_cmd2argv(const char *string)
 {
-	int inputstring_sz = strlen(string) + 1;
-	char *inputstring = alloca(inputstring_sz);
-	char *argv[100], **ap = argv;
-	char **argv_ret, *co;
-	int j, i = 0;
+	char *argv[100], args[1000];
+	const char *cp;
+	char *argp = args, term, **argv_ret, *co;
+	unsigned int nargs = 0, i;
 
-	strcpy(inputstring, string);
-
-	while ((*ap = strsep(&inputstring, " \t"))) {
-		if (**ap != '\0') {
-			ap++;
-			i++;
+	for (cp = string; *cp;) {
+		while (isspace(*cp))
+			cp++;
+		term = (*cp == '"') ? *cp++ : '\0';
+		if (nargs < NELEM(argv))
+			argv[nargs++] = argp;
+		while (*cp && (term ? *cp != term : !isspace(*cp)) && argp < END_OF(args)) {
+			if (*cp == '\\')
+				cp++;
+			*argp++ = *cp;
+			if (*cp)
+				cp++;
 		}
+		*argp++ = '\0';
 	}
+	argv[nargs] = NULL;
 
-	if (i == 0)
+	if (nargs == 0)
 		return NULL;
 
-	argv_ret = malloc((i + 1) * sizeof(char *) + inputstring_sz);
+	argv_ret = malloc((nargs + 1) * sizeof(char *) + strlen(string) + 1);
 
 	if (!launchd_assumes(argv_ret != NULL))
 		return NULL;
 
-	co = (char *)argv_ret + (i + 1) * sizeof(char *);
+	co = (char *)argv_ret + (nargs + 1) * sizeof(char *);
 
-	for (j = 0; j < i; j++) {
-		strcpy(co, argv[j]);
-		argv_ret[j] = co;
-		co += strlen(argv[j]) + 1;
+	for (i = 0; i < nargs; i++) {
+		strcpy(co, argv[i]);
+		argv_ret[i] = co;
+		co += strlen(argv[i]) + 1;
 	}
-	argv_ret[j] = NULL;
+	argv_ret[i] = NULL;
 	
 	return argv_ret;
 }

@@ -773,7 +773,7 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 		SLIST_FOREACH(ji, &bstrap_iter->jobs, sle) {
 			SLIST_FOREACH(servicep, &ji->machservices, sle) {
 				strlcpy(service_names[i], servicep->name, sizeof(service_names[0]));
-		    		strlcpy(server_names[i], /* XXX ji->cmd */ "", sizeof(server_names[0]));
+		    		strlcpy(server_names[i], ji->argv[0], sizeof(server_names[0]));
 	    			service_actives[i] = bsstatus(servicep);
 				i++;
 			}
