@@ -27,63 +27,39 @@
 #define LAUNCHD_REWARD_JOB_RUN_TIME 60
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 
+struct jobcb;
+
+#define ANY_SERVER ((struct jobcb *)-1)
+
 struct bootstrap {
-	kq_callback		kqbstrap_callback;
-	SLIST_ENTRY(bootstrap)	sle;
-	SLIST_HEAD(, bootstrap)	sub_bstraps;
-	SLIST_HEAD(, server)	servers;
-	SLIST_HEAD(, service)	services;
-	struct bootstrap	*parent;
-	mach_port_name_t	bootstrap_port;
-	mach_port_name_t	requestor_port;
+	kq_callback			kqbstrap_callback;
+	SLIST_ENTRY(bootstrap)		sle;
+	SLIST_HEAD(, bootstrap)		sub_bstraps;
+	SLIST_HEAD(, jobcb)		jobs;
+	SLIST_HEAD(, machservice)	services;
+	struct bootstrap		*parent;
+	mach_port_name_t		bootstrap_port;
+	mach_port_name_t		requestor_port;
 };
 
 struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
 void bootstrap_delete(struct bootstrap *bootstrap);
 void bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t port);
-struct service *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name);
+struct machservice *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name);
 void bootstrap_callback(void *obj, struct kevent *kev);
 
-struct service {
-	SLIST_ENTRY(service)	sle;
-	struct bootstrap	*bootstrap;	/* bootstrap port(s) used at this level. */
-	struct server		*server;	/* server, declared services only */
-	mach_port_name_t	port;		/* service port, may have all rights if inactive */
+struct machservice {
+	SLIST_ENTRY(machservice) sle;
+	struct bootstrap	*bootstrap;
+	struct jobcb		*job;
+	mach_port_name_t	port;
 	unsigned int		isActive:1, __junk:31;
-	char			name[0];	/* service name */
+	char			name[0];
 };
 
-struct service *service_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct server *serverp);
-void service_delete(struct service *servicep);
-void service_watch(struct service *servicep);
-
-struct server {
-	kq_callback	kqserver_callback;
-	SLIST_ENTRY(server)	sle;
-	SLIST_HEAD(, service)	services;
-	struct bootstrap *bootstrap; /* bootstrap context */
-	mach_port_t	port;		/* server's priv bootstrap port */
-	uid_t		uid;		/* uid to exec server with */
-	pid_t		pid;		/* server's pid */
-	unsigned int	ondemand:1, activity:1, __junk:30;
-	char		cmd[0];		/* server command to exec */
-};
-
-#define ANY_SERVER ((struct server *)-1)
-
-struct server *server_new(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond);
-void server_delete(struct server *serverp);
-void server_setup(struct server *serverp);
-bool server_active(struct server *serverp);
-bool server_useless(struct server *serverp);
-void server_start(struct server *serverp);
-void server_start_child(struct server *serverp);
-void server_reap(struct server *serverp);
-void server_reap_port(struct server *serverp);
-void server_dispatch(struct server *serverp);
-void server_callback(void *obj, struct kevent *kev);
-
-struct jobcb;
+struct machservice *machservice_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct jobcb *j);
+void machservice_delete(struct machservice *servicep);
+void machservice_watch(struct machservice *servicep);
 
 struct socketgroup {
 	SLIST_ENTRY(socketgroup) sle;
@@ -96,7 +72,7 @@ bool socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt);
 void socketgroup_delete(struct jobcb *j, struct socketgroup *sg);
 void socketgroup_watch(struct jobcb *j, struct socketgroup *sg);
 void socketgroup_ignore(struct jobcb *j, struct socketgroup *sg);
-bool socketgroup_callback(struct jobcb *j, struct kevent *kev);
+void socketgroup_callback(struct jobcb *j, struct kevent *kev);
 void socketgroup_setup(launch_data_t obj, const char *key, void *context);
 
 struct watchpath {
@@ -110,7 +86,7 @@ bool watchpath_new(struct jobcb *j, const char *name, bool qdir);
 void watchpath_delete(struct jobcb *j, struct watchpath *wp);
 void watchpath_watch(struct jobcb *j, struct watchpath *wp);
 void watchpath_ignore(struct jobcb *j, struct watchpath *wp);
-bool watchpath_callback(struct jobcb *j, struct kevent *kev);
+void watchpath_callback(struct jobcb *j, struct kevent *kev);
 
 struct calendarinterval {
 	SLIST_ENTRY(calendarinterval) sle;
@@ -120,7 +96,7 @@ struct calendarinterval {
 bool calendarinterval_new(struct jobcb *j, struct tm *w);
 void calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci);
 void calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci);
-bool calendarinterval_callback(struct jobcb *j, struct kevent *kev);
+void calendarinterval_callback(struct jobcb *j, struct kevent *kev);
 
 struct envitem {
 	SLIST_ENTRY(envitem) sle;
@@ -151,6 +127,10 @@ struct jobcb {
 	SLIST_HEAD(, envitem) global_env;
 	SLIST_HEAD(, envitem) env;
 	SLIST_HEAD(, limititem) limits;
+	SLIST_HEAD(, machservice) machservices;
+	struct bootstrap *bstrap;
+	mach_port_t priv_port;
+	uid_t mach_uid;
 	char **argv;
 	char *prog;
 	char *rootdir;
@@ -169,22 +149,27 @@ struct jobcb {
 	size_t failed_exits;
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, inetcompat_wait:1,
-			sipc:1, ondemand:1, session_create:1, low_pri_io:1, init_groups:1,
-			importing_global_env:1, importing_hard_limits:1, setmask:1, __pad:2;
+			ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
+			importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, __pad:1;
 	mode_t mask;
 	char label[0];
 };
 
 struct jobcb *job_find(const char *label);
 struct jobcb *job_import(launch_data_t pload);
+struct jobcb *job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond);
 launch_data_t job_export(struct jobcb *j);
 launch_data_t job_export_all(void);
 void job_watch(struct jobcb *j);
 void job_ignore(struct jobcb *j);
+void job_dispatch(struct jobcb *j);
 void job_start(struct jobcb *j);
 void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 void job_setup_attributes(struct jobcb *j);
+void job_machsetup(struct jobcb *j);
 void job_stop(struct jobcb *j);
+bool job_active(struct jobcb *j);
+bool job_useless(struct jobcb *j);
 void job_reap(struct jobcb *j);
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 bool job_reap_pid(pid_t p);
@@ -201,7 +186,7 @@ extern size_t total_children;
 extern struct bootstrap *root_bootstrap;
 extern struct bootstrap *ws_bootstrap;
 extern struct bootstrap *current_rpc_bootstrap;
-extern struct server *current_rpc_server;
+extern struct jobcb *current_rpc_server;
 
 
 #endif

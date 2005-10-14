@@ -342,7 +342,7 @@ launchd_mport_deallocate(mach_port_t name)
 
 #define bsstatus(servicep) \
 	(((servicep)->isActive) ? BOOTSTRAP_STATUS_ACTIVE : \
-	 (((servicep)->server && (servicep)->server->ondemand) ? \
+	 (((servicep)->job && (servicep)->job->ondemand) ? \
 		BOOTSTRAP_STATUS_ON_DEMAND : BOOTSTRAP_STATUS_INACTIVE))
 
 /*
@@ -367,7 +367,7 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd_raw, uid_t
 {
 	char server_cmd[sizeof(cmd_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct server *serverp;
+	struct jobcb *j;
 
 	/* cmd_t is an array of characters with no promise of being null terminated */
 	strlcpy(server_cmd, server_cmd_raw, sizeof(server_cmd));
@@ -399,11 +399,9 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd_raw, uid_t
 		server_uid = getuid();
 	}
 
-	serverp = server_new(bootstrap, server_cmd, server_uid, on_demand);
-	server_setup(serverp);
+	j = job_new_via_mach_init(bootstrap, server_cmd, server_uid, on_demand);
 
-	syslog(LOG_INFO, "New server %x in bootstrap %x: \"%s\"", serverp->port, bootstrapport, server_cmd);
-	*server_portp = serverp->port;
+	*server_portp = j->priv_port;
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -454,9 +452,9 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 {
 	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct server *serverp = current_rpc_server;
+	struct jobcb *j = current_rpc_server;
 	kern_return_t result;
-	struct service *servicep;
+	struct machservice *servicep;
 
 	/* name_t is an array of characters with no promise of being null terminated */
 	strlcpy(servicename, servicename_raw, sizeof(servicename));
@@ -471,7 +469,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 			result = bootstrap_check_in(inherited_bootstrap_port, servicename, serviceportp);
 		return result;
 	}
-	if (servicep->server != NULL && servicep->server != serverp) {
+	if (servicep->job != NULL && servicep->job != j) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s not privileged", servicename);
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -481,7 +479,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
 
-	service_watch(servicep);
+	machservice_watch(servicep);
 
 	syslog(LOG_INFO, "Checkin service %x in bootstrap %x: %s", servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 
@@ -514,8 +512,8 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 {
 	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct server *serverp = current_rpc_server;
-	struct service *servicep;
+	struct jobcb *j = current_rpc_server;
+	struct machservice *servicep;
 
 	/* name_t is an array of characters with no promise of being null terminated */
 	strlcpy(servicename, servicename_raw, sizeof(servicename));
@@ -527,7 +525,7 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 	 * bootstrap can't register the port.
 	 */
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
-	if (servicep && servicep->server && servicep->server != serverp)
+	if (servicep && servicep->job && servicep->job != j)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	if (servicep && servicep->bootstrap == bootstrap) {
@@ -536,13 +534,13 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 			launchd_assumes(!canReceive(servicep->port));
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
-		if (servicep->server)
-			serverp->activity = true;
-		service_delete(servicep);
+		if (servicep->job)
+			j->checkedin = true;
+		machservice_delete(servicep);
 	}
-	servicep = service_new(bootstrap, servicename, &serviceport, NULL);
+	servicep = machservice_new(bootstrap, servicename, &serviceport, NULL);
 
-	service_watch(servicep);
+	machservice_watch(servicep);
 
 	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 
@@ -566,7 +564,7 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename_raw, mach_port
 {
 	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct service *servicep;
+	struct machservice *servicep;
 
 	/* name_t is an array of characters with no promise of being null terminated */
 	strlcpy(servicename, servicename_raw, sizeof(servicename));
@@ -695,7 +693,7 @@ x_bootstrap_status(mach_port_t bootstrapport, name_t servicename_raw, bootstrap_
 {
 	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct service *servicep;
+	struct machservice *servicep;
 
 	/* name_t is an array of characters with no promise of being null terminated */
 	strlcpy(servicename, servicename_raw, sizeof(servicename));
@@ -736,18 +734,18 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct server *serverp;
+	struct jobcb *ji;
 	struct bootstrap *bstrap_iter;
 	kern_return_t result;
 	unsigned int i = 0, cnt = 0;
-	struct service *servicep;
+	struct machservice *servicep;
 	name_array_t service_names;
 	name_array_t server_names;
 	bootstrap_status_array_t service_actives;
 
 	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bstrap_iter->parent) {
-		SLIST_FOREACH(serverp, &bstrap_iter->servers, sle) {
-			SLIST_FOREACH(servicep, &serverp->services, sle)
+		SLIST_FOREACH(ji, &bstrap_iter->jobs, sle) {
+			SLIST_FOREACH(servicep, &ji->machservices, sle)
 				cnt++;
 		}
 		SLIST_FOREACH(servicep, &bstrap_iter->services, sle)
@@ -772,10 +770,10 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 
 	i = 0;
 	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bstrap_iter->parent) {
-		SLIST_FOREACH(serverp, &bstrap_iter->servers, sle) {
-			SLIST_FOREACH(servicep, &serverp->services, sle) {
+		SLIST_FOREACH(ji, &bstrap_iter->jobs, sle) {
+			SLIST_FOREACH(servicep, &ji->machservices, sle) {
 				strlcpy(service_names[i], servicep->name, sizeof(service_names[0]));
-		    		strlcpy(server_names[i], serverp->cmd, sizeof(server_names[0]));
+		    		strlcpy(server_names[i], /* XXX ji->cmd */ "", sizeof(server_names[0]));
 	    			service_actives[i] = bsstatus(servicep);
 				i++;
 			}
@@ -867,8 +865,8 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename_raw, ma
 {
 	char servicename[sizeof(name_t) + 1];
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct server *serverp = current_rpc_server;
-	struct service *servicep;
+	struct jobcb *j = current_rpc_server;
+	struct machservice *servicep;
 
 	/* name_t is an array of characters with no promise of being null terminated */
 	strlcpy(servicename, servicename_raw, sizeof(servicename));
@@ -880,10 +878,10 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename_raw, ma
 		return BOOTSTRAP_NAME_IN_USE;
 	}
 
-	if (serverp)
-		serverp->activity = true;
+	if (j)
+		j->checkedin = true;
 
-	servicep = service_new(bootstrap, servicename, serviceportp, serverp ? serverp : ANY_SERVER);
+	servicep = machservice_new(bootstrap, servicename, serviceportp, j ? j : ANY_SERVER);
 
 	if (!launchd_assumes(servicep != NULL))
 		goto out_bad;
@@ -898,15 +896,15 @@ out_bad:
 kern_return_t
 do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 {
-	struct service *servicep;
-	struct server *serverp;
+	struct machservice *servicep;
+	struct jobcb *j;
 
 	/* This message is sent to us when a receive right is returned to us. */
 
-	if (!launchd_assumes((serverp = port_to_obj[MACH_PORT_INDEX(rights)]) != NULL))
+	if (!launchd_assumes((j = port_to_obj[MACH_PORT_INDEX(rights)]) != NULL))
 		return KERN_FAILURE;
 
-	SLIST_FOREACH(servicep, &serverp->services, sle) {
+	SLIST_FOREACH(servicep, &j->machservices, sle) {
 		if (servicep->port == rights)
 			break;
 	}
@@ -917,7 +915,7 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 			servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
 	launchd_assumes(canReceive(servicep->port));
 	servicep->isActive = false;
-	server_dispatch(serverp);
+	job_dispatch(j);
 	return KERN_SUCCESS;
 }
 
@@ -937,24 +935,24 @@ kern_return_t
 do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 {
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct server *serverp = current_rpc_server;
+	struct jobcb *j = current_rpc_server;
 
 	/* This message is sent to us when the last customer of one of our objects
 	 * goes away.
 	 */
 
-	if (serverp && serverp->port != notify)
-		serverp = NULL;
+	if (j && j->priv_port != notify)
+		j = NULL;
 	if (bootstrap && bootstrap->bootstrap_port != notify)
 		bootstrap = NULL;
 
-	if (!launchd_assumes(serverp || bootstrap))
+	if (!launchd_assumes(j || bootstrap))
 		return KERN_FAILURE;
 
-	if (serverp) {
-		syslog(LOG_DEBUG, "server %s dropped server port", serverp->cmd);
-		server_reap_port(serverp);
-		server_dispatch(serverp);
+	if (j) {
+		syslog(LOG_DEBUG, "server %s dropped server port", j->argv[0]);
+		j->priv_port_has_senders = false;
+		job_dispatch(j);
 	} else if (bootstrap) {
 		syslog(LOG_DEBUG, "Deallocating bootstrap %d: no more clients", MACH_PORT_INDEX(notify));
 		bootstrap_delete(bootstrap);

@@ -1111,20 +1111,29 @@ static void print_jobs(launch_data_t j __attribute__((unused)), const char *labe
 {
 	launch_data_t pido = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PID);
 	launch_data_t stato = launch_data_dict_lookup(j, LAUNCH_JOBKEY_LASTEXITSTATUS);
+	launch_data_t ldargv = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+	launch_data_t ldprog = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PROGRAM);
+	const char *p = "missing";
+
+	if (ldprog) {
+		p = launch_data_get_string(ldprog);
+	} else if (ldargv) {
+		p = launch_data_get_string(launch_data_array_get_index(ldargv, 0));
+	}
 
 	if (pido) {
-		fprintf(stdout, "%lld\t-\t%s\n", launch_data_get_integer(pido), label);
+		fprintf(stdout, "%lld\t-\t%s\t%s\n", launch_data_get_integer(pido), label, p);
 	} else if (stato) {
 		int wstatus = (int)launch_data_get_integer(stato);
 		if (WIFEXITED(wstatus)) {
-			fprintf(stdout, "-\t%d\t%s\n", WEXITSTATUS(wstatus), label);
+			fprintf(stdout, "-\t%d\t%s\t%s\n", WEXITSTATUS(wstatus), label, p);
 		} else if (WIFSIGNALED(wstatus)) {
-			fprintf(stdout, "-\t-%d\t%s\n", WTERMSIG(wstatus), label);
+			fprintf(stdout, "-\t-%d\t%s\t%s\n", WTERMSIG(wstatus), label, p);
 		} else {
-			fprintf(stdout, "-\t???\t%s\n", label);
+			fprintf(stdout, "-\t???\t%s\t%s\n", label, p);
 		}
 	} else {
-		fprintf(stdout, "-\t-\t%s\n", label);
+		fprintf(stdout, "-\t-\t%s\t%s\n", label, p);
 	}
 }
 
@@ -1158,7 +1167,7 @@ static int list_cmd(int argc, char *const argv[])
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
 	} else if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
-		fprintf(stdout, "PID\tStatus\tLabel\n");
+		fprintf(stdout, "PID\tStatus\tLabel\tCommand\n");
 		launch_data_dict_iterate(resp, print_jobs, NULL);
 	} else {
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);

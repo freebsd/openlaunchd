@@ -51,7 +51,6 @@ extern int batch_disabler_count;
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 extern int pid1_child_exit_status;
 bool init_check_pid(pid_t);
-bool mach_init_check_pid(pid_t);
 #endif
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);

@@ -232,10 +232,10 @@ int main(int argc, char *argv[])
 	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
 	launchd_assert(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
 
+	mach_init_init();
+
 	if (argv[0] || (session_type != NULL && 0 == strcasecmp(session_type, "tty")))
 		fbj = conceive_firstborn(argv, session_user);
-	
-	mach_init_init();
 
 	if (NULL == getenv("PATH"))
 		setenv("PATH", _PATH_STDPATH, 1);
@@ -410,8 +410,7 @@ static void pid1waitpid(void)
 	        if (p == readcfg_pid) {
 			readcfg_callback(NULL, NULL);
 		} else if (!job_reap_pid(p)) {
-			if (!mach_init_check_pid(p))
-				init_check_pid(p);
+			init_check_pid(p);
 		}
 	}
 }
