@@ -21,14 +21,17 @@ MUST NOT do the following in the process directly launched by
 .Pp
 .Bl -bullet -offset indent -compact
 .It
+Call
+.Xr daemon 3 .
+.It
+Do the moral equivalent of
+.Xr daemon 3
+by calling
 .Xr fork 2
 and have the parent process
 .Xr exit 3
 or
 .Xr _exit 2 .
-.It
-Call
-.Xr daemon 3
 .El
 .Pp
 A daemon or agent launched by
@@ -91,7 +94,6 @@ This optional key specifies the user to run the job as. The default is the group
 .It Sy inetdCompatibility <dictionary>
 The presence of this key specifies that the daemon expects to be run as if it were launched from
 .Xr inetd 8 .
-This flag is incompatible with the ServiceIPC key.
 .Bl -ohang -offset indent
 .It Sy Wait <boolean>
 This flag corresponds to the "wait" or "nowait" option of
@@ -128,10 +130,6 @@ This optional key is used to specify additional environmental variables to be se
 This optional key specifies what value should be passed to
 .Xr umask 2
 before running the job.
-.It Sy ServiceIPC <boolean>
-This optional key specifies whether the job participates in advanced communication with
-.Nm launchd .
-The default is false. This flag is incompatible with the inetdCompatibility key.
 .It Sy TimeOut <integer>
 The recommended time out to pass to the job. If no value is specified, a default time out will be supplied by
 .Nm launchd
@@ -222,7 +220,7 @@ This optional key specifies whether the kernel should consider this daemon to be
 .It Sy Sockets <dictionary of dictionaries... OR dictionary of array of dictionaries...>
 This optional key is used to specify launch on demand sockets that can be used to let
 .Nm launchd
-know when to run the job. The job can check-in and get a copy of the file descriptors using APIs outlined in
+know when to run the job. The job must check-in to get a copy of the file descriptors using APIs outlined in
 .Xr launch 3 .
 The keys of the top level Sockets dictionary can be anything. They are meant for the application developer to use to
 differentiate different which descriptors correspond to which application level protocols (e.g. http vs. ftp vs. DNS...).
