@@ -2004,3 +2004,39 @@ job_checkin(struct jobcb *j)
 {
 	j->checkedin = true;
 }
+
+void
+job_ack_port_destruction(struct jobcb *j, mach_port_t p)
+{
+	struct machservice *ms;
+
+	SLIST_FOREACH(ms, &j->machservices, sle) {
+		if (ms->port == p)
+			break;
+	}
+
+	if (!launchd_assumes(ms != NULL))
+		return;
+
+	ms->isActive = false;
+
+	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
+
+	job_dispatch(j);
+}
+
+void
+job_ack_no_senders(struct jobcb *j)
+{
+	j->priv_port_has_senders = false;
+
+	job_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
+
+	job_dispatch(j);
+}
+
+mach_port_t
+job_get_priv_port(struct jobcb *j)
+{
+	return j->priv_port;
+}

@@ -176,6 +176,9 @@ bool job_reap_pid(pid_t p);
 #endif
 void job_remove(struct jobcb *j);
 void job_remove_all(void);
+void job_ack_port_destruction(struct jobcb *j, mach_port_t p);
+void job_ack_no_senders(struct jobcb *j);
+mach_port_t job_get_priv_port(struct jobcb *j);
 void job_callback(void *obj, struct kevent *kev);
 void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));

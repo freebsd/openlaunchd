@@ -401,7 +401,7 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd_raw, uid_t
 
 	j = job_new_via_mach_init(bootstrap, server_cmd, server_uid, on_demand);
 
-	*server_portp = j->priv_port;
+	*server_portp = job_get_priv_port(j);
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -896,7 +896,6 @@ out_bad:
 kern_return_t
 do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 {
-	struct machservice *servicep;
 	struct jobcb *j;
 
 	/* This message is sent to us when a receive right is returned to us. */
@@ -904,18 +903,7 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 	if (!launchd_assumes((j = port_to_obj[MACH_PORT_INDEX(rights)]) != NULL))
 		return KERN_FAILURE;
 
-	SLIST_FOREACH(servicep, &j->machservices, sle) {
-		if (servicep->port == rights)
-			break;
-	}
-
-	launchd_assumes(servicep != NULL);
-
-	syslog(LOG_DEBUG, "Service %x bootstrap %x backed up: %s",
-			servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
-	launchd_assumes(canReceive(servicep->port));
-	servicep->isActive = false;
-	job_dispatch(j);
+	job_ack_port_destruction(j, rights);
 	return KERN_SUCCESS;
 }
 
@@ -941,19 +929,12 @@ do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 	 * goes away.
 	 */
 
-	if (j && j->priv_port != notify)
-		j = NULL;
-	if (bootstrap && bootstrap->bootstrap_port != notify)
-		bootstrap = NULL;
-
-	if (!launchd_assumes(j || bootstrap))
+	if (!launchd_assumes(bootstrap != NULL))
 		return KERN_FAILURE;
 
 	if (j) {
-		syslog(LOG_DEBUG, "server %s dropped server port", j->argv[0]);
-		j->priv_port_has_senders = false;
-		job_dispatch(j);
-	} else if (bootstrap) {
+		job_ack_no_senders(j);
+	} else {
 		syslog(LOG_DEBUG, "Deallocating bootstrap %d: no more clients", MACH_PORT_INDEX(notify));
 		bootstrap_delete(bootstrap);
 	}
