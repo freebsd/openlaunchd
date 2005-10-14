@@ -29,7 +29,7 @@
 
 struct jobcb;
 
-#define ANY_SERVER ((struct jobcb *)-1)
+#define ANY_JOB ((struct jobcb *)-1)
 
 struct bootstrap {
 	kq_callback			kqbstrap_callback;
@@ -166,15 +166,14 @@ void job_dispatch(struct jobcb *j);
 void job_start(struct jobcb *j);
 void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 void job_setup_attributes(struct jobcb *j);
-void job_machsetup(struct jobcb *j);
 void job_stop(struct jobcb *j);
+void job_checkin(struct jobcb *j);
 bool job_active(struct jobcb *j);
 bool job_useless(struct jobcb *j);
 void job_reap(struct jobcb *j);
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 bool job_reap_pid(pid_t p);
 #endif
-bool job_restart_fitness_test(struct jobcb *j);
 void job_remove(struct jobcb *j);
 void job_remove_all(void);
 void job_callback(void *obj, struct kevent *kev);

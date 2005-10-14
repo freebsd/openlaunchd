@@ -391,7 +391,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	} else if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
 		if (rmc->c->j) {
 			resp = job_export(rmc->c->j);
-			rmc->c->j->checkedin = true;
+			job_checkin(rmc->c->j);
 		} else {
 			resp = launch_data_new_errno(EACCES);
 		}

@@ -384,17 +384,23 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 	ipc_revoke_fds(obj);
 }
 
-#define MACH_EMU_LABEL		"com.apple.launchd.machserver.%d"
-#define MACH_EMU_LABEL_SZ	sizeof("com.apple.launchd.machserver.12345678")
-
 struct jobcb *
 job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond)
 {
-	struct jobcb *j = calloc(1, sizeof(struct jobcb) + MACH_EMU_LABEL_SZ);
-	char **argvi;
+	char buf[1000];
+	char **argvi, **argv = mach_cmd2argv(cmd);;
+	struct jobcb *j = NULL;
+
+	if (!launchd_assumes(argv != NULL))
+		goto out_bad;
+
+	/* preflight the string so we know how big it is */
+	sprintf(buf, "machlegacy.100000.%s", basename(argv[0]));
+
+	j = calloc(1, sizeof(struct jobcb) + strlen(buf) + 1);
 
 	if (!launchd_assumes(j != NULL))
-		return NULL;
+		goto out_bad;
 
 	j->kqjob_callback = job_callback;
 	j->bstrap = bootstrap;
@@ -411,12 +417,29 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 
 	SLIST_INSERT_HEAD(&j->bstrap->jobs, j, sle);
 
-	job_machsetup(j);
+	if (!launchd_assumes(launchd_mport_create_recv(&j->priv_port, j) == KERN_SUCCESS))
+		goto out_bad;
 
-	sprintf(j->label, MACH_EMU_LABEL, MACH_PORT_INDEX(j->priv_port));
+	if (!launchd_assumes(launchd_mport_notify_req(j->priv_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS))
+		goto out_bad2;
+
+	if (!launchd_assumes(launchd_mport_watch(j->priv_port) == KERN_SUCCESS))
+		goto out_bad2;
+
+	sprintf(j->label, "machlegacy.%d.%s", MACH_PORT_INDEX(j->priv_port), basename(argv[0]));
 
 	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", bootstrap->bootstrap_port);
+
 	return j;
+
+out_bad2:
+	launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
+out_bad:
+	if (j)
+		free(j);
+	if (argv)
+		free(argv);
+	return NULL;
 }
 
 struct jobcb *
@@ -425,7 +448,7 @@ job_import(launch_data_t pload)
 	launch_data_t tmp, ldpa, ldp;
 	const char *label;
 	struct jobcb *j;
-	bool startnow;
+	bool run_at_load;
 
 	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL)) == NULL) {
 		errno = EINVAL;
@@ -498,10 +521,7 @@ job_import(launch_data_t pload)
 
 	j->init_groups = job_get_bool(pload, LAUNCH_JOBKEY_INITGROUPS);
 
-	startnow = !j->ondemand;
-
-	if (job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD))
-		startnow = true;
+	run_at_load = job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD);
 
 	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
 
@@ -642,10 +662,10 @@ job_import(launch_data_t pload)
 		}
 	}
 	
-	if (startnow) {
+	if (run_at_load) {
 		job_start(j);
-	} else if (j->ondemand || shutdown_in_progress) {
-		job_watch(j);
+	} else {
+		job_dispatch(j);
 	}
 
 	return j;
@@ -767,31 +787,30 @@ job_reap(struct jobcb *j)
 	j->p = 0;
 }
 
-bool
-job_restart_fitness_test(struct jobcb *j)
+void
+job_dispatch(struct jobcb *j)
 {
 	if (job_active(j)) {
-		return false;
-	} else if (j->firstborn) {
-		job_log(j, LOG_DEBUG, "first born died, begin shutdown");
-		launchd_shutdown();
-		return false;
+		return;
 	} else if (job_useless(j)) {
-		job_log(j, LOG_WARNING, "failed to checkin: %s", j->argv[0]);
 		job_remove(j);
-		return false;
 	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
 		job_log(j, LOG_WARNING, "too many failures in succession");
 		job_remove(j);
-		return false;
 	} else if (j->ondemand || shutdown_in_progress) {
 		if (!j->ondemand && shutdown_in_progress)
 			job_log(j, LOG_NOTICE, "exited while shutdown is in progress, will not restart unless demand requires it");
 		job_watch(j);
-		return false;
+	} else if (!j->legacy_mach_job && j->throttle) {
+		j->throttle = false;
+		job_log(j, LOG_WARNING, "will restart in %d seconds", LAUNCHD_MIN_JOB_RUN_TIME);
+		if (-1 == kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
+					NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME, &j->kqjob_callback)) {
+			job_log_error(j, LOG_WARNING, "failed to setup timer callback!, will require manual start now!");
+		}
+	} else {
+		job_start(j);
 	}
-
-	return true;
 }
 
 void
@@ -800,7 +819,6 @@ job_callback(void *obj, struct kevent *kev)
 	struct jobcb *j = obj;
 	bool d = j->debug;
 	int oldmask = 0;
-	bool startnow = true;
 
 	current_rpc_server = obj;
 
@@ -813,20 +831,12 @@ job_callback(void *obj, struct kevent *kev)
 	case EVFILT_PROC:
 		job_reap(j);
 
-		startnow = job_restart_fitness_test(j);
-
-		if (startnow && j->throttle) {
-			j->throttle = false;
-			job_log(j, LOG_WARNING, "will restart in %d seconds", LAUNCHD_MIN_JOB_RUN_TIME);
-			if (-1 == kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
-						NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME, &j->kqjob_callback)) {
-				job_log_error(j, LOG_WARNING, "failed to setup timer callback!, starting now!");
-			} else {
-				startnow = false;
-			}
+		if (j->firstborn) {
+			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
+			launchd_shutdown();
+		} else {
+			job_dispatch(j);
 		}
-		if (startnow)
-			job_start(j);
 		break;
 	case EVFILT_TIMER:
 		calendarinterval_callback(j, kev);
@@ -1608,7 +1618,7 @@ job_useless(struct jobcb *j)
 	if (j->legacy_mach_job)
 		return (!j->checkedin || SLIST_EMPTY(&j->machservices));
 
-	return (!j->checkedin && !SLIST_EMPTY(&j->sockets));
+	return (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices)));
 }
 
 bool
@@ -1616,6 +1626,9 @@ job_active(struct jobcb *j)
 {
 	struct machservice *servicep;
 	bool active_services = false;
+
+	if (!j->legacy_mach_job)
+		return j->p;
 
 	SLIST_FOREACH(servicep, &j->machservices, sle) {
 		if (servicep->isActive) {
@@ -1625,42 +1638,6 @@ job_active(struct jobcb *j)
 	}
 
 	return (j->priv_port_has_senders || j->p || active_services);
-}
-
-void
-job_dispatch(struct jobcb *j)
-{
-	if (job_active(j)) {
-		return;
-	} else if (job_useless(j)) {
-		job_remove(j);
-	} else if (j->ondemand || shutdown_in_progress) {
-		if (!j->ondemand && shutdown_in_progress)
-			job_log(j, LOG_NOTICE, "exited while shutdown is in progress, will not restart unless demand requires it");
-		job_watch(j);
-	} else {
-		job_start(j);
-	}
-}
-
-void
-job_machsetup(struct jobcb *j)
-{
-	if (!launchd_assumes(launchd_mport_create_recv(&j->priv_port, j) == KERN_SUCCESS))
-		goto out_bad;
-
-	/* Request no-senders notification so we can tell when server dies */
-	if (!launchd_assumes(launchd_mport_notify_req(j->priv_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS))
-		goto out_bad2;
-
-	/* Add privileged server port to bootstrap port set */
-	launchd_assumes(launchd_mport_watch(j->priv_port) == KERN_SUCCESS);
-
-	return;
-out_bad2:
-	launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
-out_bad:
-	j->priv_port = MACH_PORT_NULL;
 }
 
 pid_t launchd_fork(void)
@@ -1723,7 +1700,7 @@ machservice_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serv
 		servicep->isActive = true;
 	}
 
-	if (j == ANY_SERVER || j == NULL) {
+	if (j == ANY_JOB || j == NULL) {
 		SLIST_INSERT_HEAD(&bootstrap->services, servicep, sle);
 	} else {
 		SLIST_INSERT_HEAD(&j->machservices, servicep, sle);
@@ -1902,7 +1879,7 @@ machservice_watch(struct machservice *servicep)
 
 	if (servicep->job) {
 		which = MACH_NOTIFY_PORT_DESTROYED;
-		servicep->job->checkedin = true;
+		job_checkin(servicep->job);
 	}
 
 	launchd_assumes(launchd_mport_notify_req(servicep->port, which) == KERN_SUCCESS);
@@ -2020,4 +1997,10 @@ mach_cmd2argv(const char *string)
 	argv_ret[i] = NULL;
 	
 	return argv_ret;
+}
+
+void
+job_checkin(struct jobcb *j)
+{
+	j->checkedin = true;
 }

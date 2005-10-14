@@ -29,7 +29,7 @@ launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach
 
 launchproxy_LDFLAGS = -weak_framework Security
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notifyServer.c notifyUser.c notifyServer.h
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
 
 launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
 

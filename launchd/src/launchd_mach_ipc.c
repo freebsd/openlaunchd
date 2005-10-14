@@ -535,7 +535,7 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
 		if (servicep->job)
-			j->checkedin = true;
+			job_checkin(j);
 		machservice_delete(servicep);
 	}
 	servicep = machservice_new(bootstrap, servicename, &serviceport, NULL);
@@ -879,9 +879,9 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename_raw, ma
 	}
 
 	if (j)
-		j->checkedin = true;
+		job_checkin(j);
 
-	servicep = machservice_new(bootstrap, servicename, serviceportp, j ? j : ANY_SERVER);
+	servicep = machservice_new(bootstrap, servicename, serviceportp, j ? j : ANY_JOB);
 
 	if (!launchd_assumes(servicep != NULL))
 		goto out_bad;
