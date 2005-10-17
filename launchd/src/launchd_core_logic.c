@@ -182,6 +182,7 @@ struct jobcb {
 	char *workingdir;
 	char *username;
 	char *groupname;
+	char *stdinpath;
 	char *stdoutpath;
 	char *stderrpath;
 	pid_t p;
@@ -204,7 +205,6 @@ static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static bool job_useless(struct jobcb *j);
-static bool job_active(struct jobcb *j);
 static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
@@ -471,6 +471,9 @@ job_remove(struct jobcb *j)
 	if (j->groupname)
 		free(j->groupname);
 
+	if (j->stdinpath)
+		free(j->stdinpath);
+
 	if (j->stdoutpath)
 		free(j->stdoutpath);
 
@@ -524,7 +527,7 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 	/* preflight the string so we know how big it is */
 	sprintf(buf, "via_mach_init.100000.%s", basename(argv[0]));
 
-	j = job_new(bootstrap, buf, NULL, argv, false);
+	j = job_new(bootstrap, buf, NULL, argv, NULL);
 
 	free(argv);
 
@@ -560,7 +563,7 @@ out_bad:
 }
 
 struct jobcb *
-job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, bool fb)
+job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, const char *stdinpath)
 {
 	const char *const *argv_tmp = argv;
 	char *co;
@@ -581,11 +584,17 @@ job_new(struct bootstrap *b, const char *label, const char *prog, const char *co
 	j->kqjob_callback = job_callback;
 	j->bstrap = b;
 	j->ondemand = true;
-	j->firstborn = fb;
+	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
 
 	if (prog) {
 		j->prog = strdup(prog);
 		if (!launchd_assumes(j->prog != NULL))
+			goto out_bad;
+	}
+
+	if (stdinpath) {
+		j->stdinpath = strdup(stdinpath);
+		if (!launchd_assumes(j->stdinpath != NULL))
 			goto out_bad;
 	}
 
@@ -619,6 +628,8 @@ out_bad:
 	if (j) {
 		if (j->prog)
 			free(j->prog);
+		if (j->stdinpath)
+			free(j->stdinpath);
 		free(j);
 	}
 	return NULL;
@@ -670,7 +681,7 @@ job_import(launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	j = job_new(root_bootstrap, label, prog, argv, false);
+	j = job_new(root_bootstrap, label, prog, argv, NULL);
 
 	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
 		j->ondemand = true;
@@ -1067,12 +1078,17 @@ job_start(struct jobcb *j)
 	pid_t c;
 	bool sipc = !SLIST_EMPTY(&j->sockets);
 
+
 	job_log(j, LOG_DEBUG, "Starting");
 
 	if (job_active(j)) {
 		job_log(j, LOG_DEBUG, "already running");
 		return;
 	}
+
+	/* FIXME, using stdinpath is a hack for re-reading the conf file */
+	if (j->stdinpath)
+	       sipc = true;
 
 	j->checkedin = false;
 
@@ -1293,6 +1309,15 @@ job_setup_attributes(struct jobcb *j)
 		chdir(j->workingdir);
 	if (j->setmask) 
 		umask(j->mask);
+	if (j->stdinpath) {
+		int sifd = open(j->stdinpath, O_RDONLY);
+		if (sifd == -1) {
+			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdinpath);
+		} else {
+			launchd_assumes(dup2(sifd, STDIN_FILENO) != -1);
+			launchd_assumes(close(sifd) == 0);
+		}
+	}
 	if (j->stdoutpath) {
 		int sofd = open(j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
 		if (sofd == -1) {

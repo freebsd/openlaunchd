@@ -55,13 +55,14 @@ struct bootstrap *machservice_bootstrap(struct machservice *servicep);
 
 struct jobcb *job_find(const char *label);
 struct jobcb *job_import(launch_data_t pload);
-struct jobcb *job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, bool fb);
+struct jobcb *job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, const char *stdinpath);
 struct jobcb *job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond);
 launch_data_t job_export(struct jobcb *j);
 launch_data_t job_export_all(void);
 void job_dispatch(struct jobcb *j);
 void job_start(struct jobcb *j);
 void job_stop(struct jobcb *j);
+bool job_active(struct jobcb *j);
 void job_checkin(struct jobcb *j);
 bool job_ondemand(struct jobcb *j);
 const char *job_prog(struct jobcb *j);

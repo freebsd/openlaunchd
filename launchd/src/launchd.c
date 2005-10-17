@@ -75,12 +75,10 @@ extern char **environ;
 static void async_callback(void);
 static void signal_callback(void *, struct kevent *);
 static void fs_callback(void);
-static void readcfg_callback(void *, struct kevent *);
 
 static kq_callback kqasync_callback = (kq_callback)async_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
-static kq_callback kqreadcfg_callback = readcfg_callback;
 static kq_callback kqshutdown_callback = (kq_callback)launchd_shutdown;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
@@ -93,15 +91,14 @@ static void usage(FILE *where);
 static void loopback_setup(void);
 static void workaround3048875(int argc, char *const *argv);
 static void testfd_or_openfd(int fd, const char *path, int flags);
-static void reload_launchd_config(void);
 
 static int mainkq = 0;
 static int asynckq = 0;
-static pid_t readcfg_pid = 0;
 static bool re_exec_in_single_user_mode = false;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
 static struct jobcb *fbj = NULL;
+static struct jobcb *rlcj = NULL;
 
 sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
@@ -115,10 +112,13 @@ int main(int argc, char *const *argv)
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
 	bool sflag = false, xflag = false, vflag = false, dflag = false;
+	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
+	const char *h = getenv("HOME");
 	const char *session_type = NULL;
 	const char *session_user = NULL;
 	const char *optargs = NULL;
 	struct kevent kev;
+	struct stat sb;
 	size_t i;
 	int ch, ker;
 
@@ -222,8 +222,14 @@ int main(int argc, char *const *argv)
 
 	mach_init_init();
 
+	if (h)
+		sprintf(ldconf, "%s/%s", h, LAUNCHD_CONF);
+
+	rlcj = job_new(root_bootstrap, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf);
+	launchd_assert(rlcj != NULL);
+
 	if (argv[0])
-		fbj = job_new(root_bootstrap, "com.apple.launchd.firstborn", NULL, (const char *const *)argv, true);
+		fbj = job_new(root_bootstrap, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL);
 
 	if (NULL == getenv("PATH"))
 		setenv("PATH", _PATH_STDPATH, 1);
@@ -256,13 +262,14 @@ int main(int argc, char *const *argv)
 			exit(launchd_assumes(errno == ESRCH) ? EXIT_SUCCESS : EXIT_FAILURE);
 	}
 
-	reload_launchd_config();
+	if (stat(ldconf, &sb) == 0)
+		job_start(rlcj);
 
 	if (fbj)
 		job_start(fbj);
 
 	for (;;) {
-		if (getpid() == 1 && readcfg_pid == 0)
+		if (getpid() == 1 && !job_active(rlcj))
 			init_pre_kevent();
 
 		if (shutdown_in_progress && total_children == 0) {
@@ -395,11 +402,8 @@ static void pid1waitpid(void)
 	pid_t p;
 
 	while ((p = waitpid(-1, &pid1_child_exit_status, WNOHANG)) > 0) {
-	        if (p == readcfg_pid) {
-			readcfg_callback(NULL, NULL);
-		} else if (!job_reap_pid(p)) {
+		if (!job_reap_pid(p))
 			init_check_pid(p);
-		}
 	}
 }
 #endif
@@ -443,7 +447,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	case SIGHUP:
 		if (getpid() == 1)
 			update_ttys();
-		reload_launchd_config();
+		job_start(rlcj);
 		break;
 	case SIGTERM:
 		launchd_shutdown();
@@ -460,7 +464,8 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	} 
 }
 
-static void fs_callback(void)
+void
+fs_callback(void)
 {
 	static bool mounted_volfs = false;
 
@@ -504,74 +509,8 @@ static void fs_callback(void)
 	ipc_server_init();
 }
 
-static void readcfg_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
-{
-	int status;
-
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-	if (getpid() == 1)
-		status = pid1_child_exit_status;
-	else
-#endif
-	if (!launchd_assumes(waitpid(readcfg_pid, &status, 0) != -1))
-		return;
-
-	readcfg_pid = 0;
-
-	if (WIFEXITED(status)) {
-		if (WEXITSTATUS(status))
-			syslog(LOG_WARNING, "Unable to read launchd.conf: launchctl exited with status: %d", WEXITSTATUS(status));
-	} else if (WIFSIGNALED(status)) {
-		syslog(LOG_WARNING, "Unable to read launchd.conf: launchctl exited abnormally: %s", strsignal(WTERMSIG(status)));
-	} else {
-		syslog(LOG_WARNING, "Unable to read launchd.conf: launchctl exited abnormally");
-	}
-}
-
-static void reload_launchd_config(void)
-{
-	struct stat sb;
-	static char *ldconf = PID1LAUNCHD_CONF;
-	const char *h = getenv("HOME");
-
-	if (h && ldconf == PID1LAUNCHD_CONF)
-		asprintf(&ldconf, "%s/%s", h, LAUNCHD_CONF);
-
-	if (!ldconf)
-		return;
-
-	if (lstat(ldconf, &sb) == 0) {
-		int spair[2];
-		launchd_assumes(socketpair(AF_UNIX, SOCK_STREAM, 0, spair) == 0);
-		readcfg_pid = launchd_fork();
-		if (readcfg_pid == 0) {
-			char nbuf[100];
-			launchd_assumes(close(spair[0]) == 0);
-			sprintf(nbuf, "%d", spair[1]);
-			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
-			int fd = open(ldconf, O_RDONLY);
-			if (fd == -1) {
-				syslog(LOG_ERR, "open(\"%s\"): %m", ldconf);
-				exit(EXIT_FAILURE);
-			}
-			launchd_assumes(dup2(fd, STDIN_FILENO) != -1);
-			launchd_assumes(close(fd) == 0);
-			launchd_assumes(execl(LAUNCHCTL_PATH, LAUNCHCTL_PATH, NULL) != -1);
-			exit(EXIT_FAILURE);
-		} else if (readcfg_pid == -1) {
-			launchd_assumes(close(spair[0]) == 0);
-			launchd_assumes(close(spair[1]) == 0);
-			syslog(LOG_ERR, "fork(): %m");
-			readcfg_pid = 0;
-		} else {
-			launchd_assumes(close(spair[1]) == 0);
-			ipc_open(_fd(spair[0]), NULL);
-			launchd_assumes(kevent_mod(readcfg_pid, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqreadcfg_callback) != -1);
-		}
-	}
-}
-
-static void loopback_setup(void)
+void
+loopback_setup(void)
 {
 	struct ifaliasreq ifra;
 	struct in6_aliasreq ifra6;

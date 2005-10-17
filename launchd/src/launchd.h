@@ -38,6 +38,9 @@
 
 #define PID1_REAP_ADOPTED_CHILDREN
 
+#define FIRSTBORN_LABEL "com.apple.launchd.firstborn"
+#define READCONF_LABEL "com.apple.launchd.readconfig"
+
 struct kevent;
 struct conncb;
 
