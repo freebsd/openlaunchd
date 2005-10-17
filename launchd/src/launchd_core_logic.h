@@ -55,6 +55,7 @@ struct bootstrap *machservice_bootstrap(struct machservice *servicep);
 
 struct jobcb *job_find(const char *label);
 struct jobcb *job_import(launch_data_t pload);
+struct jobcb *job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, bool fb);
 struct jobcb *job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond);
 launch_data_t job_export(struct jobcb *j);
 launch_data_t job_export_all(void);

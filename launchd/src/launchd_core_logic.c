@@ -514,9 +514,9 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 struct jobcb *
 job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond)
 {
-	char buf[1000];
-	char **argvi, **argv = mach_cmd2argv(cmd);;
+	const char **argv = (const char **)mach_cmd2argv(cmd);
 	struct jobcb *j = NULL;
+	char buf[1000];
 
 	if (!launchd_assumes(argv != NULL))
 		goto out_bad;
@@ -524,25 +524,17 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 	/* preflight the string so we know how big it is */
 	sprintf(buf, "via_mach_init.100000.%s", basename(argv[0]));
 
-	j = calloc(1, sizeof(struct jobcb) + strlen(buf) + 1);
+	j = job_new(bootstrap, buf, NULL, argv, false);
+
+	free(argv);
 
 	if (!launchd_assumes(j != NULL))
 		goto out_bad;
 
-	j->kqjob_callback = job_callback;
-	j->bstrap = bootstrap;
 	j->mach_uid = uid;
 	j->ondemand = ond;
 	j->legacy_mach_job = true;
 	j->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
-	j->argv = argvi = mach_cmd2argv(cmd);
-
-	while (*argvi) {
-		j->argc++;
-		argvi++;
-	}
-
-	SLIST_INSERT_HEAD(&j->bstrap->jobs, j, sle);
 
 	if (!launchd_assumes(launchd_mport_create_recv(&j->priv_port, j) == KERN_SUCCESS))
 		goto out_bad;
@@ -563,21 +555,88 @@ out_bad2:
 	launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
 out_bad:
 	if (j)
+		job_remove(j);
+	return NULL;
+}
+
+struct jobcb *
+job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, bool fb)
+{
+	const char *const *argv_tmp = argv;
+	char *co;
+	int i, cc = 0;
+	struct jobcb *j;
+
+	if (prog == NULL && argv == NULL) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
+
+	if (!launchd_assumes(j != NULL))
+		goto out_bad;
+
+	strcpy(j->label, label);
+	j->kqjob_callback = job_callback;
+	j->bstrap = b;
+	j->ondemand = true;
+
+	if (prog) {
+		j->prog = strdup(prog);
+		if (!launchd_assumes(j->prog != NULL))
+			goto out_bad;
+	}
+
+	if (argv) {
+		while (*argv_tmp++)
+			j->argc++;
+
+		for (i = 0; i < j->argc; i++)
+			cc += strlen(argv[i]) + 1;
+
+		j->argv = malloc((j->argc + 1) * sizeof(char *) + cc);
+
+		if (!launchd_assumes(j != NULL))
+			goto out_bad;
+
+		co = ((char *)j->argv) + ((j->argc + 1) * sizeof(char *));
+
+		for (i = 0; i < j->argc; i++) {
+			j->argv[i] = co;
+			strcpy(co, argv[i]);
+			co += strlen(argv[i]) + 1;
+		}
+		j->argv[i] = NULL;
+	}
+
+	SLIST_INSERT_HEAD(&b->jobs, j, sle);
+
+	return j;
+
+out_bad:
+	if (j) {
+		if (j->prog)
+			free(j->prog);
 		free(j);
-	if (argv)
-		free(argv);
+	}
 	return NULL;
 }
 
 struct jobcb *
 job_import(launch_data_t pload)
 {
-	launch_data_t tmp, ldpa, ldp;
-	const char *label;
+	launch_data_t tmp, ldpa;
+	const char *label, *prog;
+	const char **argv = NULL;
 	struct jobcb *j;
 	bool run_at_load;
 
-	if ((label = job_get_string(pload, LAUNCH_JOBKEY_LABEL)) == NULL) {
+	label = job_get_string(pload, LAUNCH_JOBKEY_LABEL);
+	prog = job_get_string(pload, LAUNCH_JOBKEY_PROGRAM);
+	ldpa = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+
+	if (label == NULL) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -587,53 +646,25 @@ job_import(launch_data_t pload)
 		return NULL;
 	}
 
-	ldp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM);
-	ldpa = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-
-	if (ldp == NULL && ldpa == NULL) {
-		errno = EINVAL;
-		return NULL;
-	}
-
-	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
-	strcpy(j->label, label);
-	j->kqjob_callback = job_callback;
-	j->bstrap = root_bootstrap;
-
 	if (ldpa) {
-		size_t i, c, cc = 0;
-		char *co;
+		size_t i, c;
 
 		c = launch_data_array_get_count(ldpa);
 
+		argv = alloca((c + 1) * sizeof(char *));
+
 		for (i = 0; i < c; i++)
-			cc += strlen(launch_data_get_string(launch_data_array_get_index(ldpa, i))) + 1;
-
-		j->argv = malloc((c + 1) * sizeof(char *) + cc);
-
-		co = ((char *)j->argv) + ((c + 1) * sizeof(char *));
-
-		for (i = 0; i < c; i++) {
-			const char *sai = launch_data_get_string(launch_data_array_get_index(ldpa, i));
-			j->argv[i] = co;
-			strcpy(co, sai);
-			co += strlen(sai) + 1;
-		}
-		j->argc = c;
-		j->argv[i] = NULL;
+			argv[i] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
+		argv[i] = NULL;
 	}
 
-	if (ldp) {
-		j->prog = strdup(launch_data_get_string(ldp));
-	}
+	j = job_new(root_bootstrap, label, prog, argv, false);
 
 	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
 		j->ondemand = true;
 	} else {
 		j->ondemand = job_get_bool(pload, LAUNCH_JOBKEY_ONDEMAND);
 	}
-
-	SLIST_INSERT_HEAD(&j->bstrap->jobs, j, sle);
 
 	j->debug = job_get_bool(pload, LAUNCH_JOBKEY_DEBUG);
 

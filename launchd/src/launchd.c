@@ -87,12 +87,11 @@ static kq_callback kqshutdown_callback = (kq_callback)launchd_shutdown;
 static void pid1waitpid(void);
 #endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
-static struct jobcb *conceive_firstborn(char *argv[], const char *session_user);
 
 static void usage(FILE *where);
 
 static void loopback_setup(void);
-static void workaround3048875(int argc, char *argv[]);
+static void workaround3048875(int argc, char *const *argv);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static void reload_launchd_config(void);
 
@@ -108,7 +107,7 @@ sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
 int batch_disabler_count = 0;
 
-int main(int argc, char *argv[])
+int main(int argc, char *const *argv)
 {
 	static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
@@ -223,8 +222,8 @@ int main(int argc, char *argv[])
 
 	mach_init_init();
 
-	if (argv[0] || (session_type != NULL && 0 == strcasecmp(session_type, "tty")))
-		fbj = conceive_firstborn(argv, session_user);
+	if (argv[0])
+		fbj = job_new(root_bootstrap, "com.apple.launchd.firstborn", NULL, (const char *const *)argv, true);
 
 	if (NULL == getenv("PATH"))
 		setenv("PATH", _PATH_STDPATH, 1);
@@ -572,72 +571,6 @@ static void reload_launchd_config(void)
 	}
 }
 
-struct jobcb *conceive_firstborn(char *argv[], const char *session_user)
-{
-	launch_data_t d = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	launch_data_t args = launch_data_alloc(LAUNCH_DATA_ARRAY);
-	launch_data_t l = launch_data_new_string("com.apple.launchd.firstborn");
-	struct jobcb *j;
-	size_t i;
-
-	if (argv[0] == NULL && session_user) {
-		launch_data_t ed = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-		struct passwd *pw = getpwnam(session_user);
-		const char *sh = (pw && pw->pw_shell) ? pw->pw_shell : _PATH_BSHELL;
-		const char *wd = (pw && pw->pw_dir) ? pw->pw_dir : NULL;
-		const char *un = (pw && pw->pw_name) ? pw->pw_name : NULL;
-		const char *tty, *ttyn = ttyname(STDIN_FILENO);
-		char *p, arg0[PATH_MAX] = "-";
-
-		strcpy(arg0 + 1, (p = strrchr(sh, '/')) ?  p + 1 : sh);
-
-		if (wd) {
-			launch_data_dict_insert(d, launch_data_new_string(wd), LAUNCH_JOBKEY_WORKINGDIRECTORY);
-			launch_data_dict_insert(ed, launch_data_new_string(wd), "HOME");
-		}
-		if (sh) {
-			launch_data_dict_insert(ed, launch_data_new_string(sh), "SHELL");
-		}
-		if (un) {
-			launch_data_dict_insert(ed, launch_data_new_string(un), "USER");
-			launch_data_dict_insert(ed, launch_data_new_string(un), "LOGNAME");
-		}
-		if (ttyn && NULL == getenv("TERM")) {
-			struct ttyent *t;
-			const char *term;
-
-			if ((tty = strrchr(ttyn, '/')))
-				tty++;
-			else
-				tty = ttyn;
-
-			if ((t = getttynam(tty)))
-				term = t->ty_type;
-			else
-				term = "su"; /* I don't know why login(8) defaulted to this value... */
-
-			launch_data_dict_insert(ed, launch_data_new_string(term), "TERM");
-		}
-
-		launch_data_dict_insert(d, launch_data_new_string(sh), LAUNCH_JOBKEY_PROGRAM);
-		launch_data_dict_insert(d, ed, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES);
-		launch_data_array_set_index(args, launch_data_new_string(arg0), 0);
-	} else {
-		for (i = 0; *argv; argv++, i++)
-			launch_data_array_set_index(args, launch_data_new_string(*argv), i);
-	}
-
-	launch_data_dict_insert(d, args, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
-	launch_data_dict_insert(d, l, LAUNCH_JOBKEY_LABEL);
-	launch_data_dict_insert(d, launch_data_new_bool(true), LAUNCH_JOBKEY_FIRSTBORN);
-
-	j = job_import(d);
-
-	launch_data_free(d);
-
-	return j;
-}
-
 static void loopback_setup(void)
 {
 	struct ifaliasreq ifra;
@@ -695,7 +628,7 @@ static void loopback_setup(void)
 }
 
 void
-workaround3048875(int argc, char *argv[])
+workaround3048875(int argc, char *const *argv)
 {
 	int i;
 	char **ap, *newargv[100], *p = argv[1];
