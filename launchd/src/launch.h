@@ -43,7 +43,7 @@
 #define LAUNCH_JOBKEY_TIMEOUT			"TimeOut"
 #define LAUNCH_JOBKEY_INITGROUPS		"InitGroups"
 #define LAUNCH_JOBKEY_SOCKETS			"Sockets"
-#define LAUNCH_JOBKEY_EVENTSOURCES		"EventSources"
+#define LAUNCH_JOBKEY_MACHSERVICES		"MachServices"
 #define LAUNCH_JOBKEY_INETDCOMPATIBILITY	"inetdCompatibility"
 #define LAUNCH_JOBKEY_PROGRAMARGUMENTS		"ProgramArguments"
 #define LAUNCH_JOBKEY_PROGRAM			"Program"
