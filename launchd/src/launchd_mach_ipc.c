@@ -342,7 +342,7 @@ launchd_mport_deallocate(mach_port_t name)
 
 #define bsstatus(servicep) \
 	((machservice_active(servicep)) ? BOOTSTRAP_STATUS_ACTIVE : \
-	 ((machservice_job(servicep) && machservice_job(servicep)->ondemand) ? \
+	 ((machservice_job(servicep) && job_ondemand(machservice_job(servicep))) ? \
 		BOOTSTRAP_STATUS_ON_DEMAND : BOOTSTRAP_STATUS_INACTIVE))
 
 /*
@@ -736,7 +736,7 @@ x_bootstrap_info_copyservices(struct machservice *ms, void *context)
 	const char *svr_name = "";
 
 	if (machservice_job(ms))
-		svr_name = machservice_job(ms)->argv[0];
+		svr_name = job_prog(machservice_job(ms));
 
 	strlcpy(info_resp->service_names[info_resp->i], machservice_name(ms), sizeof(info_resp->service_names[0]));
 	strlcpy(info_resp->server_names[info_resp->i], svr_name, sizeof(info_resp->server_names[0]));

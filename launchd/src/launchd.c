@@ -270,7 +270,7 @@ int main(int argc, char *argv[])
 
 	reload_launchd_config();
 
-	if (fbj && fbj->firstborn)
+	if (fbj)
 		job_start(fbj);
 
 	for (;;) {
@@ -640,12 +640,11 @@ struct jobcb *conceive_firstborn(char *argv[], const char *session_user)
 
 	launch_data_dict_insert(d, args, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	launch_data_dict_insert(d, l, LAUNCH_JOBKEY_LABEL);
+	launch_data_dict_insert(d, launch_data_new_bool(true), LAUNCH_JOBKEY_FIRSTBORN);
 
 	j = job_import(d);
 
 	launch_data_free(d);
-
-	j->firstborn = true;
 
 	return j;
 }

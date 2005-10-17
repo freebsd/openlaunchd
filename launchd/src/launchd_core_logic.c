@@ -106,6 +106,112 @@ struct machservice {
 };
 
 
+struct socketgroup {
+	SLIST_ENTRY(socketgroup) sle;
+	int *fds;
+	int fd_cnt;
+	char name[0];
+};
+
+static bool socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt);
+static void socketgroup_delete(struct jobcb *j, struct socketgroup *sg);
+static void socketgroup_watch(struct jobcb *j, struct socketgroup *sg);
+static void socketgroup_ignore(struct jobcb *j, struct socketgroup *sg);
+static void socketgroup_callback(struct jobcb *j, struct kevent *kev);
+static void socketgroup_setup(launch_data_t obj, const char *key, void *context);
+
+struct watchpath {
+	SLIST_ENTRY(watchpath) sle;
+	int fd;
+	unsigned int is_qdir:1, __junk:31;
+	char name[0];
+};
+
+static bool watchpath_new(struct jobcb *j, const char *name, bool qdir);
+static void watchpath_delete(struct jobcb *j, struct watchpath *wp);
+static void watchpath_watch(struct jobcb *j, struct watchpath *wp);
+static void watchpath_ignore(struct jobcb *j, struct watchpath *wp);
+static void watchpath_callback(struct jobcb *j, struct kevent *kev);
+
+struct calendarinterval {
+	SLIST_ENTRY(calendarinterval) sle;
+	struct tm when;
+};
+
+static bool calendarinterval_new(struct jobcb *j, struct tm *w);
+static void calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci);
+static void calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci);
+static void calendarinterval_callback(struct jobcb *j, struct kevent *kev);
+
+struct envitem {
+	SLIST_ENTRY(envitem) sle;
+	char *value;
+	char key[0];
+};
+
+static bool envitem_new(struct jobcb *j, const char *k, const char *v, bool global);
+static void envitem_delete(struct jobcb *j, struct envitem *ei, bool global);
+static void envitem_setup(launch_data_t obj, const char *key, void *context);
+
+struct limititem {
+	SLIST_ENTRY(limititem) sle;
+	struct rlimit lim;
+	unsigned int setsoft:1, sethard:1, which:30;
+};
+
+static bool limititem_update(struct jobcb *j, int w, rlim_t r);
+static void limititem_delete(struct jobcb *j, struct limititem *li);
+static void limititem_setup(launch_data_t obj, const char *key, void *context);
+
+struct jobcb {
+	kq_callback kqjob_callback;
+	SLIST_ENTRY(jobcb) sle;
+	SLIST_HEAD(, socketgroup) sockets;
+	SLIST_HEAD(, watchpath) vnodes;
+	SLIST_HEAD(, calendarinterval) cal_intervals;
+	SLIST_HEAD(, envitem) global_env;
+	SLIST_HEAD(, envitem) env;
+	SLIST_HEAD(, limititem) limits;
+	SLIST_HEAD(, machservice) machservices;
+	struct bootstrap *bstrap;
+	mach_port_t priv_port;
+	uid_t mach_uid;
+	char **argv;
+	char *prog;
+	char *rootdir;
+	char *workingdir;
+	char *username;
+	char *groupname;
+	char *stdoutpath;
+	char *stderrpath;
+	pid_t p;
+	int argc;
+	int last_exit_status;
+	int execfd;
+	int nice;
+	int timeout;
+	time_t start_time;
+	size_t failed_exits;
+	unsigned int start_interval;
+	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, inetcompat_wait:1,
+		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
+		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, __pad:1;
+	mode_t mask;
+	char label[0];
+};
+
+static void job_watch(struct jobcb *j);
+static void job_ignore(struct jobcb *j);
+static void job_reap(struct jobcb *j);
+static bool job_useless(struct jobcb *j);
+static bool job_active(struct jobcb *j);
+static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
+static void job_setup_attributes(struct jobcb *j);
+static void job_callback(void *obj, struct kevent *kev);
+static void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+static void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+
+
 static const struct {
 	const char *key;
 	int val;
@@ -541,6 +647,8 @@ job_import(launch_data_t pload)
 	j->low_pri_io = job_get_bool(pload, LAUNCH_JOBKEY_LOWPRIORITYIO);
 
 	j->init_groups = job_get_bool(pload, LAUNCH_JOBKEY_INITGROUPS);
+
+	j->firstborn = job_get_bool(pload, LAUNCH_JOBKEY_FIRSTBORN);
 
 	run_at_load = job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD);
 
@@ -1016,7 +1124,7 @@ job_start_child(struct jobcb *j, int execfd)
 		argv[0] = file2exec;
 	} else {
 		argv++;
-		file2exec = j->prog ? j->prog : j->argv[0];
+		file2exec = job_prog(j);
 	}
 
 	if (j->prog) {
@@ -1640,6 +1748,22 @@ job_useless(struct jobcb *j)
 		return (!j->checkedin || SLIST_EMPTY(&j->machservices));
 
 	return (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices)));
+}
+
+bool
+job_ondemand(struct jobcb *j)
+{
+	return j->ondemand;
+}
+
+const char *
+job_prog(struct jobcb *j)
+{
+	if (j->prog) {
+		return j->prog;
+	} else {
+		return j->argv[0];
+	}
 }
 
 bool

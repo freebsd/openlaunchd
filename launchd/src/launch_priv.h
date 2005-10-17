@@ -23,6 +23,8 @@
 #ifndef _LAUNCH_PRIV_H_
 #define _LAUNCH_PRIV_H_
 
+#define LAUNCH_JOBKEY_FIRSTBORN		"FirstBorn"
+
 #define LAUNCH_KEY_GETUSERENVIRONMENT	"GetUserEnvironment"
 #define LAUNCH_KEY_SETUSERENVIRONMENT	"SetUserEnvironment"
 #define LAUNCH_KEY_UNSETUSERENVIRONMENT	"UnsetUserEnvironment"
