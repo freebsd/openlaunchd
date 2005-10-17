@@ -581,6 +581,7 @@ job_new(struct bootstrap *b, const char *label, const char *prog, const char *co
 	j->kqjob_callback = job_callback;
 	j->bstrap = b;
 	j->ondemand = true;
+	j->firstborn = fb;
 
 	if (prog) {
 		j->prog = strdup(prog);
@@ -643,6 +644,17 @@ job_import(launch_data_t pload)
 
 	if ((j = job_find(label)) != NULL) {
 		errno = EEXIST;
+		return NULL;
+	}
+
+	/* com.apple.launchd and via_mach_init labels are reserved */
+	if (strncasecmp(label, "com.apple.launchd", strlen("com.apple.launchd")) == 0) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	if (strncasecmp(label, "via_mach_init", strlen("via_mach_init")) == 0) {
+		errno = EINVAL;
 		return NULL;
 	}
 
