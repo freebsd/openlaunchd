@@ -702,8 +702,6 @@ job_import(launch_data_t pload)
 
 	j->init_groups = job_get_bool(pload, LAUNCH_JOBKEY_INITGROUPS);
 
-	j->firstborn = job_get_bool(pload, LAUNCH_JOBKEY_FIRSTBORN);
-
 	run_at_load = job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD);
 
 	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
