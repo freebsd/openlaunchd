@@ -96,6 +96,15 @@ struct bootstrap {
 	mach_port_name_t		requestor_port;
 };
 
+struct machservice {
+	SLIST_ENTRY(machservice) sle;
+	struct bootstrap	*bootstrap;
+	struct jobcb		*job;
+	mach_port_name_t	port;
+	unsigned int		isActive:1, __junk:31;
+	char			name[0];
+};
+
 
 static const struct {
 	const char *key;
@@ -1903,6 +1912,36 @@ bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name)
 		return NULL;
 
 	return bootstrap_lookup_service(bootstrap->parent, name);
+}
+
+mach_port_t
+machservice_port(struct machservice *ms)
+{
+	return ms->port;
+}
+
+struct jobcb *
+machservice_job(struct machservice *ms)
+{
+	return ms->job;
+}
+
+bool
+machservice_active(struct machservice *ms)
+{
+	return ms->isActive;
+}
+
+const char *
+machservice_name(struct machservice *ms)
+{
+	return ms->name;
+}
+
+struct bootstrap *
+machservice_bootstrap(struct machservice *ms)
+{
+	return ms->bootstrap;
 }
 
 void

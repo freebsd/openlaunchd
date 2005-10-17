@@ -42,18 +42,15 @@ struct machservice *bootstrap_lookup_service(struct bootstrap *bootstrap, const 
 void bootstrap_callback(void *obj, struct kevent *kev);
 void bootstrap_foreach_service(struct bootstrap *bootstrap, void (*bs_iter)(struct machservice *, void *), void *context);
 
-struct machservice {
-	SLIST_ENTRY(machservice) sle;
-	struct bootstrap	*bootstrap;
-	struct jobcb		*job;
-	mach_port_name_t	port;
-	unsigned int		isActive:1, __junk:31;
-	char			name[0];
-};
 
 struct machservice *machservice_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct jobcb *j);
 void machservice_delete(struct machservice *servicep);
 void machservice_watch(struct machservice *servicep);
+mach_port_t machservice_port(struct machservice *servicep);
+struct jobcb *machservice_job(struct machservice *servicep);
+bool machservice_active(struct machservice *servicep);
+const char *machservice_name(struct machservice *servicep);
+struct bootstrap *machservice_bootstrap(struct machservice *servicep);
 
 struct socketgroup {
 	SLIST_ENTRY(socketgroup) sle;

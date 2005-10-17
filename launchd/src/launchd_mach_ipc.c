@@ -341,8 +341,8 @@ launchd_mport_deallocate(mach_port_t name)
 
 
 #define bsstatus(servicep) \
-	(((servicep)->isActive) ? BOOTSTRAP_STATUS_ACTIVE : \
-	 (((servicep)->job && (servicep)->job->ondemand) ? \
+	((machservice_active(servicep)) ? BOOTSTRAP_STATUS_ACTIVE : \
+	 ((machservice_job(servicep) && machservice_job(servicep)->ondemand) ? \
 		BOOTSTRAP_STATUS_ON_DEMAND : BOOTSTRAP_STATUS_INACTIVE))
 
 /*
@@ -462,28 +462,28 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 	syslog(LOG_DEBUG, "Service checkin attempt for service %s bootstrap %x", servicename, bootstrapport);
 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
-	if (servicep == NULL || !launchd_assumes(servicep->port != MACH_PORT_NULL)) {
+	if (servicep == NULL || !launchd_assumes(machservice_port(servicep) != MACH_PORT_NULL)) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s unknown%s", servicename, inherited_bootstrap_port != MACH_PORT_NULL ? " forwarding" : "");
 		result = BOOTSTRAP_UNKNOWN_SERVICE;
 		if (inherited_bootstrap_port != MACH_PORT_NULL)
 			result = bootstrap_check_in(inherited_bootstrap_port, servicename, serviceportp);
 		return result;
 	}
-	if (servicep->job != NULL && servicep->job != j) {
+	if (machservice_job(servicep) && machservice_job(servicep) != j) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s not privileged", servicename);
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
-	if (!canReceive(servicep->port)) {
-		launchd_assumes(servicep->isActive);
+	if (!canReceive(machservice_port(servicep))) {
+		launchd_assumes(machservice_active(servicep));
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s already active", servicename);
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
 
 	machservice_watch(servicep);
 
-	syslog(LOG_INFO, "Checkin service %x in bootstrap %x: %s", servicep->port, bootstrap_rport(servicep->bootstrap), servicep->name);
+	syslog(LOG_INFO, "Checkin service %x in bootstrap %x: %s", machservice_port(servicep), bootstrap_rport(machservice_bootstrap(servicep)), machservice_name(servicep));
 
-	*serviceportp = servicep->port;
+	*serviceportp = machservice_port(servicep);
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -525,16 +525,16 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 	 * bootstrap can't register the port.
 	 */
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
-	if (servicep && servicep->job && servicep->job != j)
+	if (servicep && machservice_job(servicep) && machservice_job(servicep) != j)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
-	if (servicep && servicep->bootstrap == bootstrap) {
-		if (servicep->isActive) {
-			syslog(LOG_DEBUG, "Register: service %s already active, port %x", servicep->name, servicep->port);
-			launchd_assumes(!canReceive(servicep->port));
+	if (servicep && machservice_bootstrap(servicep) == bootstrap) {
+		if (machservice_active(servicep)) {
+			syslog(LOG_DEBUG, "Register: service %s already active, port %x", machservice_name(servicep), machservice_port(servicep));
+			launchd_assumes(!canReceive(machservice_port(servicep)));
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
-		if (servicep->job)
+		if (machservice_job(servicep))
 			job_checkin(j);
 		machservice_delete(servicep);
 	}
@@ -542,7 +542,7 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 
 	machservice_watch(servicep);
 
-	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", servicep->port, bootstrap_rport(servicep->bootstrap), servicep->name);
+	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", machservice_port(servicep), bootstrap_rport(machservice_bootstrap(servicep)), machservice_name(servicep));
 
 	return BOOTSTRAP_SUCCESS;
 }
@@ -572,9 +572,9 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename_raw, mach_port
 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
 	if (servicep) {
-		launchd_assumes(servicep->port != MACH_PORT_NULL);
-		syslog(LOG_DEBUG, "bootstrap_look_up service %s returned %x", servicename, servicep->port);
-		*serviceportp = servicep->port;
+		launchd_assumes(machservice_port(servicep) != MACH_PORT_NULL);
+		syslog(LOG_DEBUG, "bootstrap_look_up service %s returned %x", servicename, machservice_port(servicep));
+		*serviceportp = machservice_port(servicep);
 		*ptype = MACH_MSG_TYPE_COPY_SEND;
 		return BOOTSTRAP_SUCCESS;
 	} else if (inherited_bootstrap_port != MACH_PORT_NULL) {
@@ -710,7 +710,7 @@ x_bootstrap_status(mach_port_t bootstrapport, name_t servicename_raw, bootstrap_
 	}
 	*serviceactivep = bsstatus(servicep);
 
-	syslog(LOG_DEBUG, "bootstrap_status server %s %sactive", servicename, servicep->isActive ? "" : "in");
+	syslog(LOG_DEBUG, "bootstrap_status server %s %sactive", servicename, machservice_active(servicep) ? "" : "in");
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -735,10 +735,10 @@ x_bootstrap_info_copyservices(struct machservice *ms, void *context)
 	struct x_bootstrap_info_copyservices_cb *info_resp = context;
 	const char *svr_name = "";
 
-	if (ms->job)
-		svr_name = ms->job->argv[0];
+	if (machservice_job(ms))
+		svr_name = machservice_job(ms)->argv[0];
 
-	strlcpy(info_resp->service_names[info_resp->i], ms->name, sizeof(info_resp->service_names[0]));
+	strlcpy(info_resp->service_names[info_resp->i], machservice_name(ms), sizeof(info_resp->service_names[0]));
 	strlcpy(info_resp->server_names[info_resp->i], svr_name, sizeof(info_resp->server_names[0]));
 	info_resp->service_actives[info_resp->i] = bsstatus(ms);
 	info_resp->i++;
