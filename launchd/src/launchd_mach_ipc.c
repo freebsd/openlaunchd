@@ -171,10 +171,10 @@ void mach_init_init(void)
 	if (inherited_bootstrap_port != MACH_PORT_NULL) {
 		asprintf(&register_name, "com.apple.launchd.%d", getpid());
 
-		launchd_assumes(launchd_mport_make_send(root_bootstrap->bootstrap_port) == KERN_SUCCESS);
+		launchd_assumes(launchd_mport_make_send(bootstrap_rport(root_bootstrap)) == KERN_SUCCESS);
 		launchd_assumes(bootstrap_register(inherited_bootstrap_port, register_name,
-					root_bootstrap->bootstrap_port) == KERN_SUCCESS);
-		launchd_assumes(launchd_mport_deallocate(root_bootstrap->bootstrap_port) == KERN_SUCCESS);
+					bootstrap_rport(root_bootstrap)) == KERN_SUCCESS);
+		launchd_assumes(launchd_mport_deallocate(bootstrap_rport(root_bootstrap)) == KERN_SUCCESS);
 	}
 
 	pthread_attr_init(&attr);
@@ -425,9 +425,9 @@ x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 {
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 
-	*unprivportp = bootstrap->bootstrap_port;
+	*unprivportp = bootstrap_rport(bootstrap);
 
-	syslog(LOG_DEBUG, "Get unpriv bootstrap %x returned for bootstrap %x", bootstrap->bootstrap_port, bootstrapport);
+	syslog(LOG_DEBUG, "Get unpriv bootstrap %x returned for bootstrap %x", bootstrap_rport(bootstrap), bootstrapport);
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -481,7 +481,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 
 	machservice_watch(servicep);
 
-	syslog(LOG_INFO, "Checkin service %x in bootstrap %x: %s", servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
+	syslog(LOG_INFO, "Checkin service %x in bootstrap %x: %s", servicep->port, bootstrap_rport(servicep->bootstrap), servicep->name);
 
 	*serviceportp = servicep->port;
 	return BOOTSTRAP_SUCCESS;
@@ -542,7 +542,7 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 
 	machservice_watch(servicep);
 
-	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", servicep->port, servicep->bootstrap->bootstrap_port, servicep->name);
+	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", servicep->port, bootstrap_rport(servicep->bootstrap), servicep->name);
 
 	return BOOTSTRAP_SUCCESS;
 }
@@ -665,10 +665,10 @@ x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_po
 
 	*pptype = MACH_MSG_TYPE_MAKE_SEND;
 
-	if (bootstrap->parent) {
-		*parentport = bootstrap->parent->bootstrap_port;
+	if (bootstrap_rparent(bootstrap)) {
+		*parentport = bootstrap_rport(bootstrap_rparent(bootstrap));
 	} else if (MACH_PORT_NULL == inherited_bootstrap_port) {
-		*parentport = bootstrap->bootstrap_port;
+		*parentport = bootstrap_rport(bootstrap);
 	} else {
 		*pptype = MACH_MSG_TYPE_COPY_SEND;
 		*parentport = inherited_bootstrap_port;
@@ -714,6 +714,36 @@ x_bootstrap_status(mach_port_t bootstrapport, name_t servicename_raw, bootstrap_
 	return BOOTSTRAP_SUCCESS;
 }
 
+static void
+x_bootstrap_info_countservices(struct machservice *ms, void *context)
+{
+	unsigned int *cnt = context;
+
+	(*cnt)++;
+}
+
+struct x_bootstrap_info_copyservices_cb {
+	name_array_t service_names;
+	name_array_t server_names;
+	bootstrap_status_array_t service_actives;
+	unsigned int i;
+};
+
+static void
+x_bootstrap_info_copyservices(struct machservice *ms, void *context)
+{
+	struct x_bootstrap_info_copyservices_cb *info_resp = context;
+	const char *svr_name = "";
+
+	if (ms->job)
+		svr_name = ms->job->argv[0];
+
+	strlcpy(info_resp->service_names[info_resp->i], ms->name, sizeof(info_resp->service_names[0]));
+	strlcpy(info_resp->server_names[info_resp->i], svr_name, sizeof(info_resp->server_names[0]));
+	info_resp->service_actives[info_resp->i] = bsstatus(ms);
+	info_resp->i++;
+}
+
 /*
  * kern_return_t
  * bootstrap_info(mach_port_t bootstrapport,
@@ -733,67 +763,46 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 		name_array_t *servernamesp, unsigned int *servernames_cnt,
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
+	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
-	struct jobcb *ji;
 	struct bootstrap *bstrap_iter;
 	kern_return_t result;
-	unsigned int i = 0, cnt = 0;
-	struct machservice *servicep;
-	name_array_t service_names;
-	name_array_t server_names;
-	bootstrap_status_array_t service_actives;
+	unsigned int cnt = 0;
 
-	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bstrap_iter->parent) {
-		SLIST_FOREACH(ji, &bstrap_iter->jobs, sle) {
-			SLIST_FOREACH(servicep, &ji->machservices, sle)
-				cnt++;
-		}
-		SLIST_FOREACH(servicep, &bstrap_iter->services, sle)
-			cnt++;
-	}
+	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bootstrap_rparent(bstrap_iter))
+		bootstrap_foreach_service(bstrap_iter, x_bootstrap_info_countservices, &cnt);
 
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&service_names, cnt * sizeof(service_names[0]), true);
-	if (result != KERN_SUCCESS)
-		return BOOTSTRAP_NO_MEMORY;
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
+	if (!launchd_assumes(result == KERN_SUCCESS))
+		goto out_bad;
 
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&server_names, cnt * sizeof(server_names[0]), true);
-	if (result != KERN_SUCCESS) {
-		(void)vm_deallocate(mach_task_self(), (vm_address_t)service_names, cnt * sizeof(service_names[0]));
-		return BOOTSTRAP_NO_MEMORY;
-	}
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&service_actives, cnt * sizeof(service_actives[0]), true);
-	if (result != KERN_SUCCESS) {
-		(void)vm_deallocate(mach_task_self(), (vm_address_t)service_names, cnt * sizeof(service_names[0]));
-		(void)vm_deallocate(mach_task_self(), (vm_address_t)server_names, cnt * sizeof(server_names[0]));
-		return BOOTSTRAP_NO_MEMORY;
-	}
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.server_names, cnt * sizeof(info_resp.server_names[0]), true);
+	if (!launchd_assumes(result == KERN_SUCCESS))
+		goto out_bad;
 
-	i = 0;
-	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bstrap_iter->parent) {
-		SLIST_FOREACH(ji, &bstrap_iter->jobs, sle) {
-			SLIST_FOREACH(servicep, &ji->machservices, sle) {
-				strlcpy(service_names[i], servicep->name, sizeof(service_names[0]));
-		    		strlcpy(server_names[i], ji->argv[0], sizeof(server_names[0]));
-	    			service_actives[i] = bsstatus(servicep);
-				i++;
-			}
-		}
-		SLIST_FOREACH(servicep, &bstrap_iter->services, sle) {
-			strlcpy(service_names[i], servicep->name, sizeof(service_names[0]));
-			server_names[i][0] = '\0';
-	    		service_actives[i] = bsstatus(servicep);
-			i++;
-		}
-	}
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_actives, cnt * sizeof(info_resp.service_actives[0]), true);
+	if (!launchd_assumes(result == KERN_SUCCESS))
+		goto out_bad;
 
-	launchd_assumes(i == cnt);
+	for (bstrap_iter = bootstrap; bstrap_iter; bstrap_iter = bootstrap_rparent(bstrap_iter))
+		bootstrap_foreach_service(bstrap_iter, x_bootstrap_info_copyservices, &info_resp);
 
-	*servicenamesp = service_names;
-	*servernamesp = server_names;
-	*serviceactivesp = service_actives;
+	launchd_assumes(info_resp.i == cnt);
+
+	*servicenamesp = info_resp.service_names;
+	*servernamesp = info_resp.server_names;
+	*serviceactivesp = info_resp.service_actives;
 	*servicenames_cnt = *servernames_cnt = *serviceactives_cnt = cnt;
 
 	return BOOTSTRAP_SUCCESS;
+
+out_bad:
+	if (info_resp.service_names)
+		vm_deallocate(mach_task_self(), (vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	if (info_resp.server_names)
+		vm_deallocate(mach_task_self(), (vm_address_t)info_resp.server_names, cnt * sizeof(info_resp.server_names[0]));
+
+	return BOOTSTRAP_NO_MEMORY;
 }
 
 /*
@@ -823,7 +832,7 @@ x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_po
 	struct bootstrap *subset;
 	int bsdepth = 0;
 
-	while ((bootstrap = bootstrap->parent) != NULL)
+	while ((bootstrap = bootstrap_rparent(bootstrap)) != NULL)
 		bsdepth++;
 
 	bootstrap = current_rpc_bootstrap;
@@ -842,7 +851,7 @@ x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_po
 	if (subset == NULL)
 		return BOOTSTRAP_NO_MEMORY;
 
-	*subsetportp = subset->bootstrap_port;
+	*subsetportp = bootstrap_rport(subset);
 	syslog(LOG_INFO, "Created bootstrap subset %x parent %x requestor %x", *subsetportp, bootstrapport, requestorport);
 	return BOOTSTRAP_SUCCESS;
 }

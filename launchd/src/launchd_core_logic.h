@@ -28,25 +28,19 @@
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 
 struct jobcb;
+struct bootstrap;
+struct machservice;
 
 #define ANY_JOB ((struct jobcb *)-1)
-
-struct bootstrap {
-	kq_callback			kqbstrap_callback;
-	SLIST_ENTRY(bootstrap)		sle;
-	SLIST_HEAD(, bootstrap)		sub_bstraps;
-	SLIST_HEAD(, jobcb)		jobs;
-	SLIST_HEAD(, machservice)	services;
-	struct bootstrap		*parent;
-	mach_port_name_t		bootstrap_port;
-	mach_port_name_t		requestor_port;
-};
 
 struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
 void bootstrap_delete(struct bootstrap *bootstrap);
 void bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t port);
+mach_port_t bootstrap_rport(struct bootstrap *bootstrap);
+struct bootstrap *bootstrap_rparent(struct bootstrap *bootstrap);
 struct machservice *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name);
 void bootstrap_callback(void *obj, struct kevent *kev);
+void bootstrap_foreach_service(struct bootstrap *bootstrap, void (*bs_iter)(struct machservice *, void *), void *context);
 
 struct machservice {
 	SLIST_ENTRY(machservice) sle;

@@ -85,6 +85,18 @@
 		(var) = (tvar))
 #endif
 
+struct bootstrap {
+	kq_callback			kqbstrap_callback;
+	SLIST_ENTRY(bootstrap)		sle;
+	SLIST_HEAD(, bootstrap)		sub_bstraps;
+	SLIST_HEAD(, jobcb)		jobs;
+	SLIST_HEAD(, machservice)	services;
+	struct bootstrap		*parent;
+	mach_port_name_t		bootstrap_port;
+	mach_port_name_t		requestor_port;
+};
+
+
 static const struct {
 	const char *key;
 	int val;
@@ -1754,6 +1766,33 @@ bootstrap_callback(void *obj, struct kevent *kev)
 		syslog(LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
 
 	current_rpc_bootstrap = NULL;
+}
+
+mach_port_t
+bootstrap_rport(struct bootstrap *b)
+{
+	return b->bootstrap_port;
+}
+
+struct bootstrap *
+bootstrap_rparent(struct bootstrap *b)
+{
+	return b->parent;
+}
+
+void
+bootstrap_foreach_service(struct bootstrap *b, void (*bs_iter)(struct machservice *, void *), void *context)
+{
+	struct machservice *ms;
+	struct jobcb *ji;
+
+	SLIST_FOREACH(ji, &b->jobs, sle) {
+		SLIST_FOREACH(ms, &ji->machservices, sle)
+			bs_iter(ms, context);
+	}
+
+	SLIST_FOREACH(ms, &b->services, sle)
+		bs_iter(ms, context);
 }
 
 struct bootstrap *
