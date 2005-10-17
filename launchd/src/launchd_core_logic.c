@@ -395,7 +395,7 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 		goto out_bad;
 
 	/* preflight the string so we know how big it is */
-	sprintf(buf, "machlegacy.100000.%s", basename(argv[0]));
+	sprintf(buf, "via_mach_init.100000.%s", basename(argv[0]));
 
 	j = calloc(1, sizeof(struct jobcb) + strlen(buf) + 1);
 
@@ -426,7 +426,7 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 	if (!launchd_assumes(launchd_mport_watch(j->priv_port) == KERN_SUCCESS))
 		goto out_bad2;
 
-	sprintf(j->label, "machlegacy.%d.%s", MACH_PORT_INDEX(j->priv_port), basename(argv[0]));
+	sprintf(j->label, "via_mach_init.%d.%s", MACH_PORT_INDEX(j->priv_port), basename(argv[0]));
 
 	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", bootstrap->bootstrap_port);
 
@@ -1626,9 +1626,7 @@ job_active(struct jobcb *j)
 {
 	struct machservice *servicep;
 	bool active_services = false;
-
-	if (!j->legacy_mach_job)
-		return j->p;
+	const char *exited_or_died = "Died";
 
 	SLIST_FOREACH(servicep, &j->machservices, sle) {
 		if (servicep->isActive) {
@@ -1637,7 +1635,22 @@ job_active(struct jobcb *j)
 		}
 	}
 
-	return (j->priv_port_has_senders || j->p || active_services);
+	if (j->legacy_mach_job)
+		return (j->priv_port_has_senders || j->p || active_services);
+
+	if (j->p)
+		return true;
+
+	if (WIFEXITED(j->last_exit_status))
+		exited_or_died = "Exited";
+
+	if (j->priv_port_has_senders)
+		job_log(j, LOG_NOTICE, "%s with the privileged bootstrap port leaked!", exited_or_died);
+
+	if (active_services)
+		job_log(j, LOG_NOTICE, "%s with Mach services still active!", exited_or_died);
+
+	return false;
 }
 
 pid_t launchd_fork(void)

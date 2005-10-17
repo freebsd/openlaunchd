@@ -462,7 +462,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 	syslog(LOG_DEBUG, "Service checkin attempt for service %s bootstrap %x", servicename, bootstrapport);
 
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
-	if (servicep == NULL || servicep->port == MACH_PORT_NULL) {
+	if (servicep == NULL || !launchd_assumes(servicep->port != MACH_PORT_NULL)) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s unknown%s", servicename, inherited_bootstrap_port != MACH_PORT_NULL ? " forwarding" : "");
 		result = BOOTSTRAP_UNKNOWN_SERVICE;
 		if (inherited_bootstrap_port != MACH_PORT_NULL)
