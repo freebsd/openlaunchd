@@ -30,11 +30,6 @@
 struct jobcb;
 struct bootstrap;
 struct machservice;
-struct socketgroup;
-struct watchpath;
-struct calendarinterval;
-struct envitem;
-struct limititem;
 
 #define ANY_JOB ((struct jobcb *)-1)
 
