@@ -42,13 +42,12 @@
 #include <mach/mach_host.h>
 #include <mach/exception.h>
 #include <servers/bootstrap_defs.h>
-#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/time.h>
-#include <sys/resource.h>
-#include <sys/wait.h>
 #include <sys/event.h>
 #include <sys/queue.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
 #include <string.h>
@@ -56,10 +55,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <libc.h>
-#include <paths.h>
 #include <syslog.h>
-#include <pwd.h>
 
 /* <rdar://problem/2685209> sys/queue.h is not up to date */
 #ifndef SLIST_FOREACH_SAFE
