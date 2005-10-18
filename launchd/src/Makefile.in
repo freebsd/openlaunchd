@@ -81,9 +81,9 @@ sbin_SCRIPTS = service
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-bin_PROGRAMS = launchctl wait4path bports
+bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
-libexec_PROGRAMS = register_mach_bootstrap_servers StartupItemContext launchproxy
+libexec_PROGRAMS = register_mach_bootstrap_servers launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
@@ -108,7 +108,7 @@ launchproxy_LDFLAGS = -weak_framework Security
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
 
-man1_MANS = wait4path.1 launchctl.1 bports.1
+man1_MANS = wait4path.1 launchctl.1
 
 man5_MANS = launchd.plist.5 launchd.conf.5
 
@@ -129,28 +129,18 @@ liblaunch_profile_a_AR = $(AR) cru
 liblaunch_profile_a_LIBADD =
 am_liblaunch_profile_a_OBJECTS = liblaunch_profile_a-liblaunch.$(OBJEXT)
 liblaunch_profile_a_OBJECTS = $(am_liblaunch_profile_a_OBJECTS)
-bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT) bports$(EXEEXT)
+bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
 libexec_PROGRAMS = register_mach_bootstrap_servers$(EXEEXT) \
-	StartupItemContext$(EXEEXT) launchproxy$(EXEEXT)
+	launchproxy$(EXEEXT)
 sbin_PROGRAMS = launchd$(EXEEXT) SystemStarter$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS) $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 
-StartupItemContext_SOURCES = StartupItemContext.c
-StartupItemContext_OBJECTS = StartupItemContext.$(OBJEXT)
-StartupItemContext_LDADD = $(LDADD)
-StartupItemContext_DEPENDENCIES =
-StartupItemContext_LDFLAGS =
 am_SystemStarter_OBJECTS = SystemStarter-StartupItems.$(OBJEXT) \
 	SystemStarter-IPC.$(OBJEXT) \
 	SystemStarter-SystemStarter.$(OBJEXT)
 SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_DEPENDENCIES =
-bports_SOURCES = bports.c
-bports_OBJECTS = bports.$(OBJEXT)
-bports_LDADD = $(LDADD)
-bports_DEPENDENCIES =
-bports_LDFLAGS =
 launchctl_SOURCES = launchctl.c
 launchctl_OBJECTS = launchctl.$(OBJEXT)
 launchctl_LDADD = $(LDADD)
@@ -189,11 +179,10 @@ LDFLAGS = @LDFLAGS@
 LIBS = @LIBS@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
-@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/StartupItemContext.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-IPC.Po \
+@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/SystemStarter-IPC.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-StartupItems.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-SystemStarter.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/bports.Po ./$(DEPDIR)/launchctl.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-bootstrapServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd.Po \
@@ -211,16 +200,15 @@ CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
 DIST_SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) \
-	StartupItemContext.c $(SystemStarter_SOURCES) bports.c \
-	launchctl.c $(launchd_SOURCES) launchproxy.c \
-	register_mach_bootstrap_servers.c wait4path.c
+	$(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) \
+	launchproxy.c register_mach_bootstrap_servers.c wait4path.c
 
 NROFF = nroff
 MANS = $(man1_MANS) $(man5_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 DIST_COMMON = Makefile.am Makefile.in config.h.in
-SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) StartupItemContext.c $(SystemStarter_SOURCES) bports.c launchctl.c $(launchd_SOURCES) launchproxy.c register_mach_bootstrap_servers.c wait4path.c
+SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) launchproxy.c register_mach_bootstrap_servers.c wait4path.c
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -335,18 +323,12 @@ uninstall-sbinPROGRAMS:
 
 clean-sbinPROGRAMS:
 	-test -z "$(sbin_PROGRAMS)" || rm -f $(sbin_PROGRAMS)
-StartupItemContext$(EXEEXT): $(StartupItemContext_OBJECTS) $(StartupItemContext_DEPENDENCIES) 
-	@rm -f StartupItemContext$(EXEEXT)
-	$(LINK) $(StartupItemContext_LDFLAGS) $(StartupItemContext_OBJECTS) $(StartupItemContext_LDADD) $(LIBS)
 SystemStarter-StartupItems.$(OBJEXT): StartupItems.c
 SystemStarter-IPC.$(OBJEXT): IPC.c
 SystemStarter-SystemStarter.$(OBJEXT): SystemStarter.c
 SystemStarter$(EXEEXT): $(SystemStarter_OBJECTS) $(SystemStarter_DEPENDENCIES) 
 	@rm -f SystemStarter$(EXEEXT)
 	$(LINK) $(SystemStarter_LDFLAGS) $(SystemStarter_OBJECTS) $(SystemStarter_LDADD) $(LIBS)
-bports$(EXEEXT): $(bports_OBJECTS) $(bports_DEPENDENCIES) 
-	@rm -f bports$(EXEEXT)
-	$(LINK) $(bports_LDFLAGS) $(bports_OBJECTS) $(bports_LDADD) $(LIBS)
 launchctl$(EXEEXT): $(launchctl_OBJECTS) $(launchctl_DEPENDENCIES) 
 	@rm -f launchctl$(EXEEXT)
 	$(LINK) $(launchctl_LDFLAGS) $(launchctl_OBJECTS) $(launchctl_LDADD) $(LIBS)
@@ -396,11 +378,9 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/StartupItemContext.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-IPC.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-StartupItems.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-SystemStarter.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bports.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-init.Po@am__quote@
@@ -891,6 +871,8 @@ install-data-hook: install-startupitems
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
+	mkdir -p $(DESTDIR)/usr/libexec
+	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/usr/local/include

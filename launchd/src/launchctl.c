@@ -21,6 +21,8 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 #include <CoreFoundation/CoreFoundation.h>
+#include <mach/mach.h>
+#include <servers/bootstrap.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -65,6 +67,7 @@ static int demux_cmd(int argc, char *const argv[]);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
 static void submit_job_pass(launch_data_t jobs);
 static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup);
+static mach_port_t str2bsport(const char *s);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -82,6 +85,8 @@ static int fyi_cmd(int argc, char *const argv[]);
 static int logupdate_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
 static int getrusage_cmd(int argc, char *const argv[]);
+static int bsexec_cmd(int argc, char *const argv[]);
+static int bslist_cmd(int argc, char *const argv[]);
 
 static int exit_cmd(int argc, char *const argv[]) __attribute__((noreturn));
 static int help_cmd(int argc, char *const argv[]);
@@ -89,32 +94,35 @@ static int help_cmd(int argc, char *const argv[]);
 static const struct {
 	const char *name;
 	int (*func)(int argc, char *const argv[]);
+	bool ttyonly;
 	const char *desc;
 } cmds[] = {
-	{ "load",	load_and_unload_cmd,	"Load configuration files and/or directories" },
-	{ "unload",	load_and_unload_cmd,	"Unload configuration files and/or directories" },
-//	{ "reload",	reload_cmd,		"Reload configuration files and/or directories" },
-	{ "start",	start_stop_remove_cmd,	"Start specified job" },
-	{ "stop",	start_stop_remove_cmd,	"Stop specified job" },
-	{ "submit",	submit_cmd,		"Submit a job from the command line" },
-	{ "remove",	start_stop_remove_cmd,	"Remove specified job" },
-	{ "list",	list_cmd,		"List jobs and information about jobs" },
-	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
-	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
-	{ "getenv",	getenv_and_export_cmd,	"Get an environmental variable from launchd" },
-	{ "export",	getenv_and_export_cmd,	"Export shell settings from launchd" },
-	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
-	{ "stdout",	stdio_cmd,		"Redirect launchd's standard out to the given path" },
-	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
-	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
-	{ "singleuser",	fyi_cmd,		"Switch to single-user mode" },
-	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
-	{ "getrusage",	getrusage_cmd,		"Get resource usage statistics from launchd" },
-	{ "log",	logupdate_cmd,		"Adjust the logging level or mask of launchd" },
-	{ "umask",	umask_cmd,		"Change launchd's umask" },
-	{ "exit",	exit_cmd,		"Exit the interactive invocation of launchctl" },
-	{ "quit",	exit_cmd,		"Quit the interactive invocation of launchctl" },
-	{ "help",	help_cmd,		"This help output" },
+	{ "load",	load_and_unload_cmd,	false,	"Load configuration files and/or directories" },
+	{ "unload",	load_and_unload_cmd,	false,	"Unload configuration files and/or directories" },
+//	{ "reload",	reload_cmd,		false,	"Reload configuration files and/or directories" },
+	{ "start",	start_stop_remove_cmd,	false,	"Start specified job" },
+	{ "stop",	start_stop_remove_cmd,	false,	"Stop specified job" },
+	{ "submit",	submit_cmd,		false,	"Submit a job from the command line" },
+	{ "remove",	start_stop_remove_cmd,	false,	"Remove specified job" },
+	{ "list",	list_cmd,		false,	"List jobs and information about jobs" },
+	{ "setenv",	setenv_cmd,		false,	"Set an environmental variable in launchd" },
+	{ "unsetenv",	unsetenv_cmd,		false,	"Unset an environmental variable in launchd" },
+	{ "getenv",	getenv_and_export_cmd,	false,	"Get an environmental variable from launchd" },
+	{ "export",	getenv_and_export_cmd,	false,	"Export shell settings from launchd" },
+	{ "limit",	limit_cmd,		false,	"View and adjust launchd resource limits" },
+	{ "stdout",	stdio_cmd,		false,	"Redirect launchd's standard out to the given path" },
+	{ "stderr",	stdio_cmd,		false,	"Redirect launchd's standard error to the given path" },
+	{ "shutdown",	fyi_cmd,		false,	"Prepare for system shutdown" },
+	{ "singleuser",	fyi_cmd,		false,	"Switch to single-user mode" },
+	{ "reloadttys",	fyi_cmd,		false,	"Reload /etc/ttys" },
+	{ "getrusage",	getrusage_cmd,		false,	"Get resource usage statistics from launchd" },
+	{ "log",	logupdate_cmd,		false,	"Adjust the logging level or mask of launchd" },
+	{ "umask",	umask_cmd,		false,	"Change launchd's umask" },
+	{ "bsexec",	bsexec_cmd,		true,	"Execute a process within a different Mach bootstrap subset" },
+	{ "bslist",	bslist_cmd,		false,	"List Mach bootstrap services and optional servers" },
+	{ "exit",	exit_cmd,		true,	"Exit the interactive invocation of launchctl" },
+	{ "quit",	exit_cmd,		true,	"Quit the interactive invocation of launchctl" },
+	{ "help",	help_cmd,		false,	"This help output" },
 };
 
 static bool istty = false;
@@ -123,10 +131,10 @@ int main(int argc, char *const argv[])
 {
 	char *l;
 
+	istty = isatty(STDIN_FILENO);
+
 	if (argc > 1)
 		exit(demux_cmd(argc - 1, argv + 1));
-
-	istty = isatty(STDIN_FILENO);
 
 	if (NULL == readline) {
 		fprintf(stderr, "missing library: readline\n");
@@ -164,6 +172,8 @@ static int demux_cmd(int argc, char *const argv[])
 	optreset = 1;
 
 	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
+		if (cmds[i].ttyonly && istty == false)
+			continue;
 		if (!strcmp(cmds[i].name, argv[0]))
 			return cmds[i].func(argc, argv);
 	}
@@ -926,7 +936,7 @@ static int help_cmd(int argc, char *const argv[])
 	}
 
 	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
-		if (cmds[i].func == exit_cmd && istty == false)
+		if (cmds[i].ttyonly && istty == false)
 			continue;
 		fprintf(where, "\t%-*s\t%s\n", cmdwidth, cmds[i].name, cmds[i].desc);
 	}
@@ -1691,9 +1701,113 @@ static int getrusage_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static bool launch_data_array_append(launch_data_t a, launch_data_t o)
+bool
+launch_data_array_append(launch_data_t a, launch_data_t o)
 {
 	size_t offt = launch_data_array_get_count(a);
 
 	return launch_data_array_set_index(a, o, offt);
+}
+
+mach_port_t
+str2bsport(const char *s)
+{
+	bool getrootbs = strcmp(s, "/") == 0;
+	mach_port_t last_bport, bport = bootstrap_port;
+	task_t task = mach_task_self();
+	kern_return_t result;
+
+	if (strcmp(s, "..") == 0 || getrootbs) {
+		do {
+			last_bport = bport;
+			result = bootstrap_parent(last_bport, &bport);
+
+			if (result == BOOTSTRAP_NOT_PRIVILEGED) {
+				fprintf(stderr, "Permission denied\n");
+				return 1;
+			} else if (result != BOOTSTRAP_SUCCESS) {
+				fprintf(stderr, "bootstrap_parent() %d\n", result);
+				return 1;
+			}
+		} while (getrootbs && last_bport != bport);
+	} else {
+		int pid = atoi(s);
+
+		result = task_for_pid(mach_task_self(), pid, &task);
+
+		if (result != KERN_SUCCESS) {
+			fprintf(stderr, "task_for_pid() %s\n", mach_error_string(result));
+			return 1;
+		}
+
+		result = task_get_bootstrap_port(task, &bport);
+
+		if (result != KERN_SUCCESS) {
+			fprintf(stderr, "Couldn't get bootstrap port: %s\n", mach_error_string(result));
+			return 1;
+		}
+	}
+
+	return bport;
+}
+
+int
+bsexec_cmd(int argc, char *const argv[])
+{
+	kern_return_t result;
+	mach_port_t bport;
+
+	if (argc < 3) {
+		fprintf(stderr, "usage: %s bsexec <PID> prog...\n", getprogname());
+		return 1;
+	}
+
+	bport = str2bsport(argv[1]);
+
+	result = task_set_bootstrap_port(mach_task_self(), bport);
+
+	if (result != KERN_SUCCESS) {
+		fprintf(stderr, "Couldn't switch to new bootstrap port: %s\n", mach_error_string(result));
+		return 1;
+	}
+
+	setgid(getgid());
+	setuid(getuid());
+
+	execvp(argv[2], argv + 2);
+	fprintf(stderr, "execvp(): %s\n", strerror(errno));
+	return 1;
+}
+
+int
+bslist_cmd(int argc, char *const argv[])
+{
+	kern_return_t result;
+	mach_port_t bport = bootstrap_port;
+	name_array_t service_names;
+	unsigned int i, service_cnt, server_cnt, service_active_cnt;
+	name_array_t server_names;
+	boolean_t *service_actives;
+
+	if (argc == 2)
+		bport = str2bsport(argv[1]);
+
+	if (bport == MACH_PORT_NULL) {
+		fprintf(stderr, "Invalid bootstrap port\n");
+		return 1;
+	}
+
+	result = bootstrap_info(bport, &service_names, &service_cnt,
+			&server_names, &server_cnt, &service_actives, &service_active_cnt);
+	if (result != BOOTSTRAP_SUCCESS) {
+		fprintf(stderr, "bootstrap_info(): %d\n", result);
+		return 1;
+	}
+
+#define bport_state(x)	(((x) == BOOTSTRAP_STATUS_ACTIVE) ? "A" : ((x) == BOOTSTRAP_STATUS_ON_DEMAND) ? "D" : "I")
+
+	for (i = 0; i < service_cnt ; i++)
+		fprintf(stdout, "%-3s%s\n", bport_state((service_actives[i])), service_names[i]);
+
+	return 0;
 }

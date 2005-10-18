@@ -49,7 +49,8 @@ Add the disabled key and write the configuration files back out to disk.
 .Op Fl p Ar executable
 .Op Fl o Ar path
 .Op Fl e Ar path
-.Ar -- job ...
+.Ar -- command
+.Op Ar args
 .Xc
 A simple way of submitting a program to run without a configuration file. This mechanism also tells launchd to keep the program alive in the event of failure.
 .Bl -tag -width -indent
@@ -133,6 +134,14 @@ Get or optionally set the
 .Xr umask 2
 of
 .Nm launchd .
+.It Ar bslist Op Ar PID
+This prints out Mach bootstrap services and their respective states. While the
+namespace appears flat, it is in fact hierarchical, thus allowing for certain
+services to be only available to a subset of processes. The three states a
+service can be in are active ("A"), in-active ("I") and on-demand ("D").
+.It Ar bsexec Ar PID command Op Ar args
+This executes the given command in the same Mach bootstrap namespace hierachy
+as the given PID.
 .It Ar help
 Print out a quick usage statement.
 .El

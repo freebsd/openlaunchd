@@ -4,9 +4,9 @@ sbin_SCRIPTS = service
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-bin_PROGRAMS = launchctl wait4path bports
+bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
-libexec_PROGRAMS = register_mach_bootstrap_servers StartupItemContext launchproxy
+libexec_PROGRAMS = register_mach_bootstrap_servers launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
@@ -41,7 +41,7 @@ bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/boots
 notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
 	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
 
-man1_MANS = wait4path.1 launchctl.1 bports.1
+man1_MANS = wait4path.1 launchctl.1
 
 man5_MANS = launchd.plist.5 launchd.conf.5
 
@@ -62,6 +62,8 @@ install-data-hook: install-startupitems
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
+	mkdir -p $(DESTDIR)/usr/libexec
+	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/usr/local/include
