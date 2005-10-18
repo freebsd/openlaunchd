@@ -1810,10 +1810,16 @@ struct jobcb *current_rpc_server = NULL;
 bool
 job_useless(struct jobcb *j)
 {
-	if (j->legacy_mach_job)
-		return (!j->checkedin || SLIST_EMPTY(&j->machservices));
+	bool r = (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices)));
 
-	return (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices)));
+	if (r) {
+		job_log(j, LOG_WARNING, "Failed to check-in!");
+	} else if (j->legacy_mach_job && SLIST_EMPTY(&j->machservices)) {
+		job_log(j, LOG_INFO, "Garbage collecting");
+		r = true;
+	}
+
+	return r;
 }
 
 bool
