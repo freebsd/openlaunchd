@@ -1845,6 +1845,20 @@ job_active(struct jobcb *j)
 	bool active_services = false;
 	const char *exited_or_died = "Died";
 
+	if (j->p)
+		return true;
+
+	if (WIFEXITED(j->last_exit_status))
+		exited_or_died = "Exited";
+
+	if (j->priv_port_has_senders) {
+		if (j->legacy_mach_job) {
+			job_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
+			return true;
+		}
+		job_log(j, LOG_WARNING, "%s with the privileged bootstrap port leaked!", exited_or_died);
+	}
+
 	SLIST_FOREACH(servicep, &j->machservices, sle) {
 		if (servicep->isActive) {
 			active_services = true;
@@ -1852,20 +1866,11 @@ job_active(struct jobcb *j)
 		}
 	}
 
-	if (j->legacy_mach_job)
-		return (j->priv_port_has_senders || j->p || active_services);
-
-	if (j->p)
-		return true;
-
-	if (WIFEXITED(j->last_exit_status))
-		exited_or_died = "Exited";
-
-	if (j->priv_port_has_senders)
-		job_log(j, LOG_NOTICE, "%s with the privileged bootstrap port leaked!", exited_or_died);
-
-	if (active_services)
+	if (active_services) {
 		job_log(j, LOG_NOTICE, "%s with Mach services still active!", exited_or_died);
+		if (j->legacy_mach_job)
+			return true;
+	}
 
 	return false;
 }
