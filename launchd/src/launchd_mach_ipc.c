@@ -263,6 +263,13 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 	mach_port_mscount_t msgc = (which == MACH_NOTIFY_NO_SENDERS) ? 1 : 0;
 	mach_port_t previous, where = (which == MACH_NOTIFY_NO_SENDERS) ? name : notify_port;
 
+	if (which == MACH_NOTIFY_NO_SENDERS) {
+		/* Always make sure the send count is zero, in case a receive right is reused */
+		errno = mach_port_set_mscount(mach_task_self(), name, 0);
+		if (errno != KERN_SUCCESS)
+			return errno;
+	}
+
 	errno = mach_port_request_notification(mach_task_self(), name, which, msgc, where,
 			MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
 
