@@ -94,7 +94,7 @@ static int help_cmd(int argc, char *const argv[]);
 static const struct {
 	const char *name;
 	int (*func)(int argc, char *const argv[]);
-	bool ttyonly;
+	int ttyonly;
 	const char *desc;
 } cmds[] = {
 	{ "load",	load_and_unload_cmd,	false,	"Load configuration files and/or directories" },
