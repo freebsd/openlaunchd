@@ -584,6 +584,7 @@ job_new(struct bootstrap *b, const char *label, const char *prog, const char *co
 	j->kqjob_callback = job_callback;
 	j->bstrap = b;
 	j->ondemand = true;
+	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
 
 	if (prog) {
