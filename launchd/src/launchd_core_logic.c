@@ -1853,7 +1853,8 @@ job_active(struct jobcb *j)
 
 	if (j->priv_port_has_senders) {
 		if (j->legacy_mach_job) {
-			job_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
+			if (j->start_time && !j->checkedin)
+				job_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
 			return true;
 		}
 		job_log(j, LOG_WARNING, "%s with the privileged bootstrap port leaked!", exited_or_died);
