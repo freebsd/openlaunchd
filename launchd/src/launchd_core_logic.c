@@ -109,11 +109,11 @@ struct machservice {
 struct socketgroup {
 	SLIST_ENTRY(socketgroup) sle;
 	int *fds;
-	int fd_cnt;
+	unsigned int junkfds:1, fd_cnt:31;
 	char name[0];
 };
 
-static bool socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt);
+static bool socketgroup_new(struct jobcb *j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds);
 static void socketgroup_delete(struct jobcb *j, struct socketgroup *sg);
 static void socketgroup_watch(struct jobcb *j, struct socketgroup *sg);
 static void socketgroup_ignore(struct jobcb *j, struct socketgroup *sg);
@@ -492,7 +492,7 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 {
 	launch_data_t tmp_oai;
 	struct jobcb *j = context;
-	int i, fd_cnt = 1;
+	unsigned int i, fd_cnt = 1;
 	int *fds;
 
 	if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY)
@@ -509,7 +509,7 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 		fds[i] = launch_data_get_fd(tmp_oai);
 	}
 
-	socketgroup_new(j, key, fds, fd_cnt);
+	socketgroup_new(j, key, fds, fd_cnt, strcmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0);
 
 	ipc_revoke_fds(obj);
 }
@@ -774,6 +774,10 @@ job_import(launch_data_t pload)
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOCKETS))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
 			launch_data_dict_iterate(tmp, socketgroup_setup, j);
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_BONJOURFDS))) {
+		socketgroup_setup(tmp, LAUNCH_JOBKEY_BONJOURFDS, j);
 	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
@@ -1625,7 +1629,7 @@ calendarinterval_callback(struct jobcb *j, struct kevent *kev)
 }
 
 bool
-socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt)
+socketgroup_new(struct jobcb *j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds)
 {
 	struct socketgroup *sg = calloc(1, sizeof(struct socketgroup) + strlen(name) + 1);
 
@@ -1634,6 +1638,7 @@ socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt)
 
 	sg->fds = calloc(1, fd_cnt * sizeof(int));
 	sg->fd_cnt = fd_cnt;
+	sg->junkfds = junkfds;
 
 	if (!launchd_assumes(sg->fds != NULL)) {
 		free(sg);
@@ -1651,7 +1656,7 @@ socketgroup_new(struct jobcb *j, const char *name, int *fds, int fd_cnt)
 void
 socketgroup_delete(struct jobcb *j, struct socketgroup *sg)
 {
-	int i;
+	unsigned int i;
 
 	for (i = 0; i < sg->fd_cnt; i++)
 		launchd_assumes(close(sg->fds[i]) != -1);
@@ -1666,7 +1671,10 @@ void
 socketgroup_ignore(struct jobcb *j, struct socketgroup *sg)
 {
 	char buf[10000];
-	int i, buf_off = 0;
+	unsigned int i, buf_off = 0;
+
+	if (sg->junkfds)
+		return;
 
 	for (i = 0; i < sg->fd_cnt; i++)
 		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
@@ -1681,7 +1689,10 @@ void
 socketgroup_watch(struct jobcb *j, struct socketgroup *sg)
 {
 	char buf[10000];
-	int i, buf_off = 0;
+	unsigned int i, buf_off = 0;
+
+	if (sg->junkfds)
+		return;
 
 	for (i = 0; i < sg->fd_cnt; i++)
 		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
