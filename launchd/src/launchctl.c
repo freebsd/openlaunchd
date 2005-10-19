@@ -68,6 +68,8 @@ static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char 
 static void submit_job_pass(launch_data_t jobs);
 static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup);
 static mach_port_t str2bsport(const char *s);
+static void print_jobs(launch_data_t j, const char *label, void *context);
+static void print_obj(launch_data_t obj, const char *key, void *context);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -1117,7 +1119,8 @@ static int start_stop_remove_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static void print_jobs(launch_data_t j __attribute__((unused)), const char *label, void *context __attribute__((unused)))
+void
+print_jobs(launch_data_t j __attribute__((unused)), const char *label, void *context __attribute__((unused)))
 {
 	launch_data_t pido = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PID);
 	launch_data_t stato = launch_data_dict_lookup(j, LAUNCH_JOBKEY_LASTEXITSTATUS);
@@ -1138,29 +1141,79 @@ static void print_jobs(launch_data_t j __attribute__((unused)), const char *labe
 	}
 }
 
-static int list_cmd(int argc, char *const argv[])
+void
+print_obj(launch_data_t obj, const char *key, void *context __attribute__((unused)))
+{
+	static size_t indent = 0;
+	size_t i, c;
+
+	for (i = 0; i < indent; i++)
+		fprintf(stdout, "\t");
+
+	if (key)
+		fprintf(stdout, "\"%s\" = ", key);
+
+	switch (launch_data_get_type(obj)) {
+	case LAUNCH_DATA_STRING:
+		fprintf(stdout, "\"%s\";\n", launch_data_get_string(obj));
+		break;
+	case LAUNCH_DATA_INTEGER:
+		fprintf(stdout, "%lld;\n", launch_data_get_integer(obj));
+		break;
+	case LAUNCH_DATA_REAL:
+		fprintf(stdout, "%f;\n", launch_data_get_real(obj));
+		break;
+	case LAUNCH_DATA_BOOL:
+		fprintf(stdout, "%s;\n", launch_data_get_bool(obj) ? "true" : "false");
+		break;
+	case LAUNCH_DATA_ARRAY:
+		c = launch_data_array_get_count(obj);
+		fprintf(stdout, "(\n");
+		indent++;
+		for (i = 0; i < c; i++)
+			print_obj(launch_data_array_get_index(obj, i), NULL, NULL);
+		indent--;
+		for (i = 0; i < indent; i++)
+			fprintf(stdout, "\t");
+		fprintf(stdout, ");\n");
+		break;
+	case LAUNCH_DATA_DICTIONARY:
+		fprintf(stdout, "{\n");
+		indent++;
+		launch_data_dict_iterate(obj, print_obj, NULL);
+		indent--;
+		for (i = 0; i < indent; i++)
+			fprintf(stdout, "\t");
+		fprintf(stdout, "};\n");
+		break;
+	case LAUNCH_DATA_FD:
+		fprintf(stdout, "file-descriptor-object;\n");
+		break;
+	case LAUNCH_DATA_MACHPORT:
+		fprintf(stdout, "mach-port-object;\n");
+		break;
+	default:
+		fprintf(stdout, "???;\n");
+		break;
+	}
+}
+
+int
+list_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
-	int ch, r = 0;
-	bool vflag = false;
+	int r = 0;
 
-	while ((ch = getopt(argc, argv, "v")) != -1) {
-		switch (ch) {
-		case 'v':
-			vflag = true;
-			break;
-		default:
-			fprintf(stderr, "usage: %s list [-v]\n", getprogname());
-			return 1;
-		}
-	}
-
-	if (vflag) {
-		fprintf(stderr, "usage: %s list: \"-v\" flag not implemented yet\n", getprogname());
+	if (argc > 2) {
+		fprintf(stderr, "usage: %s list [label]\n", getprogname());
 		return 1;
+	} else if (argc == 2) {
+		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+		launch_data_dict_insert(msg, launch_data_new_string(argv[1]), LAUNCH_KEY_GETJOB);
+	} else {
+		msg = launch_data_new_string(LAUNCH_KEY_GETJOBS);
 	}
 
-	msg = launch_data_new_string(LAUNCH_KEY_GETJOBS);
 	resp = launch_msg(msg);
 	launch_data_free(msg);
 
@@ -1168,8 +1221,12 @@ static int list_cmd(int argc, char *const argv[])
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
 	} else if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
-		fprintf(stdout, "PID\tStatus\tLabel\n");
-		launch_data_dict_iterate(resp, print_jobs, NULL);
+		if (argc == 1) {
+			fprintf(stdout, "PID\tStatus\tLabel\n");
+			launch_data_dict_iterate(resp, print_jobs, NULL);
+		} else {
+			print_obj(resp, NULL, NULL);
+		}
 	} else {
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
 		r = 1;

@@ -334,6 +334,9 @@ job_export(struct jobcb *j)
 	if ((tmp = launch_data_new_string(j->label)))
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LABEL);
 
+	if ((tmp = launch_data_new_bool(j->ondemand)))
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_ONDEMAND);
+
 	if ((tmp = launch_data_new_integer(j->last_exit_status)))
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LASTEXITSTATUS);
 
@@ -1153,8 +1156,10 @@ job_start(struct jobcb *j)
 	int execspair[2];
 	char nbuf[64];
 	pid_t c;
-	bool sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
+	bool sipc = false;
 
+	if (!j->legacy_mach_job)
+		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
 
 	job_log(j, LOG_DEBUG, "Starting");
 
