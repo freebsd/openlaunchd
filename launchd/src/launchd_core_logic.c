@@ -105,6 +105,8 @@ struct machservice {
 	char			name[0];
 };
 
+static void machservice_setup(launch_data_t obj, const char *key, void *context);
+
 
 struct socketgroup {
 	SLIST_ENTRY(socketgroup) sle;
@@ -196,17 +198,19 @@ struct jobcb {
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, inetcompat_wait:1,
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
-		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, __pad:1;
+		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
 	char label[0];
 };
 
+static struct jobcb *job_import2(launch_data_t pload);
 static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static bool job_useless(struct jobcb *j);
 static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
+static bool job_setup_machport(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
@@ -382,6 +386,17 @@ job_export(struct jobcb *j)
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_SOCKETS);
 	}
 
+	if (!SLIST_EMPTY(&j->machservices) && (tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY))) {
+		struct machservice *ms;
+
+		SLIST_FOREACH(ms, &j->machservices, sle) {
+			tmp2 = launch_data_new_machport(MACH_PORT_NULL);
+			launch_data_dict_insert(tmp, tmp2, ms->name);
+		}
+
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_MACHSERVICES);
+	}
+
 	return r;
 }
 
@@ -514,6 +529,22 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 	ipc_revoke_fds(obj);
 }
 
+bool
+job_setup_machport(struct jobcb *j)
+{
+	if (!launchd_assumes(launchd_mport_create_recv(&j->priv_port, j) == KERN_SUCCESS))
+		goto out_bad;
+
+	if (!launchd_assumes(launchd_mport_watch(j->priv_port) == KERN_SUCCESS))
+		goto out_bad2;
+
+	return true;
+out_bad2:
+	launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
+out_bad:
+	return false;
+}
+
 struct jobcb *
 job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond)
 {
@@ -539,14 +570,13 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 	j->legacy_mach_job = true;
 	j->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
 
-	if (!launchd_assumes(launchd_mport_create_recv(&j->priv_port, j) == KERN_SUCCESS))
+	if (!job_setup_machport(j))
 		goto out_bad;
 
-	if (!launchd_assumes(launchd_mport_notify_req(j->priv_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS))
-		goto out_bad2;
-
-	if (!launchd_assumes(launchd_mport_watch(j->priv_port) == KERN_SUCCESS))
-		goto out_bad2;
+	if (!launchd_assumes(launchd_mport_notify_req(j->priv_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
+		launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
+		goto out_bad;
+	}
 
 	sprintf(j->label, "via_mach_init.%d.%s", MACH_PORT_INDEX(j->priv_port), basename(argv[0]));
 
@@ -554,8 +584,6 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 
 	return j;
 
-out_bad2:
-	launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
 out_bad:
 	if (j)
 		job_remove(j);
@@ -639,11 +667,56 @@ out_bad:
 struct jobcb *
 job_import(launch_data_t pload)
 {
+	struct jobcb *j = job_import2(pload);
+
+	if (j == NULL)
+		return NULL;
+
+	if (j->runatload) {
+		job_start(j);
+	} else {
+		job_dispatch(j);
+	}
+
+	return j;
+}
+
+launch_data_t
+job_import_bulk(launch_data_t pload)
+{
+	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	struct jobcb **ja;
+	size_t i, c = launch_data_array_get_count(pload);
+
+	ja = alloca(c * sizeof(struct jobcb *));
+
+	for (i = 0; i < c; i++) {
+		if ((ja[i] = job_import2(launch_data_array_get_index(pload, i))))
+			errno = 0;
+		launch_data_array_set_index(resp, launch_data_new_errno(errno), i);
+	}
+
+	for (i = 0; i < c; i++) {
+		if (ja[i] == NULL)
+			continue;
+		if (ja[i]->runatload) {
+			job_start(ja[i]);
+		} else {
+			job_dispatch(ja[i]);
+		}
+	}
+
+	return resp;
+}
+
+
+struct jobcb *
+job_import2(launch_data_t pload)
+{
 	launch_data_t tmp, ldpa;
 	const char *label, *prog;
 	const char **argv = NULL;
 	struct jobcb *j;
-	bool run_at_load;
 
 	label = job_get_string(pload, LAUNCH_JOBKEY_LABEL);
 	prog = job_get_string(pload, LAUNCH_JOBKEY_PROGRAM);
@@ -703,7 +776,7 @@ job_import(launch_data_t pload)
 
 	j->init_groups = job_get_bool(pload, LAUNCH_JOBKEY_INITGROUPS);
 
-	run_at_load = job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD);
+	j->runatload = job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD);
 
 	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
 
@@ -774,6 +847,13 @@ job_import(launch_data_t pload)
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOCKETS))) {
 		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
 			launch_data_dict_iterate(tmp, socketgroup_setup, j);
+	}
+
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_MACHSERVICES))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
+			launch_data_dict_iterate(tmp, machservice_setup, j);
+		if (!SLIST_EMPTY(&j->machservices))
+			job_setup_machport(j);
 	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_BONJOURFDS))) {
@@ -848,12 +928,6 @@ job_import(launch_data_t pload)
 		}
 	}
 	
-	if (run_at_load) {
-		job_start(j);
-	} else {
-		job_dispatch(j);
-	}
-
 	return j;
 }
 
@@ -1079,7 +1153,7 @@ job_start(struct jobcb *j)
 	int execspair[2];
 	char nbuf[64];
 	pid_t c;
-	bool sipc = !SLIST_EMPTY(&j->sockets);
+	bool sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
 
 
 	job_log(j, LOG_DEBUG, "Starting");
@@ -1854,34 +1928,24 @@ bool
 job_active(struct jobcb *j)
 {
 	struct machservice *servicep;
-	bool active_services = false;
-	const char *exited_or_died = "Died";
 
 	if (j->p)
 		return true;
 
-	if (WIFEXITED(j->last_exit_status))
-		exited_or_died = "Exited";
-
 	if (j->priv_port_has_senders) {
-		if (j->legacy_mach_job) {
-			if (j->start_time && !j->checkedin)
+		if (j->start_time && !j->checkedin) {
+			if (j->legacy_mach_job) {
 				job_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
-			return true;
+			} else {
+				job_log(j, LOG_ERR, "Daemonization is not supported under launchd.");
+				return false;
+			}
 		}
-		job_log(j, LOG_WARNING, "%s with the privileged bootstrap port leaked!", exited_or_died);
+		return true;
 	}
 
 	SLIST_FOREACH(servicep, &j->machservices, sle) {
-		if (servicep->isActive) {
-			active_services = true;
-			break;
-		}
-	}
-
-	if (active_services) {
-		job_log(j, LOG_NOTICE, "%s with Mach services still active!", exited_or_died);
-		if (j->legacy_mach_job)
+		if (servicep->isActive)
 			return true;
 	}
 
@@ -1965,6 +2029,20 @@ out_bad2:
 out_bad:
 	free(servicep);
 	return NULL;
+}
+
+void
+machservice_setup(launch_data_t obj, const char *key, void *context)
+{
+	struct jobcb *j = context;
+	struct machservice *ms;
+	mach_port_t p;
+
+	if (bootstrap_lookup_service(j->bstrap, key) == NULL) {
+		ms = machservice_new(j->bstrap, key, &p, j);
+		if (ms)
+			ms->isActive = false;
+	}
 }
 
 /*

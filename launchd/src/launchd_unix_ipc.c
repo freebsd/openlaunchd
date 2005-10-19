@@ -334,14 +334,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SUBMITJOB)) {
 		if (launch_data_get_type(data) == LAUNCH_DATA_ARRAY) {
-			size_t i;
-
-			resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
-			for (i = 0; i < launch_data_array_get_count(data); i++) {
-				if (job_import(launch_data_array_get_index(data, i)))
-					errno = 0;
-				launch_data_array_set_index(resp, launch_data_new_errno(errno), i);
-			}
+			resp = job_import_bulk(data);
 		} else {
 			if (job_import(data))
 				errno = 0;

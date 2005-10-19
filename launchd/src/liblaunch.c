@@ -20,6 +20,8 @@
  * 
  * @APPLE_LICENSE_HEADER_END@
  */
+#include <mach/mach.h>
+#include <servers/bootstrap.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/fcntl.h>
@@ -51,6 +53,7 @@ struct _launch_data {
 			size_t opaque_size;
 		};
 		int fd;
+		mach_port_t mp;
 		int err;
 		long long number;
 		bool boolean;
@@ -74,6 +77,10 @@ static void make_msg_and_cmsg(launch_data_t, void **, size_t *, int **, size_t *
 static launch_data_t make_data(launch_t, size_t *, size_t *);
 static launch_data_t launch_data_array_pop_first(launch_data_t where);
 static int _fd(int fd);
+static void launch_client_init(void);
+static void launch_msg_getmsgs(launch_data_t m, void *context);
+static launch_data_t launch_msg_internal(launch_data_t d);
+static void launch_mach_checkin_service(launch_data_t obj, const char *key, void *context);
 
 static pthread_once_t _lc_once = PTHREAD_ONCE_INIT;
 
@@ -83,7 +90,8 @@ static struct _launch_client {
 	launch_data_t	async_resp;
 } *_lc = NULL;
 
-static void launch_client_init(void)
+void
+launch_client_init(void)
 {
 	struct sockaddr_un sun;
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
@@ -140,7 +148,8 @@ out_bad:
 	_lc = NULL;
 }
 
-launch_data_t launch_data_alloc(launch_data_type_t t)
+launch_data_t
+launch_data_alloc(launch_data_type_t t)
 {
 	launch_data_t d = calloc(1, sizeof(struct _launch));
 
@@ -159,12 +168,14 @@ launch_data_t launch_data_alloc(launch_data_type_t t)
 	return d;
 }
 
-launch_data_type_t launch_data_get_type(launch_data_t d)
+launch_data_type_t
+launch_data_get_type(launch_data_t d)
 {
 	return d->type;
 }
 
-void launch_data_free(launch_data_t d)
+void
+launch_data_free(launch_data_t d)
 {
 	size_t i;
 
@@ -189,13 +200,15 @@ void launch_data_free(launch_data_t d)
 	free(d);
 }
 
-size_t launch_data_dict_get_count(launch_data_t dict)
+size_t
+launch_data_dict_get_count(launch_data_t dict)
 {
 	return dict->_array_cnt / 2;
 }
 
 
-bool launch_data_dict_insert(launch_data_t dict, launch_data_t what, const char *key)
+bool
+launch_data_dict_insert(launch_data_t dict, launch_data_t what, const char *key)
 {
 	size_t i;
 	launch_data_t thekey = launch_data_alloc(LAUNCH_DATA_STRING);
@@ -214,7 +227,8 @@ bool launch_data_dict_insert(launch_data_t dict, launch_data_t what, const char 
 	return true;
 }
 
-launch_data_t launch_data_dict_lookup(launch_data_t dict, const char *key)
+launch_data_t
+launch_data_dict_lookup(launch_data_t dict, const char *key)
 {
 	size_t i;
 
@@ -229,7 +243,8 @@ launch_data_t launch_data_dict_lookup(launch_data_t dict, const char *key)
 	return NULL;
 }
 
-bool launch_data_dict_remove(launch_data_t dict, const char *key)
+bool
+launch_data_dict_remove(launch_data_t dict, const char *key)
 {
 	size_t i;
 
@@ -246,7 +261,8 @@ bool launch_data_dict_remove(launch_data_t dict, const char *key)
 	return true;
 }
 
-void launch_data_dict_iterate(launch_data_t dict, void (*cb)(launch_data_t, const char *, void *), void *context)
+void
+launch_data_dict_iterate(launch_data_t dict, void (*cb)(launch_data_t, const char *, void *), void *context)
 {
 	size_t i;
 
@@ -257,7 +273,8 @@ void launch_data_dict_iterate(launch_data_t dict, void (*cb)(launch_data_t, cons
 		cb(dict->_array[i + 1], dict->_array[i]->string, context);
 }
 
-bool launch_data_array_set_index(launch_data_t where, launch_data_t what, size_t ind)
+bool
+launch_data_array_set_index(launch_data_t where, launch_data_t what, size_t ind)
 {
 	if ((ind + 1) >= where->_array_cnt) {
 		where->_array = realloc(where->_array, (ind + 1) * sizeof(launch_data_t));
@@ -271,7 +288,8 @@ bool launch_data_array_set_index(launch_data_t where, launch_data_t what, size_t
 	return true;
 }
 
-launch_data_t launch_data_array_get_index(launch_data_t where, size_t ind)
+launch_data_t
+launch_data_array_get_index(launch_data_t where, size_t ind)
 {
 	if (LAUNCH_DATA_ARRAY != where->type)
 		return NULL;
@@ -280,7 +298,8 @@ launch_data_t launch_data_array_get_index(launch_data_t where, size_t ind)
 	return NULL;
 }
 
-launch_data_t launch_data_array_pop_first(launch_data_t where)
+launch_data_t
+launch_data_array_pop_first(launch_data_t where)
 {
 	launch_data_t r = NULL;
        
@@ -292,44 +311,58 @@ launch_data_t launch_data_array_pop_first(launch_data_t where)
 	return r;
 }
 
-size_t launch_data_array_get_count(launch_data_t where)
+size_t
+launch_data_array_get_count(launch_data_t where)
 {
 	if (LAUNCH_DATA_ARRAY != where->type)
 		return 0;
 	return where->_array_cnt;
 }
 
-bool launch_data_set_errno(launch_data_t d, int e)
+bool
+launch_data_set_errno(launch_data_t d, int e)
 {
 	d->err = e;
 	return true;
 }
 
-bool launch_data_set_fd(launch_data_t d, int fd)
+bool
+launch_data_set_fd(launch_data_t d, int fd)
 {
 	d->fd = fd;
 	return true;
 }
 
-bool launch_data_set_integer(launch_data_t d, long long n)
+bool
+launch_data_set_machport(launch_data_t d, mach_port_t p)
+{
+	d->mp = p;
+	return true;
+}
+
+bool
+launch_data_set_integer(launch_data_t d, long long n)
 {
 	d->number = n;
 	return true;
 }
 
-bool launch_data_set_bool(launch_data_t d, bool b)
+bool
+launch_data_set_bool(launch_data_t d, bool b)
 {
 	d->boolean = b;
 	return true;
 }
 
-bool launch_data_set_real(launch_data_t d, double n)
+bool
+launch_data_set_real(launch_data_t d, double n)
 {
 	d->float_num = n;
 	return true;
 }
 
-bool launch_data_set_string(launch_data_t d, const char *s)
+bool
+launch_data_set_string(launch_data_t d, const char *s)
 {
 	if (d->string)
 		free(d->string);
@@ -341,7 +374,8 @@ bool launch_data_set_string(launch_data_t d, const char *s)
 	return false;
 }
 
-bool launch_data_set_opaque(launch_data_t d, const void *o, size_t os)
+bool
+launch_data_set_opaque(launch_data_t d, const void *o, size_t os)
 {
 	d->opaque_size = os;
 	if (d->opaque)
@@ -354,56 +388,72 @@ bool launch_data_set_opaque(launch_data_t d, const void *o, size_t os)
 	return false;
 }
 
-int launch_data_get_errno(launch_data_t d)
+int
+launch_data_get_errno(launch_data_t d)
 {
 	return d->err;
 }
 
-int launch_data_get_fd(launch_data_t d)
+int
+launch_data_get_fd(launch_data_t d)
 {
 	return d->fd;
 }
 
-long long launch_data_get_integer(launch_data_t d)
+mach_port_t
+launch_data_get_machport(launch_data_t d)
+{
+	return d->mp;
+}
+
+long long
+launch_data_get_integer(launch_data_t d)
 {
 	return d->number;
 }
 
-bool launch_data_get_bool(launch_data_t d)
+bool
+launch_data_get_bool(launch_data_t d)
 {
 	return d->boolean;
 }
 
-double launch_data_get_real(launch_data_t d)
+double
+launch_data_get_real(launch_data_t d)
 {
 	return d->float_num;
 }
 
-const char *launch_data_get_string(launch_data_t d)
+const char *
+launch_data_get_string(launch_data_t d)
 {
 	if (LAUNCH_DATA_STRING != d->type)
 		return NULL;
 	return d->string;
 }
 
-void *launch_data_get_opaque(launch_data_t d)
+void *
+launch_data_get_opaque(launch_data_t d)
 {
 	if (LAUNCH_DATA_OPAQUE != d->type)
 		return NULL;
 	return d->opaque;
 }
 
-size_t launch_data_get_opaque_size(launch_data_t d)
+size_t
+launch_data_get_opaque_size(launch_data_t d)
 {
 	return d->opaque_size;
 }
 
-int launchd_getfd(launch_t l)
+int
+launchd_getfd(launch_t l)
 {
 	return l->fd;
 }
 
-launch_t launchd_fdopen(int fd)
+launch_t
+launchd_fdopen(int fd)
 {
         launch_t c;
 
@@ -439,7 +489,8 @@ out_bad:
 	return NULL;
 }
 
-void launchd_close(launch_t lh)
+void
+launchd_close(launch_t lh)
 {
 	if (lh->sendbuf)
 		free(lh->sendbuf);
@@ -453,7 +504,8 @@ void launchd_close(launch_t lh)
 	free(lh);
 }
 
-static void make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **fd_where, size_t *fdcnt)
+void
+make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **fd_where, size_t *fdcnt)
 {
 	size_t i;
 
@@ -543,6 +595,7 @@ static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoff
 	case LAUNCH_DATA_REAL:
 	case LAUNCH_DATA_BOOL:
 	case LAUNCH_DATA_ERRNO:
+	case LAUNCH_DATA_MACHPORT:
 		break;
 	default:
 		errno = EINVAL;
@@ -617,7 +670,8 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 }
 
 
-int launch_get_fd(void)
+int
+launch_get_fd(void)
 {
 	pthread_once(&_lc_once, launch_client_init);
 
@@ -629,7 +683,8 @@ int launch_get_fd(void)
 	return _lc->l->fd;
 }
 
-static void launch_msg_getmsgs(launch_data_t m, void *context)
+void
+launch_msg_getmsgs(launch_data_t m, void *context)
 {
 	launch_data_t async_resp, *sync_resp = context;
 	
@@ -640,7 +695,52 @@ static void launch_msg_getmsgs(launch_data_t m, void *context)
 	}
 }
 
-launch_data_t launch_msg(launch_data_t d)
+void
+launch_mach_checkin_service(launch_data_t obj, const char *key, void *context __attribute__((unused)))
+{
+	kern_return_t result;
+	mach_port_t p;
+	name_t srvnm;
+
+	strlcpy(srvnm, key, sizeof(srvnm));
+
+	result = bootstrap_check_in(bootstrap_port, srvnm, &p);
+
+	if (result == BOOTSTRAP_SUCCESS)
+		launch_data_set_machport(obj, p);
+}
+
+launch_data_t
+launch_msg(launch_data_t d)
+{
+	launch_data_t mps, r = launch_msg_internal(d);
+	mach_port_t newbs;
+
+	if (launch_data_get_type(d) == LAUNCH_DATA_STRING) {
+		if (strcmp(launch_data_get_string(d), LAUNCH_KEY_CHECKIN) != 0)
+			return r;
+		if (r == NULL)
+			return r;
+		if (launch_data_get_type(r) != LAUNCH_DATA_DICTIONARY)
+			return r;
+		mps = launch_data_dict_lookup(r, LAUNCH_JOBKEY_MACHSERVICES);
+		if (mps == NULL)
+			return r;
+		launch_data_dict_iterate(mps, launch_mach_checkin_service, NULL);
+
+		if (BOOTSTRAP_SUCCESS == bootstrap_unprivileged(bootstrap_port, &newbs)) {
+			if (KERN_SUCCESS == task_set_bootstrap_port(mach_task_self(), newbs)) {
+				mach_port_deallocate(mach_task_self(), bootstrap_port);
+				bootstrap_port = newbs;
+			}
+		}
+	}
+
+	return r;
+}
+
+launch_data_t
+launch_msg_internal(launch_data_t d)
 {
 	launch_data_t resp = NULL;
 
@@ -853,6 +953,16 @@ launch_data_t launch_data_new_fd(int fd)
 
 	if (r)
 	       launch_data_set_fd(r, fd);
+
+	return r;
+}
+
+launch_data_t launch_data_new_machport(mach_port_t p)
+{
+	launch_data_t r = launch_data_alloc(LAUNCH_DATA_MACHPORT);
+
+	if (r)
+	       launch_data_set_machport(r, p);
 
 	return r;
 }

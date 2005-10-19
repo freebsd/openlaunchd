@@ -23,6 +23,7 @@
 #ifndef _LAUNCH_H_
 #define _LAUNCH_H_
 
+#include <mach/mach.h>
 #include <stddef.h>
 #include <stdbool.h>
 
@@ -117,6 +118,7 @@ typedef enum {
 	LAUNCH_DATA_STRING,
 	LAUNCH_DATA_OPAQUE,
 	LAUNCH_DATA_ERRNO,
+	LAUNCH_DATA_MACHPORT,
 } launch_data_type_t;
 
 launch_data_t		launch_data_alloc(launch_data_type_t);
@@ -138,6 +140,7 @@ launch_data_t	launch_data_array_get_index(launch_data_t, size_t);
 size_t		launch_data_array_get_count(launch_data_t);
 
 launch_data_t	launch_data_new_fd(int);
+launch_data_t	launch_data_new_machport(mach_port_t);
 launch_data_t	launch_data_new_integer(long long);
 launch_data_t	launch_data_new_bool(bool);
 launch_data_t	launch_data_new_real(double);
@@ -145,6 +148,7 @@ launch_data_t	launch_data_new_string(const char *);
 launch_data_t	launch_data_new_opaque(const void *, size_t);
 
 bool		launch_data_set_fd(launch_data_t, int);
+bool		launch_data_set_machport(launch_data_t, mach_port_t);
 bool		launch_data_set_integer(launch_data_t, long long);
 bool		launch_data_set_bool(launch_data_t, bool);
 bool		launch_data_set_real(launch_data_t, double);
@@ -152,6 +156,7 @@ bool		launch_data_set_string(launch_data_t, const char *);
 bool		launch_data_set_opaque(launch_data_t, const void *, size_t);
 
 int		launch_data_get_fd(launch_data_t);
+mach_port_t	launch_data_get_machport(launch_data_t);
 long long	launch_data_get_integer(launch_data_t);
 bool		launch_data_get_bool(launch_data_t);
 double		launch_data_get_real(launch_data_t);
