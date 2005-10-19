@@ -254,11 +254,10 @@ if [ -f /Library/Preferences/com.apple.sharing.firewall.plist ]; then
 fi
 
 # Load [ideally on demand] daemons
-/usr/libexec/register_mach_bootstrap_servers /etc/mach_init.d
 if [ "${SafeBoot}" = "-x" ]; then
-	launchctl load /System/Library/LaunchDaemons
+	launchctl load /System/Library/LaunchDaemons /etc/mach_init.d
 else
-	launchctl load /Library/LaunchDaemons /System/Library/LaunchDaemons
+	launchctl load /Library/LaunchDaemons /System/Library/LaunchDaemons /etc/mach_init.d
 	SystemStarter ${VerboseFlag}
 fi
 

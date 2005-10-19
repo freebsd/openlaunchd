@@ -52,6 +52,14 @@
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
 
+#define MACHINIT_JOBKEY_ONDEMAND	"OnDemand"
+#define MACHINIT_JOBKEY_SERVICENAME	"ServiceName"
+#define MACHINIT_JOBKEY_COMMAND		"Command"
+#define MACHINIT_JOBKEY_ISKUNCSERVER	"isKUNCServer"
+#define MACHINIT_JOBKEY_SERVERPORT	"ServerPort"
+#define MACHINIT_JOBKEY_SERVICEPORT	"ServicePort"
+
+
 static void myCFDictionaryApplyFunction(const void *key, const void *value, void *context);
 static bool launch_data_array_append(launch_data_t a, launch_data_t o);
 static void distill_config_file(launch_data_t);
@@ -61,15 +69,21 @@ static launch_data_t CF2launch_data(CFTypeRef);
 static launch_data_t read_plist_file(const char *file, bool editondisk, bool load);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
-static void readpath(const char *, launch_data_t, launch_data_t, bool editondisk, bool load, bool forceload);
+static void readpath(const char *, launch_data_t, launch_data_t, launch_data_t, bool editondisk, bool load, bool forceload);
+static void readfile(const char *, launch_data_t, launch_data_t, launch_data_t, bool editondisk, bool load, bool forceload);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
 static void submit_job_pass(launch_data_t jobs);
+static void submit_mach_jobs(launch_data_t jobs);
+static void let_go_of_mach_jobs(launch_data_t jobs);
 static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup);
 static mach_port_t str2bsport(const char *s);
 static void print_jobs(launch_data_t j, const char *label, void *context);
 static void print_obj(launch_data_t obj, const char *key, void *context);
+static bool is_legacy_mach_job(launch_data_t obj);
+static bool delay_to_second_pass(launch_data_t o);
+static void delay_to_second_pass2(launch_data_t o, const char *key, void *context);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -321,7 +335,8 @@ static void unloadjob(launch_data_t job)
 	launch_data_free(resp);
 }
 
-static launch_data_t read_plist_file(const char *file, bool editondisk, bool load)
+launch_data_t
+read_plist_file(const char *file, bool editondisk, bool load)
 {
 	CFPropertyListRef plist = CreateMyPropertyListFromFile(file);
 	launch_data_t r = NULL;
@@ -346,7 +361,8 @@ static launch_data_t read_plist_file(const char *file, bool editondisk, bool loa
 	return r;
 }
 
-static void delay_to_second_pass2(launch_data_t o, const char *key, void *context)
+void
+delay_to_second_pass2(launch_data_t o, const char *key, void *context)
 {
 	bool *res = context;
 	size_t i;
@@ -369,7 +385,8 @@ static void delay_to_second_pass2(launch_data_t o, const char *key, void *contex
 	}
 }
 
-static bool delay_to_second_pass(launch_data_t o)
+bool
+delay_to_second_pass(launch_data_t o)
 {
 	bool res = false;
 
@@ -383,7 +400,8 @@ static bool delay_to_second_pass(launch_data_t o)
 	return res;
 }
 
-static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
+void
+readfile(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
 {
 	char ourhostname[1024];
 	launch_data_t tmpd, thejob, tmpa;
@@ -394,6 +412,22 @@ static void readfile(const char *what, launch_data_t pass1, launch_data_t pass2,
 
 	if (NULL == (thejob = read_plist_file(what, editondisk, load))) {
 		fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), what);
+		return;
+	}
+
+	if (is_legacy_mach_job(thejob)) {
+		struct stat sb;
+
+		if (stat("/AppleInternal", &sb) == 0) {
+			static bool printed_who_to_contact = false;
+			if (!printed_who_to_contact) {
+				fprintf(stderr, "Please contact zarzycki@apple.com for help on the following \"convert to launchd\" messages.\n");
+				printed_who_to_contact = true;
+			}
+			fprintf(stderr, "%s: Please convert the following to launchd: %s\n",
+					getprogname(), what);
+		}
+		launch_data_array_append(pass0, thejob);
 		return;
 	}
 
@@ -444,7 +478,8 @@ out_bad:
 	launch_data_free(thejob);
 }
 
-static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
+void
+readpath(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
 {
 	char buf[MAXPATHLEN];
 	struct stat sb;
@@ -455,7 +490,7 @@ static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2,
 		return;
 
 	if (S_ISREG(sb.st_mode) && !(sb.st_mode & S_IWOTH)) {
-		readfile(what, pass1, pass2, editondisk, load, forceload);
+		readfile(what, pass0, pass1, pass2, editondisk, load, forceload);
 	} else {
 		if ((d = opendir(what)) == NULL) {
 			fprintf(stderr, "%s: opendir() failed to open the directory\n", getprogname());
@@ -467,7 +502,7 @@ static void readpath(const char *what, launch_data_t pass1, launch_data_t pass2,
 				continue;
 			snprintf(buf, sizeof(buf), "%s/%s", what, de->d_name);
 
-			readfile(buf, pass1, pass2, editondisk, load, forceload);
+			readfile(buf, pass0, pass1, pass2, editondisk, load, forceload);
 		}
 		closedir(d);
 	}
@@ -960,7 +995,7 @@ static int _fd(int fd)
 
 static int load_and_unload_cmd(int argc, char *const argv[])
 {
-	launch_data_t pass1, pass2;
+	launch_data_t pass0, pass1, pass2;
 	int i, ch;
 	bool wflag = false;
 	bool lflag = false;
@@ -986,7 +1021,8 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 		return 1;
 	}
 
-	/* I wish I didn't need to do two passes, but I need to load mDNSResponder and use it too.
+	/* I wish I didn't need to do three passes, but I need to load mDNSResponder and use it too.
+	 * And loading legacy mach init jobs is extra fun.
 	 *
 	 * In later versions of launchd, I hope to load everything in the first pass,
 	 * then do the Bonjour magic on the jobs that need it, and reload them, but for now,
@@ -994,26 +1030,32 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 	 * launchd doesn't have reload support right now.
 	 */
 
+	pass0 = launch_data_alloc(LAUNCH_DATA_ARRAY);
 	pass1 = launch_data_alloc(LAUNCH_DATA_ARRAY);
 	pass2 = launch_data_alloc(LAUNCH_DATA_ARRAY);
 
 	for (i = 0; i < argc; i++)
-		readpath(argv[i], pass1, pass2, wflag, lflag, Fflag);
+		readpath(argv[i], pass0, pass1, pass2, wflag, lflag, Fflag);
 
-	if (0 == launch_data_array_get_count(pass1) && 0 == launch_data_array_get_count(pass2)) {
+	if (launch_data_array_get_count(pass0) == 0 &&
+			launch_data_array_get_count(pass1) == 0 &&
+			launch_data_array_get_count(pass2) == 0) {
 		fprintf(stderr, "nothing found to %s\n", lflag ? "load" : "unload");
+		launch_data_free(pass0);
 		launch_data_free(pass1);
 		launch_data_free(pass2);
 		return 1;
 	}
 	
 	if (lflag) {
-		if (0 < launch_data_array_get_count(pass1)) {
+		if (launch_data_array_get_count(pass0) > 0)
+			submit_mach_jobs(pass0);
+		if (launch_data_array_get_count(pass1) > 0)
 			submit_job_pass(pass1);
-		}
-		if (0 < launch_data_array_get_count(pass2)) {
+		if (launch_data_array_get_count(pass0) > 0)
+			let_go_of_mach_jobs(pass0);
+		if (launch_data_array_get_count(pass2) > 0)
 			submit_job_pass(pass2);
-		}
 	} else {
 		for (i = 0; i < (int)launch_data_array_get_count(pass1); i++)
 			unloadjob(launch_data_array_get_index(pass1, i));
@@ -1024,7 +1066,72 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 	return 0;
 }
 
-static void submit_job_pass(launch_data_t jobs)
+void
+submit_mach_jobs(launch_data_t jobs)
+{
+	size_t i, c;
+
+	c = launch_data_array_get_count(jobs);
+
+	for (i = 0; i < c; i++) {
+		launch_data_t tmp, oai = launch_data_array_get_index(jobs, i);
+		const char *sn = NULL, *cmd = NULL;
+		bool d = true, k = false;
+		mach_port_t msr, msv, mhp;
+		kern_return_t kr;
+		uid_t u = getuid();
+
+		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_ONDEMAND)))
+			d = launch_data_get_bool(tmp);
+		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_ISKUNCSERVER)))
+			k = launch_data_get_bool(tmp);
+		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_SERVICENAME)))
+			sn = launch_data_get_string(tmp);
+		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_COMMAND)))
+			cmd = launch_data_get_string(tmp);
+
+		if ((kr = bootstrap_create_server(bootstrap_port, (char *)cmd, u, d, &msr)) != KERN_SUCCESS) {
+			fprintf(stderr, "%s: bootstrap_create_server(): %d\n", getprogname(), kr);
+			continue;
+		}
+		if ((kr = bootstrap_create_service(msr, (char*)sn, &msv)) != KERN_SUCCESS) {
+			fprintf(stderr, "%s: bootstrap_create_service(): %d\n", getprogname(), kr);
+			mach_port_destroy(mach_task_self(), msr);
+			continue;
+		}
+		if (k) {
+			mhp = mach_host_self();
+			if ((kr = host_set_UNDServer(mhp, msv)) != KERN_SUCCESS)
+				fprintf(stderr, "%s: host_set_UNDServer(): %s\n", getprogname(), mach_error_string(kr));
+			mach_port_deallocate(mach_task_self(), mhp);
+		}
+		launch_data_dict_insert(oai, launch_data_new_machport(msr), MACHINIT_JOBKEY_SERVERPORT);
+		launch_data_dict_insert(oai, launch_data_new_machport(msv), MACHINIT_JOBKEY_SERVICEPORT);
+	}
+}
+
+void
+let_go_of_mach_jobs(launch_data_t jobs)
+{
+	size_t i, c = launch_data_array_get_count(jobs);
+
+	for (i = 0; i < c; i++) {
+		launch_data_t tmp, oai = launch_data_array_get_index(jobs, i);
+		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_SERVICEPORT))) {
+			mach_port_destroy(mach_task_self(), launch_data_get_machport(tmp));
+		} else {
+			fprintf(stderr, "%s: ack! missing service port!\n", getprogname());
+		}
+		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_SERVERPORT))) {
+			mach_port_destroy(mach_task_self(), launch_data_get_machport(tmp));
+		} else {
+			fprintf(stderr, "%s: ack! missing server port!\n", getprogname());
+		}
+	}
+}
+
+void
+submit_job_pass(launch_data_t jobs)
 {
 	launch_data_t msg, resp;
 	size_t i;
@@ -1867,4 +1974,14 @@ bslist_cmd(int argc, char *const argv[])
 		fprintf(stdout, "%-3s%s\n", bport_state((service_actives[i])), service_names[i]);
 
 	return 0;
+}
+
+bool
+is_legacy_mach_job(launch_data_t obj)
+{
+	bool has_servicename = launch_data_dict_lookup(obj, MACHINIT_JOBKEY_SERVICENAME);
+	bool has_command  = launch_data_dict_lookup(obj, MACHINIT_JOBKEY_COMMAND);
+	bool has_label = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_LABEL);
+
+	return has_command && has_servicename && !has_label;
 }

@@ -83,13 +83,11 @@ noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
-libexec_PROGRAMS = register_mach_bootstrap_servers launchproxy
+libexec_PROGRAMS = launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
-
-register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
 liblaunch_a_SOURCES = liblaunch.c
 
@@ -130,8 +128,7 @@ liblaunch_profile_a_LIBADD =
 am_liblaunch_profile_a_OBJECTS = liblaunch_profile_a-liblaunch.$(OBJEXT)
 liblaunch_profile_a_OBJECTS = $(am_liblaunch_profile_a_OBJECTS)
 bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
-libexec_PROGRAMS = register_mach_bootstrap_servers$(EXEEXT) \
-	launchproxy$(EXEEXT)
+libexec_PROGRAMS = launchproxy$(EXEEXT)
 sbin_PROGRAMS = launchd$(EXEEXT) SystemStarter$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS) $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 
@@ -158,12 +155,6 @@ launchproxy_SOURCES = launchproxy.c
 launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_LDADD = $(LDADD)
 launchproxy_DEPENDENCIES =
-register_mach_bootstrap_servers_SOURCES = \
-	register_mach_bootstrap_servers.c
-register_mach_bootstrap_servers_OBJECTS = \
-	register_mach_bootstrap_servers.$(OBJEXT)
-register_mach_bootstrap_servers_LDADD = $(LDADD)
-register_mach_bootstrap_servers_DEPENDENCIES =
 wait4path_SOURCES = wait4path.c
 wait4path_OBJECTS = wait4path.$(OBJEXT)
 wait4path_LDADD = $(LDADD)
@@ -192,7 +183,6 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-notifyServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/register_mach_bootstrap_servers.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/wait4path.Po
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -201,14 +191,14 @@ LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 CFLAGS = @CFLAGS@
 DIST_SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) \
 	$(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) \
-	launchproxy.c register_mach_bootstrap_servers.c wait4path.c
+	launchproxy.c wait4path.c
 
 NROFF = nroff
 MANS = $(man1_MANS) $(man5_MANS) $(man8_MANS)
 DATA = $(sysconf_DATA)
 
 DIST_COMMON = Makefile.am Makefile.in config.h.in
-SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) launchproxy.c register_mach_bootstrap_servers.c wait4path.c
+SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) $(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) launchproxy.c wait4path.c
 
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -345,9 +335,6 @@ launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES)
 launchproxy$(EXEEXT): $(launchproxy_OBJECTS) $(launchproxy_DEPENDENCIES) 
 	@rm -f launchproxy$(EXEEXT)
 	$(LINK) $(launchproxy_LDFLAGS) $(launchproxy_OBJECTS) $(launchproxy_LDADD) $(LIBS)
-register_mach_bootstrap_servers$(EXEEXT): $(register_mach_bootstrap_servers_OBJECTS) $(register_mach_bootstrap_servers_DEPENDENCIES) 
-	@rm -f register_mach_bootstrap_servers$(EXEEXT)
-	$(LINK) $(register_mach_bootstrap_servers_LDFLAGS) $(register_mach_bootstrap_servers_OBJECTS) $(register_mach_bootstrap_servers_LDADD) $(LIBS)
 wait4path$(EXEEXT): $(wait4path_OBJECTS) $(wait4path_DEPENDENCIES) 
 	@rm -f wait4path$(EXEEXT)
 	$(LINK) $(wait4path_LDFLAGS) $(wait4path_OBJECTS) $(wait4path_LDADD) $(LIBS)
@@ -392,7 +379,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/register_mach_bootstrap_servers.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wait4path.Po@am__quote@
 
 distclean-depend:
@@ -873,6 +859,7 @@ install-data-hook: install-startupitems
 	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 	mkdir -p $(DESTDIR)/usr/libexec
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
+	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/usr/local/include

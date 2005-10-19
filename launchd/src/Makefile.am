@@ -6,13 +6,11 @@ noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
-libexec_PROGRAMS = register_mach_bootstrap_servers launchproxy
+libexec_PROGRAMS = launchproxy
 
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
-
-register_mach_bootstrap_servers_LDFLAGS = -framework CoreFoundation
 
 liblaunch_a_SOURCES = liblaunch.c
 
@@ -64,6 +62,7 @@ install-data-hook: install-startupitems
 	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 	mkdir -p $(DESTDIR)/usr/libexec
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
+	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	mkdir -p $(DESTDIR)/usr/local/include

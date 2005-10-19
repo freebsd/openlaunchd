@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo This command is deprecated. Please use: launchctl load $@
+
+exec launchctl load $@
