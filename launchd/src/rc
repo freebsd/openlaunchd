@@ -40,12 +40,8 @@ echo "Mounting local filesystems"
 mount -uw /
 [ -f /etc/fstab ] && mount -vat nonfs
 
-BootCacheControl=/System/Library/Extensions/BootCache.kext/Contents/Resources/BootCacheControl
-if [ ! -f $BootCacheControl ]; then
-	BootCacheControl=/usr/sbin/BootCacheControl
-fi
-if [ "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
-	${BootCacheControl} start
+if [ "${SafeBoot}" != "-x" ]; then
+	BootCacheControl start
 fi
 
 if [ -f /etc/sysctl-macosxserver.conf ]; then
@@ -231,10 +227,6 @@ if [ ! -f /private/etc/mach_init.d/kextd.plist ]; then
 		echo "Configuring kernel extensions"
 		kextd
 	fi
-fi
-
-if [  "${SafeBoot}" != "-x" -a -x "${BootCacheControl}" ]; then
-	${BootCacheControl} tag
 fi
 
 # Create local NetInfo database if it doesn't exist
