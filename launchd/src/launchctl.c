@@ -516,16 +516,9 @@ struct distill_context {
 static void distill_config_file(launch_data_t id_plist)
 {
 	struct distill_context dc = { id_plist, NULL };
-	launch_data_t tmp, sipco = launch_data_dict_lookup(dc.base, LAUNCH_JOBKEY_SERVICEIPC);
-	bool sipc = sipco ? launch_data_get_bool(sipco) : false;
+	launch_data_t tmp;
 
 	if ((tmp = launch_data_dict_lookup(dc.base, LAUNCH_JOBKEY_SOCKETS))) {
-		if (!sipc && !launch_data_dict_lookup(dc.base, LAUNCH_JOBKEY_INETDCOMPATIBILITY)) {
-			fprintf(stderr, "%s specified without %s == true or %s will not work as expected.\n",
-					LAUNCH_JOBKEY_SOCKETS,
-					LAUNCH_JOBKEY_SERVICEIPC,
-					LAUNCH_JOBKEY_INETDCOMPATIBILITY);
-		}
 		dc.newsockdict = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		launch_data_dict_iterate(tmp, sock_dict_cb, &dc);
 		launch_data_dict_insert(dc.base, dc.newsockdict, LAUNCH_JOBKEY_SOCKETS);
