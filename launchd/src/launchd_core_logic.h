@@ -71,7 +71,7 @@ const char *job_prog(struct jobcb *j);
 bool job_reap_pid(pid_t p);
 #endif
 void job_remove(struct jobcb *j);
-void job_remove_all(void);
+void job_remove_all_inactive(void);
 void job_ack_port_destruction(struct jobcb *j, mach_port_t p);
 void job_ack_no_senders(struct jobcb *j);
 mach_port_t job_get_priv_port(struct jobcb *j);

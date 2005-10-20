@@ -404,22 +404,24 @@ job_export(struct jobcb *j)
 }
 
 static void
-job_remove_all2(struct bootstrap *b)
+job_remove_all_inactive2(struct bootstrap *b)
 {
 	struct bootstrap *sbi;
-	struct jobcb *ji;
+	struct jobcb *ji, *jn;
 
 	SLIST_FOREACH(sbi, &b->sub_bstraps, sle)
-		job_remove_all2(sbi);
+		job_remove_all_inactive2(sbi);
 
-	while ((ji = SLIST_FIRST(&b->jobs)))
-		job_remove(ji);
+	SLIST_FOREACH_SAFE(ji, &b->jobs, sle, jn) {
+		if (!job_active(ji))
+			job_remove(ji);
+	}
 }
 
 void
-job_remove_all(void)
+job_remove_all_inactive(void)
 {
-	job_remove_all2(root_bootstrap);
+	job_remove_all_inactive2(root_bootstrap);
 }
 
 void
@@ -1055,14 +1057,12 @@ job_dispatch(struct jobcb *j)
 {
 	if (job_active(j)) {
 		return;
-	} else if (job_useless(j)) {
+	} else if (job_useless(j) || shutdown_in_progress) {
 		job_remove(j);
 	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
 		job_log(j, LOG_WARNING, "too many failures in succession");
 		job_remove(j);
-	} else if (j->ondemand || shutdown_in_progress) {
-		if (!j->ondemand && shutdown_in_progress)
-			job_log(j, LOG_NOTICE, "exited while shutdown is in progress, will not restart unless demand requires it");
+	} else if (j->ondemand) {
 		job_watch(j);
 	} else if (!j->legacy_mach_job && j->throttle) {
 		j->throttle = false;
@@ -1626,7 +1626,7 @@ watchpath_watch(struct jobcb *j, struct watchpath *wp)
 
 	if (-1 == (qdir_file_cnt = dir_has_files(wp->name))) {
 		job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
-	} else if (qdir_file_cnt > 0 && !shutdown_in_progress) {
+	} else if (qdir_file_cnt > 0) {
 		job_start(j);
 	}
 }

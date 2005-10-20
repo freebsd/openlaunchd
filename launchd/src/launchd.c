@@ -273,8 +273,6 @@ int main(int argc, char *const *argv)
 			init_pre_kevent();
 
 		if (shutdown_in_progress && total_children == 0) {
-			job_remove_all();
-			
 			mach_init_reap();
 
 			shutdown_in_progress = false;
@@ -413,7 +411,9 @@ launchd_shutdown(void)
 {
 	shutdown_in_progress = true;
 
-	launchd_assumes(kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback) != -1);
+	launchd_assumes(close(asynckq) != -1);
+	
+	job_remove_all_inactive();
 
 	if (getpid() == 1)
 		catatonia();
