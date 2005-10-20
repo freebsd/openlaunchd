@@ -217,6 +217,11 @@ This optional key specifies what
 value should be applied to the daemon.
 .It Sy LowPriorityIO <boolean>
 This optional key specifies whether the kernel should consider this daemon to be low priority when doing file system I/O.
+.It Sy MachServices <dictionary of services>
+This optional key is used to specify Mach services to be registered with the Mach bootstrap sub-system.
+Each key in this dictionary should be the name of service to be advertised.
+The value of the key is ignored. Please set it to a boolean that is true to avoid future incompatiblity problems.
+At check in time, the values will be replaced with Mach ports.
 .It Sy Sockets <dictionary of dictionaries... OR dictionary of array of dictionaries...>
 This optional key is used to specify launch on demand sockets that can be used to let
 .Nm launchd
