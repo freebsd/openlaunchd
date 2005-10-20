@@ -541,11 +541,13 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename_raw, mach_por
 			job_checkin(j);
 		machservice_delete(servicep);
 	}
-	servicep = machservice_new(bootstrap, servicename, &serviceport, NULL);
 
-	machservice_watch(servicep);
-
-	syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", machservice_port(servicep), bootstrap_rport(machservice_bootstrap(servicep)), machservice_name(servicep));
+	if (serviceport != MACH_PORT_NULL) {
+		servicep = machservice_new(bootstrap, servicename, &serviceport, NULL);
+		machservice_watch(servicep);
+		syslog(LOG_INFO, "Registered service %x bootstrap %x: %s", machservice_port(servicep),
+				bootstrap_rport(machservice_bootstrap(servicep)), machservice_name(servicep));
+	}
 
 	return BOOTSTRAP_SUCCESS;
 }
