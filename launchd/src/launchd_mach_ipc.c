@@ -979,5 +979,11 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 		
 	bootstrap_delete_anything_with_port(root_bootstrap, name);
 
+	/* A dead-name notification about a port appears to increment the
+	 * rights on said port. Let's deallocate it so that we don't leak
+	 * dead-name ports.
+	 */
+	launchd_assumes(launchd_mport_deallocate(name) == KERN_SUCCESS);
+
 	return KERN_SUCCESS;
 }
