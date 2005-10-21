@@ -87,6 +87,10 @@ subsystem bootstrap 400;
 #include <mach/mach_types.defs>
 import <servers/bootstrap_defs.h>;
 
+/* MIG isn't very well documented. A coworker promises me that MIG promises
+ * that a "c_string" will be NULL terminated on the server side in the event that a
+ * client passed in a string longer than size specified here.
+ */
 type cmd_t			= c_string[512];
 type name_t			= c_string[128];
 type cmd_array_t		= ^array [] of cmd_t;
