@@ -77,42 +77,42 @@ am__quote = @am__quote@
 install_sh = @install_sh@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings
 
-sbin_SCRIPTS = service
+@LIBS_ONLY_TRUE@noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
+@LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c
 
-bin_PROGRAMS = launchctl wait4path
-sbin_PROGRAMS = launchd SystemStarter
-libexec_PROGRAMS = launchproxy
+@LIBS_ONLY_TRUE@liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
+@LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c
 
-sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
+@LIBS_ONLY_FALSE@sbin_SCRIPTS = service
 
-launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
+@LIBS_ONLY_FALSE@bin_PROGRAMS = launchctl wait4path
+@LIBS_ONLY_FALSE@sbin_PROGRAMS = launchd SystemStarter
+@LIBS_ONLY_FALSE@libexec_PROGRAMS = launchproxy
 
-liblaunch_a_SOURCES = liblaunch.c
+@LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
-liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c
+@LIBS_ONLY_FALSE@launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
 
-SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-SystemStarter_LDFLAGS = -framework CoreFoundation
-SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
+@LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+@LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation
+@LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
-launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
+@LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
+@LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
 
-launchproxy_LDFLAGS = -weak_framework Security
+@LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
+@LIBS_ONLY_FALSE@CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
 
-man1_MANS = wait4path.1 launchctl.1
+@LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 
-man5_MANS = launchd.plist.5 launchd.conf.5
+@LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
 
-man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launchproxy.8
+@LIBS_ONLY_FALSE@man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launchproxy.8
 
-STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
+@LIBS_ONLY_FALSE@STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 subdir = src
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = config.h
@@ -121,20 +121,25 @@ LIBRARIES = $(noinst_LIBRARIES)
 
 liblaunch_a_AR = $(AR) cru
 liblaunch_a_LIBADD =
-am_liblaunch_a_OBJECTS = liblaunch.$(OBJEXT)
+@LIBS_ONLY_TRUE@am_liblaunch_a_OBJECTS = liblaunch.$(OBJEXT)
 liblaunch_a_OBJECTS = $(am_liblaunch_a_OBJECTS)
 liblaunch_profile_a_AR = $(AR) cru
 liblaunch_profile_a_LIBADD =
-am_liblaunch_profile_a_OBJECTS = liblaunch_profile_a-liblaunch.$(OBJEXT)
+@LIBS_ONLY_TRUE@am_liblaunch_profile_a_OBJECTS = \
+@LIBS_ONLY_TRUE@	liblaunch_profile_a-liblaunch.$(OBJEXT)
 liblaunch_profile_a_OBJECTS = $(am_liblaunch_profile_a_OBJECTS)
-bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
-libexec_PROGRAMS = launchproxy$(EXEEXT)
-sbin_PROGRAMS = launchd$(EXEEXT) SystemStarter$(EXEEXT)
+@LIBS_ONLY_TRUE@bin_PROGRAMS =
+@LIBS_ONLY_FALSE@bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
+@LIBS_ONLY_TRUE@libexec_PROGRAMS =
+@LIBS_ONLY_FALSE@libexec_PROGRAMS = launchproxy$(EXEEXT)
+@LIBS_ONLY_TRUE@sbin_PROGRAMS =
+@LIBS_ONLY_FALSE@sbin_PROGRAMS = launchd$(EXEEXT) SystemStarter$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS) $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 
-am_SystemStarter_OBJECTS = SystemStarter-StartupItems.$(OBJEXT) \
-	SystemStarter-IPC.$(OBJEXT) \
-	SystemStarter-SystemStarter.$(OBJEXT)
+@LIBS_ONLY_FALSE@am_SystemStarter_OBJECTS = \
+@LIBS_ONLY_FALSE@	SystemStarter-StartupItems.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	SystemStarter-IPC.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	SystemStarter-SystemStarter.$(OBJEXT)
 SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_DEPENDENCIES =
@@ -142,12 +147,13 @@ launchctl_SOURCES = launchctl.c
 launchctl_OBJECTS = launchctl.$(OBJEXT)
 launchctl_LDADD = $(LDADD)
 launchctl_DEPENDENCIES =
-am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
-	launchd-launchd_core_logic.$(OBJEXT) \
-	launchd-launchd_unix_ipc.$(OBJEXT) \
-	launchd-launchd_mach_ipc.$(OBJEXT) launchd-init.$(OBJEXT) \
-	launchd-bootstrapServer.$(OBJEXT) \
-	launchd-notifyServer.$(OBJEXT)
+@LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-launchd_core_logic.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-launchd_unix_ipc.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-launchd_mach_ipc.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-init.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-bootstrapServer.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-notifyServer.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
@@ -834,42 +840,44 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 	uninstall-sbinSCRIPTS uninstall-sysconfDATA
 
 
-launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
+@LIBS_ONLY_TRUE@install-data-hook:
+@LIBS_ONLY_TRUE@	mkdir -p $(DESTDIR)/usr/local/lib/system
+@LIBS_ONLY_TRUE@	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
+@LIBS_ONLY_TRUE@	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
+@LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
-launchd_core_logic.c:: bootstrap.h bootstrapServer.h notifyServer.h
+@LIBS_ONLY_FALSE@launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
 
-bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
-	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h bootstrapServer.h notifyServer.h
 
-notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
-	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
+@LIBS_ONLY_FALSE@bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
 
-$(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
-	mkdir -p $@
-	cp $(srcdir)/StartupItems/$(notdir $@) $@
-	chmod 755 $@/$(notdir $@)
-	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
+@LIBS_ONLY_FALSE@notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
 
-install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
+@LIBS_ONLY_FALSE@$(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
+@LIBS_ONLY_FALSE@	mkdir -p $@
+@LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItems/$(notdir $@) $@
+@LIBS_ONLY_FALSE@	chmod 755 $@/$(notdir $@)
+@LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
 
-install-data-hook: install-startupitems
-	mkdir -p $(DESTDIR)/usr/local/lib/system
-	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
-	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
-	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
-	mkdir -p $(DESTDIR)/usr/libexec
-	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
-	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
-	mkdir -p $(DESTDIR)/usr/include
-	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
-	mkdir -p $(DESTDIR)/usr/local/include
-	cp $(srcdir)/launch_priv.h $(DESTDIR)/usr/local/include
-	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
-	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
-	mkdir -p $(DESTDIR)/Library/LaunchDaemons
-	mkdir -p $(DESTDIR)/Library/LaunchAgents
-	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
-	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
+@LIBS_ONLY_FALSE@install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
+
+@LIBS_ONLY_FALSE@install-data-hook: install-startupitems
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/libexec
+@LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
+@LIBS_ONLY_FALSE@	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/include
+@LIBS_ONLY_FALSE@	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/local/include
+@LIBS_ONLY_FALSE@	cp $(srcdir)/launch_priv.h $(DESTDIR)/usr/local/include
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/Library/LaunchDaemons
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/Library/LaunchAgents
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

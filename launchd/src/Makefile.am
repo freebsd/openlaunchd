@@ -1,8 +1,23 @@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings
 
-sbin_SCRIPTS = service
+if LIBS_ONLY
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
+
+liblaunch_a_SOURCES = liblaunch.c
+
+liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
+liblaunch_profile_a_SOURCES = liblaunch.c
+
+install-data-hook:
+	mkdir -p $(DESTDIR)/usr/local/lib/system
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
+	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
+	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
+
+else
+
+sbin_SCRIPTS = service
 
 bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
@@ -11,11 +26,6 @@ libexec_PROGRAMS = launchproxy
 sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
-
-liblaunch_a_SOURCES = liblaunch.c
-
-liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c
 
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation
@@ -56,10 +66,6 @@ $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
 
 install-data-hook: install-startupitems
-	mkdir -p $(DESTDIR)/usr/local/lib/system
-	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
-	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
-	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 	mkdir -p $(DESTDIR)/usr/libexec
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
@@ -73,3 +79,5 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
+
+endif

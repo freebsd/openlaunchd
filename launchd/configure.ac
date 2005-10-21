@@ -52,4 +52,7 @@ AC_CHECK_FUNCS([atexit dup2 gethostname gettimeofday memmove memset mkdir munmap
 AC_CONFIG_FILES([Makefile
                  doc/Makefile
                  src/Makefile])
+
+AM_CONDITIONAL(LIBS_ONLY, test "$RC_ProjectName" = launchd_libs)
+
 AC_OUTPUT
