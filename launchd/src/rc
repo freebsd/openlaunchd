@@ -293,4 +293,8 @@ fi
 
 touch /var/run/.systemStarterRunning
 
+if [ ! -f /System/Library/LaunchDaemons/com.apple.loginwindow.plist ]; then
+	launchctl reloadttys
+fi
+
 exit 0

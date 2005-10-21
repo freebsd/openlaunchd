@@ -477,7 +477,6 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
 		logwtmp("~", "reboot", "");
-		update_ttys();
 		return;
 	} else if (WIFSIGNALED(status) && (WTERMSIG(status) == SIGTERM || WTERMSIG(status) == SIGKILL)) {
 		return;
@@ -666,7 +665,6 @@ session_launch(session_t s)
 	if (pid == -1) {
 		syslog(LOG_ERR, "can't fork for %s on port %s: %m",
 				session_type, s->se_device);
-		update_ttys();
 		return;
 	}
 

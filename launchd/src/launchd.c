@@ -454,8 +454,6 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 {
 	switch (kev->ident) {
 	case SIGHUP:
-		if (getpid() == 1)
-			update_ttys();
 		job_start(rlcj);
 		break;
 	case SIGTERM:
