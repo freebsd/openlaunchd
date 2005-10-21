@@ -706,7 +706,7 @@ get_network_state(void)
 void
 monitor_networking_state(void)
 {
-	int pfs = socket(PF_SYSTEM, SOCK_RAW, SYSPROTO_EVENT);
+	int pfs = _fd(socket(PF_SYSTEM, SOCK_RAW, SYSPROTO_EVENT));
 	struct kev_request kev_req;
 
 	network_up = get_network_state();
