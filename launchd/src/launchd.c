@@ -37,10 +37,12 @@
 #include <sys/resource.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/kern_event.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
 #include <netinet6/nd6.h>
+#include <ifaddrs.h>
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
@@ -75,11 +77,13 @@ extern char **environ;
 static void async_callback(void);
 static void signal_callback(void *, struct kevent *);
 static void fs_callback(void);
+static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqasync_callback = (kq_callback)async_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqshutdown_callback = (kq_callback)launchd_shutdown;
+static kq_callback kqpfsystem_callback = pfsystem_callback;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 static void pid1waitpid(void);
@@ -91,6 +95,8 @@ static void usage(FILE *where);
 static void loopback_setup(void);
 static void workaround3048875(int argc, char *const *argv);
 static void testfd_or_openfd(int fd, const char *path, int flags);
+static bool get_network_state(void);
+static void monitor_networking_state(void);
 
 static int mainkq = 0;
 static int asynckq = 0;
@@ -102,6 +108,7 @@ static struct jobcb *rlcj = NULL;
 
 sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
+bool network_up = false;
 int batch_disabler_count = 0;
 
 int main(int argc, char *const *argv)
@@ -239,6 +246,8 @@ int main(int argc, char *const *argv)
 	} else {
 		ipc_server_init();
 	}
+
+	monitor_networking_state();
 
 	/* do this after pid1_magic_init() to not catch ourselves mounting stuff */
 	launchd_assumes(kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) != -1);
@@ -667,4 +676,68 @@ batch_job_enable(bool e, struct conncb *c)
 		batch_disabler_count++;
 		c->disabled_batch = 1;
 	}
-}       
+}
+
+bool
+get_network_state(void)
+{
+	struct ifaddrs *ifa, *ifai;
+	bool up = false;
+
+	if (!launchd_assumes(getifaddrs(&ifa) != -1))
+		return network_up;
+
+	for (ifai = ifa; ifai; ifai = ifai->ifa_next) {
+		if (!(ifai->ifa_flags & IFF_UP))
+			continue;
+		if (ifai->ifa_flags & IFF_LOOPBACK)
+			continue;
+		if (ifai->ifa_addr->sa_family != AF_INET && ifai->ifa_addr->sa_family != AF_INET6)
+			continue;
+		up = true;
+		break;
+	}
+
+	freeifaddrs(ifa);
+
+	return up;
+}
+
+void
+monitor_networking_state(void)
+{
+	int pfs = socket(PF_SYSTEM, SOCK_RAW, SYSPROTO_EVENT);
+	struct kev_request kev_req;
+
+	network_up = get_network_state();
+
+	if (!launchd_assumes(pfs != -1))
+		return;
+
+	memset(&kev_req, 0, sizeof(kev_req));
+	kev_req.vendor_code = KEV_VENDOR_APPLE;
+	kev_req.kev_class = KEV_NETWORK_CLASS;
+
+	if (!launchd_assumes(ioctl(pfs, SIOCSKEVFILT, &kev_req) != -1)) {
+		close(pfs);
+		return;
+	}
+
+	launchd_assumes(kevent_mod(pfs, EVFILT_READ, EV_ADD, 0, 0, &kqpfsystem_callback) != -1);
+}
+
+void
+pfsystem_callback(void *obj, struct kevent *kev)
+{
+	bool new_networking_state;
+	char buf[1024];
+
+	launchd_assumes(read(kev->ident, &buf, sizeof(buf)) != -1);
+
+	new_networking_state = get_network_state();
+
+	if (new_networking_state != network_up) {
+		network_up = new_networking_state;
+		job_dispatch_all_other_semaphores(NULL, root_bootstrap);
+	}
+}

@@ -61,6 +61,7 @@ struct jobcb *job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd
 launch_data_t job_export(struct jobcb *j);
 launch_data_t job_export_all(void);
 void job_dispatch(struct jobcb *j);
+void job_dispatch_all_other_semaphores(struct jobcb *j, struct bootstrap *b);
 void job_start(struct jobcb *j);
 void job_stop(struct jobcb *j);
 bool job_active(struct jobcb *j);

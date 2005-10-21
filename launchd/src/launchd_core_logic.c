@@ -165,6 +165,28 @@ static bool limititem_update(struct jobcb *j, int w, rlim_t r);
 static void limititem_delete(struct jobcb *j, struct limititem *li);
 static void limititem_setup(launch_data_t obj, const char *key, void *context);
 
+typedef enum {
+	NETWORK_UP = 1,
+	NETWORK_DOWN,
+	SUCCESSFUL_EXIT,
+	FAILED_EXIT,
+	PATH_EXISTS,
+	PATH_MISSING,
+	// FILESYSTEMTYPE_IS_MOUNTED,	/* for nfsiod, but maybe others */
+} semaphore_reason_t;
+
+struct semaphoreitem {
+	SLIST_ENTRY(semaphoreitem) sle;
+	semaphore_reason_t why;
+	char what[0];
+};
+
+static bool semaphoreitem_new(struct jobcb *j, semaphore_reason_t why, const char *what);
+static void semaphoreitem_delete(struct jobcb *j, struct semaphoreitem *si);
+static void semaphoreitem_setup(launch_data_t obj, const char *key, void *context);
+static void semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context);
+
+
 struct jobcb {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(jobcb) sle;
@@ -175,6 +197,7 @@ struct jobcb {
 	SLIST_HEAD(, envitem) env;
 	SLIST_HEAD(, limititem) limits;
 	SLIST_HEAD(, machservice) machservices;
+	SLIST_HEAD(, semaphoreitem) semaphores;
 	struct bootstrap *bstrap;
 	mach_port_t priv_port;
 	uid_t mach_uid;
@@ -208,6 +231,7 @@ static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static bool job_useless(struct jobcb *j);
+static bool job_keepalive(struct jobcb *j);
 static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
 static bool job_setup_machport(struct jobcb *j);
@@ -433,6 +457,7 @@ job_remove(struct jobcb *j)
 	struct limititem *li;
 	struct envitem *ei;
 	struct machservice *ms;
+	struct semaphoreitem *si;
 
 	job_log(j, LOG_DEBUG, "Removed");
 
@@ -472,6 +497,9 @@ job_remove(struct jobcb *j)
 
 	while ((ms = SLIST_FIRST(&j->machservices)))
 		machservice_delete(ms);
+
+	while ((si = SLIST_FIRST(&j->semaphores)))
+		semaphoreitem_delete(j, si);
 
 	if (j->prog)
 		free(j->prog);
@@ -762,10 +790,14 @@ job_import2(launch_data_t pload)
 
 	j = job_new(root_bootstrap, label, prog, argv, NULL);
 
-	if (launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND) == NULL) {
-		j->ondemand = true;
-	} else {
-		j->ondemand = job_get_bool(pload, LAUNCH_JOBKEY_ONDEMAND);
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_KEEPALIVE))) {
+		if (launch_data_get_type(tmp) == LAUNCH_DATA_BOOL) {
+			j->ondemand = !launch_data_get_bool(tmp);
+		} else if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY) {
+			launch_data_dict_iterate(tmp, semaphoreitem_setup, j);
+		}
+	} else if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND))) {
+		j->ondemand = launch_data_get_bool(tmp);
 	}
 
 	j->debug = job_get_bool(pload, LAUNCH_JOBKEY_DEBUG);
@@ -1057,22 +1089,12 @@ job_dispatch(struct jobcb *j)
 {
 	if (job_active(j)) {
 		return;
-	} else if (job_useless(j) || shutdown_in_progress) {
+	} else if (job_useless(j)) {
 		job_remove(j);
-	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
-		job_log(j, LOG_WARNING, "too many failures in succession");
-		job_remove(j);
-	} else if (j->ondemand) {
-		job_watch(j);
-	} else if (!j->legacy_mach_job && j->throttle) {
-		j->throttle = false;
-		job_log(j, LOG_WARNING, "will restart in %d seconds", LAUNCHD_MIN_JOB_RUN_TIME);
-		if (-1 == kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
-					NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME, &j->kqjob_callback)) {
-			job_log_error(j, LOG_WARNING, "failed to setup timer callback!, will require manual start now!");
-		}
-	} else {
+	} else if (job_keepalive(j)) {
 		job_start(j);
+	} else {
+		job_watch(j);
 	}
 }
 
@@ -1158,15 +1180,21 @@ job_start(struct jobcb *j)
 	pid_t c;
 	bool sipc = false;
 
-	if (!j->legacy_mach_job)
-		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
+	if (job_active(j)) {
+		job_log(j, LOG_DEBUG, "Already started");
+		return;
+	} else if (!j->legacy_mach_job && j->throttle) {
+		j->throttle = false;
+		job_log(j, LOG_WARNING, "Throttling: Will restart in %d seconds", LAUNCHD_MIN_JOB_RUN_TIME);
+		launchd_assumes(kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
+					NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME, j) != -1);
+		return;
+	}
 
 	job_log(j, LOG_DEBUG, "Starting");
 
-	if (job_active(j)) {
-		job_log(j, LOG_DEBUG, "already running");
-		return;
-	}
+	if (!j->legacy_mach_job)
+		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
 
 	/* FIXME, using stdinpath is a hack for re-reading the conf file */
 	if (j->stdinpath)
@@ -1901,22 +1929,73 @@ struct jobcb *current_rpc_server = NULL;
 bool
 job_useless(struct jobcb *j)
 {
-	bool r = (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices)));
-
-	if (r) {
+	if (shutdown_in_progress) {
+		job_log(j, LOG_INFO, "Exited while shutdown in progress.");
+		return true;
+	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
+		job_log(j, LOG_WARNING, "too many failures in succession");
+		return true;
+	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
 		job_log(j, LOG_WARNING, "Failed to check-in!");
+		return true;
 	} else if (j->legacy_mach_job && SLIST_EMPTY(&j->machservices)) {
 		job_log(j, LOG_INFO, "Garbage collecting");
-		r = true;
+		return true;
 	}
 
-	return r;
+	return false;
 }
 
 bool
 job_ondemand(struct jobcb *j)
 {
 	return j->ondemand;
+}
+
+bool
+job_keepalive(struct jobcb *j)
+{
+	struct semaphoreitem *si;
+	struct stat sb;
+	bool dispatch_others = false;
+	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
+
+	if (!j->ondemand)
+		return true;
+
+	if (SLIST_EMPTY(&j->semaphores))
+		return false;
+
+	SLIST_FOREACH(si, &j->semaphores, sle) {
+		switch (si->why) {
+		case NETWORK_UP:
+			if (network_up) return true;
+			break;
+		case NETWORK_DOWN:
+			if (!network_up) return true;
+			break;
+		case SUCCESSFUL_EXIT:
+			if (good_exit) return true;
+			break;
+		case FAILED_EXIT:
+			if (!good_exit) return true;
+			break;
+		case PATH_EXISTS:
+			if (stat(si->what, &sb) == 0) return true;
+			dispatch_others = true;
+			break;
+		case PATH_MISSING:
+			if (stat(si->what, &sb) == -1 && errno == ENOENT) return true;
+			dispatch_others = true;
+			break;
+		}
+	}
+
+	/* Maybe another job has the inverse path based semaphore as this job */
+	if (dispatch_others)
+		job_dispatch_all_other_semaphores(j, root_bootstrap);
+
+	return false;
 }
 
 const char *
@@ -2427,4 +2506,82 @@ mach_port_t
 job_get_priv_port(struct jobcb *j)
 {
 	return j->priv_port;
+}
+
+
+bool
+semaphoreitem_new(struct jobcb *j, semaphore_reason_t why, const char *what)
+{
+	struct semaphoreitem *si;
+	size_t alloc_sz = sizeof(struct semaphoreitem);
+
+	if (what)
+		alloc_sz += strlen(what) + 1;
+
+	if (!launchd_assumes(si = calloc(1, alloc_sz)))
+		return false;
+
+	si->why = why;
+
+	if (what)
+		strcpy(si->what, what);
+
+	SLIST_INSERT_HEAD(&j->semaphores, si, sle);
+
+	return true;
+}
+
+void
+semaphoreitem_delete(struct jobcb *j, struct semaphoreitem *ri)
+{
+	SLIST_REMOVE(&j->semaphores, ri, semaphoreitem, sle);
+
+	free(ri);
+}
+
+void
+semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context)
+{
+	struct jobcb *j = context;
+	semaphore_reason_t why;
+
+	why = launch_data_get_bool(obj) ? PATH_EXISTS : PATH_MISSING;
+
+	semaphoreitem_new(j, why, key);
+}
+
+void
+semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
+{
+	struct jobcb *j = context;
+	semaphore_reason_t why;
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_NETWORKSTATE) == 0) {
+		why = launch_data_get_bool(obj) ? NETWORK_UP : NETWORK_DOWN;
+		semaphoreitem_new(j, why, NULL);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_SUCCESSFULEXIT) == 0) {
+		why = launch_data_get_bool(obj) ? SUCCESSFUL_EXIT : FAILED_EXIT;
+		semaphoreitem_new(j, why, NULL);
+		j->runatload = true;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_PATHSTATE) == 0 &&
+			launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
+		launch_data_dict_iterate(obj, semaphoreitem_setup_paths, j);
+	}
+}
+
+void
+job_dispatch_all_other_semaphores(struct jobcb *j, struct bootstrap *b)
+{
+	struct bootstrap *sbi;
+	struct jobcb *ji;
+
+	SLIST_FOREACH(sbi, &b->sub_bstraps, sle)
+		job_dispatch_all_other_semaphores(j, sbi);
+
+	SLIST_FOREACH(ji, &b->jobs, sle) {
+		if (!SLIST_EMPTY(&ji->semaphores)) {
+			if (j != ji)
+				job_dispatch(ji);
+		}
+	}
 }

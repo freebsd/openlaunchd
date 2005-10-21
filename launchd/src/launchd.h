@@ -49,6 +49,7 @@ typedef void (*kq_callback)(void *, struct kevent *);
 extern kq_callback kqsimple_zombie_reaper;
 extern sigset_t blocked_signals;
 extern bool shutdown_in_progress;
+extern bool network_up;
 extern int batch_disabler_count;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
