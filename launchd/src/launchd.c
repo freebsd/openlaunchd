@@ -555,7 +555,7 @@ loopback_setup(void)
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = htonl(IN_CLASSA_NET);
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
 
-	launchd_assumes(ioctl(s, SIOCAIFADDR, &ifra) != -1);
+	launchd_assumes_with_bug(ioctl(s, SIOCAIFADDR, &ifra) != -1, 4282331);
 
 	memset(&ifra6, 0, sizeof(ifra6));
 	strcpy(ifra6.ifra_name, "lo0");
@@ -569,7 +569,7 @@ loopback_setup(void)
 	ifra6.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
 	ifra6.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
 
-	launchd_assumes(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1);
+	launchd_assumes_with_bug(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1, 4282331);
  
 	launchd_assumes(close(s) == 0);
 	launchd_assumes(close(s6) == 0);

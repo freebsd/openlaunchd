@@ -34,6 +34,9 @@
 #define launchd_assumes(e)	\
 	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Please file a bug report: %s:%u in %s(): (%s) == %u", __FILE__, __LINE__, __func__, #e, errno), false : true)
 
+#define launchd_assumes_with_bug(e, b)	\
+	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Bug %d: %s:%u in %s(): (%s) == %u", (b), __FILE__, __LINE__, __func__, #e, errno), false : true)
+
 #define launchd_assert(e)	launchd_assumes(e) ? true : abort();
 
 #define PID1_REAP_ADOPTED_CHILDREN
