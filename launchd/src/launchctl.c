@@ -62,6 +62,7 @@
 
 static void myCFDictionaryApplyFunction(const void *key, const void *value, void *context);
 static bool launch_data_array_append(launch_data_t a, launch_data_t o);
+static void distill_jobs(launch_data_t);
 static void distill_config_file(launch_data_t);
 static void sock_dict_cb(launch_data_t what, const char *key, void *context);
 static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, launch_data_t thejob);
@@ -513,7 +514,17 @@ struct distill_context {
 	launch_data_t newsockdict;
 };
 
-static void distill_config_file(launch_data_t id_plist)
+void
+distill_jobs(launch_data_t jobs)
+{
+	size_t i, c = launch_data_array_get_count(jobs);
+
+	for (i = 0; i < c; i++)
+		distill_config_file(launch_data_array_get_index(jobs, i));
+}
+
+void
+distill_config_file(launch_data_t id_plist)
 {
 	struct distill_context dc = { id_plist, NULL };
 	launch_data_t tmp;
@@ -1041,14 +1052,12 @@ static int load_and_unload_cmd(int argc, char *const argv[])
 	}
 	
 	if (lflag) {
-		if (launch_data_array_get_count(pass0) > 0)
-			submit_mach_jobs(pass0);
-		if (launch_data_array_get_count(pass1) > 0)
-			submit_job_pass(pass1);
-		if (launch_data_array_get_count(pass0) > 0)
-			let_go_of_mach_jobs(pass0);
-		if (launch_data_array_get_count(pass2) > 0)
-			submit_job_pass(pass2);
+		distill_jobs(pass1);
+		submit_mach_jobs(pass0);
+		submit_job_pass(pass1);
+		let_go_of_mach_jobs(pass0);
+		distill_jobs(pass2);
+		submit_job_pass(pass2);
 	} else {
 		for (i = 0; i < (int)launch_data_array_get_count(pass1); i++)
 			unloadjob(launch_data_array_get_index(pass1, i));
@@ -1130,8 +1139,8 @@ submit_job_pass(launch_data_t jobs)
 	size_t i;
 	int e;
 
-	for (i = 0; i < launch_data_array_get_count(jobs); i++)
-		distill_config_file(launch_data_array_get_index(jobs, i));
+	if (launch_data_array_get_count(jobs) == 0)
+		return;
 
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
