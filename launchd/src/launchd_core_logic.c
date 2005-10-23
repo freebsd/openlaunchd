@@ -141,6 +141,7 @@ struct calendarinterval {
 };
 
 static bool calendarinterval_new(struct jobcb *j, struct tm *w);
+static bool calendarinterval_new_from_obj(struct jobcb *j, launch_data_t obj);
 static void calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci);
 static void calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci);
 static void calendarinterval_callback(struct jobcb *j, struct kevent *kev);
@@ -226,7 +227,14 @@ struct jobcb {
 	char label[0];
 };
 
+static struct jobcb *job_find2(struct bootstrap *b, const char *label);
 static struct jobcb *job_import2(launch_data_t pload);
+static void job_import_keys(launch_data_t obj, const char *key, void *context);
+static void job_import_bool(struct jobcb *j, const char *key, bool value);
+static void job_import_string(struct jobcb *j, const char *key, const char *value);
+static void job_import_integer(struct jobcb *j, const char *key, long long value);
+static void job_import_dictionary(struct jobcb *j, const char *key, launch_data_t value);
+static void job_import_array(struct jobcb *j, const char *key, launch_data_t value);
 static void job_watch(struct jobcb *j);
 static void job_ignore(struct jobcb *j);
 static void job_reap(struct jobcb *j);
@@ -264,41 +272,7 @@ static char **mach_cmd2argv(const char *string);
 static pid_t fork_with_bootstrap_port(mach_port_t p);
 static void job_setup_env_from_other_jobs(struct bootstrap *b);
 
-static long long job_get_integer(launch_data_t j, const char *key);
-static const char *job_get_string(launch_data_t j, const char *key);
-static bool job_get_bool(launch_data_t j, const char *key);
-
 size_t total_children = 0;
-
-long long
-job_get_integer(launch_data_t j, const char *key)
-{
-	launch_data_t t = launch_data_dict_lookup(j, key);
-	if (t)
-		return launch_data_get_integer(t);
-	else
-		return 0;
-}
-
-const char *
-job_get_string(launch_data_t j, const char *key)
-{
-	launch_data_t t = launch_data_dict_lookup(j, key);
-	if (t)
-		return launch_data_get_string(t);
-	else
-		return NULL;
-}
-
-bool
-job_get_bool(launch_data_t j, const char *key)
-{
-	launch_data_t t = launch_data_dict_lookup(j, key);
-	if (t)
-		return launch_data_get_bool(t);
-	else
-		return false;
-}
 
 void
 simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
@@ -705,11 +679,7 @@ job_import(launch_data_t pload)
 	if (j == NULL)
 		return NULL;
 
-	if (j->runatload) {
-		job_start(j);
-	} else {
-		job_dispatch(j);
-	}
+	job_dispatch(j);
 
 	return j;
 }
@@ -732,54 +702,202 @@ job_import_bulk(launch_data_t pload)
 	for (i = 0; i < c; i++) {
 		if (ja[i] == NULL)
 			continue;
-		if (ja[i]->runatload) {
-			job_start(ja[i]);
-		} else {
-			job_dispatch(ja[i]);
-		}
+		job_dispatch(ja[i]);
 	}
 
 	return resp;
 }
 
+void
+job_import_bool(struct jobcb *j, const char *key, bool value)
+{
+	if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
+		j->ondemand = !value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_ONDEMAND) == 0) {
+		j->ondemand = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_DEBUG) == 0) {
+		j->debug = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_SESSIONCREATE) == 0) {
+		j->session_create = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYIO) == 0) {
+		j->low_pri_io = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_INITGROUPS) == 0) {
+		j->init_groups = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0) {
+		j->runatload = value;
+	}
+}
+
+void
+job_import_string(struct jobcb *j, const char *key, const char *value)
+{
+	char *newstr = strdup(value);
+
+	if (!launchd_assumes(newstr != NULL))
+		return;
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0) {
+		j->rootdir = newstr;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_WORKINGDIRECTORY) == 0) {
+		j->workingdir = newstr;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_USERNAME) == 0) {
+		j->username = newstr;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_GROUPNAME) == 0) {
+		j->groupname = newstr;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDOUTPATH) == 0) {
+		j->stdoutpath = newstr;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDERRORPATH) == 0) {
+		j->stderrpath = newstr;
+	}
+}
+
+void
+job_import_integer(struct jobcb *j, const char *key, long long value)
+{
+	if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0) {
+		j->nice = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_TIMEOUT) == 0) {
+		if ((j->timeout = value) <= 0)
+			j->timeout = LAUNCHD_REWARD_JOB_RUN_TIME;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_UMASK) == 0) {
+		j->mask = value;
+		j->setmask = true;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTINTERVAL) == 0) {
+		if (value <= 0) {
+			job_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
+			return;
+		}
+		j->start_interval = value;
+		if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j))
+			job_log_error(j, LOG_ERR, "adding kevent timer");
+	}
+
+}
+
+void
+job_import_dictionary(struct jobcb *j, const char *key, launch_data_t value)
+{
+	launch_data_t tmp;
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
+		launch_data_dict_iterate(value, semaphoreitem_setup, j);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_INETDCOMPATIBILITY) == 0) {
+		j->inetcompat = true;
+		if ((tmp = launch_data_dict_lookup(value, LAUNCH_JOBINETDCOMPATIBILITY_WAIT)))
+			j->inetcompat_wait = launch_data_get_bool(tmp);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES) == 0) {
+		launch_data_dict_iterate(value, envitem_setup, j);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES) == 0) {
+		j->importing_global_env = true;
+		launch_data_dict_iterate(value, envitem_setup, j);
+		j->importing_global_env = false;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_SOFTRESOURCELIMITS) == 0) {
+		launch_data_dict_iterate(value, limititem_setup, j);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_HARDRESOURCELIMITS) == 0) {
+		j->importing_hard_limits = true;
+		launch_data_dict_iterate(value, limititem_setup, j);
+		j->importing_hard_limits = false;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_SOCKETS) == 0) {
+		launch_data_dict_iterate(value, socketgroup_setup, j);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICES) == 0) {
+		launch_data_dict_iterate(value, machservice_setup, j);
+		if (!SLIST_EMPTY(&j->machservices))
+			job_setup_machport(j);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTCALENDARINTERVAL) == 0) {
+		calendarinterval_new_from_obj(j, value);
+	}
+}
+
+void
+job_import_array(struct jobcb *j, const char *key, launch_data_t value)
+{
+	bool is_q_dir = false;
+	bool is_wp = false;
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_QUEUEDIRECTORIES) == 0) {
+		is_q_dir = true;
+		is_wp = true;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_WATCHPATHS) == 0) {
+		is_wp = true;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0) {
+		socketgroup_setup(value, LAUNCH_JOBKEY_BONJOURFDS, j);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTCALENDARINTERVAL) == 0) {
+		size_t i = 0, ci_cnt = launch_data_array_get_count(value);
+		for (i = 0; i < ci_cnt; i++)
+			calendarinterval_new_from_obj(j, launch_data_array_get_index(value, i));
+	}
+
+	if (is_wp) {
+		size_t i, wp_cnt = launch_data_array_get_count(value);
+		const char *thepath;
+		for (i = 0; i < wp_cnt; i++) {
+			thepath = launch_data_get_string(launch_data_array_get_index(value, i));
+			watchpath_new(j, thepath, is_q_dir);
+		}
+	}
+}
+
+void
+job_import_keys(launch_data_t obj, const char *key, void *context)
+{
+	struct jobcb *j = context;
+	launch_data_type_t kind = launch_data_get_type(obj);
+
+	switch (kind) {
+	case LAUNCH_DATA_BOOL:
+		job_import_bool(j, key, launch_data_get_bool(obj));
+		break;
+	case LAUNCH_DATA_STRING:
+		job_import_string(j, key, launch_data_get_string(obj));
+		break;
+	case LAUNCH_DATA_INTEGER:
+		job_import_integer(j, key, launch_data_get_integer(obj));
+		break;
+	case LAUNCH_DATA_DICTIONARY:
+		job_import_dictionary(j, key, obj);
+		break;
+	case LAUNCH_DATA_ARRAY:
+		job_import_array(j, key, obj);
+		break;
+	default:
+		job_log(j, LOG_WARNING, "Unknown value type '%d' for key: %s", kind, key);
+		break;
+	}
+}
 
 struct jobcb *
 job_import2(launch_data_t pload)
 {
 	launch_data_t tmp, ldpa;
-	const char *label, *prog;
+	const char *label = NULL, *prog = NULL;
 	const char **argv = NULL;
 	struct jobcb *j;
 
-	label = job_get_string(pload, LAUNCH_JOBKEY_LABEL);
-	prog = job_get_string(pload, LAUNCH_JOBKEY_PROGRAM);
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)) &&
+			(launch_data_get_type(tmp) == LAUNCH_DATA_STRING)) {
+		label = launch_data_get_string(tmp);
+	}
+	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM)) &&
+			(launch_data_get_type(tmp) == LAUNCH_DATA_STRING)) {
+		prog = launch_data_get_string(tmp);
+	}
 	ldpa = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 
 	if (label == NULL) {
 		errno = EINVAL;
 		return NULL;
-	}
-
-	if ((j = job_find(label)) != NULL) {
+	} else if ((j = job_find(label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
-	}
-
-	/* com.apple.launchd and via_mach_init labels are reserved */
-	if (strncasecmp(label, "com.apple.launchd", strlen("com.apple.launchd")) == 0) {
-		errno = EINVAL;
-		return NULL;
-	}
-
-	if (strncasecmp(label, "via_mach_init", strlen("via_mach_init")) == 0) {
+	} else if ((strncasecmp(label, "com.apple.launchd", strlen("com.apple.launchd")) == 0) ||
+			(strncasecmp(label, "via_mach_init", strlen("via_mach_init")) == 0)) {
+		/* com.apple.launchd and via_mach_init prefixes for labels are reserved */
 		errno = EINVAL;
 		return NULL;
 	}
 
 	if (ldpa) {
-		size_t i, c;
-
-		c = launch_data_array_get_count(ldpa);
+		size_t i, c = launch_data_array_get_count(ldpa);
 
 		argv = alloca((c + 1) * sizeof(char *));
 
@@ -788,187 +906,13 @@ job_import2(launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	j = job_new(root_bootstrap, label, prog, argv, NULL);
+	if ((j = job_new(root_bootstrap, label, prog, argv, NULL)))
+		launch_data_dict_iterate(pload, job_import_keys, j);
 
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_KEEPALIVE))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_BOOL) {
-			j->ondemand = !launch_data_get_bool(tmp);
-		} else if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY) {
-			launch_data_dict_iterate(tmp, semaphoreitem_setup, j);
-		}
-	} else if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ONDEMAND))) {
-		j->ondemand = launch_data_get_bool(tmp);
-	}
-
-	j->debug = job_get_bool(pload, LAUNCH_JOBKEY_DEBUG);
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_INETDCOMPATIBILITY))) {
-		j->inetcompat = true;
-		j->inetcompat_wait = job_get_bool(tmp, LAUNCH_JOBINETDCOMPATIBILITY_WAIT);
-	}
-
-	j->session_create = job_get_bool(pload, LAUNCH_JOBKEY_SESSIONCREATE);
-
-	j->low_pri_io = job_get_bool(pload, LAUNCH_JOBKEY_LOWPRIORITYIO);
-
-	j->init_groups = job_get_bool(pload, LAUNCH_JOBKEY_INITGROUPS);
-
-	j->runatload = job_get_bool(pload, LAUNCH_JOBKEY_RUNATLOAD);
-
-	j->nice = job_get_integer(pload, LAUNCH_JOBKEY_NICE);
-
-	if ((j->timeout = job_get_integer(pload, LAUNCH_JOBKEY_TIMEOUT)) <= 0)
-		j->timeout = LAUNCHD_REWARD_JOB_RUN_TIME;
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_UMASK))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_INTEGER) {
-			j->mask = launch_data_get_integer(tmp);
-			j->setmask = true;
-		}
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ROOTDIRECTORY))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
-			j->rootdir = strdup(launch_data_get_string(tmp));
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_WORKINGDIRECTORY))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
-			j->workingdir = strdup(launch_data_get_string(tmp));
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_USERNAME))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
-			j->username = strdup(launch_data_get_string(tmp));
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_GROUPNAME))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
-			j->groupname = strdup(launch_data_get_string(tmp));
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STANDARDOUTPATH))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
-			j->stdoutpath = strdup(launch_data_get_string(tmp));
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STANDARDERRORPATH))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_STRING)
-			j->stderrpath = strdup(launch_data_get_string(tmp));
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
-			launch_data_dict_iterate(tmp, envitem_setup, j);
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES))) {
-		j->importing_global_env = true;
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
-			launch_data_dict_iterate(tmp, envitem_setup, j);
-		j->importing_global_env = false;
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOFTRESOURCELIMITS))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
-			launch_data_dict_iterate(tmp, limititem_setup, j);
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_HARDRESOURCELIMITS))) {
-		j->importing_hard_limits = true;
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
-			launch_data_dict_iterate(tmp, limititem_setup, j);
-		j->importing_hard_limits = false;
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_SOCKETS))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
-			launch_data_dict_iterate(tmp, socketgroup_setup, j);
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_MACHSERVICES))) {
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_DICTIONARY)
-			launch_data_dict_iterate(tmp, machservice_setup, j);
-		if (!SLIST_EMPTY(&j->machservices))
-			job_setup_machport(j);
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_BONJOURFDS))) {
-		socketgroup_setup(tmp, LAUNCH_JOBKEY_BONJOURFDS, j);
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_QUEUEDIRECTORIES))) {
-		size_t i, qdirs_cnt = launch_data_array_get_count(tmp);
-		const char *thepath;
-		for (i = 0; i < qdirs_cnt; i++) {
-			thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
-			watchpath_new(j, thepath, true);
-		}
-
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_WATCHPATHS))) {
-		size_t i, wp_cnt = launch_data_array_get_count(tmp);
-		const char *thepath;
-		for (i = 0; i < wp_cnt; i++) {
-			thepath = launch_data_get_string(launch_data_array_get_index(tmp, i));
-			watchpath_new(j, thepath, false);
-		}
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STARTINTERVAL))) {
-		j->start_interval = launch_data_get_integer(tmp);
-
-		if (j->start_interval == 0)
-			job_log(j, LOG_WARNING, "StartInterval is zero, ignoring");
-		else if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, &j->kqjob_callback))
-			job_log_error(j, LOG_ERR, "adding kevent timer");
-	}
-
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_STARTCALENDARINTERVAL))) {
-		size_t i = 0, ci_cnt = 1;
-
-		if (launch_data_get_type(tmp) == LAUNCH_DATA_ARRAY)
-			ci_cnt = launch_data_array_get_count(tmp);
-
-		for (i = 0; i < ci_cnt; i++) {
-			launch_data_t tmp_k, tmp_oai;
-			struct tm tmptm;
-
-			if (launch_data_get_type(tmp) == LAUNCH_DATA_ARRAY)
-				tmp_oai = launch_data_array_get_index(tmp, i);
-			else
-				tmp_oai = tmp;
-
-			memset(&tmptm, 0, sizeof(0));
-
-			tmptm.tm_min = -1;
-			tmptm.tm_hour = -1;
-			tmptm.tm_mday = -1;
-			tmptm.tm_wday = -1;
-			tmptm.tm_mon = -1;
-
-			if (LAUNCH_DATA_DICTIONARY != launch_data_get_type(tmp_oai))
-				continue;
-
-			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_MINUTE)))
-				tmptm.tm_min = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_HOUR)))
-				tmptm.tm_hour = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_DAY)))
-				tmptm.tm_mday = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_WEEKDAY)))
-				tmptm.tm_wday = launch_data_get_integer(tmp_k);
-			if ((tmp_k = launch_data_dict_lookup(tmp_oai, LAUNCH_JOBKEY_CAL_MONTH)))
-				tmptm.tm_mon = launch_data_get_integer(tmp_k);
-			calendarinterval_new(j, &tmptm);
-		}
-	}
-	
 	return j;
 }
 
-static struct jobcb *
+struct jobcb *
 job_find2(struct bootstrap *b, const char *label)
 {
 	struct bootstrap *sbi;
@@ -1693,6 +1637,37 @@ watchpath_callback(struct jobcb *j, struct kevent *kev)
 }
 
 bool
+calendarinterval_new_from_obj(struct jobcb *j, launch_data_t obj)
+{
+	launch_data_t tmp_k;
+	struct tm tmptm;
+
+	memset(&tmptm, 0, sizeof(0));
+
+	tmptm.tm_min = -1;
+	tmptm.tm_hour = -1;
+	tmptm.tm_mday = -1;
+	tmptm.tm_wday = -1;
+	tmptm.tm_mon = -1;
+
+	if (LAUNCH_DATA_DICTIONARY != launch_data_get_type(obj))
+		return false;
+
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MINUTE)))
+		tmptm.tm_min = launch_data_get_integer(tmp_k);
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_HOUR)))
+		tmptm.tm_hour = launch_data_get_integer(tmp_k);
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_DAY)))
+		tmptm.tm_mday = launch_data_get_integer(tmp_k);
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_WEEKDAY)))
+		tmptm.tm_wday = launch_data_get_integer(tmp_k);
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MONTH)))
+		tmptm.tm_mon = launch_data_get_integer(tmp_k);
+
+	return calendarinterval_new(j, &tmptm);
+}
+
+bool
 calendarinterval_new(struct jobcb *j, struct tm *w)
 {
 	struct calendarinterval *ci = calloc(1, sizeof(struct calendarinterval));
@@ -1959,6 +1934,9 @@ job_keepalive(struct jobcb *j)
 	struct stat sb;
 	bool dispatch_others = false;
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
+
+	if (j->runatload && j->start_time == 0)
+		return true;
 
 	if (!j->ondemand)
 		return true;
