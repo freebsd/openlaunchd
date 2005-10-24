@@ -101,11 +101,12 @@ struct machservice {
 	struct bootstrap	*bootstrap;
 	struct jobcb		*job;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, __junk:31;
+	unsigned int		isActive:1, reset:1, __junk:30;
 	char			name[0];
 };
 
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
+static void machservice_resetport(struct jobcb *j, struct machservice *ms);
 
 
 struct socketgroup {
@@ -2053,6 +2054,15 @@ fork_with_bootstrap_port(mach_port_t p)
 	return r;
 }
 
+void
+machservice_resetport(struct jobcb *j, struct machservice *ms)
+{
+	launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_create_recv(&ms->port, j) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_make_send(ms->port) == KERN_SUCCESS);
+}
+
 struct machservice *
 machservice_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct jobcb *j)
 {
@@ -2099,11 +2109,17 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	struct jobcb *j = context;
 	struct machservice *ms;
 	mach_port_t p;
+	bool reset = false;
+
+	if (launch_data_get_type(obj) == LAUNCH_DATA_BOOL)
+		reset = !launch_data_get_bool(obj);
 
 	if (bootstrap_lookup_service(j->bstrap, key) == NULL) {
 		ms = machservice_new(j->bstrap, key, &p, j);
-		if (ms)
+		if (ms) {
 			ms->isActive = false;
+			ms->reset = reset;
+		}
 	}
 }
 
@@ -2464,6 +2480,9 @@ job_ack_port_destruction(struct jobcb *j, mach_port_t p)
 		return;
 
 	ms->isActive = false;
+
+	if (ms->reset)
+		machservice_resetport(j, ms);
 
 	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
 
