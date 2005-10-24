@@ -179,7 +179,6 @@ do_vm()
 	/dev/*)
 		netboot_dir="${NETBOOT_MOUNT}/.com.apple.NetBootX"
 		if [ -d "${netboot_dir}" ]; then
-			rm -rf "${netboot_dir}/app_profile"
 			rm -rf "${swapdir}"
 			ln -s "${netboot_dir}" "${swapdir}"
 		fi

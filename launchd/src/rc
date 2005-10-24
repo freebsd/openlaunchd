@@ -198,16 +198,6 @@ if [ ! -f /System/Library/LaunchDaemons/com.apple.dynamic_pager.plist ]; then
 	    encryptswap=""
 	fi
 	/sbin/dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
-
-	appprofiledir=/private/var/vm/app_profile
-
-	if [ ! -d ${appprofiledir} ]; then
-		if [ -f  ${appprofiledir} ]; then
-			mv -f ${appprofiledir} "${appprofiledir}_" 
-		fi
-		mkdir -p -m 711 ${appprofiledir}
-		chown root:wheel ${appprofiledir}
-	fi
 fi
 
 if [ ! -f /System/Library/LaunchDaemons/com.apple.kextd.plist ]; then
