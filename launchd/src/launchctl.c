@@ -85,6 +85,13 @@ static void print_obj(launch_data_t obj, const char *key, void *context);
 static bool is_legacy_mach_job(launch_data_t obj);
 static bool delay_to_second_pass(launch_data_t o);
 static void delay_to_second_pass2(launch_data_t o, const char *key, void *context);
+static bool str2lim(const char *buf, rlim_t *res);
+static const char *lim2str(rlim_t val, char *buf);
+static const char *num2name(int n);
+static ssize_t name2num(const char *n);
+static void unloadjob(launch_data_t job);
+static void print_key_value(launch_data_t obj, const char *key, void *context);
+static void print_launchd_env(launch_data_t obj, const char *key, void *context);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -144,7 +151,8 @@ static const struct {
 
 static bool istty = false;
 
-int main(int argc, char *const argv[])
+int
+main(int argc, char *const argv[])
 {
 	char *l;
 
@@ -181,7 +189,8 @@ int main(int argc, char *const argv[])
 	exit(EXIT_SUCCESS);
 }
 
-static int demux_cmd(int argc, char *const argv[])
+int
+demux_cmd(int argc, char *const argv[])
 {
 	size_t i;
 
@@ -199,7 +208,8 @@ static int demux_cmd(int argc, char *const argv[])
 	return 1;
 }
 
-static int unsetenv_cmd(int argc, char *const argv[])
+int
+unsetenv_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, tmp, msg;
 
@@ -226,7 +236,8 @@ static int unsetenv_cmd(int argc, char *const argv[])
 	return 0;
 }
 
-static int setenv_cmd(int argc, char *const argv[])
+int
+setenv_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, tmp, tmpv, msg;
 
@@ -254,7 +265,8 @@ static int setenv_cmd(int argc, char *const argv[])
 	return 0;
 }
 
-static void print_launchd_env(launch_data_t obj, const char *key, void *context)
+void
+print_launchd_env(launch_data_t obj, const char *key, void *context)
 {
 	bool *is_csh = context;
 
@@ -265,7 +277,8 @@ static void print_launchd_env(launch_data_t obj, const char *key, void *context)
 		fprintf(stdout, "%s=\"%s\"; export %s;\n", key, launch_data_get_string(obj), key);
 }
 
-static void print_key_value(launch_data_t obj, const char *key, void *context)
+void
+print_key_value(launch_data_t obj, const char *key, void *context)
 {
 	const char *k = context;
 
@@ -273,7 +286,8 @@ static void print_key_value(launch_data_t obj, const char *key, void *context)
 		fprintf(stdout, "%s\n", launch_data_get_string(obj));
 }
 
-static int getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
+int
+getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
 {
 	launch_data_t resp, msg;
 	bool is_csh = false;
@@ -307,7 +321,8 @@ static int getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unu
 	return 0;
 }
 
-static void unloadjob(launch_data_t job)
+void
+unloadjob(launch_data_t job)
 {
 	launch_data_t resp, tmp, tmps, msg;
 	int e;
@@ -536,7 +551,8 @@ distill_config_file(launch_data_t id_plist)
 	}
 }
 
-static void sock_dict_cb(launch_data_t what, const char *key, void *context)
+void
+sock_dict_cb(launch_data_t what, const char *key, void *context)
 {
 	struct distill_context *dc = context;
 	launch_data_t fdarray = launch_data_alloc(LAUNCH_DATA_ARRAY);
@@ -556,7 +572,8 @@ static void sock_dict_cb(launch_data_t what, const char *key, void *context)
 	}
 }
 
-static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, launch_data_t thejob)
+void
+sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, launch_data_t thejob)
 {
 	launch_data_t a, val;
 	int sfd, st = SOCK_STREAM;
@@ -770,7 +787,8 @@ static void sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data
 	}
 }
 
-static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup)
+void
+do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup)
 {
 	struct addrinfo hints, *res0, *res;
 	struct ip_mreq mreq;
@@ -816,7 +834,8 @@ static void do_mgroup_join(int fd, int family, int socktype, int protocol, const
 }
 
 
-static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv)
+launch_data_t
+do_rendezvous_magic(const struct addrinfo *res, const char *serv)
 {
 	struct stat sb;
 	DNSServiceRef service;
@@ -847,7 +866,8 @@ static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char 
 	return NULL;
 }
 
-static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
+CFPropertyListRef
+CreateMyPropertyListFromFile(const char *posixfile)
 {
 	CFPropertyListRef propertyList;
 	CFStringRef       errorString;
@@ -867,7 +887,8 @@ static CFPropertyListRef CreateMyPropertyListFromFile(const char *posixfile)
 	return propertyList;
 }
 
-static void WriteMyPropertyListToFile(CFPropertyListRef plist, const char *posixfile)
+void
+WriteMyPropertyListToFile(CFPropertyListRef plist, const char *posixfile)
 {
 	CFDataRef	resourceData;
 	CFURLRef	fileURL;
@@ -883,7 +904,8 @@ static void WriteMyPropertyListToFile(CFPropertyListRef plist, const char *posix
 		fprintf(stderr, "%s: CFURLWriteDataAndPropertiesToResource(%s) failed: %d\n", getprogname(), posixfile, (int)errorCode);
 }
 
-void myCFDictionaryApplyFunction(const void *key, const void *value, void *context)
+void
+myCFDictionaryApplyFunction(const void *key, const void *value, void *context)
 {
 	launch_data_t ik, iw, where = context;
 
@@ -894,7 +916,8 @@ void myCFDictionaryApplyFunction(const void *key, const void *value, void *conte
 	launch_data_free(ik);
 }
 
-static launch_data_t CF2launch_data(CFTypeRef cfr)
+launch_data_t
+CF2launch_data(CFTypeRef cfr)
 {
 	launch_data_t r;
 	CFTypeID cft = CFGetTypeID(cfr);
@@ -959,7 +982,8 @@ static launch_data_t CF2launch_data(CFTypeRef cfr)
 	return r;
 }
 
-static int help_cmd(int argc, char *const argv[])
+int
+help_cmd(int argc, char *const argv[])
 {
 	FILE *where = stdout;
 	int l, cmdwidth = 0;
@@ -985,19 +1009,22 @@ static int help_cmd(int argc, char *const argv[])
 	return 0;
 }
 
-int exit_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
+int
+exit_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
 {
 	exit(0);
 }
 
-static int _fd(int fd)
+int
+_fd(int fd)
 {
 	if (fd >= 0)
 		fcntl(fd, F_SETFD, 1);
 	return fd;
 }
 
-static int load_and_unload_cmd(int argc, char *const argv[])
+int
+load_and_unload_cmd(int argc, char *const argv[])
 {
 	launch_data_t pass0, pass1, pass2;
 	int i, ch;
@@ -1188,7 +1215,8 @@ submit_job_pass(launch_data_t jobs)
 	launch_data_free(msg);
 }
 
-static int start_stop_remove_cmd(int argc, char *const argv[])
+int
+start_stop_remove_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	const char *lmsgcmd = LAUNCH_KEY_STOPJOB;
@@ -1346,7 +1374,8 @@ list_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static int stdio_cmd(int argc, char *const argv[])
+int
+stdio_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg, tmp;
 	int e, fd = -1, r = 0;
@@ -1396,7 +1425,8 @@ static int stdio_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static int fyi_cmd(int argc, char *const argv[])
+int
+fyi_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	const char *lmsgk = LAUNCH_KEY_RELOADTTYS;
@@ -1435,7 +1465,8 @@ static int fyi_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static int logupdate_cmd(int argc, char *const argv[])
+int
+logupdate_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	int e, i, j, r = 0, m = 0;
@@ -1560,7 +1591,8 @@ static const struct {
 
 static const size_t limlookupcnt = sizeof limlookup / sizeof limlookup[0];
 
-static ssize_t name2num(const char *n)
+ssize_t
+name2num(const char *n)
 {
 	size_t i;
 
@@ -1572,7 +1604,8 @@ static ssize_t name2num(const char *n)
 	return -1;
 }
 
-static const char *num2name(int n)
+const char *
+num2name(int n)
 {
 	size_t i;
 
@@ -1583,7 +1616,8 @@ static const char *num2name(int n)
 	return NULL;
 }
 
-static const char *lim2str(rlim_t val, char *buf)
+const char *
+lim2str(rlim_t val, char *buf)
 {
 	if (val == RLIM_INFINITY)
 		strcpy(buf, "unlimited");
@@ -1592,7 +1626,8 @@ static const char *lim2str(rlim_t val, char *buf)
 	return buf;
 }
 
-static bool str2lim(const char *buf, rlim_t *res)
+bool
+str2lim(const char *buf, rlim_t *res)
 {
 	char *endptr;
 	*res = strtoll(buf, &endptr, 10);
@@ -1605,7 +1640,8 @@ static bool str2lim(const char *buf, rlim_t *res)
 	return true;
 }
 
-static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
+int
+limit_cmd(int argc __attribute__((unused)), char *const argv[])
 {
 	char slimstr[100];
 	char hlimstr[100];
@@ -1699,7 +1735,8 @@ static int limit_cmd(int argc __attribute__((unused)), char *const argv[])
 	return r;
 }
 
-static int umask_cmd(int argc, char *const argv[])
+int
+umask_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	bool badargs = false;
@@ -1746,7 +1783,8 @@ static int umask_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static int submit_cmd(int argc, char *const argv[])
+int
+submit_cmd(int argc, char *const argv[])
 {
 	launch_data_t msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	launch_data_t job = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
@@ -1806,7 +1844,8 @@ static int submit_cmd(int argc, char *const argv[])
 	return r;
 }
 
-static int getrusage_cmd(int argc, char *const argv[])
+int
+getrusage_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	bool badargs = false;
