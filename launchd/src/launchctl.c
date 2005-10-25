@@ -61,6 +61,13 @@
 #define MACHINIT_JOBKEY_SERVERPORT	"ServerPort"
 #define MACHINIT_JOBKEY_SERVICEPORT	"ServicePort"
 
+struct load_unload_state {
+	launch_data_t pass0;
+	launch_data_t pass1;
+	launch_data_t pass2;
+	char *session_type;
+	unsigned int editondisk:1, load:1, forceload:1, __pad:29;
+};
 
 static void myCFDictionaryApplyFunction(const void *key, const void *value, void *context);
 static bool launch_data_array_append(launch_data_t a, launch_data_t o);
@@ -72,8 +79,8 @@ static launch_data_t CF2launch_data(CFTypeRef);
 static launch_data_t read_plist_file(const char *file, bool editondisk, bool load);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
-static void readpath(const char *, launch_data_t, launch_data_t, launch_data_t, bool editondisk, bool load, bool forceload);
-static void readfile(const char *, launch_data_t, launch_data_t, launch_data_t, bool editondisk, bool load, bool forceload);
+static void readpath(const char *, struct load_unload_state *);
+static void readfile(const char *, struct load_unload_state *);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
@@ -152,16 +159,25 @@ static const struct {
 };
 
 static bool istty = false;
+static bool verbose = false;
 
 int
 main(int argc, char *const argv[])
 {
+	int subcmdindx = 1;
 	char *l;
 
 	istty = isatty(STDIN_FILENO);
 
-	if (argc > 1)
-		exit(demux_cmd(argc - 1, argv + 1));
+	if (argc > 1) {
+		if (strcmp(argv[1], "-v") == 0) {
+			verbose = true;
+			subcmdindx++;
+		}
+		if (argc > 1) {
+			exit(demux_cmd(argc - subcmdindx, argv + subcmdindx));
+		}
+	}
 
 	if (NULL == readline) {
 		fprintf(stderr, "missing library: readline\n");
@@ -419,7 +435,7 @@ delay_to_second_pass(launch_data_t o)
 }
 
 void
-readfile(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
+readfile(const char *what, struct load_unload_state *lus)
 {
 	char ourhostname[1024];
 	launch_data_t tmpd, thejob, tmpa;
@@ -428,7 +444,7 @@ readfile(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data
 
 	gethostname(ourhostname, sizeof(ourhostname));
 
-	if (NULL == (thejob = read_plist_file(what, editondisk, load))) {
+	if (NULL == (thejob = read_plist_file(what, lus->editondisk, lus->load))) {
 		fprintf(stderr, "%s: no plist was returned for: %s\n", getprogname(), what);
 		return;
 	}
@@ -442,10 +458,9 @@ readfile(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data
 				fprintf(stderr, "Please contact zarzycki@apple.com for help on the following \"convert to launchd\" messages.\n");
 				printed_who_to_contact = true;
 			}
-			fprintf(stderr, "%s: Please convert the following to launchd: %s\n",
-					getprogname(), what);
+			fprintf(stderr, "%s: Please convert the following to launchd: %s\n", getprogname(), what);
 		}
-		launch_data_array_append(pass0, thejob);
+		launch_data_array_append(lus->pass0, thejob);
 		return;
 	}
 
@@ -480,24 +495,29 @@ readfile(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data
 	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))
 		job_disabled = launch_data_get_bool(tmpd);
 
-	if (forceload)
+	if (lus->forceload)
 		job_disabled = false;
 
-	if (job_disabled && load)
+	if (job_disabled && lus->load)
 		goto out_bad;
 
 	if (delay_to_second_pass(thejob))
-		launch_data_array_append(pass2, thejob);
+		launch_data_array_append(lus->pass2, thejob);
 	else
-		launch_data_array_append(pass1, thejob);
+		launch_data_array_append(lus->pass1, thejob);
+
+	if (verbose)
+		fprintf(stdout, "Will load: %s\n", what);
 
 	return;
 out_bad:
+	if (verbose)
+		fprintf(stdout, "Ignored: %s\n", what);
 	launch_data_free(thejob);
 }
 
 void
-readpath(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data_t pass2, bool editondisk, bool load, bool forceload)
+readpath(const char *what, struct load_unload_state *lus)
 {
 	char buf[MAXPATHLEN];
 	struct stat sb;
@@ -508,7 +528,7 @@ readpath(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data
 		return;
 
 	if (S_ISREG(sb.st_mode) && !(sb.st_mode & S_IWOTH)) {
-		readfile(what, pass0, pass1, pass2, editondisk, load, forceload);
+		readfile(what, lus);
 	} else {
 		if ((d = opendir(what)) == NULL) {
 			fprintf(stderr, "%s: opendir() failed to open the directory\n", getprogname());
@@ -520,7 +540,7 @@ readpath(const char *what, launch_data_t pass0, launch_data_t pass1, launch_data
 				continue;
 			snprintf(buf, sizeof(buf), "%s/%s", what, de->d_name);
 
-			readfile(buf, pass0, pass1, pass2, editondisk, load, forceload);
+			readfile(buf, lus);
 		}
 		closedir(d);
 	}
@@ -1028,30 +1048,28 @@ _fd(int fd)
 int
 load_and_unload_cmd(int argc, char *const argv[])
 {
-	launch_data_t pass0, pass1, pass2;
         NSSearchPathEnumerationState es = 0;
 	char nspath[PATH_MAX * 2]; /* safe side, we need to append */
-	bool wflag = false;
-	bool lflag = false;
-	bool Fflag = false;
 	bool badopts = false;
-	char *session_type = NULL;
+	struct load_unload_state lus;
 	size_t i;
 	int ch;
 
+	memset(&lus, 0, sizeof(lus));
+
 	if (!strcmp(argv[0], "load"))
-		lflag = true;
+		lus.load = true;
 
 	while ((ch = getopt(argc, argv, "wFS:D:")) != -1) {
 		switch (ch) {
 		case 'w':
-			wflag = true;
+			lus.editondisk = true;
 			break;
 		case 'F':
-			Fflag = true;
+			lus.forceload = true;
 			break;
 		case 'S':
-			session_type = optarg;
+			lus.session_type = optarg;
 			break;
 		case 'D':
 			  if (strcasecmp(optarg, "all") == 0) {
@@ -1077,7 +1095,7 @@ load_and_unload_cmd(int argc, char *const argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (session_type == NULL)
+	if (lus.session_type == NULL)
 		es &= ~NSUserDomainMask;
 
 	if (argc == 0 && es == 0)
@@ -1097,16 +1115,16 @@ load_and_unload_cmd(int argc, char *const argv[])
 	 * launchd doesn't have reload support right now.
 	 */
 
-	pass0 = launch_data_alloc(LAUNCH_DATA_ARRAY);
-	pass1 = launch_data_alloc(LAUNCH_DATA_ARRAY);
-	pass2 = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	lus.pass0 = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	lus.pass1 = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	lus.pass2 = launch_data_alloc(LAUNCH_DATA_ARRAY);
 
 	es = NSStartSearchPathEnumeration(NSLibraryDirectory, es);
 
 	while ((es = NSGetNextSearchPathEnumeration(es, nspath))) {
 		glob_t g;
 
-		if (session_type) {
+		if (lus.session_type) {
 			strcat(nspath, "/LaunchAgents/*.plist");
 		} else {
 			strcat(nspath, "/LaunchDaemons/*.plist");
@@ -1114,38 +1132,37 @@ load_and_unload_cmd(int argc, char *const argv[])
 
 		if (glob(nspath, GLOB_TILDE|GLOB_NOSORT, NULL, &g) == 0) {
 			for (i = 0; i < g.gl_pathc; i++) {
-				fprintf(stdout, "Loading: %s\n", g.gl_pathv[i]);
-				readpath(g.gl_pathv[i], pass0, pass1, pass2, wflag, lflag, Fflag);
+				readpath(g.gl_pathv[i], &lus);
 			}
 			globfree(&g);
 		}
 	}
 
 	for (i = 0; i < (size_t)argc; i++)
-		readpath(argv[i], pass0, pass1, pass2, wflag, lflag, Fflag);
+		readpath(argv[i], &lus);
 
-	if (launch_data_array_get_count(pass0) == 0 &&
-			launch_data_array_get_count(pass1) == 0 &&
-			launch_data_array_get_count(pass2) == 0) {
-		fprintf(stderr, "nothing found to %s\n", lflag ? "load" : "unload");
-		launch_data_free(pass0);
-		launch_data_free(pass1);
-		launch_data_free(pass2);
+	if (launch_data_array_get_count(lus.pass0) == 0 &&
+			launch_data_array_get_count(lus.pass1) == 0 &&
+			launch_data_array_get_count(lus.pass2) == 0) {
+		fprintf(stderr, "nothing found to %s\n", lus.load ? "load" : "unload");
+		launch_data_free(lus.pass0);
+		launch_data_free(lus.pass1);
+		launch_data_free(lus.pass2);
 		return 1;
 	}
 	
-	if (lflag) {
-		distill_jobs(pass1);
-		submit_mach_jobs(pass0);
-		submit_job_pass(pass1);
-		let_go_of_mach_jobs(pass0);
-		distill_jobs(pass2);
-		submit_job_pass(pass2);
+	if (lus.load) {
+		distill_jobs(lus.pass1);
+		submit_mach_jobs(lus.pass0);
+		submit_job_pass(lus.pass1);
+		let_go_of_mach_jobs(lus.pass0);
+		distill_jobs(lus.pass2);
+		submit_job_pass(lus.pass2);
 	} else {
-		for (i = 0; i < launch_data_array_get_count(pass1); i++)
-			unloadjob(launch_data_array_get_index(pass1, i));
-		for (i = 0; i < launch_data_array_get_count(pass2); i++)
-			unloadjob(launch_data_array_get_index(pass2, i));
+		for (i = 0; i < launch_data_array_get_count(lus.pass1); i++)
+			unloadjob(launch_data_array_get_index(lus.pass1, i));
+		for (i = 0; i < launch_data_array_get_count(lus.pass2); i++)
+			unloadjob(launch_data_array_get_index(lus.pass2, i));
 	}
 
 	return 0;
