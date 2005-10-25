@@ -122,7 +122,6 @@ int main(int argc, char *const *argv)
 	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
 	const char *h = getenv("HOME");
 	const char *session_type = NULL;
-	const char *session_user = NULL;
 	const char *optargs = NULL;
 	struct kevent kev;
 	struct stat sb;
@@ -153,16 +152,13 @@ int main(int argc, char *const *argv)
 
 	if (getpid() == 1) {
 		optargs = "svx";
-	} else if (getuid() == 0) {
-		optargs = "S:U:dh";
 	} else {
-		optargs = "dh";
+		optargs = "S:dh";
 	}
 
 	while ((ch = getopt(argc, argv, optargs)) != -1) {
 		switch (ch) {
 		case 'S': session_type = optarg; break;	/* what type of session we're creating */
-		case 'U': session_user = optarg; break;	/* which user to create a session as */
 		case 'd': dflag = true;   break;	/* daemonize */
 		case 's': sflag = true;   break;	/* single user */
 		case 'x': xflag = true;   break;	/* safe boot */
@@ -178,31 +174,7 @@ int main(int argc, char *const *argv)
 	argc -= optind;
 	argv += optind;
 
-	if ((session_type && !session_user) || (!session_user && session_type)) {
-		fprintf(stderr, "-S and -U must be used together\n");
-		exit(EXIT_FAILURE);
-	}
-
-	/* main phase three: if we need to become a user, do so ASAP */
-	
-	if (session_user) {
-		struct passwd *pwe = getpwnam(session_user);
-		uid_t u = pwe ? pwe->pw_uid : 0;
-		gid_t g = pwe ? pwe->pw_gid : 0;
-		
-		if (pwe == NULL) {
-			fprintf(stderr, "lookup of user %s failed!\n", session_user);
-			exit(EXIT_FAILURE);
-		}
-
-		launchd_assert(initgroups(session_user, g) != -1);
-
-		launchd_assert(setgid(g) != -1);
-
-		launchd_assert(setuid(u) != -1);
-	}
-
-	/* main phase four: get the party started */
+	/* main phase three: get the party started */
 
 	if (dflag)
 		launchd_assumes(daemon(0, 0) == 0);
