@@ -930,7 +930,11 @@ do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 kern_return_t
 do_mach_notify_send_once(mach_port_t notify)
 {
-	launchd_assumes(false);
+	/*
+	 * This message is sent to us every time we close a port that we have
+	 * outstanding Mach notification requests on. We can safely ignore
+	 * this message.
+	 */
 	return KERN_SUCCESS;
 }
 
