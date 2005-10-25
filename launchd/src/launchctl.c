@@ -164,19 +164,26 @@ static bool verbose = false;
 int
 main(int argc, char *const argv[])
 {
-	int subcmdindx = 1;
 	char *l;
 
 	istty = isatty(STDIN_FILENO);
 
-	if (argc > 1) {
-		if (strcmp(argv[1], "-v") == 0) {
-			verbose = true;
-			subcmdindx++;
+	argc--, argv++;
+
+	if (argc > 0 && argv[0][0] == '-') {
+		char *flago;
+
+		for (flago = argv[0] + 1; *flago; flago++) {
+			switch (*flago) {
+			case 'v':
+				verbose = true;
+				break;
+			default:
+				fprintf(stderr, "Unknown argument: '-%c'\n", *flago);
+				break;
+			}
 		}
-		if (argc > 1) {
-			exit(demux_cmd(argc - subcmdindx, argv + subcmdindx));
-		}
+		argc--, argv++;
 	}
 
 	if (NULL == readline) {
@@ -184,25 +191,32 @@ main(int argc, char *const argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	while ((l = readline(istty ? "launchd% " : NULL))) {
-		char *inputstring = l, *argv2[100], **ap = argv2;
-		int i = 0;
+	if (!istty || argc == 0) {
+		while ((l = readline(istty ? "launchd% " : NULL))) {
+			char *inputstring = l, *argv2[100], **ap = argv2;
+			int i = 0;
 
-		while ((*ap = strsep(&inputstring, " \t"))) {
-			if (**ap != '\0') {
-				ap++;
-				i++;
+			while ((*ap = strsep(&inputstring, " \t"))) {
+				if (**ap != '\0') {
+					ap++;
+					i++;
+				}
 			}
+
+			if (i > 0)
+				demux_cmd(i, argv2);
+
+			free(l);
 		}
 
-		if (i > 0)
-			demux_cmd(i, argv2);
-
-		free(l);
+		if (istty) {
+			fputc('\n', stdout);
+		}
 	}
 
-	if (istty)
-		fputc('\n', stdout);
+	if (argc > 0) {
+		exit(demux_cmd(argc, argv));
+	}
 
 	exit(EXIT_SUCCESS);
 }
