@@ -438,7 +438,7 @@ void
 readfile(const char *what, struct load_unload_state *lus)
 {
 	char ourhostname[1024];
-	launch_data_t tmpd, thejob, tmpa;
+	launch_data_t tmpd, tmps, thejob, tmpa;
 	bool job_disabled = false;
 	size_t i, c;
 
@@ -490,6 +490,14 @@ readfile(const char *what, struct load_unload_state *lus)
 
 		if (i == c)
 			goto out_bad;
+	}
+
+	if ((tmps = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE))) {
+		const char *allowed_session = launch_data_get_string(tmps);
+		if (lus->session_type) {
+			if (strcasecmp(lus->session_type, allowed_session) == 0)
+				goto out_bad;
+		}
 	}
 
 	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))

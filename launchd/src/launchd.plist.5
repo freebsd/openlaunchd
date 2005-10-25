@@ -103,6 +103,10 @@ This flag corresponds to the "wait" or "nowait" option of
 This configuration file only applies to the hosts listed with this key.
 .It Sy LimitLoadFromHosts <array of strings>
 This configuration file only applies to hosts NOT listed with this key.
+.It Sy LimitLoadToSessionType <string>
+This configuration file only applies to sessions of the type specified. This key is used
+in concert with the -S flag to
+.Nm launchctl .
 .It Sy ProgramArguments <array of strings>
 This required key maps to the second argument of
 .Xr execvp 3 .
