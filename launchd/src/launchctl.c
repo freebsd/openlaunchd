@@ -21,6 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 #include <CoreFoundation/CoreFoundation.h>
+#include <NSSystemDirectories.h>
 #include <mach/mach.h>
 #include <servers/bootstrap.h>
 #include <sys/types.h>
@@ -43,6 +44,7 @@
 #include <grp.h>
 #include <netdb.h>
 #include <syslog.h>
+#include <glob.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <dns_sd.h>
@@ -1027,28 +1029,62 @@ int
 load_and_unload_cmd(int argc, char *const argv[])
 {
 	launch_data_t pass0, pass1, pass2;
-	int i, ch;
+        NSSearchPathEnumerationState es = 0;
+	char nspath[PATH_MAX * 2]; /* safe side, we need to append */
 	bool wflag = false;
 	bool lflag = false;
 	bool Fflag = false;
+	bool badopts = false;
+	char *session_type = NULL;
+	size_t i;
+	int ch;
 
 	if (!strcmp(argv[0], "load"))
 		lflag = true;
 
-	while ((ch = getopt(argc, argv, "wF")) != -1) {
+	while ((ch = getopt(argc, argv, "wFS:D:")) != -1) {
 		switch (ch) {
-		case 'w': wflag = true; break;
-		case 'F': Fflag = true; break;
+		case 'w':
+			wflag = true;
+			break;
+		case 'F':
+			Fflag = true;
+			break;
+		case 'S':
+			session_type = optarg;
+			break;
+		case 'D':
+			  if (strcasecmp(optarg, "all") == 0) {
+				  es |= NSAllDomainsMask;
+			  } else if (strcasecmp(optarg, "user") == 0) {
+				  es |= NSUserDomainMask;
+			  } else if (strcasecmp(optarg, "local") == 0) {
+				  es |= NSLocalDomainMask;
+			  } else if (strcasecmp(optarg, "network") == 0) {
+				  es |= NSNetworkDomainMask;
+			  } else if (strcasecmp(optarg, "system") == 0) {
+				  es |= NSSystemDomainMask;
+			  } else {
+				badopts = true;
+			  }
+			  break;
+		case '?':
 		default:
-			fprintf(stderr, "usage: %s load [-wF] paths...\n", getprogname());
-			return 1;
+			badopts = true;
+			break;
 		}
 	}
 	argc -= optind;
 	argv += optind;
 
-	if (argc == 0) {
-		fprintf(stderr, "usage: %s load [-w] paths...\n", getprogname());
+	if (session_type == NULL)
+		es &= ~NSUserDomainMask;
+
+	if (argc == 0 && es == 0)
+		badopts = true;
+
+	if (badopts) {
+		fprintf(stderr, "usage: %s load [-wF] [-D <user|local|network|system|all>] paths...\n", getprogname());
 		return 1;
 	}
 
@@ -1065,7 +1101,27 @@ load_and_unload_cmd(int argc, char *const argv[])
 	pass1 = launch_data_alloc(LAUNCH_DATA_ARRAY);
 	pass2 = launch_data_alloc(LAUNCH_DATA_ARRAY);
 
-	for (i = 0; i < argc; i++)
+	es = NSStartSearchPathEnumeration(NSLibraryDirectory, es);
+
+	while ((es = NSGetNextSearchPathEnumeration(es, nspath))) {
+		glob_t g;
+
+		if (session_type) {
+			strcat(nspath, "/LaunchAgents/*.plist");
+		} else {
+			strcat(nspath, "/LaunchDaemons/*.plist");
+		}
+
+		if (glob(nspath, GLOB_TILDE|GLOB_NOSORT, NULL, &g) == 0) {
+			for (i = 0; i < g.gl_pathc; i++) {
+				fprintf(stdout, "Loading: %s\n", g.gl_pathv[i]);
+				readpath(g.gl_pathv[i], pass0, pass1, pass2, wflag, lflag, Fflag);
+			}
+			globfree(&g);
+		}
+	}
+
+	for (i = 0; i < (size_t)argc; i++)
 		readpath(argv[i], pass0, pass1, pass2, wflag, lflag, Fflag);
 
 	if (launch_data_array_get_count(pass0) == 0 &&
@@ -1086,9 +1142,9 @@ load_and_unload_cmd(int argc, char *const argv[])
 		distill_jobs(pass2);
 		submit_job_pass(pass2);
 	} else {
-		for (i = 0; i < (int)launch_data_array_get_count(pass1); i++)
+		for (i = 0; i < launch_data_array_get_count(pass1); i++)
 			unloadjob(launch_data_array_get_index(pass1, i));
-		for (i = 0; i < (int)launch_data_array_get_count(pass2); i++)
+		for (i = 0; i < launch_data_array_get_count(pass2); i++)
 			unloadjob(launch_data_array_get_index(pass2, i));
 	}
 

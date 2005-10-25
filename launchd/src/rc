@@ -237,9 +237,9 @@ fi
 
 # Load [ideally on demand] daemons
 if [ "${SafeBoot}" = "-x" ]; then
-	launchctl load /System/Library/LaunchDaemons /etc/mach_init.d
+	launchctl load -D system /etc/mach_init.d
 else
-	launchctl load /Library/LaunchDaemons /System/Library/LaunchDaemons /etc/mach_init.d
+	launchctl load -D local -D system /etc/mach_init.d
 	SystemStarter ${VerboseFlag}
 fi
 

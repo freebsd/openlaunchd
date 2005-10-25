@@ -25,6 +25,8 @@ starts.
 .Sh SUBCOMMANDS
 .Bl -tag -width -indent
 .It Xo Ar load Op Fl wF
+.Op Fl S Ar sessiontype
+.Op Fl D Ar domain
 .Ar paths ...
 .Xc
 Load the specified configuration files or directories of configuration files.
@@ -35,6 +37,20 @@ All specified jobs will be loaded before any of them are allowed to start.
 Remove the disabled key and write the configuration files back out to disk.
 .It Fl F
 Force the loading of the plist. Ignore the Disabled key.
+.It Fl S Ar sessiontype
+Some jobs only make sense in certain contexts. This flag instructs
+.Nm launchctl
+to look for jobs in a different location when using the -D flag, and allows
+.Nm launchctl
+to restrict which jobs are loaded into which session types. Currently known
+session types include: Aqua, X11 and tty.
+.It Fl D Ar domain
+Look for
+.Xr plist 5 files ending in *.plist in the domain given. Valid domains include
+"system," "local," "network" and "all." When providing a session type, an additional
+domain is available for use called "user." For example, without a session type given,
+"-D system" would load from property list files from /System/Library/LaunchDaemons.
+With a session type passed, it would load from /System/Library/LaunchAgents.
 .El
 .It Xo Ar unload Op Fl w
 .Ar paths ...
