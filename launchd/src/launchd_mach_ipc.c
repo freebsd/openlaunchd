@@ -511,15 +511,11 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 
 	syslog(LOG_DEBUG, "Register attempt for service %s port %x", servicename, serviceport);
 
-	/*
-	 * If this bootstrap port is for a server, or it's an unprivileged
-	 * bootstrap can't register the port.
-	 */
 	servicep = bootstrap_lookup_service(bootstrap, servicename);
-	if (servicep && machservice_job(servicep) && machservice_job(servicep) != j)
-		return BOOTSTRAP_NOT_PRIVILEGED;
 
 	if (servicep && machservice_bootstrap(servicep) == bootstrap) {
+		if (machservice_job(servicep) && machservice_job(servicep) != j)
+			return BOOTSTRAP_NOT_PRIVILEGED;
 		if (machservice_active(servicep)) {
 			syslog(LOG_DEBUG, "Register: service %s already active, port %x", machservice_name(servicep), machservice_port(servicep));
 			launchd_assumes(!canReceive(machservice_port(servicep)));
