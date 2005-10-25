@@ -38,7 +38,7 @@ void bootstrap_delete(struct bootstrap *bootstrap);
 void bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t port);
 mach_port_t bootstrap_rport(struct bootstrap *bootstrap);
 struct bootstrap *bootstrap_rparent(struct bootstrap *bootstrap);
-struct machservice *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name);
+struct machservice *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name, bool check_parent);
 void bootstrap_callback(void *obj, struct kevent *kev);
 void bootstrap_foreach_service(struct bootstrap *bootstrap, void (*bs_iter)(struct machservice *, void *), void *context);
 

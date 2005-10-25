@@ -456,7 +456,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 
 	syslog(LOG_DEBUG, "Service checkin attempt for service %s bootstrap %x", servicename, bootstrapport);
 
-	servicep = bootstrap_lookup_service(bootstrap, servicename);
+	servicep = bootstrap_lookup_service(bootstrap, servicename, true);
 	if (servicep == NULL || !launchd_assumes(machservice_port(servicep) != MACH_PORT_NULL)) {
 		syslog(LOG_DEBUG, "bootstrap_check_in service %s unknown%s", servicename, inherited_bootstrap_port != MACH_PORT_NULL ? " forwarding" : "");
 		result = BOOTSTRAP_UNKNOWN_SERVICE;
@@ -511,9 +511,9 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 
 	syslog(LOG_DEBUG, "Register attempt for service %s port %x", servicename, serviceport);
 
-	servicep = bootstrap_lookup_service(bootstrap, servicename);
+	servicep = bootstrap_lookup_service(bootstrap, servicename, false);
 
-	if (servicep && machservice_bootstrap(servicep) == bootstrap) {
+	if (servicep) {
 		if (machservice_job(servicep) && machservice_job(servicep) != j)
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		if (machservice_active(servicep)) {
@@ -554,7 +554,7 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct machservice *servicep;
 
-	servicep = bootstrap_lookup_service(bootstrap, servicename);
+	servicep = bootstrap_lookup_service(bootstrap, servicename, true);
 	if (servicep) {
 		launchd_assumes(machservice_port(servicep) != MACH_PORT_NULL);
 		syslog(LOG_DEBUG, "bootstrap_look_up service %s returned %x", servicename, machservice_port(servicep));
@@ -678,7 +678,7 @@ x_bootstrap_status(mach_port_t bootstrapport, name_t servicename, bootstrap_stat
 	struct bootstrap *bootstrap = current_rpc_bootstrap;
 	struct machservice *servicep;
 
-	servicep = bootstrap_lookup_service(bootstrap, servicename);
+	servicep = bootstrap_lookup_service(bootstrap, servicename, true);
 	if (servicep == NULL) {
 		if (inherited_bootstrap_port != MACH_PORT_NULL) {
 			syslog(LOG_DEBUG, "bootstrap_status forwarding status, server %s", servicename);
@@ -857,7 +857,7 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_p
 	struct machservice *servicep;
 
 	syslog(LOG_DEBUG, "Service creation attempt for service %s bootstrap %x", servicename, bootstrapport); 
-	servicep = bootstrap_lookup_service(bootstrap, servicename);
+	servicep = bootstrap_lookup_service(bootstrap, servicename, false);
 	if (servicep) {
 		syslog(LOG_DEBUG, "Service creation attempt for service %s failed, service already exists", servicename);
 		return BOOTSTRAP_NAME_IN_USE;

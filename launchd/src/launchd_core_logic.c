@@ -2114,7 +2114,7 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	if (launch_data_get_type(obj) == LAUNCH_DATA_BOOL)
 		reset = !launch_data_get_bool(obj);
 
-	if (bootstrap_lookup_service(j->bstrap, key) == NULL) {
+	if (bootstrap_lookup_service(j->bstrap, key, false) == NULL) {
 		ms = machservice_new(j->bstrap, key, &p, j);
 		if (ms) {
 			ms->isActive = false;
@@ -2261,7 +2261,7 @@ bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t por
 }
 
 struct machservice *
-bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name)
+bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name, bool check_parent)
 {
 	struct machservice *ms;
 	struct jobcb *ji;
@@ -2281,7 +2281,10 @@ bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name)
 	if (bootstrap->parent == NULL)
 		return NULL;
 
-	return bootstrap_lookup_service(bootstrap->parent, name);
+	if (!check_parent)
+		return NULL;
+
+	return bootstrap_lookup_service(bootstrap->parent, name, true);
 }
 
 mach_port_t
