@@ -842,7 +842,12 @@ void
 job_import_keys(launch_data_t obj, const char *key, void *context)
 {
 	struct jobcb *j = context;
-	launch_data_type_t kind = launch_data_get_type(obj);
+	launch_data_type_t kind;
+
+	if (obj == NULL)
+		return;
+
+	kind = launch_data_get_type(obj);
 
 	switch (kind) {
 	case LAUNCH_DATA_BOOL:
@@ -873,6 +878,12 @@ job_import2(launch_data_t pload)
 	const char *label = NULL, *prog = NULL;
 	const char **argv = NULL;
 	struct jobcb *j;
+
+	if (pload == NULL)
+		return NULL;
+
+	if (launch_data_get_type(pload) != LAUNCH_DATA_DICTIONARY)
+		return NULL;
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)) &&
 			(launch_data_get_type(tmp) == LAUNCH_DATA_STRING)) {
