@@ -518,9 +518,11 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 	}
 
 	if (serviceport != MACH_PORT_NULL) {
-		ms = machservice_new(job_get_bs(j), servicename, &serviceport);
-		machservice_watch(ms);
-		job_log(j, LOG_INFO, "Mach service registered: %s", servicename);
+		if ((ms = machservice_new(job_get_bs(j), servicename, &serviceport))) {
+			machservice_watch(ms);
+		} else {
+			return BOOTSTRAP_NO_MEMORY;
+		}
 	}
 
 	return BOOTSTRAP_SUCCESS;
