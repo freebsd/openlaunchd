@@ -68,12 +68,12 @@ void launchd_SessionCreate(void);
 void launchd_shutdown(void);
 void launchd_single_user(void);
 pid_t launchd_fork(void);
-pid_t launchd_ws_fork(void);
 boolean_t launchd_mach_ipc_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
 kern_return_t launchd_set_bport(mach_port_t name);
 kern_return_t launchd_get_bport(mach_port_t *name);
 kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
+kern_return_t launchd_mport_notify_cancel(mach_port_t name, mach_msg_id_t which);
 kern_return_t launchd_mport_watch(mach_port_t name);
 kern_return_t launchd_mport_ignore(mach_port_t name);
 kern_return_t launchd_mport_create_recv(mach_port_t *name, void *obj);

@@ -656,11 +656,7 @@ session_launch(session_t s)
 	if (strcmp(se_cmd->argv[0], "/System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow") == 0)
 		is_loginwindow = true;
 
-	if (is_loginwindow) {
-		pid = launchd_ws_fork();
-	} else {
-		pid = launchd_fork();
-	}
+	pid = launchd_fork();
 
 	if (pid == -1) {
 		syslog(LOG_ERR, "can't fork for %s on port %s: %m",

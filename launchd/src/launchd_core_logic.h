@@ -28,40 +28,28 @@
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 
 struct jobcb;
-struct bootstrap;
 struct machservice;
 
-#define ANY_JOB ((struct jobcb *)-1)
 
-struct bootstrap *bootstrap_new(struct bootstrap *parent, mach_port_name_t requestorport);
-void bootstrap_delete(struct bootstrap *bootstrap);
-void bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t port);
-mach_port_t bootstrap_rport(struct bootstrap *bootstrap);
-struct bootstrap *bootstrap_rparent(struct bootstrap *bootstrap);
-struct machservice *bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name, bool check_parent);
-void bootstrap_callback(void *obj, struct kevent *kev);
-void bootstrap_foreach_service(struct bootstrap *bootstrap, void (*bs_iter)(struct machservice *, void *), void *context);
-
-
-struct machservice *machservice_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct jobcb *j);
+struct machservice *machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport);
 void machservice_delete(struct machservice *servicep);
 void machservice_watch(struct machservice *servicep);
 mach_port_t machservice_port(struct machservice *servicep);
 struct jobcb *machservice_job(struct machservice *servicep);
 bool machservice_active(struct machservice *servicep);
 const char *machservice_name(struct machservice *servicep);
-struct bootstrap *machservice_bootstrap(struct machservice *servicep);
 
 
-struct jobcb *job_find(const char *label);
+struct jobcb *job_find(struct jobcb *j, const char *label);
 struct jobcb *job_import(launch_data_t pload);
 launch_data_t job_import_bulk(launch_data_t pload);
-struct jobcb *job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, const char *stdinpath);
-struct jobcb *job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond);
+struct jobcb *job_new(struct jobcb *p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t);
+struct jobcb *job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond);
+struct jobcb *job_new_bootstrap(struct jobcb *p, mach_port_t requestorport);
 launch_data_t job_export(struct jobcb *j);
 launch_data_t job_export_all(void);
 void job_dispatch(struct jobcb *j);
-void job_dispatch_all_other_semaphores(struct jobcb *j, struct bootstrap *b);
+void job_dispatch_all_other_semaphores(struct jobcb *j, struct jobcb *nj);
 void job_start(struct jobcb *j);
 void job_stop(struct jobcb *j);
 bool job_active(struct jobcb *j);
@@ -69,19 +57,24 @@ void job_checkin(struct jobcb *j);
 bool job_ondemand(struct jobcb *j);
 const char *job_prog(struct jobcb *j);
 #ifdef PID1_REAP_ADOPTED_CHILDREN
-bool job_reap_pid(pid_t p);
+bool job_reap_pid(struct jobcb *j, pid_t p);
 #endif
 void job_remove(struct jobcb *j);
-void job_remove_all_inactive(void);
-void job_ack_port_destruction(struct jobcb *j, mach_port_t p);
+void job_remove_all_inactive(struct jobcb *j);
+bool job_ack_port_destruction(struct jobcb *j, mach_port_t p);
 void job_ack_no_senders(struct jobcb *j);
-mach_port_t job_get_priv_port(struct jobcb *j);
+mach_port_t job_get_bsport(struct jobcb *j);
+struct jobcb *job_get_bs(struct jobcb *j);
+void job_delete_anything_with_port(struct jobcb *jbs, mach_port_t port);
+struct jobcb *job_parent(struct jobcb *j);
+struct machservice *job_lookup_service(struct jobcb *jbs, const char *name, bool check_parent);
+void job_foreach_service(struct jobcb *jbs, void (*bs_iter)(struct machservice *, void *), void *context);
+void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 
 extern size_t total_children;
 
-extern struct bootstrap *root_bootstrap;
-extern struct bootstrap *ws_bootstrap;
-extern struct bootstrap *current_rpc_bootstrap;
-extern struct jobcb *current_rpc_server;
+extern struct jobcb *root_job;
+extern struct jobcb *current_rpc_job;
 
 #endif

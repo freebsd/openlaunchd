@@ -204,11 +204,11 @@ int main(int argc, char *const *argv)
 	if (h)
 		sprintf(ldconf, "%s/%s", h, LAUNCHD_CONF);
 
-	rlcj = job_new(root_bootstrap, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf);
+	rlcj = job_new(root_job, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf, MACH_PORT_NULL);
 	launchd_assert(rlcj != NULL);
 
 	if (argv[0])
-		fbj = job_new(root_bootstrap, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL);
+		fbj = job_new(root_job, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL, MACH_PORT_NULL);
 
 	if (NULL == getenv("PATH"))
 		setenv("PATH", _PATH_STDPATH, 1);
@@ -381,7 +381,7 @@ static void pid1waitpid(void)
 	pid_t p;
 
 	while ((p = waitpid(-1, &pid1_child_exit_status, WNOHANG)) > 0) {
-		if (!job_reap_pid(p))
+		if (!job_reap_pid(root_job, p))
 			init_check_pid(p);
 	}
 }
@@ -394,7 +394,7 @@ launchd_shutdown(void)
 
 	launchd_assumes(close(asynckq) != -1);
 	
-	job_remove_all_inactive();
+	job_remove_all_inactive(root_job);
 
 	if (getpid() == 1)
 		catatonia();
@@ -708,6 +708,6 @@ pfsystem_callback(void *obj, struct kevent *kev)
 
 	if (new_networking_state != network_up) {
 		network_up = new_networking_state;
-		job_dispatch_all_other_semaphores(NULL, root_bootstrap);
+		job_dispatch_all_other_semaphores(root_job, NULL);
 	}
 }

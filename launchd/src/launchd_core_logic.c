@@ -85,23 +85,11 @@
 		(var) = (tvar))
 #endif
 
-struct bootstrap {
-	kq_callback			kqbstrap_callback;
-	SLIST_ENTRY(bootstrap)		sle;
-	SLIST_HEAD(, bootstrap)		sub_bstraps;
-	SLIST_HEAD(, jobcb)		jobs;
-	SLIST_HEAD(, machservice)	services;
-	struct bootstrap		*parent;
-	mach_port_name_t		bootstrap_port;
-	mach_port_name_t		requestor_port;
-};
-
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
-	struct bootstrap	*bootstrap;
 	struct jobcb		*job;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, __junk:30;
+	unsigned int		isActive:1, reset:1, recv:1, __junk:29;
 	char			name[0];
 };
 
@@ -200,8 +188,10 @@ struct jobcb {
 	SLIST_HEAD(, limititem) limits;
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
-	struct bootstrap *bstrap;
-	mach_port_t priv_port;
+	SLIST_HEAD(, jobcb) jobs;
+	struct jobcb *parent;
+	mach_port_t bs_port;
+	mach_port_t req_port;
 	uid_t mach_uid;
 	char **argv;
 	char *prog;
@@ -228,7 +218,6 @@ struct jobcb {
 	char label[0];
 };
 
-static struct jobcb *job_find2(struct bootstrap *b, const char *label);
 static struct jobcb *job_import2(launch_data_t pload);
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
 static void job_import_bool(struct jobcb *j, const char *key, bool value);
@@ -244,9 +233,10 @@ static bool job_keepalive(struct jobcb *j);
 static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
 static bool job_setup_machport(struct jobcb *j);
+static void job_handle_bs_port(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
-static void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
-static void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+static pid_t job_fork(struct jobcb *j);
+static void job_setup_env_from_other_jobs(struct jobcb *j);
 
 
 static const struct {
@@ -270,9 +260,8 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static int dir_has_files(const char *path);
 static char **mach_cmd2argv(const char *string);
-static pid_t fork_with_bootstrap_port(mach_port_t p);
-static void job_setup_env_from_other_jobs(struct bootstrap *b);
-
+struct jobcb *root_job = NULL;
+struct jobcb *current_rpc_job = NULL;
 size_t total_children = 0;
 
 void
@@ -402,30 +391,22 @@ job_export(struct jobcb *j)
 	return r;
 }
 
-static void
-job_remove_all_inactive2(struct bootstrap *b)
-{
-	struct bootstrap *sbi;
-	struct jobcb *ji, *jn;
-
-	SLIST_FOREACH(sbi, &b->sub_bstraps, sle)
-		job_remove_all_inactive2(sbi);
-
-	SLIST_FOREACH_SAFE(ji, &b->jobs, sle, jn) {
-		if (!job_active(ji))
-			job_remove(ji);
-	}
-}
-
 void
-job_remove_all_inactive(void)
+job_remove_all_inactive(struct jobcb *j)
 {
-	job_remove_all_inactive2(root_bootstrap);
+	struct jobcb *ji;
+
+	SLIST_FOREACH(ji, &j->jobs, sle)
+		job_remove_all_inactive(ji);
+
+	if (!job_active(j))
+		job_remove(j);
 }
 
 void
 job_remove(struct jobcb *j)
 {
+	struct jobcb *ji;
 	struct calendarinterval *ci;
 	struct socketgroup *sg;
 	struct watchpath *wp;
@@ -436,8 +417,6 @@ job_remove(struct jobcb *j)
 
 	job_log(j, LOG_DEBUG, "Removed");
 
-	SLIST_REMOVE(&j->bstrap->jobs, j, jobcb, sle);
-
 	if (j->p) {
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
 			job_reap(j);
@@ -446,11 +425,20 @@ job_remove(struct jobcb *j)
 		}
 	}
 
+	if (j->parent)
+		SLIST_REMOVE(&j->parent->jobs, j, jobcb, sle);
+
 	if (j->execfd)
 		launchd_assumes(close(j->execfd) == 0);
 
-	if (j->priv_port != MACH_PORT_NULL)
-		launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
+	if (j->bs_port)
+		launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+
+	if (j->req_port)
+		launchd_assumes(launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
+
+	while ((ji = SLIST_FIRST(&j->jobs)))
+		job_remove(ji);
 
 	while ((sg = SLIST_FIRST(&j->sockets)))
 		socketgroup_delete(j, sg);
@@ -540,21 +528,21 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_setup_machport(struct jobcb *j)
 {
-	if (!launchd_assumes(launchd_mport_create_recv(&j->priv_port, j) == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port, j) == KERN_SUCCESS))
 		goto out_bad;
 
-	if (!launchd_assumes(launchd_mport_watch(j->priv_port) == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_watch(j->bs_port) == KERN_SUCCESS))
 		goto out_bad2;
 
 	return true;
 out_bad2:
-	launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 out_bad:
 	return false;
 }
 
 struct jobcb *
-job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, bool ond)
+job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 {
 	const char **argv = (const char **)mach_cmd2argv(cmd);
 	struct jobcb *j = NULL;
@@ -566,7 +554,7 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 	/* preflight the string so we know how big it is */
 	sprintf(buf, "via_mach_init.100000.%s", basename(argv[0]));
 
-	j = job_new(bootstrap, buf, NULL, argv, NULL);
+	j = job_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
 
 	free(argv);
 
@@ -581,14 +569,14 @@ job_new_via_mach_init(struct bootstrap *bootstrap, const char *cmd, uid_t uid, b
 	if (!job_setup_machport(j))
 		goto out_bad;
 
-	if (!launchd_assumes(launchd_mport_notify_req(j->priv_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
-		launchd_assumes(launchd_mport_close_recv(j->priv_port) == KERN_SUCCESS);
+	if (!launchd_assumes(launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
+		launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 		goto out_bad;
 	}
 
-	sprintf(j->label, "via_mach_init.%d.%s", MACH_PORT_INDEX(j->priv_port), basename(argv[0]));
+	sprintf(j->label, "via_mach_init.%d.%s", MACH_PORT_INDEX(j->bs_port), basename(argv[0]));
 
-	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", bootstrap->bootstrap_port);
+	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
 
 	return j;
 
@@ -599,14 +587,14 @@ out_bad:
 }
 
 struct jobcb *
-job_new(struct bootstrap *b, const char *label, const char *prog, const char *const *argv, const char *stdinpath)
+job_new(struct jobcb *p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t reqport)
 {
 	const char *const *argv_tmp = argv;
 	char *co;
 	int i, cc = 0;
 	struct jobcb *j;
 
-	if (prog == NULL && argv == NULL) {
+	if (reqport == MACH_PORT_NULL && prog == NULL && argv == NULL) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -618,10 +606,16 @@ job_new(struct bootstrap *b, const char *label, const char *prog, const char *co
 
 	strcpy(j->label, label);
 	j->kqjob_callback = job_callback;
-	j->bstrap = b;
+	j->parent = p;
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
+
+	if (reqport != MACH_PORT_NULL) {
+		j->req_port = reqport;
+		if (!launchd_assumes(launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
+			goto out_bad;
+	}
 
 	if (prog) {
 		j->prog = strdup(prog);
@@ -657,7 +651,9 @@ job_new(struct bootstrap *b, const char *label, const char *prog, const char *co
 		j->argv[i] = NULL;
 	}
 
-	SLIST_INSERT_HEAD(&b->jobs, j, sle);
+	if (j->parent) {
+		SLIST_INSERT_HEAD(&j->parent->jobs, j, sle);
+	}
 
 	return j;
 
@@ -898,7 +894,7 @@ job_import2(launch_data_t pload)
 	if (label == NULL) {
 		errno = EINVAL;
 		return NULL;
-	} else if ((j = job_find(label)) != NULL) {
+	} else if ((j = job_find(root_job, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	} else if ((strncasecmp(label, "com.apple.launchd", strlen("com.apple.launchd")) == 0) ||
@@ -918,51 +914,40 @@ job_import2(launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	if ((j = job_new(root_bootstrap, label, prog, argv, NULL)))
+	if ((j = job_new(root_job, label, prog, argv, NULL, MACH_PORT_NULL)))
 		launch_data_dict_iterate(pload, job_import_keys, j);
 
 	return j;
 }
 
 struct jobcb *
-job_find2(struct bootstrap *b, const char *label)
+job_find(struct jobcb *j, const char *label)
 {
-	struct bootstrap *sbi;
-	struct jobcb *ji;
+	struct jobcb *jr, *ji;
 
-	SLIST_FOREACH(ji, &b->jobs, sle) {
-		if (strcmp(ji->label, label) == 0)
-			return ji;
-	}
+	if (strcmp(j->label, label) == 0)
+		return j;
 
-	SLIST_FOREACH(sbi, &b->sub_bstraps, sle) {
-		if ((ji = job_find2(sbi, label)))
-			return ji;
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if ((jr = job_find(ji, label)))
+			return jr;
 	}
 
 	errno = ESRCH;
 	return NULL;
 }
 
-struct jobcb *
-job_find(const char *label)
-{
-	return job_find2(root_bootstrap, label);
-}
-
 static void
-job_export_all2(struct bootstrap *b, launch_data_t where)
+job_export_all2(struct jobcb *j, launch_data_t where)
 {
-	struct bootstrap *sbi;
+	launch_data_t tmp;
 	struct jobcb *ji;
 
-	SLIST_FOREACH(ji, &b->jobs, sle) {
-		launch_data_t tmp = job_export(ji);
-		launch_data_dict_insert(where, tmp, ji->label);
-	}
+	if (launchd_assumes((tmp = job_export(j)) != NULL))
+		launch_data_dict_insert(where, tmp, j->label);
 
-	SLIST_FOREACH(sbi, &b->sub_bstraps, sle)
-		job_export_all2(sbi, where);
+	SLIST_FOREACH(ji, &j->jobs, sle)
+		job_export_all2(ji, where);
 }
 
 launch_data_t
@@ -970,7 +955,7 @@ job_export_all(void)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	job_export_all2(root_bootstrap, resp);
+	job_export_all2(root_job, resp);
 
 	return resp;
 }
@@ -1061,8 +1046,6 @@ job_callback(void *obj, struct kevent *kev)
 	bool d = j->debug;
 	int oldmask = 0;
 
-	current_rpc_server = obj;
-
 	if (d) {
 		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
 		job_log(j, LOG_DEBUG, "log level debug temporarily enabled while processing job");
@@ -1104,10 +1087,8 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_MACHPORT:
-		if (j->priv_port == kev->ident) {
-			struct kevent newkev = *kev;
-			newkev.udata = j->bstrap;
-			bootstrap_callback(j->bstrap, &newkev);
+		if (j->bs_port == kev->ident) {
+			job_handle_bs_port(j);
 		} else {
 			job_start(j);
 		}
@@ -1122,19 +1103,22 @@ job_callback(void *obj, struct kevent *kev)
 		syslog(LOG_DEBUG, "restoring original log mask");
 		setlogmask(oldmask);
 	}
-
-	current_rpc_server = NULL;
 }
 
 void
 job_start(struct jobcb *j)
 {
-	mach_port_t which_bsport = j->bstrap->bootstrap_port;
 	int spair[2];
 	int execspair[2];
 	char nbuf[64];
 	pid_t c;
 	bool sipc = false;
+
+	if (!launchd_assumes(j->req_port == MACH_PORT_NULL))
+		return;
+
+	if (!launchd_assumes(j->parent != NULL))
+		return;
 
 	if (job_active(j)) {
 		job_log(j, LOG_DEBUG, "Already started");
@@ -1165,12 +1149,11 @@ job_start(struct jobcb *j)
 
 	time(&j->start_time);
 
-	if (!SLIST_EMPTY(&j->machservices)) {
-		launchd_assumes(launchd_mport_notify_req(j->priv_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
-		which_bsport = j->priv_port;
+	if (j->bs_port) {
+		launchd_assumes(launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
 	}
 
-	switch (c = fork_with_bootstrap_port(which_bsport)) {
+	switch (c = job_fork(j->bs_port ? j : j->parent)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		launchd_assumes(close(execspair[0]) == 0);
@@ -1265,19 +1248,16 @@ job_start_child(struct jobcb *j, int execfd)
 	exit(EXIT_FAILURE);
 }
 
-void job_setup_env_from_other_jobs(struct bootstrap *b)
+void job_setup_env_from_other_jobs(struct jobcb *j)
 {
-	struct bootstrap *sbi;
 	struct envitem *ei;
 	struct jobcb *ji;
 
-	SLIST_FOREACH(sbi, &b->sub_bstraps, sle)
-		job_setup_env_from_other_jobs(sbi);
+	SLIST_FOREACH(ji, &j->jobs, sle)
+		job_setup_env_from_other_jobs(ji);
 
-	SLIST_FOREACH(ji, &b->jobs, sle) {
-		SLIST_FOREACH(ei, &ji->global_env, sle)
-			setenv(ei->key, ei->value, 1);
-	}
+	SLIST_FOREACH(ei, &j->global_env, sle)
+		setenv(ei->key, ei->value, 1);
 }
 
 void
@@ -1403,7 +1383,7 @@ job_setup_attributes(struct jobcb *j)
 		}
 	}
 
-	job_setup_env_from_other_jobs(root_bootstrap);
+	job_setup_env_from_other_jobs(root_job);
 
 	SLIST_FOREACH(ei, &j->env, sle)
 		setenv(ei->key, ei->value, 1);
@@ -1908,11 +1888,6 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 	limititem_update(j, launchd_keys2limits[i].val, rl);
 }
 
-struct bootstrap *root_bootstrap = NULL;
-struct bootstrap *ws_bootstrap = NULL;
-struct bootstrap *current_rpc_bootstrap = NULL;
-struct jobcb *current_rpc_server = NULL;
-
 bool
 job_useless(struct jobcb *j)
 {
@@ -1983,7 +1958,7 @@ job_keepalive(struct jobcb *j)
 
 	/* Maybe another job has the inverse path based semaphore as this job */
 	if (dispatch_others)
-		job_dispatch_all_other_semaphores(j, root_bootstrap);
+		job_dispatch_all_other_semaphores(root_job, j);
 
 	return false;
 }
@@ -2001,7 +1976,10 @@ job_prog(struct jobcb *j)
 bool
 job_active(struct jobcb *j)
 {
-	struct machservice *servicep;
+	struct machservice *ms;
+
+	if (j->req_port)
+		return true;
 
 	if (j->p)
 		return true;
@@ -2018,8 +1996,8 @@ job_active(struct jobcb *j)
 		return true;
 	}
 
-	SLIST_FOREACH(servicep, &j->machservices, sle) {
-		if (servicep->isActive)
+	SLIST_FOREACH(ms, &j->machservices, sle) {
+		if (ms->isActive)
 			return true;
 	}
 
@@ -2028,17 +2006,13 @@ job_active(struct jobcb *j)
 
 pid_t launchd_fork(void)
 {
-	return fork_with_bootstrap_port(root_bootstrap->bootstrap_port);
-}
-
-pid_t launchd_ws_fork(void)
-{
-	return fork_with_bootstrap_port(ws_bootstrap->bootstrap_port);
+	return job_fork(root_job);
 }
 
 pid_t
-fork_with_bootstrap_port(mach_port_t p)
+job_fork(struct jobcb *j)
 {
+	mach_port_t p = j->bs_port;
 	pid_t r = -1;
 
 	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
@@ -2075,42 +2049,39 @@ machservice_resetport(struct jobcb *j, struct machservice *ms)
 }
 
 struct machservice *
-machservice_new(struct bootstrap *bootstrap, const char *name, mach_port_t *serviceport, struct jobcb *j)
+machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport)
 {
-	struct machservice *servicep;
+	struct machservice *ms;
 
-	if ((servicep = calloc(1, sizeof(struct machservice) + strlen(name) + 1)) == NULL)
+	if ((ms = calloc(1, sizeof(struct machservice) + strlen(name) + 1)) == NULL)
 		return NULL;
 
-	if (j) {
-		if (!launchd_assumes(launchd_mport_create_recv(&servicep->port, j) == KERN_SUCCESS))
+	strcpy(ms->name, name);
+	ms->job = j;
+
+	if (*serviceport == MACH_PORT_NULL) {
+		if (!launchd_assumes(launchd_mport_create_recv(&ms->port, j) == KERN_SUCCESS))
 			goto out_bad;
 
-		if (!launchd_assumes(launchd_mport_make_send(servicep->port) == KERN_SUCCESS))
+		if (!launchd_assumes(launchd_mport_make_send(ms->port) == KERN_SUCCESS))
 			goto out_bad2;
-		*serviceport = servicep->port;
-		servicep->isActive = false;
+		*serviceport = ms->port;
+		ms->isActive = false;
+		ms->recv = true;
 	} else {
-		servicep->port = *serviceport;
-		servicep->isActive = true;
+		ms->port = *serviceport;
+		ms->isActive = true;
 	}
 
-	if (j == ANY_JOB || j == NULL) {
-		SLIST_INSERT_HEAD(&bootstrap->services, servicep, sle);
-	} else {
-		SLIST_INSERT_HEAD(&j->machservices, servicep, sle);
-		servicep->job = j;
-	}
-	
-	strcpy(servicep->name, name);
-	servicep->bootstrap = bootstrap;
+	SLIST_INSERT_HEAD(&j->machservices, ms, sle);
 
-	syslog(LOG_INFO, "Created new service %x in bootstrap %x: %s", servicep->port, bootstrap->bootstrap_port, name);
-	return servicep;
+	job_log(j, LOG_INFO, "Added Mach service: %s", name);
+
+	return ms;
 out_bad2:
-	launchd_assumes(launchd_mport_close_recv(servicep->port) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 out_bad:
-	free(servicep);
+	free(ms);
 	return NULL;
 }
 
@@ -2125,8 +2096,8 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	if (launch_data_get_type(obj) == LAUNCH_DATA_BOOL)
 		reset = !launch_data_get_bool(obj);
 
-	if (bootstrap_lookup_service(j->bstrap, key, false) == NULL) {
-		ms = machservice_new(j->bstrap, key, &p, j);
+	if (job_lookup_service(j->parent, key, false) == NULL) {
+		ms = machservice_new(j, key, &p);
 		if (ms) {
 			ms->isActive = false;
 			ms->reset = reset;
@@ -2144,95 +2115,80 @@ union bootstrapMaxRequestSize {
 };
 
 void
-bootstrap_callback(void *obj, struct kevent *kev)
+job_handle_bs_port(struct jobcb *j)
 {
 	mach_msg_return_t mresult;
 
-	current_rpc_bootstrap = obj;
+	current_rpc_job = j;
 
-	mresult = mach_msg_server_once(launchd_mach_ipc_demux, sizeof(union bootstrapMaxRequestSize), kev->ident,
+	mresult = mach_msg_server_once(launchd_mach_ipc_demux, sizeof(union bootstrapMaxRequestSize), j->bs_port,
 			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
-	if (!launchd_assumes(mresult == MACH_MSG_SUCCESS))
-		syslog(LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
 
-	current_rpc_bootstrap = NULL;
+	if (!launchd_assumes(mresult == MACH_MSG_SUCCESS)) {
+		job_log(j, LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
+	}
+
+	current_rpc_job = NULL;
 }
 
-mach_port_t
-bootstrap_rport(struct bootstrap *b)
+struct jobcb *
+job_parent(struct jobcb *j)
 {
-	return b->bootstrap_port;
-}
-
-struct bootstrap *
-bootstrap_rparent(struct bootstrap *b)
-{
-	return b->parent;
+	return j->parent;
 }
 
 void
-bootstrap_foreach_service(struct bootstrap *b, void (*bs_iter)(struct machservice *, void *), void *context)
+job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void *), void *context)
 {
 	struct machservice *ms;
 	struct jobcb *ji;
 
-	SLIST_FOREACH(ji, &b->jobs, sle) {
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if (ji->req_port)
+			continue; /* ignore private namespaces */
+
 		SLIST_FOREACH(ms, &ji->machservices, sle)
 			bs_iter(ms, context);
 	}
 
-	SLIST_FOREACH(ms, &b->services, sle)
+	SLIST_FOREACH(ms, &j->machservices, sle)
 		bs_iter(ms, context);
 }
 
-struct bootstrap *
-bootstrap_new(struct bootstrap *parent, mach_port_t requestorport)
+struct jobcb *
+job_new_bootstrap(struct jobcb *p, mach_port_t requestorport)
 {
-	struct bootstrap *bootstrap;
+	char bslabel[1024] = "mach_bootstrap.100000";
+	struct jobcb *j;
 
-	if ((bootstrap = calloc(1, sizeof(struct bootstrap))) == NULL)
-		goto out_bad;
+	if (requestorport == MACH_PORT_NULL)
+		return NULL;
 
-	bootstrap->kqbstrap_callback = bootstrap_callback;
-
-	SLIST_INIT(&bootstrap->sub_bstraps);
-	SLIST_INIT(&bootstrap->jobs);
-	SLIST_INIT(&bootstrap->services);
-
-	if (!launchd_assumes(launchd_mport_create_recv(&bootstrap->bootstrap_port, bootstrap) == KERN_SUCCESS))
-		goto out_bad;
-
-	if (!launchd_assumes(launchd_mport_watch(bootstrap->bootstrap_port) == KERN_SUCCESS))
-		goto out_bad;
-
-	if (requestorport != MACH_PORT_NULL) {
-		bootstrap->requestor_port = requestorport;
-		if (!launchd_assumes(launchd_mport_notify_req(requestorport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
-			goto out_bad;
-	}
+	j = job_new(p, bslabel, NULL, NULL, NULL, requestorport);
 	
+	if (j == NULL)
+		return NULL;
 
-	if (parent) {
-		SLIST_INSERT_HEAD(&parent->sub_bstraps, bootstrap, sle);
-		bootstrap->parent = parent;
-	}
+	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port, j) == KERN_SUCCESS))
+		goto out_bad;
 
-	return bootstrap;
+	sprintf(j->label, "mach_bootstrap.%d", MACH_PORT_INDEX(j->bs_port));
+
+	if (!launchd_assumes(launchd_mport_watch(j->bs_port) == KERN_SUCCESS))
+		goto out_bad;
+
+	return j;
 
 out_bad:
-	if (bootstrap) {
-		if (bootstrap->bootstrap_port != MACH_PORT_NULL)
-			launchd_assumes(launchd_mport_deallocate(bootstrap->bootstrap_port) == KERN_SUCCESS);
-		free(bootstrap);
-	}
+	if (j)
+		job_remove(j);
 	return NULL;
 }
 
 void
-bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t port)
+job_delete_anything_with_port(struct jobcb *j, mach_port_t port)
 {
-	struct bootstrap *sub_bstrap, *next_bstrap;
-	struct machservice *servicep, *next_servicep;
+	struct machservice *ms, *next_ms;
 	struct jobcb *ji, *jn;
 
 	/* Mach ports, unlike Unix descriptors, are reference counted. In other
@@ -2245,57 +2201,45 @@ bootstrap_delete_anything_with_port(struct bootstrap *bootstrap, mach_port_t por
 	 * to use.
 	 */
 
-	if (bootstrap->requestor_port == port)
-		return bootstrap_delete(bootstrap);
+	if (j->req_port == port)
+		return job_remove(j);
 
-	SLIST_FOREACH_SAFE(sub_bstrap, &bootstrap->sub_bstraps, sle, next_bstrap)
-		bootstrap_delete_anything_with_port(sub_bstrap, port);
+	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn)
+		job_delete_anything_with_port(ji, port);
 
-	/* My naive intuition about Mach port semantics and their implications
-	 * on our data structures says that we should never need to walk the
-	 * server list in this function. Why? Because if the server dies, we
-	 * get the port back in a backup notification. We'd never want to
-	 * delete it unless the server consciously unregisters the service.
-	 * Oh well, let's use launchd_assumes() to find out if we're wrong.
-	 */
-	SLIST_FOREACH_SAFE(ji, &bootstrap->jobs, sle, jn) {
-		SLIST_FOREACH_SAFE(servicep, &ji->machservices, sle, next_servicep) {
-			if (!launchd_assumes(servicep->port != port))
-				machservice_delete(servicep);
-		}
-	}
-
-	SLIST_FOREACH_SAFE(servicep, &bootstrap->services, sle, next_servicep) {
-		if (servicep->port == port)
-			machservice_delete(servicep);
+	SLIST_FOREACH_SAFE(ms, &j->machservices, sle, next_ms) {
+		if (ms->port == port)
+			machservice_delete(ms);
 	}
 }
 
 struct machservice *
-bootstrap_lookup_service(struct bootstrap *bootstrap, const char *name, bool check_parent)
+job_lookup_service(struct jobcb *j, const char *name, bool check_parent)
 {
 	struct machservice *ms;
 	struct jobcb *ji;
 
-	SLIST_FOREACH(ji, &bootstrap->jobs, sle) {
+	j = job_get_bs(j);
+
+	SLIST_FOREACH(ji, &j->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (strcmp(name, ms->name) == 0)
 				return ms;
 		}
 	}
 
-	SLIST_FOREACH(ms, &bootstrap->services, sle) {
+	SLIST_FOREACH(ms, &j->machservices, sle) {
 		if (strcmp(name, ms->name) == 0)
 				return ms;
 	}
 
-	if (bootstrap->parent == NULL)
+	if (j->parent == NULL)
 		return NULL;
 
 	if (!check_parent)
 		return NULL;
 
-	return bootstrap_lookup_service(bootstrap->parent, name, true);
+	return job_lookup_service(j->parent, name, true);
 }
 
 mach_port_t
@@ -2322,108 +2266,62 @@ machservice_name(struct machservice *ms)
 	return ms->name;
 }
 
-struct bootstrap *
-machservice_bootstrap(struct machservice *ms)
-{
-	return ms->bootstrap;
-}
-
 void
-machservice_delete(struct machservice *servicep)
+machservice_delete(struct machservice *ms)
 {
-	if (servicep->job) {
-		SLIST_REMOVE(&servicep->job->machservices, servicep, machservice, sle);
-		syslog(LOG_INFO, "Declared service %s now unavailable", servicep->name);
-		launchd_assumes(launchd_mport_close_recv(servicep->port) == KERN_SUCCESS);
-	} else {
-		SLIST_REMOVE(&servicep->bootstrap->services, servicep, machservice, sle);
-		syslog(LOG_INFO, "Registered service %s deleted", servicep->name);
+	if (ms->recv) {
+		if (ms->isActive) {
+			/* FIXME we should cancel the notification */
+		} else {
+			launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+		}
 	}
 
-	launchd_assumes(launchd_mport_deallocate(servicep->port) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 
-	free(servicep);
+	job_log(ms->job, LOG_INFO, "Deleted Mach service: %s", ms->name);
+
+	SLIST_REMOVE(&ms->job->machservices, ms, machservice, sle);
+
+	free(ms);
 }
 
 void
-machservice_watch(struct machservice *servicep)
+machservice_watch(struct machservice *ms)
 {
 	mach_msg_id_t which = MACH_NOTIFY_DEAD_NAME;
 
-	servicep->isActive = true;
+	ms->isActive = true;
 
-	if (servicep->job) {
+	if (ms->job->req_port == MACH_PORT_NULL) {
 		which = MACH_NOTIFY_PORT_DESTROYED;
-		job_checkin(servicep->job);
+		job_checkin(ms->job);
 	}
 
-	launchd_assumes(launchd_mport_notify_req(servicep->port, which) == KERN_SUCCESS);
-}
-
-void
-bootstrap_delete(struct bootstrap *bootstrap)
-{
-	struct bootstrap *sub_bstrap;
-	struct machservice *servicep;
-	struct jobcb *ji;
-
-	if (!launchd_assumes(bootstrap != root_bootstrap))
-		return;
-	if (!launchd_assumes(bootstrap != ws_bootstrap))
-		return;
-
-	syslog(LOG_DEBUG, "Deleting bootstrap port: %x", bootstrap->bootstrap_port);
-
-	while ((sub_bstrap = SLIST_FIRST(&bootstrap->sub_bstraps)))
-		bootstrap_delete(sub_bstrap);
-
-	while ((ji = SLIST_FIRST(&bootstrap->jobs)))
-		job_remove(ji);
-
-	while ((servicep = SLIST_FIRST(&bootstrap->services)))
-		machservice_delete(servicep);
-
-	if (bootstrap->requestor_port != MACH_PORT_NULL)
-		launchd_assumes(launchd_mport_deallocate(bootstrap->requestor_port) == KERN_SUCCESS);
-
-	launchd_assumes(launchd_mport_close_recv(bootstrap->bootstrap_port) == KERN_SUCCESS);
-
-	if (bootstrap->parent)
-		SLIST_REMOVE(&bootstrap->parent->sub_bstraps, bootstrap, bootstrap, sle);
-
-	free(bootstrap);
+	launchd_assumes(launchd_mport_notify_req(ms->port, which) == KERN_SUCCESS);
 }
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 
-static bool job_reap_pid_with_bs(struct bootstrap *bootstrap, pid_t p);
-
-bool job_reap_pid_with_bs(struct bootstrap *bootstrap, pid_t p)
+bool job_reap_pid(struct jobcb *j, pid_t p)
 {
-	struct bootstrap *sub_bstrap;
 	struct jobcb *ji;
 	struct kevent kev;
 
-	SLIST_FOREACH(ji, &bootstrap->jobs, sle) {
-		if (ji->p == p) {
-			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, ji);
-			ji->kqjob_callback(ji, &kev);
-			return true;
-		}
+	if (j->p == p) {
+		EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, j);
+		j->kqjob_callback(j, &kev);
+		return true;
 	}
 
-	SLIST_FOREACH(sub_bstrap, &bootstrap->sub_bstraps, sle) {
-		if (job_reap_pid_with_bs(sub_bstrap, p))
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if (job_reap_pid(ji, p))
 			return true;
 	}
 
 	return false;
 }
 
-bool job_reap_pid(pid_t p)
-{
-	return job_reap_pid_with_bs(root_bootstrap, p);
-}
 #endif
 
 #define NELEM(x)                (sizeof(x)/sizeof(x[0]))
@@ -2480,18 +2378,24 @@ job_checkin(struct jobcb *j)
 	j->checkedin = true;
 }
 
-void
+bool
 job_ack_port_destruction(struct jobcb *j, mach_port_t p)
 {
+	struct jobcb *ji;
 	struct machservice *ms;
+
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if (job_ack_port_destruction(ji, p))
+			return true;
+	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
 		if (ms->port == p)
 			break;
 	}
 
-	if (!launchd_assumes(ms != NULL))
-		return;
+	if (ms == NULL)
+		return false;
 
 	ms->isActive = false;
 
@@ -2501,6 +2405,8 @@ job_ack_port_destruction(struct jobcb *j, mach_port_t p)
 	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
 
 	job_dispatch(j);
+
+	return true;
 }
 
 void
@@ -2514,11 +2420,22 @@ job_ack_no_senders(struct jobcb *j)
 }
 
 mach_port_t
-job_get_priv_port(struct jobcb *j)
+job_get_bsport(struct jobcb *j)
 {
-	return j->priv_port;
+	return j->bs_port;
 }
 
+struct jobcb *
+job_get_bs(struct jobcb *j)
+{
+	if (j->req_port)
+		return j;
+
+	if (launchd_assumes(j->parent != NULL))
+		return j->parent;
+
+	return NULL;
+}
 
 bool
 semaphoreitem_new(struct jobcb *j, semaphore_reason_t why, const char *what)
@@ -2581,18 +2498,16 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 void
-job_dispatch_all_other_semaphores(struct jobcb *j, struct bootstrap *b)
+job_dispatch_all_other_semaphores(struct jobcb *j, struct jobcb *nj)
 {
-	struct bootstrap *sbi;
 	struct jobcb *ji;
 
-	SLIST_FOREACH(sbi, &b->sub_bstraps, sle)
-		job_dispatch_all_other_semaphores(j, sbi);
+	if (j == nj)
+		return;
 
-	SLIST_FOREACH(ji, &b->jobs, sle) {
-		if (!SLIST_EMPTY(&ji->semaphores)) {
-			if (j != ji)
-				job_dispatch(ji);
-		}
-	}
+	if (!SLIST_EMPTY(&j->semaphores))
+		job_dispatch(j);
+
+	SLIST_FOREACH(ji, &j->jobs, sle)
+		job_dispatch_all_other_semaphores(ji, nj);
 }
