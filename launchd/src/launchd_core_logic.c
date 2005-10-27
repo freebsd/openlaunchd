@@ -237,6 +237,7 @@ static void job_handle_bs_port(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static pid_t job_fork(struct jobcb *j);
 static void job_setup_env_from_other_jobs(struct jobcb *j);
+static launch_data_t job_export2(struct jobcb *j, bool subjobs);
 
 
 static const struct {
@@ -314,6 +315,12 @@ job_stop(struct jobcb *j)
 launch_data_t
 job_export(struct jobcb *j)
 {
+	return job_export2(j, true);
+}
+
+launch_data_t
+job_export2(struct jobcb *j, bool subjobs)
+{
 	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
 	if (r == NULL)
@@ -386,6 +393,19 @@ job_export(struct jobcb *j)
 		}
 
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_MACHSERVICES);
+	}
+
+	if (subjobs && !SLIST_EMPTY(&j->jobs) && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
+		struct jobcb *ji;
+		size_t i = 0;
+
+		SLIST_FOREACH(ji, &j->jobs, sle) {
+			tmp2 = job_export2(ji, true);
+			launch_data_array_set_index(tmp, tmp2, i);
+			i++;
+		}
+
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_SUBJOBS);
 	}
 
 	return r;
@@ -552,7 +572,7 @@ job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 		goto out_bad;
 
 	/* preflight the string so we know how big it is */
-	sprintf(buf, "via_mach_init.100000.%s", basename(argv[0]));
+	sprintf(buf, "100000.%s", basename(argv[0]));
 
 	j = job_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
 
@@ -574,7 +594,7 @@ job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 		goto out_bad;
 	}
 
-	sprintf(j->label, "via_mach_init.%d.%s", MACH_PORT_INDEX(j->bs_port), basename(argv[0]));
+	sprintf(j->label, "%d.%s", MACH_PORT_INDEX(j->bs_port), basename(argv[0]));
 
 	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
 
@@ -606,7 +626,7 @@ job_new(struct jobcb *p, const char *label, const char *prog, const char *const 
 
 	strcpy(j->label, label);
 	j->kqjob_callback = job_callback;
-	j->parent = p;
+	j->parent = p ? job_get_bs(p) : NULL;
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
@@ -897,9 +917,10 @@ job_import2(launch_data_t pload)
 	} else if ((j = job_find(root_job, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
-	} else if ((strncasecmp(label, "com.apple.launchd", strlen("com.apple.launchd")) == 0) ||
-			(strncasecmp(label, "via_mach_init", strlen("via_mach_init")) == 0)) {
-		/* com.apple.launchd and via_mach_init prefixes for labels are reserved */
+	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
+			(strtol(label, NULL, 10) != 0)) {
+		syslog(LOG_ERR, "Somebody attempted to use a reserved prefix for a label: %s", label);
+		/* the empty string, com.apple.launchd and number prefixes for labels are reserved */
 		errno = EINVAL;
 		return NULL;
 	}
@@ -925,6 +946,9 @@ job_find(struct jobcb *j, const char *label)
 {
 	struct jobcb *jr, *ji;
 
+	if (label[0] == '\0')
+		return root_job;
+
 	if (strcmp(j->label, label) == 0)
 		return j;
 
@@ -943,7 +967,7 @@ job_export_all2(struct jobcb *j, launch_data_t where)
 	launch_data_t tmp;
 	struct jobcb *ji;
 
-	if (launchd_assumes((tmp = job_export(j)) != NULL))
+	if (launchd_assumes((tmp = job_export2(j, false)) != NULL))
 		launch_data_dict_insert(where, tmp, j->label);
 
 	SLIST_FOREACH(ji, &j->jobs, sle)
@@ -1496,35 +1520,46 @@ calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci)
 	}
 }
 
+static size_t
+job_prep_log_preface(struct jobcb *j, char *buf)
+{
+	size_t r = 0;
+
+	if (j->parent)
+		r = job_prep_log_preface(j->parent, buf);
+
+	return r + sprintf(buf + r, "%s%s", j->parent ? "/" : "", j->label);
+}
+
 void
 job_log_error(struct jobcb *j, int pri, const char *msg, ...)
 {
-	size_t newmsg_sz = strlen(msg) + strlen(j->label) + 200;
-	char *newmsg = alloca(newmsg_sz);
+	char newmsg[10000];
 	va_list ap;
+	size_t o;
 
-	sprintf(newmsg, "%s: %s: %s", j->label, msg, strerror(errno));
+	o = job_prep_log_preface(j, newmsg);
+
+	sprintf(newmsg + o, ": %s: %s", msg, strerror(errno));
 
 	va_start(ap, msg);
-
 	vsyslog(pri, newmsg, ap);
-
 	va_end(ap);
 }
 
 void
 job_log(struct jobcb *j, int pri, const char *msg, ...)
 {
-	size_t newmsg_sz = strlen(msg) + sizeof(": ") + strlen(j->label);
-	char *newmsg = alloca(newmsg_sz);
+	char newmsg[10000];
 	va_list ap;
+	size_t o;
 
-	sprintf(newmsg, "%s: %s", j->label, msg);
+	o = job_prep_log_preface(j, newmsg);
+
+	sprintf(newmsg + o, ": %s", msg);
 
 	va_start(ap, msg);
-
 	vsyslog(pri, newmsg, ap);
-
 	va_end(ap);
 }
 
@@ -1909,12 +1944,6 @@ job_useless(struct jobcb *j)
 }
 
 bool
-job_ondemand(struct jobcb *j)
-{
-	return j->ondemand;
-}
-
-bool
 job_keepalive(struct jobcb *j)
 {
 	struct semaphoreitem *si;
@@ -1968,8 +1997,10 @@ job_prog(struct jobcb *j)
 {
 	if (j->prog) {
 		return j->prog;
-	} else {
+	} else if (j->argv) {
 		return j->argv[0];
+	} else {
+		return "";
 	}
 }
 
@@ -2075,7 +2106,7 @@ machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport)
 
 	SLIST_INSERT_HEAD(&j->machservices, ms, sle);
 
-	job_log(j, LOG_INFO, "Added Mach service: %s", name);
+	job_log(j, LOG_INFO, "Mach service added: %s", name);
 
 	return ms;
 out_bad2:
@@ -2083,6 +2114,18 @@ out_bad2:
 out_bad:
 	free(ms);
 	return NULL;
+}
+
+bootstrap_status_t
+machservice_status(struct machservice *ms)
+{
+	if (ms->isActive) {
+		return BOOTSTRAP_STATUS_ACTIVE;
+	} else if (ms->job->legacy_mach_job && ms->job->ondemand) {
+		return BOOTSTRAP_STATUS_ON_DEMAND;
+	} else {
+		return BOOTSTRAP_STATUS_INACTIVE;
+	}
 }
 
 void
@@ -2143,9 +2186,11 @@ job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void 
 	struct machservice *ms;
 	struct jobcb *ji;
 
+	j = job_get_bs(j);
+
 	SLIST_FOREACH(ji, &j->jobs, sle) {
 		if (ji->req_port)
-			continue; /* ignore private namespaces */
+			continue;
 
 		SLIST_FOREACH(ms, &ji->machservices, sle)
 			bs_iter(ms, context);
@@ -2158,11 +2203,15 @@ job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void 
 struct jobcb *
 job_new_bootstrap(struct jobcb *p, mach_port_t requestorport)
 {
-	char bslabel[1024] = "mach_bootstrap.100000";
+	char bslabel[1024] = "100000";
 	struct jobcb *j;
 
-	if (requestorport == MACH_PORT_NULL)
+	if (requestorport == MACH_PORT_NULL) {
+		if (p) {
+			job_log(p, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
+		}
 		return NULL;
+	}
 
 	j = job_new(p, bslabel, NULL, NULL, NULL, requestorport);
 	
@@ -2172,10 +2221,14 @@ job_new_bootstrap(struct jobcb *p, mach_port_t requestorport)
 	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port, j) == KERN_SUCCESS))
 		goto out_bad;
 
-	sprintf(j->label, "mach_bootstrap.%d", MACH_PORT_INDEX(j->bs_port));
+	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
 	if (!launchd_assumes(launchd_mport_watch(j->bs_port) == KERN_SUCCESS))
 		goto out_bad;
+
+	if (p) {
+		job_log(p, LOG_DEBUG, "Mach sub-bootstrap created: %s", j->label);
+	}
 
 	return j;
 
@@ -2222,6 +2275,9 @@ job_lookup_service(struct jobcb *j, const char *name, bool check_parent)
 	j = job_get_bs(j);
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if (ji->req_port)
+			continue;
+
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (strcmp(name, ms->name) == 0)
 				return ms;
@@ -2279,7 +2335,7 @@ machservice_delete(struct machservice *ms)
 
 	launchd_assumes(launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 
-	job_log(ms->job, LOG_INFO, "Deleted Mach service: %s", ms->name);
+	job_log(ms->job, LOG_INFO, "Mach service deleted: %s", ms->name);
 
 	SLIST_REMOVE(&ms->job->machservices, ms, machservice, sle);
 

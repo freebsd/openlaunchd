@@ -89,7 +89,7 @@ static void submit_mach_jobs(launch_data_t jobs);
 static void let_go_of_mach_jobs(launch_data_t jobs);
 static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup);
 static mach_port_t str2bsport(const char *s);
-static void print_jobs(launch_data_t j, const char *label, void *context);
+static void print_jobs(launch_data_t j);
 static void print_obj(launch_data_t obj, const char *key, void *context);
 static bool is_legacy_mach_job(launch_data_t obj);
 static bool delay_to_second_pass(launch_data_t o);
@@ -1352,24 +1352,46 @@ start_stop_remove_cmd(int argc, char *const argv[])
 }
 
 void
-print_jobs(launch_data_t j __attribute__((unused)), const char *label, void *context __attribute__((unused)))
+print_jobs(launch_data_t j)
 {
+	static size_t depth = 0;
+	launch_data_t lo = launch_data_dict_lookup(j, LAUNCH_JOBKEY_LABEL);
 	launch_data_t pido = launch_data_dict_lookup(j, LAUNCH_JOBKEY_PID);
 	launch_data_t stato = launch_data_dict_lookup(j, LAUNCH_JOBKEY_LASTEXITSTATUS);
+	launch_data_t sjobs = launch_data_dict_lookup(j, LAUNCH_JOBKEY_SUBJOBS);
+	const char *label = launch_data_get_string(lo);
+	size_t i, c;
 
 	if (pido) {
-		fprintf(stdout, "%lld\t-\t%s\n", launch_data_get_integer(pido), label);
+		fprintf(stdout, "%lld\t-\t", launch_data_get_integer(pido));
 	} else if (stato) {
 		int wstatus = (int)launch_data_get_integer(stato);
 		if (WIFEXITED(wstatus)) {
-			fprintf(stdout, "-\t%d\t%s\n", WEXITSTATUS(wstatus), label);
+			fprintf(stdout, "-\t%d\t", WEXITSTATUS(wstatus));
 		} else if (WIFSIGNALED(wstatus)) {
-			fprintf(stdout, "-\t-%d\t%s\n", WTERMSIG(wstatus), label);
+			fprintf(stdout, "-\t-%d\t", WTERMSIG(wstatus));
 		} else {
-			fprintf(stdout, "-\t???\t%s\n", label);
+			fprintf(stdout, "-\t???\t");
 		}
 	} else {
-		fprintf(stdout, "-\t-\t%s\n", label);
+		fprintf(stdout, "-\t-\t");
+	}
+	for (i = 0; i < depth; i++)
+		fprintf(stdout, "\t");
+
+	fprintf(stdout, "%s\n", label);
+
+	if (sjobs) {
+		launch_data_t oai;
+
+		c = launch_data_array_get_count(sjobs);
+
+		depth++;
+		for (i = 0; i < c; i++) {
+			oai = launch_data_array_get_index(sjobs, i);
+			print_jobs(oai);
+		}
+		depth--;
 	}
 }
 
@@ -1433,17 +1455,16 @@ print_obj(launch_data_t obj, const char *key, void *context __attribute__((unuse
 int
 list_cmd(int argc, char *const argv[])
 {
-	launch_data_t resp, msg;
+	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	int r = 0;
 
 	if (argc > 2) {
 		fprintf(stderr, "usage: %s list [label]\n", getprogname());
 		return 1;
 	} else if (argc == 2) {
-		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		launch_data_dict_insert(msg, launch_data_new_string(argv[1]), LAUNCH_KEY_GETJOB);
 	} else {
-		msg = launch_data_new_string(LAUNCH_KEY_GETJOBS);
+		launch_data_dict_insert(msg, launch_data_new_string(""), LAUNCH_KEY_GETJOB);
 	}
 
 	resp = launch_msg(msg);
@@ -1455,7 +1476,7 @@ list_cmd(int argc, char *const argv[])
 	} else if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
 		if (argc == 1) {
 			fprintf(stdout, "PID\tStatus\tLabel\n");
-			launch_data_dict_iterate(resp, print_jobs, NULL);
+			print_jobs(resp);
 		} else {
 			print_obj(resp, NULL, NULL);
 		}

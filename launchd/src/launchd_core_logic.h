@@ -27,17 +27,20 @@
 #define LAUNCHD_REWARD_JOB_RUN_TIME 60
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 
+#include <servers/bootstrap_defs.h>
+
 struct jobcb;
 struct machservice;
 
 
 struct machservice *machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport);
-void machservice_delete(struct machservice *servicep);
-void machservice_watch(struct machservice *servicep);
-mach_port_t machservice_port(struct machservice *servicep);
-struct jobcb *machservice_job(struct machservice *servicep);
-bool machservice_active(struct machservice *servicep);
-const char *machservice_name(struct machservice *servicep);
+void machservice_delete(struct machservice *);
+void machservice_watch(struct machservice *);
+mach_port_t machservice_port(struct machservice *);
+struct jobcb *machservice_job(struct machservice *);
+bool machservice_active(struct machservice *);
+const char *machservice_name(struct machservice *);
+bootstrap_status_t machservice_status(struct machservice *);
 
 
 struct jobcb *job_find(struct jobcb *j, const char *label);
@@ -54,7 +57,6 @@ void job_start(struct jobcb *j);
 void job_stop(struct jobcb *j);
 bool job_active(struct jobcb *j);
 void job_checkin(struct jobcb *j);
-bool job_ondemand(struct jobcb *j);
 const char *job_prog(struct jobcb *j);
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 bool job_reap_pid(struct jobcb *j, pid_t p);
