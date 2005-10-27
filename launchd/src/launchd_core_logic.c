@@ -673,6 +673,7 @@ job_new(struct jobcb *p, const char *label, const char *prog, const char *const 
 
 	if (j->parent) {
 		SLIST_INSERT_HEAD(&j->parent->jobs, j, sle);
+		job_log(j->parent, LOG_DEBUG, "Conceived");
 	}
 
 	return j;

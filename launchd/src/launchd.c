@@ -380,10 +380,8 @@ static void pid1waitpid(void)
 {
 	pid_t p;
 
-	while ((p = waitpid(-1, &pid1_child_exit_status, WNOHANG)) > 0) {
-		if (!job_reap_pid(root_job, p))
-			init_check_pid(p);
-	}
+	while ((p = waitpid(-1, &pid1_child_exit_status, WNOHANG)) > 0)
+		launchd_blame(job_reap_pid(root_job, p) || init_check_pid(p), 3632556);
 }
 #endif
 
@@ -525,7 +523,7 @@ loopback_setup(void)
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = htonl(IN_CLASSA_NET);
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
 
-	launchd_assumes_with_bug(ioctl(s, SIOCAIFADDR, &ifra) != -1, 4282331);
+	launchd_blame(ioctl(s, SIOCAIFADDR, &ifra) != -1, 4282331);
 
 	memset(&ifra6, 0, sizeof(ifra6));
 	strcpy(ifra6.ifra_name, "lo0");
@@ -539,7 +537,7 @@ loopback_setup(void)
 	ifra6.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
 	ifra6.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
 
-	launchd_assumes_with_bug(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1, 4282331);
+	launchd_blame(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1, 4282331);
  
 	launchd_assumes(close(s) == 0);
 	launchd_assumes(close(s6) == 0);
@@ -548,14 +546,14 @@ loopback_setup(void)
 void
 workaround3048875(int argc, char *const *argv)
 {
-	int i;
+	int correct_argc = 1;
 	char **ap, *newargv[100], *p = argv[1];
 
 	if (argc == 1 || argc > 2)
 		return;
 
 	newargv[0] = argv[0];
-	for (ap = newargv + 1, i = 1; ap < &newargv[100]; ap++, i++) {
+	for (ap = newargv + 1; ap < &newargv[100]; ap++, correct_argc++) {
 		if ((*ap = strsep(&p, " \t")) == NULL)
 			break;
 		if (**ap == '\0') {
@@ -564,7 +562,7 @@ workaround3048875(int argc, char *const *argv)
 		}
 	}
 
-	if (argc == i)
+	if (launchd_blame(argc == correct_argc, 3048875))
 		return;
 
 	execv(newargv[0], newargv);
