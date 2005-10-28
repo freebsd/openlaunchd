@@ -1269,10 +1269,10 @@ job_start_child(struct jobcb *j, int execfd)
 		argv++;
 
 	if (j->prog) {
-		execv(j->prog, (char *const*)argv);
+		execv(j->inetcompat ? file2exec : j->prog, (char *const*)argv);
 		job_log_error(j, LOG_ERR, "execv(\"%s\", ...)", j->prog);
 	} else {
-		execvp(argv[0], (char *const*)argv);
+		execvp(j->inetcompat ? file2exec : argv[0], (char *const*)argv);
 		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", argv[0]);
 	}
 
