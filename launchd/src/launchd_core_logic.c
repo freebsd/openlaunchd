@@ -1240,24 +1240,24 @@ job_start_child(struct jobcb *j, int execfd)
 {
 	const char *file2exec = "/usr/libexec/launchproxy";
 	const char **argv;
-	int i;
+	int gflags = GLOB_NOSORT|GLOB_NOCHECK|GLOB_TILDE|GLOB_DOOFFS;
 	glob_t g;
+	int i;
 
 	job_setup_attributes(j);
 
 	if (j->argv) {
-		argv = alloca((j->argc + 2) * sizeof(char *));
-		argv[0] = file2exec;
+		g.gl_offs = 1;
 		for (i = 0; i < j->argc; i++) {
-			if (glob(j->argv[i], GLOB_TILDE, NULL, &g) == 0) {
-				job_log(j, LOG_DEBUG, "glob(\"%s\") returned: %s", j->argv[i], g.gl_pathv[0]);
-				argv[i + 1] = strdup(g.gl_pathv[0]);
-				globfree(&g);
-			} else {
-				argv[i + 1] = j->argv[i];
+			if (i > 0)
+				gflags |= GLOB_APPEND;
+			if (glob(j->argv[i], gflags, NULL, &g) != 0) {
+				job_log_error(j, LOG_ERR, "glob(\"%s\")", j->argv[i]);
+				exit(EXIT_FAILURE);
 			}
 		}
-		argv[i + 1] = NULL;
+		g.gl_pathv[0] = (char *)file2exec;
+		argv = (const char **)g.gl_pathv;
 	} else {
 		argv = alloca(3 * sizeof(char *));
 		argv[0] = file2exec;
