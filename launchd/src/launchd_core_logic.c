@@ -68,6 +68,7 @@
 #include <dirent.h>
 #include <string.h>
 #include <ctype.h>
+#include <glob.h>
 
 #include "launch.h"
 #include "launch_priv.h"
@@ -1237,39 +1238,45 @@ job_start(struct jobcb *j)
 void
 job_start_child(struct jobcb *j, int execfd)
 {
-	const char **argv, *file2exec = "/usr/libexec/launchproxy";
-	int i, r;
+	const char *file2exec = "/usr/libexec/launchproxy";
+	const char **argv;
+	int i;
+	glob_t g;
 
 	job_setup_attributes(j);
 
 	if (j->argv) {
 		argv = alloca((j->argc + 2) * sizeof(char *));
-		for (i = 0; i < j->argc; i++)
-			argv[i + 1] = j->argv[i];
+		argv[0] = file2exec;
+		for (i = 0; i < j->argc; i++) {
+			if (glob(j->argv[i], GLOB_TILDE, NULL, &g) == 0) {
+				job_log(j, LOG_DEBUG, "glob(\"%s\") returned: %s", j->argv[i], g.gl_pathv[0]);
+				argv[i + 1] = strdup(g.gl_pathv[0]);
+				globfree(&g);
+			} else {
+				argv[i + 1] = j->argv[i];
+			}
+		}
 		argv[i + 1] = NULL;
 	} else {
 		argv = alloca(3 * sizeof(char *));
+		argv[0] = file2exec;
 		argv[1] = j->prog;
 		argv[2] = NULL;
 	}
 
-	if (j->inetcompat) {
-		argv[0] = file2exec;
-	} else {
+	if (!j->inetcompat)
 		argv++;
-		file2exec = job_prog(j);
-	}
 
 	if (j->prog) {
-		r = execv(file2exec, (char *const*)argv);
+		execv(j->prog, (char *const*)argv);
+		job_log_error(j, LOG_ERR, "execv(\"%s\", ...)", j->prog);
 	} else {
-		r = execvp(file2exec, (char *const*)argv);
+		execvp(argv[0], (char *const*)argv);
+		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", argv[0]);
 	}
 
-	if (-1 == r) {
-		write(execfd, &errno, sizeof(errno));
-		job_log_error(j, LOG_ERR, "execv%s(\"%s\", ...)", j->prog ? "" : "p", file2exec);
-	}
+	write(execfd, &errno, sizeof(errno));
 	exit(EXIT_FAILURE);
 }
 
