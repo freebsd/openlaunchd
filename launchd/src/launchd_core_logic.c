@@ -216,6 +216,7 @@ struct jobcb {
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
 		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
+	unsigned int globargv:1, __pad:31;
 	char label[0];
 };
 
@@ -744,6 +745,8 @@ job_import_bool(struct jobcb *j, const char *key, bool value)
 		j->init_groups = value;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0) {
 		j->runatload = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0) {
+		j->globargv = value;
 	}
 }
 
@@ -1246,7 +1249,7 @@ job_start_child(struct jobcb *j, int execfd)
 
 	job_setup_attributes(j);
 
-	if (j->argv) {
+	if (j->argv && j->globargv) {
 		g.gl_offs = 1;
 		for (i = 0; i < j->argc; i++) {
 			if (i > 0)
@@ -1258,6 +1261,12 @@ job_start_child(struct jobcb *j, int execfd)
 		}
 		g.gl_pathv[0] = (char *)file2exec;
 		argv = (const char **)g.gl_pathv;
+	} else if (j->argv) {
+		argv = alloca((j->argc + 2) * sizeof(char *));
+		argv[0] = file2exec;
+		for (i = 0; i < j->argc; i++)
+			argv[i + 1] = j->argv[i];
+		argv[i + 1] = NULL;
 	} else {
 		argv = alloca(3 * sizeof(char *));
 		argv[0] = file2exec;

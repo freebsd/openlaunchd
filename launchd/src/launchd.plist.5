@@ -114,6 +114,12 @@ This required key maps to the second argument of
 This optional key maps to the first argument of
 .Xr execvp 3 .
 If this key is missing, then the first element of the array of strings provided to the ProgramArguments will be used instead.
+.It EnableGlobbing <boolean>
+This flag causes
+.Nm launchd
+to use the
+.Xr glob 3
+mechanism to update the program arguments before invocation.
 .It Sy KeepAlive <boolean or dictionary of stuff>
 This optional key is used to control whether your job is to be kept
 continuously running or to let demand and conditions control the invocation. The
