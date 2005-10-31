@@ -246,7 +246,7 @@ static bool StartupItemSecurityCheck(const char *aPath)
 	}
 	if (r == false) {
 		mkdir(kFixerDir, ACCESSPERMS);
-		close(open(kFixerPath, O_RDWR | O_CREAT, DEFFILEMODE));
+		close(open(kFixerPath, O_RDWR|O_CREAT|O_NOCTTY, DEFFILEMODE));
 	}
 	return r;
 }
@@ -305,7 +305,7 @@ CFMutableArrayRef StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 				{
 					int aConfigFileDescriptor;
 
-					if ((aConfigFileDescriptor = open(aConfigFile, O_RDONLY, (mode_t) 0)) != -1) {
+					if ((aConfigFileDescriptor = open(aConfigFile, O_RDONLY|O_NOCTTY, (mode_t) 0)) != -1) {
 						struct stat aConfigFileStatBuffer;
 
 						if (stat(aConfigFile, &aConfigFileStatBuffer) != -1) {

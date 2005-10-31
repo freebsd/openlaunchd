@@ -1388,7 +1388,7 @@ job_setup_attributes(struct jobcb *j)
 	if (j->setmask) 
 		umask(j->mask);
 	if (j->stdinpath) {
-		int sifd = open(j->stdinpath, O_RDONLY);
+		int sifd = open(j->stdinpath, O_RDONLY|O_NOCTTY);
 		if (sifd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdinpath);
 		} else {
@@ -1397,7 +1397,7 @@ job_setup_attributes(struct jobcb *j)
 		}
 	}
 	if (j->stdoutpath) {
-		int sofd = open(j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+		int sofd = open(j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT|O_NOCTTY, DEFFILEMODE);
 		if (sofd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdoutpath);
 		} else {
@@ -1406,7 +1406,7 @@ job_setup_attributes(struct jobcb *j)
 		}
 	}
 	if (j->stderrpath) {
-		int sefd = open(j->stderrpath, O_WRONLY|O_APPEND|O_CREAT, DEFFILEMODE);
+		int sefd = open(j->stderrpath, O_WRONLY|O_APPEND|O_CREAT|O_NOCTTY, DEFFILEMODE);
 		if (sefd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stderrpath);
 		} else {
@@ -1620,7 +1620,7 @@ watchpath_watch(struct jobcb *j, struct watchpath *wp)
 		fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK;
 
 	if (wp->fd == -1)
-		wp->fd = _fd(open(wp->name, O_EVTONLY));
+		wp->fd = _fd(open(wp->name, O_EVTONLY|O_NOCTTY));
 
 	if (wp->fd == -1)
 		return job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", wp->name);

@@ -144,9 +144,9 @@ int main(int argc, char *const *argv)
 		launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) == 0);
 	}
 
-	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
-	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
-	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
+	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY|O_NOCTTY);
+	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY|O_NOCTTY);
+	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY|O_NOCTTY);
 
 	/* main phase two: parse arguments */
 
@@ -450,7 +450,7 @@ fs_callback(void)
 		mounted_volfs = true;
 
 	if (pending_stdout) {
-		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
+		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY|O_NOCTTY, DEFFILEMODE);
 		if (fd != -1) {
 			launchd_assumes(dup2(fd, STDOUT_FILENO) != -1);
 			launchd_assumes(close(fd) == 0);
@@ -459,7 +459,7 @@ fs_callback(void)
 		}
 	}
 	if (pending_stderr) {
-		int fd = open(pending_stderr, O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
+		int fd = open(pending_stderr, O_CREAT|O_APPEND|O_WRONLY|O_NOCTTY, DEFFILEMODE);
 		if (fd != -1) {
 			launchd_assumes(dup2(fd, STDERR_FILENO) != -1);
 			launchd_assumes(close(fd) == 0);

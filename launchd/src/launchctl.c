@@ -1501,7 +1501,7 @@ stdio_cmd(int argc, char *const argv[])
 		return 1;
 	}
 
-	fd = open(argv[1], O_CREAT|O_APPEND|O_WRONLY, DEFFILEMODE);
+	fd = open(argv[1], O_CREAT|O_APPEND|O_WRONLY|O_NOCTTY, DEFFILEMODE);
 
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
