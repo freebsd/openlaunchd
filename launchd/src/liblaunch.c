@@ -33,6 +33,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <errno.h>
+#include <pwd.h>
 
 #include "launch.h"
 #include "launch_priv.h"
@@ -1025,4 +1026,57 @@ launch_data_t launch_data_new_opaque(const void *o, size_t os)
 	}
 
 	return r;
+}
+
+pid_t
+create_and_switch_to_per_session_launchd(const char *loginname)
+{
+	static char *const largv[] = { "/sbin/launchd", "-S", "Aqua", NULL };
+	mach_port_t newbs = MACH_PORT_NULL;
+	name_t newbsname;
+	pid_t p = fork();
+
+	if (p == -1) {
+		return p;
+	} else if (p == 0) {
+		struct passwd *pwe = getpwnam(loginname);
+		int i, dtsz = getdtablesize();
+		uid_t u;
+		gid_t g;
+
+		for (i = STDERR_FILENO + 1; i < dtsz; i++)
+			close(i);
+
+		if (!pwe)
+			_exit(EXIT_FAILURE);
+
+		u = pwe->pw_uid;
+		g = pwe->pw_gid;
+
+		setuid(0);
+		setsid();
+		if (initgroups(loginname, g) == -1)
+			_exit(EXIT_FAILURE);
+		setgid(g);
+		setuid(u);
+		chdir("/");
+		execv(largv[0], largv);
+		_exit(EXIT_FAILURE);
+	}
+
+	snprintf(newbsname, sizeof(newbsname), "com.apple.launchd.%d", p);
+
+	while (newbs == MACH_PORT_NULL) {
+		if (bootstrap_look_up(bootstrap_port, newbsname, &newbs) == BOOTSTRAP_SUCCESS)
+			break;
+		usleep(10000);
+	}
+
+	if (task_set_bootstrap_port(mach_task_self(), newbs) == KERN_SUCCESS) {
+		if (mach_port_deallocate(mach_task_self(), bootstrap_port) == KERN_SUCCESS) {
+			bootstrap_port = newbs;
+		}
+	}
+
+	return p;
 }

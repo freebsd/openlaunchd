@@ -59,8 +59,25 @@ bool		launch_data_set_errno(launch_data_t, int);
 int launchd_msg_send(launch_t, launch_data_t);
 int launchd_msg_recv(launch_t, void (*)(launch_data_t, void *), void *);
 
+/* For LoginWindow.
+ *
+ * After this call, the task's bootstrap port is set to the per session launchd.
+ * The Libsystem exported "bootstrap_port" variable is also updated.
+ *
+ * The login name must be passed to this call.
+ * This returns the PID on of the per session launchd, and -1 on failure.
+ * 
+ * Please send SIGTERM on logout.
+ * If launchd dies, loginwindow should voluntarily exit.
+ */
+pid_t create_and_switch_to_per_session_launchd(const char *);
+
 /* batch jobs will be implicity re-enabled when the last application who
- * disabled them exits */
+ * disabled them exits.
+ *
+ * This API is really a hack to work around the lack of real-time APIs
+ * at the VFS layer.
+ */
 void launchd_batch_enable(bool);
 bool launchd_batch_query(void);
 

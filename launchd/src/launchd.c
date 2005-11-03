@@ -118,7 +118,7 @@ int main(int argc, char *const *argv)
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
-	bool sflag = false, xflag = false, vflag = false, dflag = false;
+	bool sflag = false, xflag = false, vflag = false, dflag = false, Dflag = false;
 	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
 	const char *h = getenv("HOME");
 	const char *session_type = NULL;
@@ -153,12 +153,13 @@ int main(int argc, char *const *argv)
 	if (getpid() == 1) {
 		optargs = "svx";
 	} else {
-		optargs = "S:dh";
+		optargs = "DS:dh";
 	}
 
 	while ((ch = getopt(argc, argv, optargs)) != -1) {
 		switch (ch) {
 		case 'S': session_type = optarg; break;	/* what type of session we're creating */
+		case 'D': Dflag = true;   break;	/* debug */
 		case 'd': dflag = true;   break;	/* daemonize */
 		case 's': sflag = true;   break;	/* single user */
 		case 'x': xflag = true;   break;	/* safe boot */
@@ -180,7 +181,7 @@ int main(int argc, char *const *argv)
 		launchd_assumes(daemon(0, 0) == 0);
 
 	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
-	setlogmask(LOG_UPTO(LOG_NOTICE));
+	setlogmask(LOG_UPTO(Dflag ? LOG_DEBUG : LOG_NOTICE));
 
 	launchd_assert((mainkq = kqueue()) != -1);
 
