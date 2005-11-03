@@ -21,7 +21,6 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 #include <mach/mach.h>
-#include <servers/bootstrap.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/fcntl.h>
@@ -37,6 +36,7 @@
 
 #include "launch.h"
 #include "launch_priv.h"
+#include "bootstrap_public.h"
 
 struct _launch_data {
 	launch_data_type_t type;

@@ -50,7 +50,6 @@ AC_FUNC_STAT
 AC_CHECK_FUNCS([atexit dup2 gethostname gettimeofday memmove memset mkdir munmap rmdir select setenv socket strcasecmp strchr strdup strerror strrchr strstr strtol])
 
 AC_CONFIG_FILES([Makefile
-                 doc/Makefile
                  src/Makefile])
 
 AM_CONDITIONAL(LIBS_ONLY, test "$RC_ProjectName" = launchd_libs)

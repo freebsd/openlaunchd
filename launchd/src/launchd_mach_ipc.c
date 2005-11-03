@@ -37,11 +37,9 @@
 #include <mach/mig_errors.h>
 #include <mach/mach_traps.h>
 #include <mach/mach_interface.h>
-#include <mach/bootstrap.h>
 #include <mach/host_info.h>
 #include <mach/mach_host.h>
 #include <mach/exception.h>
-#include <servers/bootstrap_defs.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/event.h>
@@ -66,6 +64,7 @@
 #endif
 
 
+#include "bootstrap_public.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
 #include "notifyServer.h"
@@ -564,51 +563,14 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *
 	}
 }
 
-/*
- * kern_return_t
- * bootstrap_look_up_array(mach_port_t bootstrapport,
- *	name_array_t	servicenames,
- *	int		servicenames_cnt,
- *	mach_port_array_t	*serviceports,
- *	int		*serviceports_cnt,
- *	bool	*allservices_known)
- *
- * Returns port send rights in corresponding entries of the array service_ports
- * for all services named in the array service_names.  Service_ports_cnt is
- * returned and will always equal service_names_cnt (assuming service_names_cnt
- * is greater than or equal to zero).
- *
- * Errors:	Returns appropriate kernel errors on rpc failure.
- *		Returns BOOTSTRAP_NO_MEMORY, if server couldn't obtain memory
- *			for response.
- *		Unknown service names have the corresponding service
- *			port set to MACH_PORT_NULL.
- *		If all services are known, all_services_known is true on
- *			return,
- *		if any service is unknown, it's false.
- */
 __private_extern__ kern_return_t
-x_bootstrap_look_up_array(mach_port_t bootstrapport, name_array_t servicenames, unsigned int servicenames_cnt,
-		mach_port_array_t *serviceportsp, unsigned int *serviceports_cnt, boolean_t *allservices_known)
+x_bootstrap_unused_slot1(mach_port_t bootstrapport)
 {
 	struct jobcb *j = current_rpc_job;
-	unsigned int i;
-	static mach_port_t service_ports[BOOTSTRAP_MAX_LOOKUP_COUNT];
-	mach_msg_type_name_t ptype;
-	
-	if (servicenames_cnt > BOOTSTRAP_MAX_LOOKUP_COUNT)
-		return BOOTSTRAP_BAD_COUNT;
-	*serviceports_cnt = servicenames_cnt;
-	*allservices_known = true;
-	for (i = 0; i < servicenames_cnt; i++) {
-		if (x_bootstrap_look_up(bootstrapport, servicenames[i], &service_ports[i], &ptype) != BOOTSTRAP_SUCCESS) {
-			*allservices_known = false;
-			service_ports[i] = MACH_PORT_NULL;
-		}
-	}
-	job_log(j, LOG_DEBUG, "Lookup of Mach services array returned %d ports", servicenames_cnt);
-	*serviceportsp = service_ports;
-	return BOOTSTRAP_SUCCESS;
+
+	job_log(j, LOG_ERR, "Somebody did a raw MIG call to %s()!", __func__);
+
+	return MIG_BAD_ID;
 }
 
 /*

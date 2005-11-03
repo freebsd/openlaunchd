@@ -27,7 +27,7 @@
 #define LAUNCHD_REWARD_JOB_RUN_TIME 60
 #define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 
-#include <servers/bootstrap_defs.h>
+#include "bootstrap_public.h"
 
 struct jobcb;
 struct machservice;

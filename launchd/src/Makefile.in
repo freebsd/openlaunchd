@@ -75,14 +75,16 @@ VERSION = @VERSION@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings -Dmig_external=__private_extern__
+
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
 
 @LIBS_ONLY_TRUE@noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-@LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c
+@LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c bootstrapUser.c bootstrap_public.c
 
 @LIBS_ONLY_TRUE@liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-@LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c
+@LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c bootstrapUser.c bootstrap_public.c
 
 @LIBS_ONLY_FALSE@sbin_SCRIPTS = service
 
@@ -104,8 +106,6 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshado
 
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 
-@LIBS_ONLY_FALSE@CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
-
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
@@ -121,12 +121,16 @@ LIBRARIES = $(noinst_LIBRARIES)
 
 liblaunch_a_AR = $(AR) cru
 liblaunch_a_LIBADD =
-@LIBS_ONLY_TRUE@am_liblaunch_a_OBJECTS = liblaunch.$(OBJEXT)
+@LIBS_ONLY_TRUE@am_liblaunch_a_OBJECTS = liblaunch.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	bootstrapUser.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	bootstrap_public.$(OBJEXT)
 liblaunch_a_OBJECTS = $(am_liblaunch_a_OBJECTS)
 liblaunch_profile_a_AR = $(AR) cru
 liblaunch_profile_a_LIBADD =
 @LIBS_ONLY_TRUE@am_liblaunch_profile_a_OBJECTS = \
-@LIBS_ONLY_TRUE@	liblaunch_profile_a-liblaunch.$(OBJEXT)
+@LIBS_ONLY_TRUE@	liblaunch_profile_a-liblaunch.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	liblaunch_profile_a-bootstrapUser.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	liblaunch_profile_a-bootstrap_public.$(OBJEXT)
 liblaunch_profile_a_OBJECTS = $(am_liblaunch_profile_a_OBJECTS)
 @LIBS_ONLY_TRUE@bin_PROGRAMS =
 @LIBS_ONLY_FALSE@bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
@@ -179,6 +183,8 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/SystemStarter-IPC.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-StartupItems.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-SystemStarter.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/bootstrapUser.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/bootstrap_public.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-bootstrapServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-init.Po \
@@ -188,6 +194,8 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_unix_ipc.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-notifyServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/liblaunch_profile_a-bootstrapUser.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/liblaunch_profile_a-bootstrap_public.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/wait4path.Po
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
@@ -243,6 +251,8 @@ liblaunch.a: $(liblaunch_a_OBJECTS) $(liblaunch_a_DEPENDENCIES)
 	$(liblaunch_a_AR) liblaunch.a $(liblaunch_a_OBJECTS) $(liblaunch_a_LIBADD)
 	$(RANLIB) liblaunch.a
 liblaunch_profile_a-liblaunch.$(OBJEXT): liblaunch.c
+liblaunch_profile_a-bootstrapUser.$(OBJEXT): bootstrapUser.c
+liblaunch_profile_a-bootstrap_public.$(OBJEXT): bootstrap_public.c
 liblaunch_profile.a: $(liblaunch_profile_a_OBJECTS) $(liblaunch_profile_a_DEPENDENCIES) 
 	-rm -f liblaunch_profile.a
 	$(liblaunch_profile_a_AR) liblaunch_profile.a $(liblaunch_profile_a_OBJECTS) $(liblaunch_profile_a_LIBADD)
@@ -374,6 +384,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-IPC.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-StartupItems.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-SystemStarter.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrapUser.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrap_public.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-init.Po@am__quote@
@@ -384,6 +396,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-notifyServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-bootstrapUser.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-bootstrap_public.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wait4path.Po@am__quote@
 
@@ -413,6 +427,30 @@ liblaunch_profile_a-liblaunch.obj: liblaunch.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/liblaunch_profile_a-liblaunch.Po' tmpdepfile='$(DEPDIR)/liblaunch_profile_a-liblaunch.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-liblaunch.obj `cygpath -w liblaunch.c`
+
+liblaunch_profile_a-bootstrapUser.o: bootstrapUser.c
+@AMDEP_TRUE@	source='bootstrapUser.c' object='liblaunch_profile_a-bootstrapUser.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/liblaunch_profile_a-bootstrapUser.Po' tmpdepfile='$(DEPDIR)/liblaunch_profile_a-bootstrapUser.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-bootstrapUser.o `test -f 'bootstrapUser.c' || echo '$(srcdir)/'`bootstrapUser.c
+
+liblaunch_profile_a-bootstrapUser.obj: bootstrapUser.c
+@AMDEP_TRUE@	source='bootstrapUser.c' object='liblaunch_profile_a-bootstrapUser.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/liblaunch_profile_a-bootstrapUser.Po' tmpdepfile='$(DEPDIR)/liblaunch_profile_a-bootstrapUser.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-bootstrapUser.obj `cygpath -w bootstrapUser.c`
+
+liblaunch_profile_a-bootstrap_public.o: bootstrap_public.c
+@AMDEP_TRUE@	source='bootstrap_public.c' object='liblaunch_profile_a-bootstrap_public.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/liblaunch_profile_a-bootstrap_public.Po' tmpdepfile='$(DEPDIR)/liblaunch_profile_a-bootstrap_public.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-bootstrap_public.o `test -f 'bootstrap_public.c' || echo '$(srcdir)/'`bootstrap_public.c
+
+liblaunch_profile_a-bootstrap_public.obj: bootstrap_public.c
+@AMDEP_TRUE@	source='bootstrap_public.c' object='liblaunch_profile_a-bootstrap_public.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/liblaunch_profile_a-bootstrap_public.Po' tmpdepfile='$(DEPDIR)/liblaunch_profile_a-bootstrap_public.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-bootstrap_public.obj `cygpath -w bootstrap_public.c`
 
 SystemStarter-StartupItems.o: StartupItems.c
 @AMDEP_TRUE@	source='StartupItems.c' object='SystemStarter-StartupItems.o' libtool=no @AMDEPBACKSLASH@
@@ -840,6 +878,11 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 	uninstall-sbinSCRIPTS uninstall-sysconfDATA
 
 
+bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
+	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+
+@LIBS_ONLY_TRUE@bootstrap_public.c:: bootstrap.h
+
 @LIBS_ONLY_TRUE@install-data-hook:
 @LIBS_ONLY_TRUE@	mkdir -p $(DESTDIR)/usr/local/lib/system
 @LIBS_ONLY_TRUE@	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
@@ -847,11 +890,8 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
 @LIBS_ONLY_FALSE@launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
-
-@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h bootstrapServer.h notifyServer.h
-
-@LIBS_ONLY_FALSE@bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
-@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h
+@LIBS_ONLY_FALSE@launchd.c:: bootstrap.h
 
 @LIBS_ONLY_FALSE@notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
@@ -868,8 +908,10 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
-@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/include
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/include/servers
 @LIBS_ONLY_FALSE@	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
+@LIBS_ONLY_FALSE@	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
+@LIBS_ONLY_FALSE@	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/local/include
 @LIBS_ONLY_FALSE@	cp $(srcdir)/launch_priv.h $(DESTDIR)/usr/local/include
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d

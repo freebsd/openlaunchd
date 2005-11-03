@@ -23,7 +23,6 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <NSSystemDirectories.h>
 #include <mach/mach.h>
-#include <servers/bootstrap.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -49,6 +48,7 @@
 #include <readline/history.h>
 #include <dns_sd.h>
 
+#include "bootstrap_public.h"
 #include "launch.h"
 #include "launch_priv.h"
 

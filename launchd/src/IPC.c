@@ -31,9 +31,10 @@
 #include <mach/mach.h>
 #include <mach/message.h>
 #include <mach/mach_error.h>
-#include <servers/bootstrap.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <syslog.h>
+
+#include "bootstrap_public.h"
 #include "IPC.h"
 #include "StartupItems.h"
 #include "SystemStarter.h"
@@ -370,9 +371,7 @@ CreateIPCRunLoopSource(CFStringRef aPortName, StartupContext aStartupContext)
 						  aBuffer,
 						  aPortNameSize,
 						  kCFStringEncodingUTF8)) {
-			mach_port_t     aBootstrapPort;
-			task_get_bootstrap_port(mach_task_self(), &aBootstrapPort);
-			aKernReturn = bootstrap_register(aBootstrapPort, aBuffer, CFMachPortGetPort(aMachPort));
+			aKernReturn = bootstrap_register(bootstrap_port, aBuffer, CFMachPortGetPort(aMachPort));
 		}
 		if (aBuffer)
 			CFAllocatorDeallocate(NULL, aBuffer);

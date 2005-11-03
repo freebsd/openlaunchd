@@ -1,13 +1,20 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings -Dmig_external=__private_extern__
+
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
+
+bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
+	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
 
 if LIBS_ONLY
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-liblaunch_a_SOURCES = liblaunch.c
+liblaunch_a_SOURCES = liblaunch.c bootstrapUser.c bootstrap_public.c
 
 liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c
+liblaunch_profile_a_SOURCES = liblaunch.c bootstrapUser.c bootstrap_public.c
+
+bootstrap_public.c:: bootstrap.h
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/local/lib/system
@@ -35,16 +42,11 @@ launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
 
-launchproxy_LDFLAGS = -weak_framework Security
-
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
-
 launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
+launchd_core_logic.c:: bootstrap.h
+launchd.c:: bootstrap.h
 
-launchd_core_logic.c:: bootstrap.h bootstrapServer.h notifyServer.h
-
-bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
-	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+launchproxy_LDFLAGS = -weak_framework Security
 
 notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
 	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
@@ -69,8 +71,10 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/usr/libexec
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
-	mkdir -p $(DESTDIR)/usr/include
+	mkdir -p $(DESTDIR)/usr/include/servers
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
+	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
+	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
 	mkdir -p $(DESTDIR)/usr/local/include
 	cp $(srcdir)/launch_priv.h $(DESTDIR)/usr/local/include
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d

@@ -85,7 +85,7 @@ subsystem bootstrap 400;
 
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
-import <servers/bootstrap_defs.h>;
+import "bootstrap_public.h";
 
 /* MIG isn't very well documented. A coworker promises me that MIG promises
  * that a "c_string" will be NULL terminated on the server side in the event that a
@@ -98,6 +98,7 @@ type name_array_t		= ^array [] of name_t;
 type bootstrap_status_t		= integer_t;
 type bootstrap_status_array_t	= ^array [] of bootstrap_status_t;
 
+userprefix raw_;
 serverprefix x_;
 
 /*
@@ -237,33 +238,8 @@ routine bootstrap_look_up(
 		__service_name	: name_t;
 	out	__service_port	: mach_port_send_t);
 
-/*
- * kern_return_t
- * bootstrap_look_up_array(mach_port_t __bs_port,
- *			  name_array_t __service_names,
- *			  int __service_names_cnt,
- *			  port_array_t *__service_port,
- *			  int *__service_ports_cnt,
- *			  boolean_t *__all_services_known)
- *
- * Returns port send rights in corresponding entries of the array service_ports
- * for all services named in the array service_names.  Service_ports_cnt is
- * returned and will always equal service_names_cnt (assuming service_names_cnt
- * is greater than or equal to zero).
- *
- * Errors:	Returns appropriate kernel errors on rpc failure.
- *		Returns BOOTSTRAP_NO_MEMORY, if server couldn't obtain memory
- *			for response.
- *		Unknown service names have the corresponding service port set
- *			to PORT_NULL.
- *		If all services are known, all_services_known is true on
- *			return, if any service is unknown, it's false.
- */
-routine bootstrap_look_up_array(
-		__bs_port	: mach_port_t;
-		__service_names	: name_array_t;
-	out	__service_ports	: mach_port_array_t;
-	out	__all_services_known: boolean_t);
+routine bootstrap_unused_slot1(
+		__bs_port	: mach_port_t);
 
 /*
  * kern_return_t

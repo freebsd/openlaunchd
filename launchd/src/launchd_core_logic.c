@@ -28,11 +28,9 @@
 #include <mach/mig_errors.h>
 #include <mach/mach_traps.h>
 #include <mach/mach_interface.h>
-#include <mach/bootstrap.h>
 #include <mach/host_info.h>
 #include <mach/mach_host.h>
 #include <mach/exception.h>
-#include <servers/bootstrap_defs.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
