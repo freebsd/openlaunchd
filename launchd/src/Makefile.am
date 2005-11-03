@@ -1,4 +1,4 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings -Dmig_external=__private_extern__
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings -Dmig_external=__private_extern__
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
 

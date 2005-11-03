@@ -39,19 +39,20 @@
 #include "bootstrap_public.h"
 
 struct _launch_data {
-	launch_data_type_t type;
+	uint64_t type;
 	union {
 		struct {
-			launch_data_t *_array;
-			size_t _array_cnt;
-		};
-		struct {
-			char *string;
-			size_t string_len;
-		};
-		struct {
-			void *opaque;
-			size_t opaque_size;
+			union {
+				launch_data_t *_array;
+				char *string;
+				void *opaque;
+				int64_t __junk;
+			};
+			union {
+				uint64_t _array_cnt;
+				uint64_t string_len;
+				uint64_t opaque_size;
+			};
 		};
 		int fd;
 		mach_port_t mp;
@@ -64,14 +65,14 @@ struct _launch_data {
 
 struct _launch {
 	void	*sendbuf;
-	int	*sendfds;   
+	int	*sendfds;
 	void	*recvbuf;
-	int	*recvfds;   
-	size_t	sendlen;                
-	size_t	sendfdcnt;                    
-	size_t	recvlen;                                
-	size_t	recvfdcnt;                                    
-	int	fd;                                                     
+	int	*recvfds;
+	size_t	sendlen;
+	size_t	sendfdcnt;
+	size_t	recvlen;
+	size_t	recvfdcnt;
+	int	fd;
 };
 
 static void make_msg_and_cmsg(launch_data_t, void **, size_t *, int **, size_t *);

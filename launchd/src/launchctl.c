@@ -2106,9 +2106,10 @@ bslist_cmd(int argc, char *const argv[])
 	kern_return_t result;
 	mach_port_t bport = bootstrap_port;
 	name_array_t service_names;
-	unsigned int i, service_cnt, server_cnt, service_active_cnt;
+	mach_msg_type_number_t service_cnt, server_cnt, service_active_cnt;
 	name_array_t server_names;
-	boolean_t *service_actives;
+	bootstrap_status_array_t service_actives;
+	unsigned int i;
 
 	if (argc == 2)
 		bport = str2bsport(argv[1]);
