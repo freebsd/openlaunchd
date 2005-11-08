@@ -756,7 +756,9 @@ job_import_string(struct jobcb *j, const char *key, const char *value)
 	if (!launchd_assumes(newstr != NULL))
 		return;
 
-	if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0) {
+	if (strcasecmp(key, LAUNCH_JOBKEY_LABEL) == 0) {
+		free(newstr);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0) {
 		j->rootdir = newstr;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_WORKINGDIRECTORY) == 0) {
 		j->workingdir = newstr;
@@ -768,6 +770,9 @@ job_import_string(struct jobcb *j, const char *key, const char *value)
 		j->stdoutpath = newstr;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDERRORPATH) == 0) {
 		j->stderrpath = newstr;
+	} else {
+		job_log(j, LOG_WARNING, "Unknown value for key %s: %s", key, value);
+		free(newstr);
 	}
 }
 
