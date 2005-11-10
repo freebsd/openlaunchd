@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Labels are used to uniquely identify jobs when talking to launchd -->
+	<key>Label</key>
+	<string>com.example.sampled</string>
+	<!-- This array of strings maps one-to-one with your main()'s argv -->
+	<key>ProgramArguments</key>
+	<array>
+		<!-- This assumes sampled is in launchd's PATH -->
+		<!-- "launchctl getenv PATH" to check the PATH -->
+		<string>sampled</string>
+	</array>
+	<key>Sockets</key>
+	<dict>
+		<!-- This key is completely up to you. -->
+		<!-- Use it to differentiate protocols if your code supports more than one. -->
+		<key>SampleListeners</key>
+		<dict>
+			<!-- This dictionary revolves around getaddrinfo(3) -->
+			<!-- Please read up on that API, then look at launchd.plist(5). -->
+			<!-- Please also make sure your code can deal with more than one FD being allocated. -->
+			<key>SockServiceName</key>
+			<string>12345</string>
+		</dict>
+	</dict>
+	<!-- This launchd that we will "check in" -->
+	<!-- Checking in with launchd is how we get our file descriptors. -->
+	<key>ServiceIPC</key>
+	<true/>
+</dict>
+</plist>
