@@ -77,7 +77,9 @@ Catch the SIGTERM signal.
 .El
 .Sh XML PROPERTY LIST KEYS
 The follow keys can be used to describe the configuration details of your daemon or agent.
-Property lists files are expected to have their name end in ".plist" but that is not strictly required.
+Property lists are Apple's standard configuration file format. Please see
+.Xr plist 5
+for more information. Please note. Property list files are expected to have their name end in ".plist".
 .Pp
 .Bl -ohang
 .It Sy Label <string>
@@ -165,7 +167,7 @@ This optional key is used to specify additional environmental variables to be se
 .It Sy Umask <integer>
 This optional key specifies what value should be passed to
 .Xr umask 2
-before running the job.
+before running the job. Known bug: Property lists don't support octal, so please convert the value to decimal.
 .It Sy TimeOut <integer>
 The recommended time out to pass to the job. If no value is specified, a default time out will be supplied by
 .Nm launchd
@@ -373,4 +375,5 @@ Mac OS X System wide daemons.
 .Sh SEE ALSO 
 .Xr launchctl 1 ,
 .Xr launch 3 ,
-.Xr launchd 8
+.Xr launchd 8 ,
+.Xr plist 5
