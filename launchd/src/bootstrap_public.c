@@ -125,3 +125,25 @@ bootstrap_info(mach_port_t bp,
 			server_names, server_namesCnt,
 			service_active, service_activeCnt);
 }
+
+const char *
+bootstrap_strerror(kern_return_t r)
+{
+	switch (r) {
+	case BOOTSTRAP_SUCCESS:
+		return "Success";
+	case BOOTSTRAP_NOT_PRIVILEGED:
+		return "Permission denied";
+	case BOOTSTRAP_NAME_IN_USE:
+	case BOOTSTRAP_SERVICE_ACTIVE:
+		return "Service name already exists";
+	case BOOTSTRAP_UNKNOWN_SERVICE:
+		return "Unknown service name";
+	case BOOTSTRAP_BAD_COUNT:
+		return "Too many lookups were requested in one request";
+	case BOOTSTRAP_NO_MEMORY:
+		return "Out of memory";
+	default:
+		return mach_error_string(r);
+	}
+}

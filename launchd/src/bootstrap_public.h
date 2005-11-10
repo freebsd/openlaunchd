@@ -122,6 +122,6 @@ kern_return_t bootstrap_info(
 		bootstrap_status_array_t *service_active,
 		mach_msg_type_number_t *service_activeCnt);
 
-
+const char *bootstrap_strerror(kern_return_t r);
 
 #endif
