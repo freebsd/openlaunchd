@@ -335,7 +335,7 @@ launchd_mport_deallocate(mach_port_t name)
 }
 
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
 		security_token_t sectoken, mach_port_t *server_portp)
 {
@@ -372,7 +372,7 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 	return BOOTSTRAP_SUCCESS;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 {
 	struct jobcb *j = current_rpc_job;
@@ -387,7 +387,7 @@ x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 }
 
   
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
 {
 	struct jobcb *j = current_rpc_job;
@@ -423,7 +423,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 	return BOOTSTRAP_SUCCESS;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t serviceport)
 {
 	struct jobcb *j = current_rpc_job;
@@ -461,7 +461,7 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 	return BOOTSTRAP_SUCCESS;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
 	struct jobcb *j = current_rpc_job;
@@ -485,7 +485,7 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *
 	}
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_unused_slot1(mach_port_t bootstrapport)
 {
 	struct jobcb *j = current_rpc_job;
@@ -495,7 +495,7 @@ x_bootstrap_unused_slot1(mach_port_t bootstrapport)
 	return MIG_BAD_ID;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
 	struct jobcb *j = current_rpc_job;
@@ -523,7 +523,7 @@ x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_po
 	return BOOTSTRAP_SUCCESS;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_status(mach_port_t bootstrapport, name_t servicename, bootstrap_status_t *serviceactivep)
 {
 	struct jobcb *j = current_rpc_job;
@@ -573,7 +573,7 @@ x_bootstrap_info_copyservices(struct machservice *ms, void *context)
 	info_resp->i++;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 		name_array_t *servernamesp, unsigned int *servernames_cnt,
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
@@ -619,7 +619,7 @@ out_bad:
 	return BOOTSTRAP_NO_MEMORY;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_port_t *subsetportp)
 {
 	struct jobcb *js, *j = current_rpc_job;
@@ -646,7 +646,7 @@ x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_po
 	return BOOTSTRAP_SUCCESS;
 }
 
-__private_extern__ kern_return_t
+kern_return_t
 x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
 {
 	struct jobcb *j = current_rpc_job;

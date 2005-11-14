@@ -24,6 +24,7 @@
 #include <mach/mach.h>
 #include <mach/vm_map.h>
 
+#define mig_external __private_extern__
 #include "bootstrap_public.h"
 #include "bootstrap.h"
 

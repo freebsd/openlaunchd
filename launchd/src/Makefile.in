@@ -75,7 +75,7 @@ VERSION = @VERSION@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -fconstant-cfstrings -Dmig_external=__private_extern__
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
 
@@ -94,13 +94,14 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h not
 
 @LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
 
+@LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
 @LIBS_ONLY_FALSE@launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
 
-@LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+@LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -fvisibility=hidden
 @LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-@LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
+@LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
 @LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
 
@@ -148,7 +149,7 @@ SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_DEPENDENCIES =
 launchctl_SOURCES = launchctl.c
-launchctl_OBJECTS = launchctl.$(OBJEXT)
+launchctl_OBJECTS = launchctl-launchctl.$(OBJEXT)
 launchctl_LDADD = $(LDADD)
 launchctl_DEPENDENCIES =
 @LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
@@ -185,7 +186,7 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/SystemStarter-SystemStarter.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/bootstrapUser.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/bootstrap_public.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/launchctl.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchctl-launchctl.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-bootstrapServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd.Po \
@@ -335,6 +336,7 @@ SystemStarter-SystemStarter.$(OBJEXT): SystemStarter.c
 SystemStarter$(EXEEXT): $(SystemStarter_OBJECTS) $(SystemStarter_DEPENDENCIES) 
 	@rm -f SystemStarter$(EXEEXT)
 	$(LINK) $(SystemStarter_LDFLAGS) $(SystemStarter_OBJECTS) $(SystemStarter_LDADD) $(LIBS)
+launchctl-launchctl.$(OBJEXT): launchctl.c
 launchctl$(EXEEXT): $(launchctl_OBJECTS) $(launchctl_DEPENDENCIES) 
 	@rm -f launchctl$(EXEEXT)
 	$(LINK) $(launchctl_LDFLAGS) $(launchctl_OBJECTS) $(launchctl_LDADD) $(LIBS)
@@ -386,7 +388,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-SystemStarter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrapUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/bootstrap_public.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl-launchctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
@@ -487,6 +489,18 @@ SystemStarter-SystemStarter.obj: SystemStarter.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/SystemStarter-SystemStarter.Po' tmpdepfile='$(DEPDIR)/SystemStarter-SystemStarter.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -c -o SystemStarter-SystemStarter.obj `cygpath -w SystemStarter.c`
+
+launchctl-launchctl.o: launchctl.c
+@AMDEP_TRUE@	source='launchctl.c' object='launchctl-launchctl.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchctl-launchctl.Po' tmpdepfile='$(DEPDIR)/launchctl-launchctl.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchctl_CFLAGS) $(CFLAGS) -c -o launchctl-launchctl.o `test -f 'launchctl.c' || echo '$(srcdir)/'`launchctl.c
+
+launchctl-launchctl.obj: launchctl.c
+@AMDEP_TRUE@	source='launchctl.c' object='launchctl-launchctl.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchctl-launchctl.Po' tmpdepfile='$(DEPDIR)/launchctl-launchctl.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchctl_CFLAGS) $(CFLAGS) -c -o launchctl-launchctl.obj `cygpath -w launchctl.c`
 
 launchd-launchd.o: launchd.c
 @AMDEP_TRUE@	source='launchd.c' object='launchd-launchd.o' libtool=no @AMDEPBACKSLASH@
