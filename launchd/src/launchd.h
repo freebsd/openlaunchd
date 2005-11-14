@@ -35,7 +35,7 @@
 	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Please file a bug report: %s:%u: Invalid assumption: (%s). errno == %u", __FILE__, __LINE__, #e, errno), false : true)
 
 #define launchd_blame(e, b)	\
-	(__builtin_expect(!(e), 0) ? syslog(LOG_NOTICE, "Encountered bug: %d", b), false : true)
+	(__builtin_expect(!(e), 0) ? syslog(LOG_DEBUG, "Encountered bug: %d", b), false : true)
 
 #define launchd_assert(e)	launchd_assumes(e) ? true : abort();
 
