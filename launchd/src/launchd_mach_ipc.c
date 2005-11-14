@@ -403,7 +403,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 			result = bootstrap_check_in(inherited_bootstrap_port, servicename, serviceportp);
 		return result;
 	}
-	if (machservice_job(ms) && machservice_job(ms) != j) {
+	if (machservice_job(ms) != j) {
 		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Not privileged: %s", servicename);
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -436,15 +436,14 @@ x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 	ms = job_lookup_service(j, servicename, false);
 
 	if (ms) {
-		if (machservice_job(ms) && machservice_job(ms) != j)
+		if (machservice_job(ms) != j)
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		if (machservice_active(ms)) {
 			job_log(j, LOG_DEBUG, "Mach service registration failed. Already active: %s", servicename);
 			launchd_assumes(!canReceive(machservice_port(ms)));
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
-		if (machservice_job(ms))
-			job_checkin(machservice_job(ms));
+		job_checkin(machservice_job(ms));
 		machservice_delete(ms);
 	}
 
