@@ -80,6 +80,7 @@
  *  through the "create server" request.  The server will be launched in the
  *  same bootstrap context in which it was registered.
  */
+#include <AvailabilityMacros.h>
 #include <mach/std_types.h>
 #include <mach/message.h>
 #include <sys/types.h>
@@ -319,7 +320,8 @@ kern_return_t bootstrap_look_up_array(
 		mach_msg_type_number_t service_namesCnt,
 		mach_port_array_t *sps,
 		mach_msg_type_number_t *service_portsCnt,
-		boolean_t *all_services_known);
+		boolean_t *all_services_known)
+		AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_5;
 
 kern_return_t bootstrap_info(
 		mach_port_t bp,
