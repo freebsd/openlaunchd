@@ -9,10 +9,10 @@ if LIBS_ONLY
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-liblaunch_a_SOURCES = liblaunch.c bootstrapUser.c bootstrap_public.c
+liblaunch_a_SOURCES = liblaunch.c bootstrap_public.c
 
 liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c bootstrapUser.c bootstrap_public.c
+liblaunch_profile_a_SOURCES = liblaunch.c bootstrap_public.c
 
 bootstrap_public.c:: bootstrap.h
 

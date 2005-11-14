@@ -74,8 +74,7 @@ routine bootstrap_look_up(
 		__service_name	: name_t;
 	out	__service_port	: mach_port_send_t);
 
-routine bootstrap_unused_slot1(
-		__bs_port	: mach_port_t);
+skip;
 
 routine bootstrap_parent(
 		__bs_port	: mach_port_t;

@@ -24,9 +24,11 @@
 #include <mach/mach.h>
 #include <mach/vm_map.h>
 
-#define mig_external __private_extern__
 #include "bootstrap_public.h"
+
+#define mig_external static
 #include "bootstrap.h"
+#include "bootstrapUser.c"
 
 /* Libc initializes this for now */
 mach_port_t bootstrap_port = MACH_PORT_NULL;

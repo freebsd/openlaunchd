@@ -486,16 +486,6 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *
 }
 
 kern_return_t
-x_bootstrap_unused_slot1(mach_port_t bootstrapport)
-{
-	struct jobcb *j = current_rpc_job;
-
-	job_log(j, LOG_ERR, "Somebody did a raw MIG call to %s()!", __func__);
-
-	return MIG_BAD_ID;
-}
-
-kern_return_t
 x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
 	struct jobcb *j = current_rpc_job;
