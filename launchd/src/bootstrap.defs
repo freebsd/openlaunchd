@@ -67,7 +67,7 @@ routine bootstrap_check_in(
 routine bootstrap_register(
 		__bs_port	: mach_port_t;
 		__service_name	: name_t;
-		__service_port	: mach_port_t);
+		__service_port	: mach_port_send_t);
 
 routine bootstrap_look_up(
 		__bs_port	: mach_port_t;

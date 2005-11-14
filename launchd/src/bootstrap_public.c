@@ -60,7 +60,15 @@ bootstrap_parent(mach_port_t bp, mach_port_t *parent_port)
 kern_return_t
 bootstrap_register(mach_port_t bp, name_t service_name, mach_port_t sp)
 {
-	return raw_bootstrap_register(bp, service_name, sp);
+	mach_msg_type_name_t pptype = MACH_MSG_TYPE_COPY_SEND;
+	mach_port_type_t p_type;
+
+	if (mach_port_type(mach_task_self(), sp, &p_type) == KERN_SUCCESS) {
+		if (!(p_type & MACH_PORT_TYPE_SEND))
+			pptype = MACH_MSG_TYPE_MAKE_SEND;
+	}
+
+	return raw_bootstrap_register(bp, service_name, sp, pptype);
 }
 
 kern_return_t

@@ -157,10 +157,8 @@ void mach_init_init(void)
 	if (inherited_bootstrap_port != MACH_PORT_NULL) {
 		asprintf(&register_name, "com.apple.launchd.%d", getpid());
 
-		launchd_assumes(launchd_mport_make_send(job_get_bsport(root_job)) == KERN_SUCCESS);
 		launchd_assumes(bootstrap_register(inherited_bootstrap_port, register_name,
 					job_get_bsport(root_job)) == KERN_SUCCESS);
-		launchd_assumes(launchd_mport_deallocate(job_get_bsport(root_job)) == KERN_SUCCESS);
 	}
 
 	pthread_attr_init(&attr);
