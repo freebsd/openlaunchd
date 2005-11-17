@@ -12,10 +12,6 @@ AM_CONFIG_HEADER([src/config.h])
 AC_PROG_CC
 AC_PROG_RANLIB
 
-# Checks for libraries.
-# FIXME: Replace `main' with a function in `-lbsm':
-AC_CHECK_LIB([bsm], [main])
-
 # Checks for header files.
 AC_HEADER_DIRENT
 AC_HEADER_STDC
