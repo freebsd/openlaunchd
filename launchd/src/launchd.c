@@ -238,7 +238,7 @@ int main(int argc, char *const *argv)
 		if (pp == 1)
 			exit(EXIT_SUCCESS);
 
-		ker = kevent_mod(pp, EVFILT_PROC, EV_ADD, 0, 0, &kqshutdown_callback);
+		ker = kevent_mod(pp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqshutdown_callback);
 
 		if (ker == -1)
 			exit(launchd_assumes(errno == ESRCH) ? EXIT_SUCCESS : EXIT_FAILURE);
