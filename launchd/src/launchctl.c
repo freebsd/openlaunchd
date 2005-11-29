@@ -191,7 +191,7 @@ main(int argc, char *const argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	if (!istty || argc == 0) {
+	if (argc == 0) {
 		while ((l = readline(istty ? "launchd% " : NULL))) {
 			char *inputstring = l, *argv2[100], **ap = argv2;
 			int i = 0;
