@@ -30,9 +30,6 @@
 #include "bootstrap.h"
 #include "bootstrapUser.c"
 
-/* Libc initializes this for now */
-mach_port_t bootstrap_port = MACH_PORT_NULL;
-
 kern_return_t
 bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_port)
 {
