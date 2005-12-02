@@ -293,16 +293,17 @@ kern_return_t bootstrap_look_up(
 /*
  * bootstrap_status()
  *
- * Returns: service_active indicates if service is active, inactive, or
- *	    associated with a launch-on-demand server.
- *			
- * Errors:	Returns appropriate kernel errors on rpc failure.
- *		Returns BOOTSTRAP_UNKNOWN_SERVICE, if service does not exist.
+ * This call is deprecated and emulated with a call to bootstrap_look_up().
+ *
+ * If the bootstrap_look_up() succeeds, then service_active is set to
+ * BOOTSTRAP_STATUS_ACTIVE and BOOTSTRAP_SUCCESS is returned, otherwise
+ * BOOTSTRAP_UNKNOWN_SERVICE is returned.
  */
 kern_return_t bootstrap_status(
 		mach_port_t bp,
 		name_t service_name,
-		bootstrap_status_t *service_active);
+		bootstrap_status_t *service_active)
+		AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_5;
 
 /* bootstrap_strerror()
  *

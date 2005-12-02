@@ -81,10 +81,7 @@ routine bootstrap_parent(
  ServerSecToken	__token		: security_token_t;
 	out	__parent_port	: mach_port_send_t);
 
-routine bootstrap_status(
-		__bs_port	:	mach_port_t;
-		__service_name	:	name_t;
-	out	__service_active:	bootstrap_status_t);
+skip;
 
 routine bootstrap_info(
 		__bs_port	: mach_port_t;

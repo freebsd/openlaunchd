@@ -120,7 +120,15 @@ bootstrap_look_up_array(mach_port_t bp,
 kern_return_t
 bootstrap_status(mach_port_t bp, name_t service_name, bootstrap_status_t *service_active)
 {
-	return raw_bootstrap_status(bp, service_name, service_active);
+	mach_port_t p;
+
+	if (bootstrap_look_up(bp, service_name, &p) == BOOTSTRAP_SUCCESS) {
+		mach_port_deallocate(mach_task_self(), p);
+		*service_active = BOOTSTRAP_STATUS_ACTIVE;
+		return BOOTSTRAP_SUCCESS;
+	}
+
+	return BOOTSTRAP_UNKNOWN_SERVICE;
 }
 
 kern_return_t

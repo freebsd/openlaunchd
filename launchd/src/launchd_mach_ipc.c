@@ -510,29 +510,6 @@ x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_po
 	return BOOTSTRAP_SUCCESS;
 }
 
-kern_return_t
-x_bootstrap_status(mach_port_t bootstrapport, name_t servicename, bootstrap_status_t *serviceactivep)
-{
-	struct jobcb *j = current_rpc_job;
-	struct machservice *ms;
-
-	ms = job_lookup_service(j, servicename, true);
-
-	if (ms == NULL) {
-		if (inherited_bootstrap_port != MACH_PORT_NULL) {
-			job_log(j, LOG_DEBUG, "Mach service status request forwarded for: %s", servicename);
-			return bootstrap_status(inherited_bootstrap_port, servicename, serviceactivep);
-		} else {
-			job_log(j, LOG_DEBUG, "Mach service status request for unknown: %s", servicename);
-			return BOOTSTRAP_UNKNOWN_SERVICE;
-		}
-	}
-	*serviceactivep = machservice_status(ms);
-
-	job_log(j, LOG_DEBUG, "Mach service status request for %sactive: %s", machservice_active(ms) ? "" : "in", servicename);
-	return BOOTSTRAP_SUCCESS;
-}
-
 static void
 x_bootstrap_info_countservices(struct machservice *ms, void *context)
 {
