@@ -710,3 +710,14 @@ pfsystem_callback(void *obj, struct kevent *kev)
 		job_dispatch_all_other_semaphores(root_job, NULL);
 	}
 }
+
+void
+_log_launchd_bug(const char *path, unsigned int line, const char *test)
+{
+	const char *file = basename(path);
+
+	if (!file)
+		file = path;
+
+	syslog(LOG_NOTICE, "Please file a bug report: %s:%u: Invalid assumption: (%s). errno == %u", file, line, test, errno);
+}
