@@ -12,6 +12,13 @@
 		<!-- "launchctl getenv PATH" to check the PATH -->
 		<string>sampled</string>
 	</array>
+	<key>MachServices</key>
+	<dict>
+		<!-- This key maps to what you pass to bootstrap_look_up() -->
+		<!-- Always set the value to true. -->
+		<key>com.apple.sampled.something</key>
+		<true/>
+	</dict>
 	<key>Sockets</key>
 	<dict>
 		<!-- This key is completely up to you. -->
