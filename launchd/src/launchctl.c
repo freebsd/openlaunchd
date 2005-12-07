@@ -464,16 +464,7 @@ readfile(const char *what, struct load_unload_state *lus)
 	}
 
 	if (is_legacy_mach_job(thejob)) {
-		struct stat sb;
-
-		if (stat("/AppleInternal", &sb) == 0) {
-			static bool printed_who_to_contact = false;
-			if (!printed_who_to_contact) {
-				fprintf(stderr, "Please contact zarzycki@apple.com for help on the following \"convert to launchd\" messages.\n");
-				printed_who_to_contact = true;
-			}
-			fprintf(stderr, "%s: Please convert the following to launchd: %s\n", getprogname(), what);
-		}
+		fprintf(stderr, "%s: Please convert the following to launchd: %s\n", getprogname(), what);
 		launch_data_array_append(lus->pass0, thejob);
 		return;
 	}
