@@ -21,6 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 #include <mach/mach.h>
+#include <libkern/OSByteOrder.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/fcntl.h>
@@ -37,6 +38,64 @@
 #include "launch.h"
 #include "launch_priv.h"
 #include "bootstrap_public.h"
+
+/* __OSBogusByteSwap__() must not really exist in the symbol namespace
+ * in order for the following to generate an error at build time.
+ */
+extern void __OSBogusByteSwap__(void);
+
+#define host2big(x)				\
+	({ typeof (x) _X, _x = (x);		\
+	 switch (sizeof(_x)) {			\
+	 case 8:				\
+	 	_X = OSSwapHostToBigInt64(_x);	\
+	 	break;				\
+	 case 4:				\
+	 	_X = OSSwapHostToBigInt32(_x);	\
+	 	break;				\
+	 case 2:				\
+	 	_X = OSSwapHostToBigInt16(_x);	\
+	 	break;				\
+	 case 1:				\
+	 	_X = _x;			\
+		break;				\
+	 default:				\
+	 	__OSBogusByteSwap__();		\
+		break;				\
+	 }					\
+	 _X;					\
+	 })
+
+
+#define big2host(x)				\
+	({ typeof (x) _X, _x = (x);		\
+	 switch (sizeof(_x)) {			\
+	 case 8:				\
+	 	_X = OSSwapBigToHostInt64(_x);	\
+	 	break;				\
+	 case 4:				\
+	 	_X = OSSwapBigToHostInt32(_x);	\
+	 	break;				\
+	 case 2:				\
+	 	_X = OSSwapBigToHostInt16(_x);	\
+	 	break;				\
+	 case 1:				\
+	 	_X = _x;			\
+		break;				\
+	 default:				\
+	 	__OSBogusByteSwap__();		\
+		break;				\
+	 }					\
+	 _X;					\
+	 })
+
+
+struct launch_msg_header {
+	uint64_t magic;
+	uint64_t len;
+};
+
+#define LAUNCH_MSG_HEADER_MAGIC 0xD2FEA02366B39A41ull
 
 struct _launch_data {
 	uint64_t type;
@@ -509,14 +568,32 @@ launchd_close(launch_t lh)
 void
 make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **fd_where, size_t *fdcnt)
 {
+	launch_data_t o_in_w;
 	size_t i;
 
 	*where = realloc(*where, *len + sizeof(struct _launch_data));
-	memcpy(*where + *len, d, sizeof(struct _launch_data));
+
+	o_in_w = *where + *len;
+	memset(o_in_w, 0, sizeof(struct _launch_data));
 	*len += sizeof(struct _launch_data);
 
+	o_in_w->type = host2big(d->type);
+
 	switch (d->type) {
+	case LAUNCH_DATA_INTEGER:
+		o_in_w->number = host2big(d->number);
+		break;
+	case LAUNCH_DATA_REAL:
+		o_in_w->float_num = host2big(d->float_num);
+		break;
+	case LAUNCH_DATA_BOOL:
+		o_in_w->boolean = host2big(d->boolean);
+		break;
+	case LAUNCH_DATA_ERRNO:
+		o_in_w->err = host2big(d->err);
+		break;
 	case LAUNCH_DATA_FD:
+		o_in_w->fd = host2big(d->fd);
 		if (d->fd != -1) {
 			*fd_where = realloc(*fd_where, (*fdcnt + 1) * sizeof(int));
 			(*fd_where)[*fdcnt] = d->fd;
@@ -524,17 +601,20 @@ make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **fd_where, si
 		}
 		break;
 	case LAUNCH_DATA_STRING:
+		o_in_w->string_len = host2big(d->string_len);
 		*where = realloc(*where, *len + strlen(d->string) + 1);
 		memcpy(*where + *len, d->string, strlen(d->string) + 1);
 		*len += strlen(d->string) + 1;
 		break;
 	case LAUNCH_DATA_OPAQUE:
+		o_in_w->opaque_size = host2big(d->opaque_size);
 		*where = realloc(*where, *len + d->opaque_size);
 		memcpy(*where + *len, d->opaque, d->opaque_size);
 		*len += d->opaque_size;
 		break;
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
+		o_in_w->_array_cnt = host2big(d->_array_cnt);
 		*where = realloc(*where, *len + (d->_array_cnt * sizeof(launch_data_t)));
 		memcpy(*where + *len, d->_array, d->_array_cnt * sizeof(launch_data_t));
 		*len += d->_array_cnt * sizeof(launch_data_t);
@@ -550,42 +630,48 @@ make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **fd_where, si
 static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoffset)
 {
 	launch_data_t r = conn->recvbuf + *data_offset;
-	size_t i;
+	size_t i, tmpcnt;
 
 	if ((conn->recvlen - *data_offset) < sizeof(struct _launch_data))
 		return NULL;
 	*data_offset += sizeof(struct _launch_data);
 
-	switch (r->type) {
+	switch (big2host(r->type)) {
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
-		if ((conn->recvlen - *data_offset) < (r->_array_cnt * sizeof(launch_data_t))) {
+		tmpcnt = big2host(r->_array_cnt);
+		if ((conn->recvlen - *data_offset) < (tmpcnt * sizeof(launch_data_t))) {
 			errno = EAGAIN;
 			return NULL;
 		}
 		r->_array = conn->recvbuf + *data_offset;
-		*data_offset += r->_array_cnt * sizeof(launch_data_t);
-		for (i = 0; i < r->_array_cnt; i++) {
+		*data_offset += tmpcnt * sizeof(launch_data_t);
+		for (i = 0; i < tmpcnt; i++) {
 			r->_array[i] = make_data(conn, data_offset, fdoffset);
 			if (r->_array[i] == NULL)
 				return NULL;
 		}
+		r->_array_cnt = tmpcnt;
 		break;
 	case LAUNCH_DATA_STRING:
-		if ((conn->recvlen - *data_offset) < (r->string_len + 1)) {
+		tmpcnt = big2host(r->string_len);
+		if ((conn->recvlen - *data_offset) < (tmpcnt + 1)) {
 			errno = EAGAIN;
 			return NULL;
 		}
 		r->string = conn->recvbuf + *data_offset;
-		*data_offset += r->string_len + 1;
+		r->string_len = tmpcnt;
+		*data_offset += tmpcnt + 1;
 		break;
 	case LAUNCH_DATA_OPAQUE:
-		if ((conn->recvlen - *data_offset) < r->opaque_size) {
+		tmpcnt = big2host(r->opaque_size);
+		if ((conn->recvlen - *data_offset) < tmpcnt) {
 			errno = EAGAIN;
 			return NULL;
 		}
 		r->opaque = conn->recvbuf + *data_offset;
-		*data_offset += r->opaque_size;
+		r->opaque_size = tmpcnt;
+		*data_offset += tmpcnt;
 		break;
 	case LAUNCH_DATA_FD:
 		if (r->fd != -1) {
@@ -594,9 +680,16 @@ static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoff
 		}
 		break;
 	case LAUNCH_DATA_INTEGER:
+		r->number = big2host(r->number);
+		break;
 	case LAUNCH_DATA_REAL:
+		r->float_num = big2host(r->float_num);
+		break;
 	case LAUNCH_DATA_BOOL:
+		r->boolean = big2host(r->boolean);
+		break;
 	case LAUNCH_DATA_ERRNO:
+		r->err = big2host(r->err);
 	case LAUNCH_DATA_MACHPORT:
 		break;
 	default:
@@ -605,24 +698,43 @@ static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoff
 		break;
 	}
 
+	r->type = big2host(r->type);
+
 	return r;
 }
 
 int launchd_msg_send(launch_t lh, launch_data_t d)
 {
+	struct launch_msg_header lmh;
 	struct cmsghdr *cm = NULL;
 	struct msghdr mh;
-	struct iovec iov;
-	int r;
+	struct iovec iov[2];
 	size_t sentctrllen = 0;
+	int r;
 
 	memset(&mh, 0, sizeof(mh));
 
-	mh.msg_iov = &iov;
-        mh.msg_iovlen = 1;
+	if (d) {
+		uint64_t msglen = lh->sendlen;
 
-	if (d)
 		make_msg_and_cmsg(d, &lh->sendbuf, &lh->sendlen, &lh->sendfds, &lh->sendfdcnt);
+
+		msglen = (lh->sendlen - msglen) + sizeof(struct launch_msg_header);
+		lmh.len = host2big(msglen);
+		lmh.magic = host2big(LAUNCH_MSG_HEADER_MAGIC);
+
+		iov[0].iov_base = &lmh;
+		iov[0].iov_len = sizeof(lmh);
+		mh.msg_iov = iov;
+        	mh.msg_iovlen = 2;
+	} else {
+		mh.msg_iov = iov + 1;
+        	mh.msg_iovlen = 1;
+	}
+
+	iov[1].iov_base = lh->sendbuf;
+	iov[1].iov_len = lh->sendlen;
+
 
 	if (lh->sendfdcnt > 0) {
 		sentctrllen = mh.msg_controllen = CMSG_SPACE(lh->sendfdcnt * sizeof(int));
@@ -638,9 +750,6 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 		memcpy(CMSG_DATA(cm), lh->sendfds, lh->sendfdcnt * sizeof(int));
 	}
 
-	iov.iov_base = lh->sendbuf;
-	iov.iov_len = lh->sendlen;
-
 	if ((r = sendmsg(lh->fd, &mh, 0)) == -1) {
 		return -1;
 	} else if (r == 0) {
@@ -649,6 +758,10 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 	} else if (sentctrllen != mh.msg_controllen) {
 		errno = ECONNRESET;
 		return -1;
+	}
+
+	if (d) {
+		r -= sizeof(struct launch_msg_header);
 	}
 
 	lh->sendlen -= r;
@@ -793,7 +906,7 @@ out:
 int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
 {
 	struct cmsghdr *cm = alloca(4096); 
-	launch_data_t rmsg;
+	launch_data_t rmsg = NULL;
 	size_t data_offset, fd_offset;
         struct msghdr mh;
         struct iovec iov;
@@ -827,13 +940,33 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
 		lh->recvfdcnt += (mh.msg_controllen - sizeof(struct cmsghdr)) / sizeof(int);
 	}
 
-parse_more:
-	data_offset = 0;
-	fd_offset = 0;
+	r = 0;
 
-	rmsg = make_data(lh, &data_offset, &fd_offset);
+	while (lh->recvlen > 0) {
+		struct launch_msg_header *lmhp = lh->recvbuf;
+		uint64_t tmplen;
+		data_offset = sizeof(struct launch_msg_header);
+		fd_offset = 0;
 
-	if (rmsg) {
+		if (lh->recvlen < sizeof(struct launch_msg_header))
+			goto need_more_data;
+
+		tmplen = big2host(lmhp->len);
+
+		if (big2host(lmhp->magic) != LAUNCH_MSG_HEADER_MAGIC || tmplen <= sizeof(struct launch_msg_header)) {
+			errno = EBADRPC;
+			goto out_bad;
+		}
+
+		if (lh->recvlen < tmplen) {
+			goto need_more_data;
+		}
+
+		if ((rmsg = make_data(lh, &data_offset, &fd_offset)) == NULL) {
+			errno = EBADRPC;
+			goto out_bad;
+		}
+
 		cb(rmsg, context);
 
 		lh->recvlen -= data_offset;
@@ -851,17 +984,14 @@ parse_more:
 			free(lh->recvfds);
 			lh->recvfds = malloc(0);
 		}
-
-		if (lh->recvlen > 0)
-			goto parse_more;
-		else
-			r = 0;
-	} else {
-		errno = EAGAIN;
-		r = -1;
 	}
 
 	return r;
+
+need_more_data:
+	errno = EAGAIN;
+out_bad:
+	return -1;
 }
 
 launch_data_t launch_data_copy(launch_data_t o)
