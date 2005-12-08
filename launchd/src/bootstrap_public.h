@@ -293,11 +293,14 @@ kern_return_t bootstrap_look_up(
 /*
  * bootstrap_status()
  *
- * This call is deprecated and emulated with a call to bootstrap_look_up().
+ * In practice, this call was used to preflight whether the following two
+ * APIs would succeed.
  *
- * If the bootstrap_look_up() succeeds, then service_active is set to
- * BOOTSTRAP_STATUS_ACTIVE and BOOTSTRAP_SUCCESS is returned, otherwise
- * BOOTSTRAP_UNKNOWN_SERVICE is returned.
+ * bootstrap_look_up()
+ * bootstrap_check_in()
+ *
+ * Please don't bother. Just call the above two APIs directly and check
+ * for failure.
  */
 kern_return_t bootstrap_status(
 		mach_port_t bp,
