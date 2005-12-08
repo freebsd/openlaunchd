@@ -70,6 +70,7 @@
 #define LAUNCH_JOBKEY_STANDARDOUTPATH		"StandardOutPath"
 #define LAUNCH_JOBKEY_STANDARDERRORPATH		"StandardErrorPath"
 #define LAUNCH_JOBKEY_DEBUG			"Debug"
+#define LAUNCH_JOBKEY_WAITFORDEBUGGER		"WaitForDebugger"
 #define LAUNCH_JOBKEY_QUEUEDIRECTORIES		"QueueDirectories"
 #define LAUNCH_JOBKEY_WATCHPATHS		"WatchPaths"
 #define LAUNCH_JOBKEY_STARTINTERVAL		"StartInterval"

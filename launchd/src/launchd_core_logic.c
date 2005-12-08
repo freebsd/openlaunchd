@@ -34,6 +34,7 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
+#include <sys/ptrace.h>
 #include <sys/stat.h>
 #include <sys/ucred.h>
 #include <sys/fcntl.h>
@@ -214,7 +215,7 @@ struct jobcb {
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
 		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
-	unsigned int globargv:1, __pad:31;
+	unsigned int globargv:1, wait4debugger:1, __pad:30;
 	char label[0];
 };
 
@@ -745,6 +746,8 @@ job_import_bool(struct jobcb *j, const char *key, bool value)
 		j->runatload = value;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0) {
 		j->globargv = value;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_WAITFORDEBUGGER) == 0) {
+		j->wait4debugger = value;
 	}
 }
 
@@ -1279,6 +1282,9 @@ job_start_child(struct jobcb *j, int execfd)
 
 	if (!j->inetcompat)
 		argv++;
+
+	if (j->wait4debugger && ptrace(PT_TRACE_ME, getpid(), NULL, 0) == -1)
+		job_log_error(j, LOG_ERR, "ptrace(PT_TRACE_ME, ...)");
 
 	if (j->prog) {
 		execv(j->inetcompat ? file2exec : j->prog, (char *const*)argv);
