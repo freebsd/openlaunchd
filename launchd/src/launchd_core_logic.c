@@ -730,76 +730,155 @@ job_import_bulk(launch_data_t pload)
 void
 job_import_bool(struct jobcb *j, const char *key, bool value)
 {
-	if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
-		j->ondemand = !value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_ONDEMAND) == 0) {
-		j->ondemand = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_DEBUG) == 0) {
-		j->debug = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_SESSIONCREATE) == 0) {
-		j->session_create = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYIO) == 0) {
-		j->low_pri_io = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_INITGROUPS) == 0) {
-		j->init_groups = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0) {
-		j->runatload = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0) {
-		j->globargv = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_WAITFORDEBUGGER) == 0) {
-		j->wait4debugger = value;
+	switch (key[0]) {
+	case 'k':
+	case 'K':
+		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0)
+			j->ondemand = !value;
+		break;
+	case 'o':
+	case 'O':
+		if (strcasecmp(key, LAUNCH_JOBKEY_ONDEMAND) == 0)
+			j->ondemand = value;
+		break;
+	case 'd':
+	case 'D':
+		if (strcasecmp(key, LAUNCH_JOBKEY_DEBUG) == 0)
+			j->debug = value;
+		break;
+	case 's':
+	case 'S':
+		if (strcasecmp(key, LAUNCH_JOBKEY_SESSIONCREATE) == 0)
+			j->session_create = value;
+		break;
+	case 'l':
+	case 'L':
+		if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYIO) == 0)
+			j->low_pri_io = value;
+		break;
+	case 'i':
+	case 'I':
+		if (strcasecmp(key, LAUNCH_JOBKEY_INITGROUPS) == 0)
+			j->init_groups = value;
+		break;
+	case 'r':
+	case 'R':
+		if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0)
+			j->runatload = value;
+		break;
+	case 'e':
+	case 'E':
+		if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0)
+			j->globargv = value;
+		break;
+	case 'w':
+	case 'W':
+		if (strcasecmp(key, LAUNCH_JOBKEY_WAITFORDEBUGGER) == 0)
+			j->wait4debugger = value;
+		break;
+	default:
+		break;
 	}
 }
 
 void
 job_import_string(struct jobcb *j, const char *key, const char *value)
 {
-	char *newstr = strdup(value);
+	char **where2put = NULL;
+	char **ignore = (char **)-1;
 
-	if (!launchd_assumes(newstr != NULL))
-		return;
+	switch (key[0]) {
+	case 'p':
+	case 'P':
+		if (strcasecmp(key, LAUNCH_JOBKEY_PROGRAM) == 0)
+			where2put = ignore;
+		break;
+	case 'l':
+	case 'L':
+		if (strcasecmp(key, LAUNCH_JOBKEY_LABEL) == 0)
+			where2put = ignore;
+		break;
+	case 'r':
+	case 'R':
+		if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0)
+			where2put = &j->rootdir;
+		break;
+	case 'w':
+	case 'W':
+		if (strcasecmp(key, LAUNCH_JOBKEY_WORKINGDIRECTORY) == 0)
+			where2put = &j->workingdir;
+		break;
+	case 'u':
+	case 'U':
+		if (strcasecmp(key, LAUNCH_JOBKEY_USERNAME) == 0)
+			where2put = &j->username;
+		break;
+	case 'g':
+	case 'G':
+		if (strcasecmp(key, LAUNCH_JOBKEY_GROUPNAME) == 0)
+			where2put = &j->groupname;
+		break;
+	case 's':
+	case 'S':
+		if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDOUTPATH) == 0) {
+			where2put = &j->stdoutpath;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDERRORPATH) == 0) {
+			where2put = &j->stderrpath;
+		}
+		break;
+	default:
+		break;
+	}
 
-	if (strcasecmp(key, LAUNCH_JOBKEY_LABEL) == 0) {
-		free(newstr);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0) {
-		j->rootdir = newstr;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_WORKINGDIRECTORY) == 0) {
-		j->workingdir = newstr;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_USERNAME) == 0) {
-		j->username = newstr;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_GROUPNAME) == 0) {
-		j->groupname = newstr;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDOUTPATH) == 0) {
-		j->stdoutpath = newstr;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDERRORPATH) == 0) {
-		j->stderrpath = newstr;
+	if (where2put) {
+		if (where2put == ignore)
+			return;
+
+		launchd_assumes((*where2put = strdup(value)) != NULL);
 	} else {
 		job_log(j, LOG_WARNING, "Unknown value for key %s: %s", key, value);
-		free(newstr);
 	}
 }
 
 void
 job_import_integer(struct jobcb *j, const char *key, long long value)
 {
-	if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0) {
-		j->nice = value;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_TIMEOUT) == 0) {
-		if ((j->timeout = value) <= 0)
-			j->timeout = LAUNCHD_REWARD_JOB_RUN_TIME;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_UMASK) == 0) {
-		j->mask = value;
-		j->setmask = true;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTINTERVAL) == 0) {
-		if (value <= 0) {
-			job_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
-			return;
+	switch (key[0]) {
+	case 'n':
+	case 'N':
+		if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0)
+			j->nice = value;
+		break;
+	case 't':
+	case 'T':
+		if (strcasecmp(key, LAUNCH_JOBKEY_TIMEOUT) == 0) {
+			if (value <= 0)
+				job_log(j, LOG_WARNING, "Timeout less than or equal to zero. Ignoring.");
+			else
+				j->timeout = value;
 		}
-		j->start_interval = value;
-		if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j))
-			job_log_error(j, LOG_ERR, "adding kevent timer");
+		break;
+	case 'u':
+	case 'U':
+		if (strcasecmp(key, LAUNCH_JOBKEY_UMASK) == 0) {
+			j->mask = value;
+			j->setmask = true;
+		}
+		break;
+	case 's':
+	case 'S':
+		if (strcasecmp(key, LAUNCH_JOBKEY_STARTINTERVAL) == 0) {
+			if (value <= 0)
+				job_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
+			else
+				j->start_interval = value;
+			if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j))
+				job_log_error(j, LOG_ERR, "adding kevent timer");
+		}
+		break;
+	default:
+		break;
 	}
-
 }
 
 void
@@ -807,32 +886,61 @@ job_import_dictionary(struct jobcb *j, const char *key, launch_data_t value)
 {
 	launch_data_t tmp;
 
-	if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
-		launch_data_dict_iterate(value, semaphoreitem_setup, j);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_INETDCOMPATIBILITY) == 0) {
-		j->inetcompat = true;
-		if ((tmp = launch_data_dict_lookup(value, LAUNCH_JOBINETDCOMPATIBILITY_WAIT)))
-			j->inetcompat_wait = launch_data_get_bool(tmp);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES) == 0) {
-		launch_data_dict_iterate(value, envitem_setup, j);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES) == 0) {
-		j->importing_global_env = true;
-		launch_data_dict_iterate(value, envitem_setup, j);
-		j->importing_global_env = false;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_SOFTRESOURCELIMITS) == 0) {
-		launch_data_dict_iterate(value, limititem_setup, j);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_HARDRESOURCELIMITS) == 0) {
-		j->importing_hard_limits = true;
-		launch_data_dict_iterate(value, limititem_setup, j);
-		j->importing_hard_limits = false;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_SOCKETS) == 0) {
-		launch_data_dict_iterate(value, socketgroup_setup, j);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICES) == 0) {
-		launch_data_dict_iterate(value, machservice_setup, j);
-		if (!SLIST_EMPTY(&j->machservices))
-			job_setup_machport(j);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTCALENDARINTERVAL) == 0) {
-		calendarinterval_new_from_obj(j, value);
+	switch (key[0]) {
+	case 'k':
+	case 'K':
+		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0)
+			launch_data_dict_iterate(value, semaphoreitem_setup, j);
+		break;
+	case 'i':
+	case 'I':
+		if (strcasecmp(key, LAUNCH_JOBKEY_INETDCOMPATIBILITY) == 0) {
+			j->inetcompat = true;
+			if ((tmp = launch_data_dict_lookup(value, LAUNCH_JOBINETDCOMPATIBILITY_WAIT)))
+				j->inetcompat_wait = launch_data_get_bool(tmp);
+		}
+		break;
+	case 'e':
+	case 'E':
+		if (strcasecmp(key, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES) == 0)
+			launch_data_dict_iterate(value, envitem_setup, j);
+		break;
+	case 'u':
+	case 'U':
+		if (strcasecmp(key, LAUNCH_JOBKEY_USERENVIRONMENTVARIABLES) == 0) {
+			j->importing_global_env = true;
+			launch_data_dict_iterate(value, envitem_setup, j);
+			j->importing_global_env = false;
+		}
+		break;
+	case 's':
+	case 'S':
+		if (strcasecmp(key, LAUNCH_JOBKEY_SOCKETS) == 0) {
+			launch_data_dict_iterate(value, socketgroup_setup, j);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTCALENDARINTERVAL) == 0) {
+			calendarinterval_new_from_obj(j, value);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_SOFTRESOURCELIMITS) == 0) {
+			launch_data_dict_iterate(value, limititem_setup, j);
+		}
+		break;
+	case 'h':
+	case 'H':
+		if (strcasecmp(key, LAUNCH_JOBKEY_HARDRESOURCELIMITS) == 0) {
+			j->importing_hard_limits = true;
+			launch_data_dict_iterate(value, limititem_setup, j);
+			j->importing_hard_limits = false;
+		}
+		break;
+	case 'm':
+	case 'M':
+		if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICES) == 0) {
+			launch_data_dict_iterate(value, machservice_setup, j);
+			if (!SLIST_EMPTY(&j->machservices))
+				job_setup_machport(j);
+		}
+		break;
+	default:
+		break;
 	}
 }
 
@@ -842,17 +950,34 @@ job_import_array(struct jobcb *j, const char *key, launch_data_t value)
 	bool is_q_dir = false;
 	bool is_wp = false;
 
-	if (strcasecmp(key, LAUNCH_JOBKEY_QUEUEDIRECTORIES) == 0) {
-		is_q_dir = true;
-		is_wp = true;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_WATCHPATHS) == 0) {
-		is_wp = true;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0) {
-		socketgroup_setup(value, LAUNCH_JOBKEY_BONJOURFDS, j);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTCALENDARINTERVAL) == 0) {
-		size_t i = 0, ci_cnt = launch_data_array_get_count(value);
-		for (i = 0; i < ci_cnt; i++)
-			calendarinterval_new_from_obj(j, launch_data_array_get_index(value, i));
+	switch (key[0]) {
+	case 'q':
+	case 'Q':
+		if (strcasecmp(key, LAUNCH_JOBKEY_QUEUEDIRECTORIES) == 0) {
+			is_q_dir = true;
+			is_wp = true;
+		}
+		break;
+	case 'w':
+	case 'W':
+		if (strcasecmp(key, LAUNCH_JOBKEY_WATCHPATHS) == 0)
+			is_wp = true;
+		break;
+	case 'b':
+	case 'B':
+		if (strcasecmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0)
+			socketgroup_setup(value, LAUNCH_JOBKEY_BONJOURFDS, j);
+		break;
+	case 's':
+	case 'S':
+		if (strcasecmp(key, LAUNCH_JOBKEY_STARTCALENDARINTERVAL) == 0) {
+			size_t i = 0, ci_cnt = launch_data_array_get_count(value);
+			for (i = 0; i < ci_cnt; i++)
+				calendarinterval_new_from_obj(j, launch_data_array_get_index(value, i));
+		}
+		break;
+	default:
+		break;
 	}
 
 	if (is_wp) {
