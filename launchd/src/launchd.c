@@ -714,10 +714,13 @@ pfsystem_callback(void *obj, struct kevent *kev)
 void
 _log_launchd_bug(const char *path, unsigned int line, const char *test)
 {
-	const char *file = basename(path);
+	const char *file = strrchr(path, '/');
 
-	if (!file)
+	if (!file) {
 		file = path;
+	} else {
+		file += 1;
+	}
 
 	syslog(LOG_NOTICE, "Please file a bug report: %s:%u: Invalid assumption: (%s). errno == %u", file, line, test, errno);
 }
