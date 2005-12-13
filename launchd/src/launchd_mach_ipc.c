@@ -389,22 +389,16 @@ kern_return_t
 x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
 {
 	struct jobcb *j = current_rpc_job;
-	kern_return_t result;
 	struct machservice *ms;
-
-	job_log(j, LOG_DEBUG, "Check-in attempt for Mach service: %s", servicename);
 
 	ms = job_lookup_service(j, servicename, true);
 
-	if (ms == NULL || !launchd_assumes(machservice_port(ms) != MACH_PORT_NULL)) {
-		job_log(j, LOG_DEBUG, "Check-in of Mach service \"%s\" unknown%s", servicename, inherited_bootstrap_port != MACH_PORT_NULL ? " forwarding" : "");
-		result = BOOTSTRAP_UNKNOWN_SERVICE;
-		if (inherited_bootstrap_port != MACH_PORT_NULL)
-			result = bootstrap_check_in(inherited_bootstrap_port, servicename, serviceportp);
-		return result;
+	if (ms == NULL) {
+		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
+		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 	if (machservice_job(ms) != j) {
-		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Not privileged: %s", servicename);
+		job_log(j, LOG_NOTICE, "Check-in of Mach service failed. Not privileged: %s", servicename);
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (!canReceive(machservice_port(ms))) {
