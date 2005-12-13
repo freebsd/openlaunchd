@@ -27,6 +27,20 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#ifdef __GNUC__
+#define __ld_normal __attribute__((__nothrow__))
+#define __ld_setter __attribute__((__nothrow__, __nonnull__))
+#define __ld_getter __attribute__((__nothrow__, __nonnull__, __pure__, __warn_unused_result__))
+#define __ld_iterator(x, y) __attribute__((__nothrow__, __nonnull__(x, y)))
+#define __ld_allocator __attribute__((__nothrow__, __malloc__, __nonnull__, __warn_unused_result__))
+#else
+#define __ld_normal
+#define __ld_setter
+#define __ld_getter
+#define __ld_iterator(x, y)
+#define __ld_allocator
+#endif
+
 
 #define LAUNCH_KEY_SUBMITJOB			"SubmitJob"
 #define LAUNCH_KEY_REMOVEJOB			"RemoveJob"
@@ -129,49 +143,49 @@ typedef enum {
 	LAUNCH_DATA_MACHPORT,
 } launch_data_type_t;
 
-launch_data_t		launch_data_alloc(launch_data_type_t);
-launch_data_t		launch_data_copy(launch_data_t);
-launch_data_type_t	launch_data_get_type(launch_data_t);
-void			launch_data_free(launch_data_t);
+launch_data_t		launch_data_alloc(launch_data_type_t) __ld_allocator;
+launch_data_t		launch_data_copy(launch_data_t) __ld_allocator;
+launch_data_type_t	launch_data_get_type(const launch_data_t) __ld_getter;
+void			launch_data_free(launch_data_t) __ld_setter;
 
 /* Generic Dictionaries */
 /* the value should not be changed while iterating */
-bool		launch_data_dict_insert(launch_data_t, launch_data_t, const char *);
-launch_data_t	launch_data_dict_lookup(launch_data_t, const char *);
-bool		launch_data_dict_remove(launch_data_t, const char *);
-void		launch_data_dict_iterate(launch_data_t, void (*)(launch_data_t, const char *, void *), void *);
-size_t		launch_data_dict_get_count(launch_data_t);
+bool		launch_data_dict_insert(launch_data_t, const launch_data_t, const char *) __ld_setter;
+launch_data_t	launch_data_dict_lookup(const launch_data_t, const char *) __ld_getter;
+bool		launch_data_dict_remove(launch_data_t, const char *) __ld_setter;
+void		launch_data_dict_iterate(const launch_data_t, void (*)(const launch_data_t, const char *, void *), void *) __ld_iterator(1, 2);
+size_t		launch_data_dict_get_count(const launch_data_t) __ld_getter;
 
 /* Generic Arrays */
-bool		launch_data_array_set_index(launch_data_t, launch_data_t, size_t);
-launch_data_t	launch_data_array_get_index(launch_data_t, size_t);
-size_t		launch_data_array_get_count(launch_data_t);
+bool		launch_data_array_set_index(launch_data_t, const launch_data_t, size_t) __ld_setter;
+launch_data_t	launch_data_array_get_index(const launch_data_t, size_t) __ld_getter;
+size_t		launch_data_array_get_count(const launch_data_t) __ld_getter;
 
-launch_data_t	launch_data_new_fd(int);
-launch_data_t	launch_data_new_machport(mach_port_t);
-launch_data_t	launch_data_new_integer(long long);
-launch_data_t	launch_data_new_bool(bool);
-launch_data_t	launch_data_new_real(double);
-launch_data_t	launch_data_new_string(const char *);
-launch_data_t	launch_data_new_opaque(const void *, size_t);
+launch_data_t	launch_data_new_fd(int) __ld_allocator;
+launch_data_t	launch_data_new_machport(mach_port_t) __ld_allocator;
+launch_data_t	launch_data_new_integer(long long) __ld_allocator;
+launch_data_t	launch_data_new_bool(bool) __ld_allocator;
+launch_data_t	launch_data_new_real(double) __ld_allocator;
+launch_data_t	launch_data_new_string(const char *) __ld_allocator;
+launch_data_t	launch_data_new_opaque(const void *, size_t) __ld_allocator;
 
-bool		launch_data_set_fd(launch_data_t, int);
-bool		launch_data_set_machport(launch_data_t, mach_port_t);
-bool		launch_data_set_integer(launch_data_t, long long);
-bool		launch_data_set_bool(launch_data_t, bool);
-bool		launch_data_set_real(launch_data_t, double);
-bool		launch_data_set_string(launch_data_t, const char *);
-bool		launch_data_set_opaque(launch_data_t, const void *, size_t);
+bool		launch_data_set_fd(launch_data_t, int) __ld_setter;
+bool		launch_data_set_machport(launch_data_t, mach_port_t) __ld_setter;
+bool		launch_data_set_integer(launch_data_t, long long) __ld_setter;
+bool		launch_data_set_bool(launch_data_t, bool) __ld_setter;
+bool		launch_data_set_real(launch_data_t, double) __ld_setter;
+bool		launch_data_set_string(launch_data_t, const char *) __ld_setter;
+bool		launch_data_set_opaque(launch_data_t, const void *, size_t) __ld_setter;
 
-int		launch_data_get_fd(launch_data_t);
-mach_port_t	launch_data_get_machport(launch_data_t);
-long long	launch_data_get_integer(launch_data_t);
-bool		launch_data_get_bool(launch_data_t);
-double		launch_data_get_real(launch_data_t);
-const char *	launch_data_get_string(launch_data_t);
-void *		launch_data_get_opaque(launch_data_t);
-size_t		launch_data_get_opaque_size(launch_data_t);
-int		launch_data_get_errno(launch_data_t);
+int		launch_data_get_fd(const launch_data_t) __ld_getter;
+mach_port_t	launch_data_get_machport(const launch_data_t) __ld_getter;
+long long	launch_data_get_integer(const launch_data_t) __ld_getter;
+bool		launch_data_get_bool(const launch_data_t) __ld_getter;
+double		launch_data_get_real(const launch_data_t) __ld_getter;
+const char *	launch_data_get_string(const launch_data_t) __ld_getter;
+void *		launch_data_get_opaque(const launch_data_t) __ld_getter;
+size_t		launch_data_get_opaque_size(const launch_data_t) __ld_getter;
+int		launch_data_get_errno(const launch_data_t) __ld_getter;
 
 
 /* launch_get_fd()
@@ -179,7 +193,7 @@ int		launch_data_get_errno(launch_data_t);
  * Use this to get the FD if you're doing asynchronous I/O with select(),
  * poll() or kevent().
  */
-int launch_get_fd(void);
+int launch_get_fd(void) __ld_normal;
 
 /* launch_msg()
  *
@@ -192,6 +206,6 @@ int launch_get_fd(void);
  * If no messages were to be sent, it returns NULL and errno is set to zero if
  * no more asynchronous messages are available.
  */
-launch_data_t launch_msg(launch_data_t);
+launch_data_t launch_msg(const launch_data_t) __ld_normal;
 
 #endif
