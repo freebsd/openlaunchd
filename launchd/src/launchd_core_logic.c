@@ -595,7 +595,7 @@ job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 		goto out_bad;
 	}
 
-	sprintf(j->label, "%d.%s", MACH_PORT_INDEX(j->bs_port), basename(argv[0]));
+	sprintf(j->label, "%d.%s", MACH_PORT_INDEX(j->bs_port), basename(j->argv[0]));
 
 	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
 
@@ -2284,7 +2284,7 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 {
 	struct jobcb *j = context;
 	struct machservice *ms;
-	mach_port_t p;
+	mach_port_t p = MACH_PORT_NULL;
 	bool reset = false;
 
 	if (launch_data_get_type(obj) == LAUNCH_DATA_BOOL)
