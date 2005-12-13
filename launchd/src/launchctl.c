@@ -127,35 +127,34 @@ static int help_cmd(int argc, char *const argv[]);
 static const struct {
 	const char *name;
 	int (*func)(int argc, char *const argv[]);
-	int ttyonly;
 	const char *desc;
 } cmds[] = {
-	{ "load",	load_and_unload_cmd,	false,	"Load configuration files and/or directories" },
-	{ "unload",	load_and_unload_cmd,	false,	"Unload configuration files and/or directories" },
-//	{ "reload",	reload_cmd,		false,	"Reload configuration files and/or directories" },
-	{ "start",	start_stop_remove_cmd,	false,	"Start specified job" },
-	{ "stop",	start_stop_remove_cmd,	false,	"Stop specified job" },
-	{ "submit",	submit_cmd,		false,	"Submit a job from the command line" },
-	{ "remove",	start_stop_remove_cmd,	false,	"Remove specified job" },
-	{ "list",	list_cmd,		false,	"List jobs and information about jobs" },
-	{ "setenv",	setenv_cmd,		false,	"Set an environmental variable in launchd" },
-	{ "unsetenv",	unsetenv_cmd,		false,	"Unset an environmental variable in launchd" },
-	{ "getenv",	getenv_and_export_cmd,	false,	"Get an environmental variable from launchd" },
-	{ "export",	getenv_and_export_cmd,	false,	"Export shell settings from launchd" },
-	{ "limit",	limit_cmd,		false,	"View and adjust launchd resource limits" },
-	{ "stdout",	stdio_cmd,		false,	"Redirect launchd's standard out to the given path" },
-	{ "stderr",	stdio_cmd,		false,	"Redirect launchd's standard error to the given path" },
-	{ "shutdown",	fyi_cmd,		false,	"Prepare for system shutdown" },
-	{ "singleuser",	fyi_cmd,		false,	"Switch to single-user mode" },
-	{ "reloadttys",	fyi_cmd,		false,	"Reload /etc/ttys" },
-	{ "getrusage",	getrusage_cmd,		false,	"Get resource usage statistics from launchd" },
-	{ "log",	logupdate_cmd,		false,	"Adjust the logging level or mask of launchd" },
-	{ "umask",	umask_cmd,		false,	"Change launchd's umask" },
-	{ "bsexec",	bsexec_cmd,		true,	"Execute a process within a different Mach bootstrap subset" },
-	{ "bslist",	bslist_cmd,		false,	"List Mach bootstrap services and optional servers" },
-	{ "exit",	exit_cmd,		true,	"Exit the interactive invocation of launchctl" },
-	{ "quit",	exit_cmd,		true,	"Quit the interactive invocation of launchctl" },
-	{ "help",	help_cmd,		false,	"This help output" },
+	{ "load",	load_and_unload_cmd,	"Load configuration files and/or directories" },
+	{ "unload",	load_and_unload_cmd,	"Unload configuration files and/or directories" },
+//	{ "reload",	reload_cmd,		"Reload configuration files and/or directories" },
+	{ "start",	start_stop_remove_cmd,	"Start specified job" },
+	{ "stop",	start_stop_remove_cmd,	"Stop specified job" },
+	{ "submit",	submit_cmd,		"Submit a job from the command line" },
+	{ "remove",	start_stop_remove_cmd,	"Remove specified job" },
+	{ "list",	list_cmd,		"List jobs and information about jobs" },
+	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
+	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
+	{ "getenv",	getenv_and_export_cmd,	"Get an environmental variable from launchd" },
+	{ "export",	getenv_and_export_cmd,	"Export shell settings from launchd" },
+	{ "limit",	limit_cmd,		"View and adjust launchd resource limits" },
+	{ "stdout",	stdio_cmd,		"Redirect launchd's standard out to the given path" },
+	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
+	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
+	{ "singleuser",	fyi_cmd,		"Switch to single-user mode" },
+	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
+	{ "getrusage",	getrusage_cmd,		"Get resource usage statistics from launchd" },
+	{ "log",	logupdate_cmd,		"Adjust the logging level or mask of launchd" },
+	{ "umask",	umask_cmd,		"Change launchd's umask" },
+	{ "bsexec",	bsexec_cmd,		"Execute a process within a different Mach bootstrap subset" },
+	{ "bslist",	bslist_cmd,		"List Mach bootstrap services and optional servers" },
+	{ "exit",	exit_cmd,		"Exit the interactive invocation of launchctl" },
+	{ "quit",	exit_cmd,		"Quit the interactive invocation of launchctl" },
+	{ "help",	help_cmd,		"This help output" },
 };
 
 static bool istty = false;
@@ -230,8 +229,6 @@ demux_cmd(int argc, char *const argv[])
 	optreset = 1;
 
 	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
-		if (cmds[i].ttyonly && istty == false)
-			continue;
 		if (!strcmp(cmds[i].name, argv[0]))
 			return cmds[i].func(argc, argv);
 	}
@@ -1035,11 +1032,8 @@ help_cmd(int argc, char *const argv[])
 			cmdwidth = l;
 	}
 
-	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
-		if (cmds[i].ttyonly && istty == false)
-			continue;
+	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++)
 		fprintf(where, "\t%-*s\t%s\n", cmdwidth, cmds[i].name, cmds[i].desc);
-	}
 
 	return 0;
 }
