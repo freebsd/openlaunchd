@@ -137,7 +137,7 @@ int main(int argc, char *const *argv)
 		sigset_t emptyset;
 
 		for (fdi = STDERR_FILENO + 1; fdi < dts; fdi++)
-			launchd_assumes(close(fdi) == 0);
+			close(fdi);
 		for (sigi = 1; sigi < NSIG; sigi++)
 			launchd_assumes(signal(sigi, SIG_DFL) != SIG_ERR);
 		sigemptyset(&emptyset);
