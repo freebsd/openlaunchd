@@ -111,7 +111,8 @@ bool shutdown_in_progress = false;
 bool network_up = false;
 int batch_disabler_count = 0;
 
-int main(int argc, char *const *argv)
+int
+main(int argc, char *const *argv)
 {
 	static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
 		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
@@ -272,7 +273,8 @@ int main(int argc, char *const *argv)
 	}
 }
 
-static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
+void
+pid1_magic_init(bool sflag, bool vflag, bool xflag)
 {
 	int memmib[2] = { CTL_HW, HW_MEMSIZE };
 	int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
@@ -326,7 +328,8 @@ static void pid1_magic_init(bool sflag, bool vflag, bool xflag)
 }
 
 
-void usage(FILE *where)
+void
+usage(FILE *where)
 {
 	const char *opts = "[-d]";
 
@@ -347,7 +350,8 @@ void usage(FILE *where)
 		exit(EXIT_SUCCESS);
 }
 
-int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
+int
+kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
 	int q = mainkq;
@@ -368,7 +372,8 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 	return kevent(q, &kev, 1, NULL, 0, NULL);
 }
 
-int _fd(int fd)
+int
+_fd(int fd)
 {
 	if (fd >= 0)
 		fcntl(fd, F_SETFD, 1);
@@ -377,7 +382,9 @@ int _fd(int fd)
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 int pid1_child_exit_status = 0;
-static void pid1waitpid(void)
+
+void
+pid1waitpid(void)
 {
 	pid_t p;
 

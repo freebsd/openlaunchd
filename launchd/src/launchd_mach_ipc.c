@@ -108,13 +108,13 @@ void mport_callback(void *obj, struct kevent *kev)
 		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
 		if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
 					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
-			break;
+			continue;
 
 		if (status.mps_msgcount) {
 			EV_SET(&newkev, members[i], EVFILT_MACHPORT, 0, 0, 0, port_to_obj[MACH_PORT_INDEX(members[i])]);
 			(*((kq_callback *)newkev.udata))(newkev.udata, &newkev);
 
-			/* the callback may have tained our ability to continue this for loop */
+			/* the callback may have tainted our ability to continue this for loop */
 			break;
 		}
 	}
