@@ -2272,7 +2272,7 @@ machservice_status(struct machservice *ms)
 {
 	if (ms->isActive) {
 		return BOOTSTRAP_STATUS_ACTIVE;
-	} else if (ms->job->legacy_mach_job && ms->job->ondemand) {
+	} else if (ms->job->ondemand) {
 		return BOOTSTRAP_STATUS_ON_DEMAND;
 	} else {
 		return BOOTSTRAP_STATUS_INACTIVE;
