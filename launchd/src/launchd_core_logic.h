@@ -48,7 +48,7 @@ struct jobcb *job_import(launch_data_t pload);
 launch_data_t job_import_bulk(launch_data_t pload);
 struct jobcb *job_new(struct jobcb *p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t);
 struct jobcb *job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond);
-struct jobcb *job_new_bootstrap(struct jobcb *p, mach_port_t requestorport);
+struct jobcb *job_new_bootstrap(struct jobcb *p, mach_port_t requestorport, mach_port_t checkin_port);
 launch_data_t job_export(struct jobcb *j);
 launch_data_t job_export_all(void);
 void job_dispatch(struct jobcb *j);

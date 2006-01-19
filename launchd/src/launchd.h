@@ -74,9 +74,8 @@ kern_return_t launchd_set_bport(mach_port_t name);
 kern_return_t launchd_get_bport(mach_port_t *name);
 kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
 kern_return_t launchd_mport_notify_cancel(mach_port_t name, mach_msg_id_t which);
-kern_return_t launchd_mport_watch(mach_port_t name);
-kern_return_t launchd_mport_ignore(mach_port_t name);
-kern_return_t launchd_mport_create_recv(mach_port_t *name, void *obj);
+kern_return_t launchd_mport_request_callback(mach_port_t name, void *obj);
+kern_return_t launchd_mport_create_recv(mach_port_t *name);
 kern_return_t launchd_mport_deallocate(mach_port_t name);
 kern_return_t launchd_mport_make_send(mach_port_t name);
 kern_return_t launchd_mport_close_recv(mach_port_t name);
@@ -88,7 +87,7 @@ void update_ttys(void);
 void catatonia(void);
 
 void mach_start_shutdown(void);
-void mach_init_init(void);
+void mach_init_init(mach_port_t);
 void mach_init_reap(void);
 
 int _fd(int fd);

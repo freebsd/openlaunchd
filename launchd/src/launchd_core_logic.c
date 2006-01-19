@@ -286,7 +286,7 @@ job_ignore(struct jobcb *j)
 		watchpath_ignore(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		launchd_assumes(launchd_mport_ignore(ms->port) == KERN_SUCCESS);
+		launchd_assumes(launchd_mport_request_callback(ms->port, NULL) == KERN_SUCCESS);
 }
 
 void
@@ -303,7 +303,7 @@ job_watch(struct jobcb *j)
 		watchpath_watch(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		launchd_assumes(launchd_mport_watch(ms->port) == KERN_SUCCESS);
+		launchd_assumes(launchd_mport_request_callback(ms->port, j) == KERN_SUCCESS);
 }
 
 void
@@ -549,10 +549,10 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_setup_machport(struct jobcb *j)
 {
-	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port, j) == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
 		goto out_bad;
 
-	if (!launchd_assumes(launchd_mport_watch(j->bs_port) == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j) == KERN_SUCCESS))
 		goto out_bad2;
 
 	return true;
@@ -2226,7 +2226,7 @@ machservice_resetport(struct jobcb *j, struct machservice *ms)
 {
 	launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	launchd_assumes(launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
-	launchd_assumes(launchd_mport_create_recv(&ms->port, j) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_create_recv(&ms->port) == KERN_SUCCESS);
 	launchd_assumes(launchd_mport_make_send(ms->port) == KERN_SUCCESS);
 }
 
@@ -2242,7 +2242,7 @@ machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport)
 	ms->job = j;
 
 	if (*serviceport == MACH_PORT_NULL) {
-		if (!launchd_assumes(launchd_mport_create_recv(&ms->port, j) == KERN_SUCCESS))
+		if (!launchd_assumes(launchd_mport_create_recv(&ms->port) == KERN_SUCCESS))
 			goto out_bad;
 
 		if (!launchd_assumes(launchd_mport_make_send(ms->port) == KERN_SUCCESS))
@@ -2352,7 +2352,7 @@ job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void 
 }
 
 struct jobcb *
-job_new_bootstrap(struct jobcb *p, mach_port_t requestorport)
+job_new_bootstrap(struct jobcb *p, mach_port_t requestorport, mach_port_t checkin_port)
 {
 	char bslabel[1024] = "100000";
 	struct jobcb *j;
@@ -2369,12 +2369,15 @@ job_new_bootstrap(struct jobcb *p, mach_port_t requestorport)
 	if (j == NULL)
 		return NULL;
 
-	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port, j) == KERN_SUCCESS))
+	if (checkin_port != MACH_PORT_NULL) {
+		j->bs_port = checkin_port;
+	} else if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
 		goto out_bad;
+	}
 
 	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
-	if (!launchd_assumes(launchd_mport_watch(j->bs_port) == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j) == KERN_SUCCESS))
 		goto out_bad;
 
 	if (p) {
@@ -2437,7 +2440,7 @@ job_lookup_service(struct jobcb *j, const char *name, bool check_parent)
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
 		if (strcmp(name, ms->name) == 0)
-				return ms;
+			return ms;
 	}
 
 	if (j->parent == NULL)

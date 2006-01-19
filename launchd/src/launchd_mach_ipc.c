@@ -126,11 +126,9 @@ out:
 	launchd_assumes(write(main_to_demand_loop_fd, &junk, sizeof(junk)) != -1);
 }
 
-void mach_init_init(void)
+void
+mach_init_init(mach_port_t checkin_port)
 {
-#ifdef PROTECT_WINDOWSERVER_BS_PORT
-	struct stat sb;
-#endif
 	pthread_attr_t attr;
 	int pipepair[2];
 
@@ -143,7 +141,7 @@ void mach_init_init(void)
 
 	launchd_assert(kevent_mod(main_to_demand_loop_fd, EVFILT_READ, EV_ADD, 0, 0, &kqmport_callback) != -1);
 
-	launchd_assert((root_job = job_new_bootstrap(NULL, mach_task_self())) != NULL);
+	launchd_assert((root_job = job_new_bootstrap(NULL, mach_task_self(), checkin_port)) != NULL);
 
 	launchd_assumes(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
 
@@ -187,9 +185,9 @@ init_ports(void)
 	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET,
 					&demand_port_set)) == KERN_SUCCESS);
 	
-	launchd_assert(launchd_mport_create_recv(&notify_port, &kqnotify_callback) == KERN_SUCCESS);
+	launchd_assert(launchd_mport_create_recv(&notify_port) == KERN_SUCCESS);
 
-	launchd_assert(launchd_mport_watch(notify_port) == KERN_SUCCESS);
+	launchd_assert(launchd_mport_request_callback(notify_port, &kqnotify_callback) == KERN_SUCCESS);
 }
 
 void *
@@ -268,46 +266,14 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 }
 
 kern_return_t
-launchd_mport_watch(mach_port_t name)
-{
-	return errno = mach_port_move_member(mach_task_self(), name, demand_port_set);
-}
-
-kern_return_t
-launchd_mport_ignore(mach_port_t name)
-{
-	return errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
-}
-
-kern_return_t
-launchd_mport_make_send(mach_port_t name)
-{
-	return errno = mach_port_insert_right(mach_task_self(), name, name, MACH_MSG_TYPE_MAKE_SEND);
-}
-
-kern_return_t
-launchd_mport_close_recv(mach_port_t name)
-{
-	if (launchd_assumes(port_to_obj != NULL) && launchd_assumes(port_to_obj[MACH_PORT_INDEX(name)] != NULL)) {
-		port_to_obj[MACH_PORT_INDEX(name)] = NULL;
-		return errno = mach_port_mod_refs(mach_task_self(), name, MACH_PORT_RIGHT_RECEIVE, -1);
-	} else {
-		return errno = KERN_FAILURE;
-	}
-}
-
-kern_return_t
-launchd_mport_create_recv(mach_port_t *name, void *obj)
+launchd_mport_request_callback(mach_port_t name, void *obj)
 {
 	size_t needed_size;
-	kern_return_t result;
 
-	result = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, name);
+	if (!obj)
+		return errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
 
-	if (result != KERN_SUCCESS)
-		return errno = result;
-
-	needed_size = (MACH_PORT_INDEX(*name) + 1) * sizeof(void *);
+	needed_size = (MACH_PORT_INDEX(name) + 1) * sizeof(void *);
 
 	if (needed_size > port_to_obj_size) {
 		if (port_to_obj == NULL) {
@@ -319,11 +285,32 @@ launchd_mport_create_recv(mach_port_t *name, void *obj)
 		port_to_obj_size = needed_size * 2;
 	}
 
-	launchd_assumes(port_to_obj[MACH_PORT_INDEX(*name)] == NULL);
+	port_to_obj[MACH_PORT_INDEX(name)] = obj;
 
-	port_to_obj[MACH_PORT_INDEX(*name)] = obj;
+	return errno = mach_port_move_member(mach_task_self(), name, demand_port_set);
+}
 
-	return errno = result;
+kern_return_t
+launchd_mport_make_send(mach_port_t name)
+{
+	return errno = mach_port_insert_right(mach_task_self(), name, name, MACH_MSG_TYPE_MAKE_SEND);
+}
+
+kern_return_t
+launchd_mport_close_recv(mach_port_t name)
+{
+	if (launchd_assumes(port_to_obj != NULL)) {
+		port_to_obj[MACH_PORT_INDEX(name)] = NULL;
+		return errno = mach_port_mod_refs(mach_task_self(), name, MACH_PORT_RIGHT_RECEIVE, -1);
+	} else {
+		return errno = KERN_FAILURE;
+	}
+}
+
+kern_return_t
+launchd_mport_create_recv(mach_port_t *name)
+{
+	return errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, name);
 }
 
 kern_return_t
@@ -594,7 +581,7 @@ x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_po
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if ((js = job_new_bootstrap(j, requestorport)) == NULL) {
+	if ((js = job_new_bootstrap(j, requestorport, MACH_PORT_NULL)) == NULL) {
 		if (requestorport == MACH_PORT_NULL)
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		return BOOTSTRAP_NO_MEMORY;

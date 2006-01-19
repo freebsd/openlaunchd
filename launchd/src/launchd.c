@@ -124,15 +124,37 @@ main(int argc, char *const *argv)
 	const char *h = getenv("HOME");
 	const char *session_type = NULL;
 	const char *optargs = NULL;
+	launch_data_t ldresp, ldmsg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
 	struct kevent kev;
 	struct stat sb;
-	size_t i;
+	size_t i, checkin_fdcnt = 0;
+	int *checkin_fds = NULL;
+	mach_port_t checkin_mport = MACH_PORT_NULL;
 	int ch, ker;
 
 	/* main() phase one: sanitize the process */
 
 	if (getpid() == 1) {
 		workaround3048875(argc, argv);
+	} else if ((ldresp = launch_msg(ldmsg)) && launch_data_get_type(ldresp) == LAUNCH_DATA_DICTIONARY) {
+		const char *ldlabel = launch_data_get_string(launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_LABEL));
+		launch_data_t tmp;
+
+		if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_SOCKETS))) {
+			if ((tmp = launch_data_dict_lookup(tmp, "LaunchIPC"))) {
+				checkin_fdcnt = launch_data_array_get_count(tmp);
+				checkin_fds = alloca(sizeof(int) * checkin_fdcnt);
+				for (i = 0; i < checkin_fdcnt; i++) {
+					checkin_fds[i] = _fd(launch_data_get_fd(launch_data_array_get_index(tmp, i)));
+				}
+			}
+		}
+		if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_MACHSERVICES))) {
+			if ((tmp = launch_data_dict_lookup(tmp, ldlabel))) {
+				checkin_mport = launch_data_get_machport(tmp);
+			}
+		}
+		launch_data_free(ldresp);
 	} else {
 		int sigi, fdi, dts = getdtablesize();
 		sigset_t emptyset;
@@ -144,6 +166,8 @@ main(int argc, char *const *argv)
 		sigemptyset(&emptyset);
 		launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) == 0);
 	}
+
+	launch_data_free(ldmsg);
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY|O_NOCTTY);
 	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY|O_NOCTTY);
@@ -201,7 +225,7 @@ main(int argc, char *const *argv)
 	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
 	launchd_assert(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
 
-	mach_init_init();
+	mach_init_init(checkin_mport);
 
 	if (h)
 		sprintf(ldconf, "%s/%s", h, LAUNCHD_CONF);
@@ -218,7 +242,7 @@ main(int argc, char *const *argv)
 	if (getpid() == 1) {
 		pid1_magic_init(sflag, vflag, xflag);
 	} else {
-		ipc_server_init();
+		ipc_server_init(checkin_fds, checkin_fdcnt);
 	}
 
 	monitor_networking_state();
@@ -491,7 +515,7 @@ fs_callback(void)
 		}
 	}
 
-	ipc_server_init();
+	ipc_server_init(NULL, 0);
 }
 
 void
@@ -729,5 +753,5 @@ _log_launchd_bug(const char *path, unsigned int line, const char *test)
 		file += 1;
 	}
 
-	syslog(LOG_NOTICE, "Please file a bug report: %s:%u: Invalid assumption: (%s). errno == %u", file, line, test, errno);
+	syslog(LOG_NOTICE, "Bug: %s:%u:%u: %s", file, line, errno, test);
 }

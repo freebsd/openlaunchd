@@ -83,15 +83,19 @@ ipc_clean_up(void)
 }
 
 void
-ipc_server_init(void)
+ipc_server_init(int *fds, size_t fd_cnt)
 {
 	struct sockaddr_un sun;
 	mode_t oldmask;
 	int r, fd = -1;
 	char ourdir[1024];
+	size_t i;
 
 	if (ipc_inited)
 		return;
+
+	if (fds)
+		goto add_fds;
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
@@ -149,18 +153,27 @@ ipc_server_init(void)
 		goto out_bad;
 	}
 
-	if (kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
+add_fds:
+	if (fds) {
+		for (i = 0; i < fd_cnt; i++) {
+			if (kevent_mod(fds[i], EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
+				syslog(LOG_ERR, "kevent_mod(%d, EVFILT_READ): %m", fds[i]);
+				goto out_bad;
+			}
+		}
+	} else if (kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
 		syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
 		goto out_bad;
 	}
 
 	ipc_inited = true;
 
-	sockdir = strdup(ourdir);
-	sockpath = strdup(sun.sun_path);
-
-	ipc_self = getpid();
-	atexit(ipc_clean_up);
+	if (!fds) {
+		sockdir = strdup(ourdir);
+		sockpath = strdup(sun.sun_path);
+		ipc_self = getpid();
+		atexit(ipc_clean_up);
+	}
 
 out_bad:
 	if (!ipc_inited && fd != -1)
