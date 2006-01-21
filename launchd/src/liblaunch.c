@@ -38,6 +38,7 @@
 #include "launch.h"
 #include "launch_priv.h"
 #include "bootstrap_public.h"
+#include "bootstrap_private.h"
 
 /* __OSBogusByteSwap__() must not really exist in the symbol namespace
  * in order for the following to generate an error at build time.
@@ -1200,10 +1201,16 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 	static char *const ldargv[] = { "/sbin/launchd", "-S", "Aqua", NULL };
 	char *largv[] = { "/bin/launchctl", "load", "-S", "Aqua", "-D", "all", "/etc/mach_init_per_user.d", NULL };
 	int wstatus;
+	name_t sp;
 	pid_t p, ldp;
 
 	if ((ldp = fexecv_as_user(login, ldargv)) == -1)
 		return -1;
+
+	while (bootstrap_getsocket(bootstrap_port, sp) != BOOTSTRAP_SUCCESS)
+		usleep(20000);
+
+	setenv(LAUNCHD_SOCKET_ENV, sp, 1);
 
 	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS)
 		largv[5] = "system";

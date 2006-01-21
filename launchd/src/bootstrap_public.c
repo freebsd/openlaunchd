@@ -58,6 +58,12 @@ bootstrap_unprivileged(mach_port_t bp, mach_port_t *unpriv_port)
 }
 
 kern_return_t
+bootstrap_getsocket(mach_port_t bp, name_t sockpath)
+{
+	return raw_bootstrap_getsocket(bp, sockpath);
+}
+
+kern_return_t
 bootstrap_parent(mach_port_t bp, mach_port_t *parent_port)
 {
 	return raw_bootstrap_parent(bp, parent_port);

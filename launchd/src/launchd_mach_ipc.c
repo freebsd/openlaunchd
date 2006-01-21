@@ -70,6 +70,8 @@
 #include "notifyServer.h"
 #include "launchd.h"
 #include "launchd_core_logic.h"
+#include "launch_priv.h"
+#include "launchd_unix_ipc.h"
 
 static bool canReceive(mach_port_t);
 static void init_ports(void);
@@ -356,6 +358,17 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 	js = job_new_via_mach_init(j, server_cmd, server_uid, on_demand);
 
 	*server_portp = job_get_bsport(js);
+	return BOOTSTRAP_SUCCESS;
+}
+
+kern_return_t
+x_bootstrap_getsocket(mach_port_t bp, name_t spr)
+{
+	strncpy(spr, sockpath, sizeof(name_t));
+
+	if (getpid() == 1)
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	
 	return BOOTSTRAP_SUCCESS;
 }
 

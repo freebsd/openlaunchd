@@ -31,6 +31,8 @@ struct conncb {
 	int disabled_batch:1, futureflags:31;
 };
 
+extern char *sockpath;
+
 void ipc_open(int fd, struct jobcb *j);
 void ipc_close(struct conncb *c);
 void ipc_callback(void *, struct kevent *);

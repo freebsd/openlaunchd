@@ -65,7 +65,7 @@ static kq_callback kqipc_listen_callback = ipc_listen_callback;
 
 static pid_t ipc_self = 0;
 
-static char *sockpath = NULL;
+char *sockpath = NULL;
 static char *sockdir = NULL;
 
 static bool ipc_inited = false;
