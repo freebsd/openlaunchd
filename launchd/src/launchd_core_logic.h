@@ -66,11 +66,12 @@ void job_remove_all_inactive(struct jobcb *j);
 bool job_ack_port_destruction(struct jobcb *j, mach_port_t p);
 void job_ack_no_senders(struct jobcb *j);
 mach_port_t job_get_bsport(struct jobcb *j);
+mach_port_t job_get_reqport(struct jobcb *j);
 struct jobcb *job_get_bs(struct jobcb *j);
 void job_delete_anything_with_port(struct jobcb *jbs, mach_port_t port);
 struct jobcb *job_parent(struct jobcb *j);
 struct machservice *job_lookup_service(struct jobcb *jbs, const char *name, bool check_parent);
-void job_foreach_service(struct jobcb *jbs, void (*bs_iter)(struct machservice *, void *), void *context);
+void job_foreach_service(struct jobcb *jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs);
 void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 

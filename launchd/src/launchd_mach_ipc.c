@@ -80,7 +80,6 @@ static void notify_callback(void);
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t demand_port_set = MACH_PORT_NULL;
 static mach_port_t notify_port = MACH_PORT_NULL;
-static char *register_name = NULL;
 static size_t port_to_obj_size = 0;
 static void **port_to_obj = NULL;
 static int main_to_demand_loop_fd = -1;
@@ -127,8 +126,10 @@ out:
 }
 
 void
-mach_init_init(mach_port_t checkin_port)
+mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
+		name_array_t l2l_names, mach_port_array_t l2l_ports, mach_msg_type_number_t l2l_cnt)
 {
+	mach_msg_type_number_t l2l_i;
 	pthread_attr_t attr;
 	int pipepair[2];
 
@@ -141,7 +142,7 @@ mach_init_init(mach_port_t checkin_port)
 
 	launchd_assert(kevent_mod(main_to_demand_loop_fd, EVFILT_READ, EV_ADD, 0, 0, &kqmport_callback) != -1);
 
-	launchd_assert((root_job = job_new_bootstrap(NULL, mach_task_self(), checkin_port)) != NULL);
+	launchd_assert((root_job = job_new_bootstrap(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
 
 	launchd_assumes(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
 
@@ -150,14 +151,6 @@ mach_init_init(mach_port_t checkin_port)
 
 	/* We set this explicitly as we start each child */
 	launchd_assumes(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
-
-	/* register "self" port with anscestor */		
-	if (inherited_bootstrap_port != MACH_PORT_NULL) {
-		asprintf(&register_name, "com.apple.launchd.%d", getpid());
-
-		launchd_assumes(bootstrap_register(inherited_bootstrap_port, register_name,
-					job_get_bsport(root_job)) == KERN_SUCCESS);
-	}
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
@@ -168,6 +161,16 @@ mach_init_init(mach_port_t checkin_port)
 
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
+
+	if (l2l_names == NULL)
+		return;
+
+	for (l2l_i = 0; l2l_i < l2l_cnt; l2l_i++) {
+		struct machservice *ms;
+
+		if ((ms = machservice_new(root_job, l2l_names[l2l_i], l2l_ports + l2l_i)))
+			machservice_watch(ms);
+	}
 }
 
 void mach_init_reap(void)
@@ -319,7 +322,6 @@ launchd_mport_deallocate(mach_port_t name)
 	return errno = mach_port_deallocate(mach_task_self(), name);
 }
 
-
 kern_return_t
 x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
 		security_token_t sectoken, mach_port_t *server_portp)
@@ -467,14 +469,16 @@ kern_return_t
 x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
 	struct jobcb *j = current_rpc_job;
-	uid_t u = sectoken.val[0];
+//	uid_t u = sectoken.val[0];
 
 	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
 
+#if 0
 	if (u) {
 		job_log(j, LOG_NOTICE, "UID %d was denied an answer to bootstrap_parent().", u);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
+#endif
 
 	j = job_get_bs(j);
 
@@ -501,8 +505,8 @@ x_bootstrap_info_countservices(struct machservice *ms, void *context)
 
 struct x_bootstrap_info_copyservices_cb {
 	name_array_t service_names;
-	name_array_t server_names;
 	bootstrap_status_array_t service_actives;
+	mach_port_array_t ports;
 	unsigned int i;
 };
 
@@ -510,17 +514,21 @@ static void
 x_bootstrap_info_copyservices(struct machservice *ms, void *context)
 {
 	struct x_bootstrap_info_copyservices_cb *info_resp = context;
-	const char *svr_name = job_prog(machservice_job(ms));
 
 	strlcpy(info_resp->service_names[info_resp->i], machservice_name(ms), sizeof(info_resp->service_names[0]));
-	strlcpy(info_resp->server_names[info_resp->i], svr_name, sizeof(info_resp->server_names[0]));
-	info_resp->service_actives[info_resp->i] = machservice_status(ms);
+
+	launchd_assumes(info_resp->service_actives || info_resp->ports);
+
+	if (info_resp->service_actives) {
+		info_resp->service_actives[info_resp->i] = machservice_status(ms);
+	} else {
+		info_resp->ports[info_resp->i] = machservice_port(ms);
+	}
 	info_resp->i++;
 }
 
 kern_return_t
 x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
-		name_array_t *servernamesp, unsigned int *servernames_cnt,
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
@@ -529,13 +537,9 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 	unsigned int cnt = 0;
 
 	for (ji = j; ji; ji = job_parent(ji))
-		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt);
+		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt, true);
 
 	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
-	if (!launchd_assumes(result == KERN_SUCCESS))
-		goto out_bad;
-
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.server_names, cnt * sizeof(info_resp.server_names[0]), true);
 	if (!launchd_assumes(result == KERN_SUCCESS))
 		goto out_bad;
 
@@ -544,22 +548,73 @@ x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigne
 		goto out_bad;
 
 	for (ji = j; ji; ji = job_parent(ji))
-		job_foreach_service(ji, x_bootstrap_info_copyservices, &info_resp);
+		job_foreach_service(ji, x_bootstrap_info_copyservices, &info_resp, true);
 
 	launchd_assumes(info_resp.i == cnt);
 
 	*servicenamesp = info_resp.service_names;
-	*servernamesp = info_resp.server_names;
 	*serviceactivesp = info_resp.service_actives;
-	*servicenames_cnt = *servernames_cnt = *serviceactives_cnt = cnt;
+	*servicenames_cnt = *serviceactives_cnt = cnt;
 
 	return BOOTSTRAP_SUCCESS;
 
 out_bad:
 	if (info_resp.service_names)
 		vm_deallocate(mach_task_self(), (vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
-	if (info_resp.server_names)
-		vm_deallocate(mach_task_self(), (vm_address_t)info_resp.server_names, cnt * sizeof(info_resp.server_names[0]));
+
+	return BOOTSTRAP_NO_MEMORY;
+}
+
+kern_return_t
+x_bootstrap_transfer_subset(mach_port_t bootstrapport, mach_port_t *reqport, mach_port_t *rcvright,
+	name_array_t *servicenamesp, unsigned int *servicenames_cnt,
+	mach_port_array_t *ports, unsigned int *ports_cnt)
+{
+	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
+	struct jobcb *j = current_rpc_job;
+	unsigned int cnt = 0;
+	kern_return_t result;
+
+	if (getpid() != 1) {
+		job_log(j, LOG_ERR, "Only the system launchd will transfer Mach sub-bootstraps.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	} else if (!job_parent(j)) {
+		job_log(j, LOG_ERR, "Root Mach bootstrap cannot be transferred.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	job_log(j, LOG_NOTICE, "Transferring sub-bootstrap to the per session launchd.");
+
+	job_foreach_service(j, x_bootstrap_info_countservices, &cnt, false);
+
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
+	if (!launchd_assumes(result == KERN_SUCCESS))
+		goto out_bad;
+
+	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.ports, cnt * sizeof(info_resp.ports[0]), true);
+	if (!launchd_assumes(result == KERN_SUCCESS))
+		goto out_bad;
+
+	job_foreach_service(j, x_bootstrap_info_copyservices, &info_resp, false);
+
+	launchd_assumes(info_resp.i == cnt);
+
+	*servicenamesp = info_resp.service_names;
+	*ports = info_resp.ports;
+	*servicenames_cnt = *ports_cnt = cnt;
+
+	*reqport = job_get_reqport(j);
+	*rcvright = job_get_bsport(j);
+
+	launchd_assumes(launchd_mport_request_callback(*rcvright, NULL) == KERN_SUCCESS);
+
+	launchd_assumes(launchd_mport_make_send(*rcvright) == KERN_SUCCESS);
+
+	return BOOTSTRAP_SUCCESS;
+
+out_bad:
+	if (info_resp.service_names)
+		vm_deallocate(mach_task_self(), (vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
 
 	return BOOTSTRAP_NO_MEMORY;
 }

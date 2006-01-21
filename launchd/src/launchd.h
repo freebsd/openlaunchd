@@ -24,7 +24,9 @@
 #define __LAUNCHD_H__
 
 #include <mach/mach.h>
+#include <mach/port.h>
 #include "launch.h"
+#include "bootstrap_public.h"
 
 /*
  * Use launchd_assumes() when we can recover, even if it means we leak or limp along.
@@ -87,7 +89,7 @@ void update_ttys(void);
 void catatonia(void);
 
 void mach_start_shutdown(void);
-void mach_init_init(mach_port_t);
+void mach_init_init(mach_port_t, mach_port_t, name_array_t, mach_port_array_t, mach_msg_type_number_t);
 void mach_init_reap(void);
 
 int _fd(int fd);

@@ -49,6 +49,7 @@
 #include <dns_sd.h>
 
 #include "bootstrap_public.h"
+#include "bootstrap_private.h"
 #include "launch.h"
 #include "launch_priv.h"
 
@@ -2091,8 +2092,7 @@ bslist_cmd(int argc, char *const argv[])
 	kern_return_t result;
 	mach_port_t bport = bootstrap_port;
 	name_array_t service_names;
-	mach_msg_type_number_t service_cnt, server_cnt, service_active_cnt;
-	name_array_t server_names;
+	mach_msg_type_number_t service_cnt, service_active_cnt;
 	bootstrap_status_array_t service_actives;
 	unsigned int i;
 
@@ -2104,8 +2104,7 @@ bslist_cmd(int argc, char *const argv[])
 		return 1;
 	}
 
-	result = bootstrap_info(bport, &service_names, &service_cnt,
-			&server_names, &server_cnt, &service_actives, &service_active_cnt);
+	result = bootstrap_info(bport, &service_names, &service_cnt, &service_actives, &service_active_cnt);
 	if (result != BOOTSTRAP_SUCCESS) {
 		fprintf(stderr, "bootstrap_info(): %d\n", result);
 		return 1;

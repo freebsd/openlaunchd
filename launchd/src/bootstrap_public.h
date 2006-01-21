@@ -314,27 +314,4 @@ kern_return_t bootstrap_status(
  */
 const char *bootstrap_strerror(kern_return_t r);
 
-
-
-/* The following APIs are deprecated. */
-
-kern_return_t bootstrap_look_up_array(
-		mach_port_t bp,
-		name_array_t service_names,
-		mach_msg_type_number_t service_namesCnt,
-		mach_port_array_t *sps,
-		mach_msg_type_number_t *service_portsCnt,
-		boolean_t *all_services_known)
-		AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_5;
-
-kern_return_t bootstrap_info(
-		mach_port_t bp,
-		name_array_t *service_names,
-		mach_msg_type_number_t *service_namesCnt,
-		name_array_t *server_names,
-		mach_msg_type_number_t *server_namesCnt,
-		bootstrap_status_array_t *service_active,
-		mach_msg_type_number_t *service_activeCnt);
-
-
 #endif

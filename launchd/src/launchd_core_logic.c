@@ -215,7 +215,7 @@ struct jobcb {
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
 		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, __pad:30;
+	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, __pad:29;
 	char label[0];
 };
 
@@ -420,8 +420,11 @@ job_remove_all_inactive(struct jobcb *j)
 	SLIST_FOREACH(ji, &j->jobs, sle)
 		job_remove_all_inactive(ji);
 
-	if (!job_active(j))
+	if (!job_active(j)) {
 		job_remove(j);
+	} else if (getpid() != 1) {
+		job_stop(j);
+	}
 }
 
 void
@@ -442,6 +445,8 @@ job_remove(struct jobcb *j)
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
 			job_reap(j);
 		} else {
+			/* we've attached the simple zombie reaper, we're going to delete the job before it is dead */
+			total_children--;
 			job_stop(j);
 		}
 	}
@@ -452,8 +457,13 @@ job_remove(struct jobcb *j)
 	if (j->execfd)
 		launchd_assumes(close(j->execfd) == 0);
 
-	if (j->bs_port)
-		launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	if (j->bs_port) {
+		if (j->transfer_bstrap) {
+			launchd_assumes(launchd_mport_deallocate(j->bs_port) == KERN_SUCCESS);
+		} else {
+			launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+		}
+	}
 
 	if (j->req_port)
 		launchd_assumes(launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
@@ -2318,11 +2328,15 @@ job_handle_bs_port(struct jobcb *j)
 	mresult = mach_msg_server_once(launchd_mach_ipc_demux, sizeof(union bootstrapMaxRequestSize), j->bs_port,
 			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
 
+	current_rpc_job = NULL;
+
 	if (!launchd_assumes(mresult == MACH_MSG_SUCCESS)) {
 		job_log(j, LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
 	}
 
-	current_rpc_job = NULL;
+	if (j->transfer_bstrap) {
+		job_remove(j);
+	}
 }
 
 struct jobcb *
@@ -2332,19 +2346,21 @@ job_parent(struct jobcb *j)
 }
 
 void
-job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void *), void *context)
+job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs)
 {
 	struct machservice *ms;
 	struct jobcb *ji;
 
 	j = job_get_bs(j);
 
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (ji->req_port)
-			continue;
+	if (include_subjobs) {
+		SLIST_FOREACH(ji, &j->jobs, sle) {
+			if (ji->req_port)
+				continue;
 
-		SLIST_FOREACH(ms, &ji->machservices, sle)
-			bs_iter(ms, context);
+			SLIST_FOREACH(ms, &ji->machservices, sle)
+				bs_iter(ms, context);
+		}
 	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
@@ -2627,6 +2643,15 @@ job_ack_no_senders(struct jobcb *j)
 	job_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
 
 	job_dispatch(j);
+}
+
+mach_port_t
+job_get_reqport(struct jobcb *j)
+{
+	job_log(j, LOG_NOTICE, "Setting transfer bit");
+	j->transfer_bstrap = true;
+
+	return j->req_port;
 }
 
 mach_port_t

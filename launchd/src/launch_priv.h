@@ -62,15 +62,14 @@ int launchd_msg_recv(launch_t, void (*)(launch_data_t, void *), void *);
 /* For LoginWindow.
  *
  * After this call, the task's bootstrap port is set to the per session launchd.
- * The Libsystem exported "bootstrap_port" variable is also updated.
  *
- * The login name must be passed to this call.
  * This returns the PID on of the per session launchd, and -1 on failure.
  * 
- * Please send SIGTERM on logout.
- * If launchd dies, loginwindow should voluntarily exit.
+ * If launchd terminates, loginwindow should exit.
+ * If loginwindow terminates, launchd will exit.
  */
-pid_t create_and_switch_to_per_session_launchd(const char *);
+#define	LOAD_ONLY_SAFEMODE_LAUNCHAGENTS	1
+pid_t create_and_switch_to_per_session_launchd(const char *login, int flags, ...);
 
 /* batch jobs will be implicity re-enabled when the last application who
  * disabled them exits.

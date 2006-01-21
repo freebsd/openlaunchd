@@ -25,10 +25,19 @@
 #include <mach/vm_map.h>
 
 #include "bootstrap_public.h"
+#include "bootstrap_private.h"
 
 #define mig_external static
 #include "bootstrap.h"
 #include "bootstrapUser.c"
+
+kern_return_t
+_launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
+		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
+		mach_port_array_t *ports, mach_msg_type_number_t *portCnt)
+{
+	return raw_bootstrap_transfer_subset(bp, reqport, rcvright, service_names, service_namesCnt, ports, portCnt);
+}
 
 kern_return_t
 bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_port)
@@ -57,15 +66,7 @@ bootstrap_parent(mach_port_t bp, mach_port_t *parent_port)
 kern_return_t
 bootstrap_register(mach_port_t bp, name_t service_name, mach_port_t sp)
 {
-	mach_msg_type_name_t pptype = MACH_MSG_TYPE_COPY_SEND;
-	mach_port_type_t p_type;
-
-	if (mach_port_type(mach_task_self(), sp, &p_type) == KERN_SUCCESS) {
-		if (!(p_type & MACH_PORT_TYPE_SEND))
-			pptype = MACH_MSG_TYPE_MAKE_SEND;
-	}
-
-	return raw_bootstrap_register(bp, service_name, sp, pptype);
+	return raw_bootstrap_register(bp, service_name, sp);
 }
 
 kern_return_t
@@ -143,11 +144,9 @@ bootstrap_status(mach_port_t bp, name_t service_name, bootstrap_status_t *servic
 kern_return_t
 bootstrap_info(mach_port_t bp,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
-		name_array_t *server_names, mach_msg_type_number_t *server_namesCnt,
 		bootstrap_status_array_t *service_active, mach_msg_type_number_t *service_activeCnt)
 {
 	return raw_bootstrap_info(bp, service_names, service_namesCnt,
-			server_names, server_namesCnt,
 			service_active, service_activeCnt);
 }
 

@@ -60,6 +60,8 @@
 #include <dirent.h>
 #include <string.h>
 
+#include "bootstrap_public.h"
+#include "bootstrap_private.h"
 #include "launch.h"
 #include "launch_priv.h"
 #include "launchd.h"
@@ -77,12 +79,13 @@ extern char **environ;
 static void async_callback(void);
 static void signal_callback(void *, struct kevent *);
 static void fs_callback(void);
+static void ppidexit_callback(void);
 static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqasync_callback = (kq_callback)async_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
-static kq_callback kqshutdown_callback = (kq_callback)launchd_shutdown;
+static kq_callback kqppidexit_callback = (kq_callback)ppidexit_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
@@ -120,6 +123,9 @@ main(int argc, char *const *argv)
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
 	bool sflag = false, xflag = false, vflag = false, dflag = false, Dflag = false;
+	mach_msg_type_number_t l2l_name_cnt = 0, l2l_port_cnt = 0;
+	name_array_t l2l_names = NULL;
+	mach_port_array_t l2l_ports = NULL;
 	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
 	const char *h = getenv("HOME");
 	const char *session_type = NULL;
@@ -129,6 +135,7 @@ main(int argc, char *const *argv)
 	struct stat sb;
 	size_t i, checkin_fdcnt = 0;
 	int *checkin_fds = NULL;
+	mach_port_t req_mport = MACH_PORT_NULL;
 	mach_port_t checkin_mport = MACH_PORT_NULL;
 	int ch, ker;
 
@@ -225,7 +232,22 @@ main(int argc, char *const *argv)
 	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
 	launchd_assert(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
 
-	mach_init_init(checkin_mport);
+	if (session_type && strcmp(session_type, "Aqua") == 0) {
+		mach_port_t newparent;
+
+		launchd_assert(bootstrap_parent(bootstrap_port, &newparent) == BOOTSTRAP_SUCCESS);
+
+		launchd_assert(_launchd_to_launchd(bootstrap_port, &req_mport, &checkin_mport,
+					&l2l_names, &l2l_name_cnt, &l2l_ports, &l2l_port_cnt) == BOOTSTRAP_SUCCESS);
+
+		launchd_assert(l2l_name_cnt == l2l_port_cnt);
+
+		task_set_bootstrap_port(mach_task_self(), newparent);
+		launchd_assumes(mach_port_deallocate(mach_task_self(), bootstrap_port) == KERN_SUCCESS);
+		bootstrap_port = newparent;
+	}
+
+	mach_init_init(req_mport, checkin_mport, l2l_names, l2l_ports, l2l_name_cnt);
 
 	if (h)
 		sprintf(ldconf, "%s/%s", h, LAUNCHD_CONF);
@@ -263,7 +285,7 @@ main(int argc, char *const *argv)
 		if (pp == 1)
 			exit(EXIT_SUCCESS);
 
-		ker = kevent_mod(pp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqshutdown_callback);
+		ker = kevent_mod(pp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqppidexit_callback);
 
 		if (ker == -1)
 			exit(launchd_assumes(errno == ESRCH) ? EXIT_SUCCESS : EXIT_FAILURE);
@@ -416,6 +438,15 @@ pid1waitpid(void)
 		launchd_blame(job_reap_pid(root_job, p) || init_check_pid(p), 3632556);
 }
 #endif
+
+void
+ppidexit_callback(void)
+{
+	launchd_shutdown();
+
+	/* Let's just bail for now. We should really try to wait for jobs to exit first. */
+	exit(EXIT_SUCCESS);
+}
 
 void
 launchd_shutdown(void)

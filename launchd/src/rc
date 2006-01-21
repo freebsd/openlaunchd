@@ -239,7 +239,8 @@ fi
 if [ "${SafeBoot}" = "-x" ]; then
 	launchctl load -D system /etc/mach_init.d
 else
-	launchctl load -D local -D system /etc/mach_init.d
+	launchctl load -D all /etc/mach_init.d
+	BootCacheControl tag
 	SystemStarter ${VerboseFlag}
 fi
 

@@ -1159,55 +1159,63 @@ launch_data_t launch_data_new_opaque(const void *o, size_t os)
 	return r;
 }
 
-pid_t
-create_and_switch_to_per_session_launchd(const char *loginname)
+static pid_t
+fexecv_as_user(const char *login, char *const argv[])
 {
-	static char *const largv[] = { "/sbin/launchd", "-S", "Aqua", NULL };
-	mach_port_t newbs = MACH_PORT_NULL;
-	name_t newbsname;
-	pid_t p = fork();
+	struct passwd *pwe = getpwnam(login);
+	int i, dtsz;
+	pid_t p;
+	uid_t u;
+	gid_t g;
 
-	if (p == -1) {
+	if (pwe == NULL)
+		return -1;
+
+	u = pwe->pw_uid;
+	g = pwe->pw_gid;
+
+	if ((p = fork()) != 0)
 		return p;
-	} else if (p == 0) {
-		struct passwd *pwe = getpwnam(loginname);
-		int i, dtsz = getdtablesize();
-		uid_t u;
-		gid_t g;
 
-		for (i = STDERR_FILENO + 1; i < dtsz; i++)
-			close(i);
+	chdir("/");
 
-		if (!pwe)
-			_exit(EXIT_FAILURE);
+	seteuid(0);
+	setegid(0);
+	initgroups(login, g);
+	setgid(g);
+	setuid(u);
 
-		u = pwe->pw_uid;
-		g = pwe->pw_gid;
+	dtsz = getdtablesize();
 
-		setuid(0);
-		setsid();
-		if (initgroups(loginname, g) == -1)
-			_exit(EXIT_FAILURE);
-		setgid(g);
-		setuid(u);
-		chdir("/");
-		execv(largv[0], largv);
-		_exit(EXIT_FAILURE);
-	}
+	for (i = STDERR_FILENO + 1; i < dtsz; i++)
+		close(i);
 
-	snprintf(newbsname, sizeof(newbsname), "com.apple.launchd.%d", p);
+	execv(argv[0], argv);
+	_exit(EXIT_FAILURE);
+}
 
-	while (newbs == MACH_PORT_NULL) {
-		if (bootstrap_look_up(bootstrap_port, newbsname, &newbs) == BOOTSTRAP_SUCCESS)
-			break;
-		usleep(10000);
-	}
+pid_t
+create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
+{
+	static char *const ldargv[] = { "/sbin/launchd", "-S", "Aqua", NULL };
+	char *largv[] = { "/bin/launchctl", "load", "-S", "Aqua", "-D", "all", "/etc/mach_init_per_user.d", NULL };
+	int wstatus;
+	pid_t p, ldp;
 
-	if (task_set_bootstrap_port(mach_task_self(), newbs) == KERN_SUCCESS) {
-		if (mach_port_deallocate(mach_task_self(), bootstrap_port) == KERN_SUCCESS) {
-			bootstrap_port = newbs;
-		}
-	}
+	if ((ldp = fexecv_as_user(login, ldargv)) == -1)
+		return -1;
 
-	return p;
+	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS)
+		largv[5] = "system";
+
+	if ((p = fexecv_as_user(login, largv)) == -1)
+		return -1;
+
+	if (waitpid(p, &wstatus, 0) != p)
+		return -1;
+
+	if (!(WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0))
+		return -1;
+
+	return ldp;
 }
