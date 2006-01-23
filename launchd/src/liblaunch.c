@@ -27,6 +27,7 @@
 #include <sys/fcntl.h>
 #include <sys/un.h>
 #include <sys/uio.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1161,19 +1162,10 @@ launch_data_t launch_data_new_opaque(const void *o, size_t os)
 }
 
 static pid_t
-fexecv_as_user(const char *login, char *const argv[])
+fexecv_as_user(const char *login, uid_t u, gid_t g, char *const argv[])
 {
-	struct passwd *pwe = getpwnam(login);
 	int i, dtsz;
 	pid_t p;
-	uid_t u;
-	gid_t g;
-
-	if (pwe == NULL)
-		return -1;
-
-	u = pwe->pw_uid;
-	g = pwe->pw_gid;
 
 	if ((p = fork()) != 0)
 		return p;
@@ -1200,11 +1192,22 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 {
 	static char *const ldargv[] = { "/sbin/launchd", "-S", "Aqua", NULL };
 	char *largv[] = { "/bin/launchctl", "load", "-S", "Aqua", "-D", "all", "/etc/mach_init_per_user.d", NULL };
+	mach_port_t bezel_ui_server;
+	struct passwd *pwe;
+	struct stat sb;
 	int wstatus;
 	name_t sp;
 	pid_t p, ldp;
+	uid_t u;
+	gid_t g;
 
-	if ((ldp = fexecv_as_user(login, ldargv)) == -1)
+	if ((pwe = getpwnam(login)) == NULL)
+		return -1;
+
+	u = pwe->pw_uid;
+	g = pwe->pw_gid;
+
+	if ((ldp = fexecv_as_user(login, u, g, ldargv)) == -1)
 		return -1;
 
 	while (bootstrap_getsocket(bootstrap_port, sp) != BOOTSTRAP_SUCCESS)
@@ -1215,7 +1218,7 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS)
 		largv[5] = "system";
 
-	if ((p = fexecv_as_user(login, largv)) == -1)
+	if ((p = fexecv_as_user(login, u, g, largv)) == -1)
 		return -1;
 
 	if (waitpid(p, &wstatus, 0) != p)
@@ -1223,6 +1226,22 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 
 	if (!(WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0))
 		return -1;
+
+#define BEZEL_UI_PATH "/System/Library/LoginPlugins/BezelServices.loginPlugin/Contents/Resources/BezelUI/BezelUIServer"
+#define BEZEL_UI_PLIST "/System/Library/LaunchAgents/com.apple.BezelUIServer.plist"
+#define BEZEL_UI_SERVICE "BezelUI"
+
+	if (!(stat(BEZEL_UI_PLIST, &sb) == 0 && S_ISREG(sb.st_mode))) {
+		if (bootstrap_create_server(bootstrap_port, BEZEL_UI_PATH, u, true, &bezel_ui_server) == BOOTSTRAP_SUCCESS) {
+			mach_port_t srv;
+
+			if (bootstrap_create_service(bezel_ui_server, BEZEL_UI_SERVICE, &srv) == BOOTSTRAP_SUCCESS) {
+				mach_port_deallocate(mach_task_self(), srv);
+			}
+
+			mach_port_deallocate(mach_task_self(), bezel_ui_server);
+		}
+	}
 
 	return ldp;
 }
