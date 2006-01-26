@@ -1,5 +1,7 @@
 #!/bin/sh
 
+unset LAUNCHD_SOCKET
+
 set -e
 
 # don't let people kill us. We shouldn't be long, so this isn't a big deal.

@@ -418,15 +418,18 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 }
 
 kern_return_t
-x_bootstrap_register(mach_port_t bootstrapport, name_t servicename, mach_port_t serviceport)
+x_bootstrap_register(mach_port_t bootstrapport, security_token_t sectoken, name_t servicename, mach_port_t serviceport)
 {
 	struct jobcb *j = current_rpc_job;
 	struct machservice *ms;
+	uid_t client_euid = sectoken.val[0];
 
-	if (job_get_bs(j) != current_rpc_job && serviceport != MACH_PORT_NULL) {
-		job_log(j, LOG_WARNING, "Mach service registration attempt with privileged bootstrap: %s", servicename);
-	} else {
-		job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
+	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
+
+	if (client_euid != 0 && client_euid != geteuid()) {
+	       	job_log(j, LOG_WARNING,
+				"Mach service registration attempt with sloppy credentials. We're UID %d. They're UID %d",
+			geteuid(), client_euid);
 	}
 
 	ms = job_lookup_service(j, servicename, false);
@@ -479,19 +482,11 @@ x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *
 }
 
 kern_return_t
-x_bootstrap_parent(mach_port_t bootstrapport, security_token_t sectoken, mach_port_t *parentport, mach_msg_type_name_t *pptype)
+x_bootstrap_parent(mach_port_t bootstrapport, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
 	struct jobcb *j = current_rpc_job;
-//	uid_t u = sectoken.val[0];
 
 	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
-
-#if 0
-	if (u) {
-		job_log(j, LOG_NOTICE, "UID %d was denied an answer to bootstrap_parent().", u);
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-#endif
 
 	j = job_get_bs(j);
 
@@ -596,7 +591,7 @@ x_bootstrap_transfer_subset(mach_port_t bootstrapport, mach_port_t *reqport, mac
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	job_log(j, LOG_NOTICE, "Transferring sub-bootstrap to the per session launchd.");
+	job_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
 
 	job_foreach_service(j, x_bootstrap_info_countservices, &cnt, false);
 

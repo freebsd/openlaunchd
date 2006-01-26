@@ -2648,7 +2648,6 @@ job_ack_no_senders(struct jobcb *j)
 mach_port_t
 job_get_reqport(struct jobcb *j)
 {
-	job_log(j, LOG_NOTICE, "Setting transfer bit");
 	j->transfer_bstrap = true;
 
 	return j->req_port;
