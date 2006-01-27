@@ -355,6 +355,17 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
 
+#define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
+	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
+	#ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
+	if (getpid() == 1) {
+		if (ldc.euid != 0 && ldc.euid != server_uid) {
+			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
+					server_cmd, ldc.euid, server_uid);
+			server_uid = ldc.euid;
+		}
+	} else
+#endif
 	if (ldc.euid != 0 && ldc.euid != getuid()) {
 		job_log(j, LOG_ALERT, "Security: PID %d UID %d somehow acquired our bootstrap port and tried to create a server. Denied.",
 				ldc.pid, ldc.euid);
