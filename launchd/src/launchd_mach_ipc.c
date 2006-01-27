@@ -45,6 +45,7 @@
 #include <sys/event.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
+#include <bsm/libbsm.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
@@ -73,11 +74,20 @@
 #include "launch_priv.h"
 #include "launchd_unix_ipc.h"
 
+struct ldcred {
+	uid_t	euid;
+	uid_t	uid;
+	gid_t	egid;
+	gid_t	gid;
+	pid_t	pid;
+};
+
 static bool canReceive(mach_port_t);
 static void init_ports(void);
 static void *demand_loop(void *arg);
 static void mport_callback(void *obj, struct kevent *kev);
 static void notify_callback(void);
+static void audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc);
 
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t demand_port_set = MACH_PORT_NULL;
@@ -90,7 +100,8 @@ static pthread_t demand_thread;
 static kq_callback kqmport_callback = mport_callback;
 static kq_callback kqnotify_callback = (kq_callback)notify_callback;
 
-void mport_callback(void *obj, struct kevent *kev)
+void
+mport_callback(void *obj, struct kevent *kev)
 {
 	struct kevent newkev;
 	mach_port_name_array_t members;
@@ -324,30 +335,29 @@ launchd_mport_deallocate(mach_port_t name)
 	return errno = mach_port_deallocate(mach_task_self(), name);
 }
 
+void
+audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc)
+{
+	audit_token_to_au32(au_tok, /* audit UID */ NULL,
+			&ldc->euid, &ldc->egid,
+			&ldc->uid, &ldc->gid, &ldc->pid,
+			/* au_asid_t */ NULL, /* au_tid_t */ NULL);
+}
+
 kern_return_t
 x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
-		security_token_t sectoken, mach_port_t *server_portp)
+		audit_token_t au_tok, mach_port_t *server_portp)
 {
 	struct jobcb *js, *j = current_rpc_job;
+	struct ldcred ldc;
 
-	uid_t client_euid = sectoken.val[0];
+	audit_token_to_launchd_cred(au_tok, &ldc);
 
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
 
-#define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
-	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
-#ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
-	if (getpid() == 1) {
-		if (client_euid != 0 && client_euid != server_uid) {
-			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
-					server_cmd, client_euid, server_uid);
-			server_uid = client_euid;
-		}
-	} else
-#endif
-	if (client_euid != 0 && client_euid != getuid()) {
-		job_log(j, LOG_ALERT, "Security: UID %d somehow acquired the bootstrap port of UID %d and tried to create a server. Denied.",
-				client_euid, getuid());
+	if (ldc.euid != 0 && ldc.euid != getuid()) {
+		job_log(j, LOG_ALERT, "Security: PID %d UID %d somehow acquired our bootstrap port and tried to create a server. Denied.",
+				ldc.pid, ldc.euid);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	} else if (server_uid != getuid()) {
 		job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
@@ -388,10 +398,13 @@ x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 
   
 kern_return_t
-x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
+x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
 {
 	struct jobcb *j = current_rpc_job;
 	struct machservice *ms;
+	struct ldcred ldc;
+
+	audit_token_to_launchd_cred(au_tok, &ldc);
 
 	ms = job_lookup_service(j, servicename, true);
 
@@ -400,7 +413,7 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 	if (machservice_job(ms) != j) {
-		job_log(j, LOG_NOTICE, "Check-in of Mach service failed. Not privileged: %s", servicename);
+		job_log(j, LOG_NOTICE, "Check-in of Mach service failed. PID %d is not privileged: %s", ldc.pid, servicename);
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (!canReceive(machservice_port(ms))) {
@@ -418,18 +431,20 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, mach_port_t 
 }
 
 kern_return_t
-x_bootstrap_register(mach_port_t bootstrapport, security_token_t sectoken, name_t servicename, mach_port_t serviceport)
+x_bootstrap_register(mach_port_t bootstrapport, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
 {
 	struct jobcb *j = current_rpc_job;
 	struct machservice *ms;
-	uid_t client_euid = sectoken.val[0];
+	struct ldcred ldc;
+
+	audit_token_to_launchd_cred(au_tok, &ldc);
 
 	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
-
-	if (client_euid != 0 && client_euid != geteuid()) {
-	       	job_log(j, LOG_WARNING,
-				"Mach service registration attempt with sloppy credentials. We're UID %d. They're UID %d",
-			geteuid(), client_euid);
+	
+	if (ldc.euid != 0 && ldc.euid != geteuid() && job_find_by_pid(root_job, ldc.pid) == NULL) {
+		job_log(j, LOG_ALERT,
+				"Security: PID %d UID %d is calling bootstrap_register(). This will be denied in the future.",
+				ldc.pid, ldc.euid);
 	}
 
 	ms = job_lookup_service(j, servicename, false);

@@ -1107,6 +1107,23 @@ job_find(struct jobcb *j, const char *label)
 	return NULL;
 }
 
+struct jobcb *
+job_find_by_pid(struct jobcb *j, pid_t p)
+{
+	struct jobcb *jr, *ji;
+
+	if (j->p == p)
+		return j;
+
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if ((jr = job_find_by_pid(ji, p)))
+			return jr;
+	}
+
+	errno = ESRCH;
+	return NULL;
+}
+
 static void
 job_export_all2(struct jobcb *j, launch_data_t where)
 {
@@ -2322,11 +2339,12 @@ void
 job_handle_bs_port(struct jobcb *j)
 {
 	mach_msg_return_t mresult;
+	mach_msg_size_t mxmsgsz = sizeof(union bootstrapMaxRequestSize) + MAX_TRAILER_SIZE;
 
 	current_rpc_job = j;
 
-	mresult = mach_msg_server_once(launchd_mach_ipc_demux, sizeof(union bootstrapMaxRequestSize), j->bs_port,
-			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_SENDER)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
+	mresult = mach_msg_server_once(launchd_mach_ipc_demux, mxmsgsz, j->bs_port,
+			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
 
 	current_rpc_job = NULL;
 

@@ -102,6 +102,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h not
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
+@LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
 @LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
 
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
@@ -159,7 +160,6 @@ launchctl_DEPENDENCIES =
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
-launchd_LDFLAGS =
 launchproxy_SOURCES = launchproxy.c
 launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_LDADD = $(LDADD)

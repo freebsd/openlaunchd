@@ -44,6 +44,7 @@ bootstrap_status_t machservice_status(struct machservice *);
 
 
 struct jobcb *job_find(struct jobcb *j, const char *label);
+struct jobcb *job_find_by_pid(struct jobcb *j, pid_t p);
 struct jobcb *job_import(launch_data_t pload);
 launch_data_t job_import_bulk(launch_data_t pload);
 struct jobcb *job_new(struct jobcb *p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t);

@@ -1,4 +1,5 @@
 Project	= launchd
+SubProjects	= legacy
 Extra_Configure_Flags = --sbindir=/sbin --bindir=/bin --sysconfdir=/private/etc
 include $(MAKEFILEPATH)/CoreOS/ReleaseControl/GNUSource.make
 Install_Flags = DESTDIR=$(DSTROOT)

@@ -52,7 +52,7 @@ routine bootstrap_create_server(
 		__server_cmd	: cmd_t;
 		__server_uid	: natural_t;
 		__on_demand	: boolean_t;
- ServerSecToken	__token		: security_token_t;
+	ServerAuditToken	__token	: audit_token_t;
 	out	__server_port	: mach_port_make_send_t);
 
 routine bootstrap_unprivileged(
@@ -62,11 +62,12 @@ routine bootstrap_unprivileged(
 routine bootstrap_check_in(
 			__bs_port	: mach_port_t;
 			__service_name	: name_t;
+	ServerAuditToken	__token	: audit_token_t;
 		out	__service_port	: mach_port_move_receive_t);
 
 routine bootstrap_register(
 		__bs_port	: mach_port_t;
- ServerSecToken	__token		: security_token_t;
+	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 		__service_port	: mach_port_t);
 
