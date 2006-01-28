@@ -1549,7 +1549,11 @@ job_setup_attributes(struct jobcb *j)
 				exit(EXIT_FAILURE);
 			}
 		} else {
-			job_log(j, LOG_WARNING, "getpwnam(\"%s\") failed", j->username);
+			if (j->username) {
+				job_log(j, LOG_WARNING, "getpwnam(\"%s\") failed", j->username);
+			} else {
+				job_log(j, LOG_WARNING, "getpwuid(\"%d\") failed", j->mach_uid);
+			}
 			exit(EXIT_FAILURE);
 		}
 	}
