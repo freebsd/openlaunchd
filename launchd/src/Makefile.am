@@ -71,7 +71,6 @@ install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STA
 install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/usr/libexec
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
-	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include/servers
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h

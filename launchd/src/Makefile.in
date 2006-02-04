@@ -902,7 +902,6 @@ bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/boots
 @LIBS_ONLY_FALSE@install-data-hook: install-startupitems
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
-@LIBS_ONLY_FALSE@	cp $(srcdir)/register_mach_bootstrap_servers $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/include/servers
 @LIBS_ONLY_FALSE@	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
 @LIBS_ONLY_FALSE@	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
