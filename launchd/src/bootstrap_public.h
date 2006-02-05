@@ -191,10 +191,13 @@ kern_return_t bootstrap_subset(
  * an unprivileged version of the same port for use by its unprivileged
  * children (or any offspring that it does not want to count as part
  * of the "server" for mach_init registration and re-launch purposes).
+ *
+ * Native launchd jobs are always started with an unprivileged port.
  */
 kern_return_t bootstrap_unprivileged(
 		mach_port_t bp,
-		mach_port_t *unpriv_port);
+		mach_port_t *unpriv_port)
+		AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_5;
 
 /*
  * bootstrap_parent()

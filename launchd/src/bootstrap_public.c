@@ -132,7 +132,7 @@ bootstrap_status(mach_port_t bp, name_t service_name, bootstrap_status_t *servic
 	if (bootstrap_check_in(bp, service_name, &p) == BOOTSTRAP_SUCCESS) {
 		mach_port_mod_refs(mach_task_self(), p, MACH_PORT_RIGHT_RECEIVE, -1);
 		*service_active = BOOTSTRAP_STATUS_ON_DEMAND;
-		if (bootstrap_unprivileged(bp, &p) == BOOTSTRAP_SUCCESS) {
+		if (raw_bootstrap_unprivileged(bp, &p) == BOOTSTRAP_SUCCESS) {
 			if (bp == p)
 				*service_active = BOOTSTRAP_STATUS_INACTIVE;
 			mach_port_deallocate(mach_task_self(), p);

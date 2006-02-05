@@ -831,7 +831,6 @@ launch_data_t
 launch_msg(launch_data_t d)
 {
 	launch_data_t mps, r = launch_msg_internal(d);
-	mach_port_t newbs;
 
 	if (launch_data_get_type(d) == LAUNCH_DATA_STRING) {
 		if (strcmp(launch_data_get_string(d), LAUNCH_KEY_CHECKIN) != 0)
@@ -844,13 +843,6 @@ launch_msg(launch_data_t d)
 		if (mps == NULL)
 			return r;
 		launch_data_dict_iterate(mps, launch_mach_checkin_service, NULL);
-
-		if (BOOTSTRAP_SUCCESS == bootstrap_unprivileged(bootstrap_port, &newbs)) {
-			if (KERN_SUCCESS == task_set_bootstrap_port(mach_task_self(), newbs)) {
-				mach_port_deallocate(mach_task_self(), bootstrap_port);
-				bootstrap_port = newbs;
-			}
-		}
 	}
 
 	return r;

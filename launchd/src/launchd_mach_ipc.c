@@ -411,11 +411,14 @@ x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 kern_return_t
 x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
 {
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j2, *j = current_rpc_job;
 	struct machservice *ms;
 	struct ldcred ldc;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
+
+	if ((j2 = job_find_by_pid(j, ldc.pid, true)))
+		j = j2;
 
 	ms = job_lookup_service(j, servicename, true);
 
@@ -452,7 +455,7 @@ x_bootstrap_register(mach_port_t bootstrapport, audit_token_t au_tok, name_t ser
 
 	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
 	
-	if (ldc.euid != 0 && ldc.euid != geteuid() && job_find_by_pid(root_job, ldc.pid) == NULL) {
+	if (ldc.euid != 0 && ldc.euid != geteuid() && job_find_by_pid(root_job, ldc.pid, false) == NULL) {
 		job_log(j, LOG_ALERT,
 				"Security: PID %d UID %d is calling bootstrap_register(). This will be denied in the future.",
 				ldc.pid, ldc.euid);
