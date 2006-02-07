@@ -952,6 +952,8 @@ job_import_dictionary(struct jobcb *j, const char *key, launch_data_t value)
 	case 'M':
 		if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICES) == 0) {
 			launch_data_dict_iterate(value, machservice_setup, j);
+			if (!SLIST_EMPTY(&j->machservices))
+				job_setup_machport(j);
 		}
 		break;
 	default:
@@ -1113,7 +1115,7 @@ job_find(struct jobcb *j, const char *label)
 }
 
 struct jobcb *
-job_find_by_pid(struct jobcb *j, pid_t p, bool nativeonly)
+job_find_by_pid(struct jobcb *j, pid_t p)
 {
 	struct jobcb *jr, *ji;
 
@@ -1121,11 +1123,8 @@ job_find_by_pid(struct jobcb *j, pid_t p, bool nativeonly)
 		return j;
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find_by_pid(ji, p, nativeonly))) {
-			if (nativeonly && j->legacy_mach_job)
-				continue;
+		if ((jr = job_find_by_pid(ji, p)))
 			return jr;
-		}
 	}
 
 	errno = ESRCH;
