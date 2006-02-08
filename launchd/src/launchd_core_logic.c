@@ -1186,9 +1186,9 @@ job_reap(struct jobcb *j)
 	if (WIFSIGNALED(status)) {
 		int s = WTERMSIG(status);
 		if (SIGKILL == s || SIGTERM == s) {
-			job_log(j, LOG_NOTICE, "exited: %s", strsignal(s));
+			job_log(j, LOG_NOTICE, "Exited: %s", strsignal(s));
 		} else {
-			job_log(j, LOG_WARNING, "exited abnormally: %s", strsignal(s));
+			job_log(j, LOG_WARNING, "Exited abnormally: %s", strsignal(s));
 			bad_exit = true;
 		}
 	}
@@ -1242,7 +1242,6 @@ job_callback(void *obj, struct kevent *kev)
 
 	if (d) {
 		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
-		job_log(j, LOG_DEBUG, "log level debug temporarily enabled while processing job");
 	}
 
 	switch (kev->filter) {
@@ -1266,6 +1265,11 @@ job_callback(void *obj, struct kevent *kev)
 		if ((int)kev->ident != j->execfd) {
 			socketgroup_callback(j, kev);
 			break;
+		}
+		if (j->wait4debugger) {
+			/* Allow somebody else to attach */
+			launchd_assumes(kill(j->p, SIGSTOP) != -1);
+			launchd_assumes(ptrace(PT_DETACH, j->p, NULL, 0) != -1);
 		}
 		if (kev->data > 0) {
 			int e;
@@ -1294,7 +1298,6 @@ job_callback(void *obj, struct kevent *kev)
 
 	if (d) {
 		/* the job might have been removed, must not call job_log() */
-		syslog(LOG_DEBUG, "restoring original log mask");
 		setlogmask(oldmask);
 	}
 }
@@ -2504,7 +2507,12 @@ bool job_reap_pid(struct jobcb *j, pid_t p)
 	struct kevent kev;
 
 	if (j->p == p) {
-		EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, j);
+		if (WIFSTOPPED(pid1_child_exit_status) || WIFCONTINUED(pid1_child_exit_status)) {
+			int s = WSTOPSIG(pid1_child_exit_status);
+			job_log(j, LOG_DEBUG, "Received signal: %s", strsignal(s));
+			return true;
+		}
+		EV_SET(&kev, p, EVFILT_PROC, 0, NOTE_EXIT, 0, j);
 		j->kqjob_callback(j, &kev);
 		return true;
 	}
