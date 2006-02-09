@@ -96,4 +96,6 @@ int _fd(int fd);
 
 void _log_launchd_bug(const char *path, unsigned int line, const char *test);
 
+bool progeny_check(pid_t p);
+
 #endif

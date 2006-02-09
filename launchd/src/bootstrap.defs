@@ -73,6 +73,7 @@ routine bootstrap_register(
 
 routine bootstrap_look_up(
 		__bs_port	: mach_port_t;
+	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 	out	__service_port	: mach_port_send_t);
 

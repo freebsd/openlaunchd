@@ -100,6 +100,8 @@ static pthread_t demand_thread;
 static kq_callback kqmport_callback = mport_callback;
 static kq_callback kqnotify_callback = (kq_callback)notify_callback;
 
+static bool trusted_client_check(struct jobcb *j, struct ldcred *ldc);
+
 void
 mport_callback(void *obj, struct kevent *kev)
 {
@@ -366,9 +368,7 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 		}
 	} else
 #endif
-	if (ldc.euid != 0 && ldc.euid != getuid()) {
-		job_log(j, LOG_ALERT, "Security: PID %d UID %d somehow acquired our bootstrap port and tried to create a server. Denied.",
-				ldc.pid, ldc.euid);
+	if (!trusted_client_check(j, &ldc)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	} else if (server_uid != getuid()) {
 		job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
@@ -411,11 +411,14 @@ x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 kern_return_t
 x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
 {
+	static pid_t last_warned_pid = 0;
 	struct jobcb *j = current_rpc_job;
 	struct machservice *ms;
 	struct ldcred ldc;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
+
+	trusted_client_check(j, &ldc);
 
 	ms = job_lookup_service(j, servicename, true);
 
@@ -424,7 +427,11 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, audit_token_
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 	if (machservice_job(ms) != j) {
-		job_log(j, LOG_NOTICE, "Check-in of Mach service failed. PID %d is not privileged: %s", ldc.pid, servicename);
+		if (last_warned_pid != ldc.pid) {
+			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. PID %d is not privileged: %s",
+					ldc.pid, servicename);
+			last_warned_pid = ldc.pid;
+		}
 		 return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (!canReceive(machservice_port(ms))) {
@@ -450,14 +457,10 @@ x_bootstrap_register(mach_port_t bootstrapport, audit_token_t au_tok, name_t ser
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
+	trusted_client_check(j, &ldc);
+
 	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
 	
-	if (ldc.euid != 0 && ldc.euid != geteuid() && job_find_by_pid(root_job, ldc.pid) == NULL) {
-		job_log(j, LOG_ALERT,
-				"Security: PID %d UID %d is calling bootstrap_register(). This will be denied in the future.",
-				ldc.pid, ldc.euid);
-	}
-
 	ms = job_lookup_service(j, servicename, false);
 
 	if (ms) {
@@ -484,10 +487,15 @@ x_bootstrap_register(mach_port_t bootstrapport, audit_token_t au_tok, name_t ser
 }
 
 kern_return_t
-x_bootstrap_look_up(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
+x_bootstrap_look_up(mach_port_t bootstrapport, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
 	struct jobcb *j = current_rpc_job;
 	struct machservice *ms;
+	struct ldcred ldc;
+
+	audit_token_to_launchd_cred(au_tok, &ldc);
+
+	trusted_client_check(j, &ldc);
 
 	ms = job_lookup_service(j, servicename, true);
 
@@ -796,4 +804,32 @@ notify_callback(void)
 	if (!launchd_assumes(mr == MACH_MSG_SUCCESS)) {
 		job_log(root_job, LOG_ERR, "notify_port: mach_msg_server_once(): %s", mach_error_string(mr));
 	}
+}
+
+bool
+trusted_client_check(struct jobcb *j, struct ldcred *ldc)
+{
+	static pid_t last_warned_pid = 0;
+
+	/* In the long run, we wish to enforce the progeny rule, but for now,
+	 * we'll let root and the user be forgiven. Once we get CoreProcesses
+	 * to switch to using launchd rather than the WindowServer for indirect
+	 * process invocation, we can then seriously look at cranking up the
+	 * warning level here.
+	 */
+
+	if (progeny_check(ldc->pid))
+		return true;
+	if (ldc->euid == geteuid())
+		return true;
+	if (ldc->euid == 0 && ldc->uid == 0)
+		return true;
+	if (last_warned_pid == ldc->pid)
+		return false;
+
+	job_log(j, LOG_NOTICE, "Security: PID %d was leaked into this session. This will be denied in the future.", ldc->pid);
+
+	last_warned_pid = ldc->pid;
+
+	return false;
 }

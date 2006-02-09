@@ -786,3 +786,27 @@ _log_launchd_bug(const char *path, unsigned int line, const char *test)
 
 	syslog(LOG_NOTICE, "Bug: %s:%u:%u: %s", file, line, errno, test);
 }
+
+bool
+progeny_check(pid_t p)
+{
+	pid_t selfpid = getpid();
+
+	while (p != selfpid && p != 1) {
+		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, p };
+		size_t miblen = sizeof(mib) / sizeof(mib[0]);
+		struct kinfo_proc kp;
+		size_t kplen = sizeof(kp);
+
+		if (launchd_assumes(sysctl(mib, miblen, &kp, &kplen, NULL, 0) != -1)) {
+			p = kp.kp_eproc.e_ppid;
+		} else {
+			return false;
+		}
+	}
+
+	if (p == selfpid)
+		return true;
+
+	return false;
+}
