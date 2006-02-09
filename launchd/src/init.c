@@ -113,7 +113,6 @@ static void runcom(void);
 
 static bool runcom_verbose = false;
 static bool runcom_safe = false;
-static bool runcom_fsck = true;
 static bool runcom_netboot = false;
 static bool single_user_mode = false;
 static bool run_runcom = true;
@@ -174,6 +173,7 @@ static char **construct_argv(char *);
 static void setsecuritylevel(int);
 static int getsecuritylevel(void);
 static int setupargv(session_t, struct ttyent *);
+static bool should_fsck(void);
 
 void
 init_boot(bool sflag, bool vflag, bool xflag)
@@ -212,17 +212,10 @@ init_boot(bool sflag, bool vflag, bool xflag)
 void
 init_pre_kevent(void)
 {
-	struct statfs sfs;
 	session_t s;
 
 	if (single_user_pid || runcom_pid)
 		return;
-
-	if (runcom_fsck && launchd_assumes(statfs("/", &sfs) != -1)) {
-		if (!(sfs.f_flags & MNT_RDONLY)) {
-			runcom_fsck = false;
-		}
-	}
 
 	if (single_user_mode)
 		return single_user();
@@ -314,6 +307,7 @@ setctty(const char *name, int flags)
 static void
 single_user(void)
 {
+	bool runcom_fsck = should_fsck();
 	char *argv[2];
 
 	if (getsecuritylevel() > 0)
@@ -395,6 +389,7 @@ static struct timeval runcom_start_tv = { 0, 0 };
 static void
 runcom(void)
 {
+	bool runcom_fsck = should_fsck();
 	char *argv[3];
 	struct termios term;
 	int vdisable;
@@ -839,3 +834,18 @@ __private_extern__ bool init_check_pid(pid_t p)
 	return false;
 }
 #endif
+
+bool
+should_fsck(void)
+{
+	struct statfs sfs;
+	bool r = true;
+
+	if (launchd_assumes(statfs("/", &sfs) != -1)) {
+		if (!(sfs.f_flags & MNT_RDONLY)) {
+			r = false;
+		}
+	}
+	
+	return r;
+}
