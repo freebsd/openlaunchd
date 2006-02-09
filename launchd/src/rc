@@ -34,10 +34,10 @@ if [ "${FsckSlash}" = "-F" ]; then
 	else
 		fsck -p || fsck -fy || halt
 	fi
+	mount -uw /
 fi
 
 echo "Mounting local filesystems"
-mount -uw /
 [ -f /etc/fstab ] && mount -vat nonfs
 
 if [ "${SafeBoot}" != "-x" ]; then

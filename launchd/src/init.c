@@ -64,6 +64,7 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/param.h>
+#include <sys/mount.h>
 #include <sys/sysctl.h>
 #include <sys/wait.h>
 #include <sys/time.h>
@@ -211,28 +212,36 @@ init_boot(bool sflag, bool vflag, bool xflag)
 void
 init_pre_kevent(void)
 {
+	struct statfs sfs;
 	session_t s;
 
-	if (single_user_mode && single_user_pid == 0)
-		single_user();
+	if (single_user_pid || runcom_pid)
+		return;
+
+	if (runcom_fsck && launchd_assumes(statfs("/", &sfs) != -1)) {
+		if (!(sfs.f_flags & MNT_RDONLY)) {
+			runcom_fsck = false;
+		}
+	}
+
+	if (single_user_mode)
+		return single_user();
 
 	if (run_runcom)
-		runcom();
+		return runcom();
 		
-	if (!single_user_mode && !run_runcom && runcom_pid == 0) {
-		/*
-		 * If the administrator has not set the security level to -1
-		 * to indicate that the kernel should not run multiuser in secure
-		 * mode, and the run script has not set a higher level of security 
-		 * than level 1, then put the kernel into secure mode.
-		 */
-		if (getsecuritylevel() == 0)
-			setsecuritylevel(1);
+	/*
+	 * If the administrator has not set the security level to -1
+	 * to indicate that the kernel should not run multiuser in secure
+	 * mode, and the run script has not set a higher level of security 
+	 * than level 1, then put the kernel into secure mode.
+	 */
+	if (getsecuritylevel() == 0)
+		setsecuritylevel(1);
 
-		TAILQ_FOREACH(s, &sessions, tqe) {
-			if (s->se_process == 0)
-				session_launch(s);
-		}
+	TAILQ_FOREACH(s, &sessions, tqe) {
+		if (s->se_process == 0)
+			session_launch(s);
 	}
 }
 
@@ -340,7 +349,6 @@ single_user(void)
 		sleep(STALL_TIMEOUT);
 		exit(EXIT_FAILURE);
 	} else {
-		runcom_fsck = false;
 		if (kevent_mod(single_user_pid, EVFILT_PROC, EV_ADD, 
 					NOTE_EXIT, 0, &kqsingle_user_callback) == -1)
 			single_user_callback(NULL, NULL);
@@ -401,7 +409,6 @@ runcom(void)
 		return;
 	} else if (runcom_pid > 0) {
 		run_runcom = false;
-		runcom_fsck = false;
 		if (kevent_mod(runcom_pid, EVFILT_PROC, EV_ADD, 
 					NOTE_EXIT, 0, &kqruncom_callback) == -1) {
 			runcom_callback(NULL, NULL);
