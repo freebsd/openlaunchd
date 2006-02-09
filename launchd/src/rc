@@ -121,9 +121,8 @@ fi
 # Make new /var/run
 mkdir -m 775 /var/run
 mkdir -m 775 /var/run/StartupItems /var/run/davlocks
-mkdir -m 755 /var/run/proxy
 chown root:daemon /var/run /var/run/StartupItems
-chown www:www /var/run/proxy /var/run/davlocks
+chown www:www /var/run/davlocks
 
 # Move sudo back to /var/run, touch the contents of /var/run/sudo/* back to the epoch
 if [ -d /var/_run_/sudo ]; then
