@@ -798,7 +798,8 @@ progeny_check(pid_t p)
 		struct kinfo_proc kp;
 		size_t kplen = sizeof(kp);
 
-		if (launchd_assumes(sysctl(mib, miblen, &kp, &kplen, NULL, 0) != -1)) {
+		if (launchd_assumes(sysctl(mib, miblen, &kp, &kplen, NULL, 0) != -1)
+				&& launchd_assumes(kplen == sizeof(kp))) {
 			p = kp.kp_eproc.e_ppid;
 		} else {
 			return false;
