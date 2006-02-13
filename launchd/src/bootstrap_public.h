@@ -196,8 +196,7 @@ kern_return_t bootstrap_subset(
  */
 kern_return_t bootstrap_unprivileged(
 		mach_port_t bp,
-		mach_port_t *unpriv_port)
-		AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_5;
+		mach_port_t *unpriv_port);
 
 /*
  * bootstrap_parent()
