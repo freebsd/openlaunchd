@@ -2265,19 +2265,31 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 {
 	struct jobcb *j = context;
 	struct machservice *ms;
-	mach_port_t p = MACH_PORT_NULL;
+	mach_port_t mhp, p = MACH_PORT_NULL;
 	bool reset = false;
 
 	if (launch_data_get_type(obj) == LAUNCH_DATA_BOOL)
 		reset = !launch_data_get_bool(obj);
 
-	if (job_lookup_service(j->parent, key, false) == NULL) {
-		ms = machservice_new(j, key, &p);
-		if (ms) {
-			ms->isActive = false;
-			ms->reset = reset;
-		}
+	if ((ms = job_lookup_service(j->parent, key, false))) {
+		job_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
+		return;
 	}
+
+	if ((ms = machservice_new(j, key, &p)) == NULL) {
+		job_log_error(j, LOG_WARNING, "Cannot add service: %s", key);
+		return;
+	}
+
+	ms->isActive = false;
+	ms->reset = reset;
+
+	if (strcmp(ms->name, "com.apple.system.Kernel[UNC]Notifications") != 0)
+		return;
+
+	launchd_assumes((mhp = mach_host_self()) == KERN_SUCCESS);
+	launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 }
 
 /*
