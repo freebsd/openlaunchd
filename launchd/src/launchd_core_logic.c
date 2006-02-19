@@ -1635,7 +1635,7 @@ calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci)
 
 	later = cronemu(ci->when.tm_mon, ci->when.tm_mday, ci->when.tm_hour, ci->when.tm_min);
 
-	if (ci->when.tm_wday == -1) {
+	if (ci->when.tm_wday != -1) {
 		time_t otherlater = cronemu_wday(ci->when.tm_wday, ci->when.tm_hour, ci->when.tm_min);
 
 		if (ci->when.tm_mday == -1) {
@@ -2776,10 +2776,11 @@ cronemu_wday(int wday, int hour, int min)
 	if (wday == 7)
 		wday = 0;
 
-	while (!cronemu_hour(&workingtm, hour, min) && workingtm.tm_wday != wday) {
+	while (workingtm.tm_wday != wday || !cronemu_hour(&workingtm, hour, min)) {
 		workingtm.tm_mday++;
 		workingtm.tm_hour = 0;
 		workingtm.tm_min = 0;
+		cronemu_hour(&workingtm, hour, min);
 		mktime(&workingtm);
 	}
 
