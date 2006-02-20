@@ -2776,11 +2776,10 @@ cronemu_wday(int wday, int hour, int min)
 	if (wday == 7)
 		wday = 0;
 
-	while (workingtm.tm_wday != wday || !cronemu_hour(&workingtm, hour, min)) {
+	while (!(workingtm.tm_wday == wday && cronemu_hour(&workingtm, hour, min))) {
 		workingtm.tm_mday++;
 		workingtm.tm_hour = 0;
 		workingtm.tm_min = 0;
-		cronemu_hour(&workingtm, hour, min);
 		mktime(&workingtm);
 	}
 
