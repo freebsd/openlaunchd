@@ -109,11 +109,22 @@ mport_callback(void *obj, struct kevent *kev)
 	mach_port_name_array_t members;
 	mach_msg_type_number_t membersCnt;
 	mach_port_status_t status;
-	mach_msg_type_number_t statusCnt;
+	mach_msg_type_number_t statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
 	unsigned int i;
 	char junk = '\0';
 
 	launchd_assumes(read(main_to_demand_loop_fd, &junk, sizeof(junk)) != -1);
+
+	/* Messages from the kernel should be drained before handling client requests. */
+
+	if (mach_port_get_attributes(mach_task_self(), notify_port, MACH_PORT_RECEIVE_STATUS,
+				(mach_port_info_t)&status, &statusCnt) == KERN_SUCCESS) {
+		if (status.mps_msgcount) {
+			EV_SET(&newkev, notify_port, EVFILT_MACHPORT, 0, 0, 0, port_to_obj[MACH_PORT_INDEX(notify_port)]);
+			(*((kq_callback *)newkev.udata))(newkev.udata, &newkev);
+			goto out;
+		}
+	}
 
 	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
 		goto out;
