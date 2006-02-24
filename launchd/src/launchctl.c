@@ -495,11 +495,34 @@ readfile(const char *what, struct load_unload_state *lus)
 			goto out_bad;
 	}
 
-	if ((tmps = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE))) {
-		const char *allowed_session = launch_data_get_string(tmps);
-		if (lus->session_type) {
-			if (strcasecmp(lus->session_type, allowed_session) == 0)
-				goto out_bad;
+	if ((tmpa = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE))) {
+		const char *allowed_session;
+		bool skipjob = true;
+
+		if (lus->session_type) switch (launch_data_get_type(tmpa)) {
+		case LAUNCH_DATA_ARRAY:
+			c = launch_data_array_get_count(tmpa);
+			for (i = 0; i < c; i++) {
+				tmps = launch_data_array_get_index(tmpa, i);
+				allowed_session = launch_data_get_string(tmps);
+				if (strcasecmp(lus->session_type, allowed_session) == 0) {
+					skipjob = false;
+					break;
+				}
+			}
+			break;
+		case LAUNCH_DATA_STRING:
+			allowed_session = launch_data_get_string(tmpa);
+			if (strcasecmp(lus->session_type, allowed_session) == 0) {
+				skipjob = false;
+			}
+			break;
+		default:
+			break;
+		}
+
+		if (skipjob) {
+			goto out_bad;
 		}
 	}
 
