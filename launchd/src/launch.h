@@ -31,7 +31,7 @@
 #define __ld_normal __attribute__((__nothrow__))
 #define __ld_setter __attribute__((__nothrow__, __nonnull__))
 #define __ld_getter __attribute__((__nothrow__, __nonnull__, __pure__, __warn_unused_result__))
-#define __ld_iterator(x, y) __attribute__((__nothrow__, __nonnull__(x, y)))
+#define __ld_iterator(x, y) __attribute__((__nonnull__(x, y)))
 #define __ld_allocator __attribute__((__nothrow__, __malloc__, __nonnull__, __warn_unused_result__))
 #else
 #define __ld_normal
