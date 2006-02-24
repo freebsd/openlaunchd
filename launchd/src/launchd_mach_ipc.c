@@ -510,6 +510,10 @@ x_bootstrap_look_up(mach_port_t bootstrapport, audit_token_t au_tok, name_t serv
 
 	ms = job_lookup_service(j, servicename, true);
 
+	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
+		ms = NULL;
+	}
+
 	if (ms) {
 		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
 		job_log(j, LOG_DEBUG, "Mach service lookup: %s", servicename);

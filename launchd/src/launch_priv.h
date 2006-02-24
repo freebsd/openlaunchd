@@ -47,6 +47,8 @@
 #define LAUNCH_KEY_BATCHCONTROL		"BatchControl"
 #define LAUNCH_KEY_BATCHQUERY		"BatchQuery"
 
+#define LAUNCH_JOBKEY_MACH_KUNCSERVER	"kUNCServer"
+
 typedef struct _launch *launch_t;
 
 launch_t launchd_fdopen(int);

@@ -38,6 +38,7 @@ void machservice_delete(struct machservice *);
 void machservice_watch(struct machservice *);
 mach_port_t machservice_port(struct machservice *);
 struct jobcb *machservice_job(struct machservice *);
+bool machservice_hidden(struct machservice *);
 bool machservice_active(struct machservice *);
 const char *machservice_name(struct machservice *);
 bootstrap_status_t machservice_status(struct machservice *);

@@ -89,7 +89,7 @@ struct machservice {
 	SLIST_ENTRY(machservice) sle;
 	struct jobcb		*job;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, __junk:29;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, __junk:27;
 	char			name[0];
 };
 
@@ -2260,16 +2260,32 @@ machservice_status(struct machservice *ms)
 	}
 }
 
+static void
+machservice_setup_options(launch_data_t obj, const char *key, void *context)
+{
+	struct machservice *ms = context;
+	bool b;
+
+	if (launch_data_get_type(obj) != LAUNCH_DATA_BOOL)
+		return;
+
+	b = launch_data_get_bool(obj);
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_MACH_RESETATCLOSE) == 0) {
+		ms->reset = b;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
+		ms->hide = b;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
+		ms->kUNCServer = b;
+	}
+}
+
 void
 machservice_setup(launch_data_t obj, const char *key, void *context)
 {
 	struct jobcb *j = context;
 	struct machservice *ms;
 	mach_port_t mhp, p = MACH_PORT_NULL;
-	bool reset = false;
-
-	if (launch_data_get_type(obj) == LAUNCH_DATA_BOOL)
-		reset = !launch_data_get_bool(obj);
 
 	if ((ms = job_lookup_service(j->parent, key, false))) {
 		job_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
@@ -2282,9 +2298,12 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	}
 
 	ms->isActive = false;
-	ms->reset = reset;
 
-	if (strcmp(ms->name, "com.apple.system.Kernel[UNC]Notifications") != 0)
+	if (launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
+		launch_data_dict_iterate(obj, machservice_setup_options, ms);
+	}
+
+	if (ms->kUNCServer || strcmp(ms->name, "com.apple.system.Kernel[UNC]Notifications") != 0)
 		return;
 
 	launchd_assumes((mhp = mach_host_self()) == KERN_SUCCESS);
@@ -2462,6 +2481,12 @@ struct jobcb *
 machservice_job(struct machservice *ms)
 {
 	return ms->job;
+}
+
+bool
+machservice_hidden(struct machservice *ms)
+{
+	return ms->hide;
 }
 
 bool
