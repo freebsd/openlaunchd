@@ -590,7 +590,7 @@ job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 		goto out_bad;
 
 	/* preflight the string so we know how big it is */
-	sprintf(buf, "100000.%s", basename(argv[0]));
+	sprintf(buf, "100000.%s", basename((char *)argv[0]));
 
 	j = job_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
 
