@@ -2264,6 +2264,7 @@ static void
 machservice_setup_options(launch_data_t obj, const char *key, void *context)
 {
 	struct machservice *ms = context;
+	mach_port_t mhp;
 	bool b;
 
 	if (launch_data_get_type(obj) != LAUNCH_DATA_BOOL)
@@ -2277,6 +2278,9 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		ms->hide = b;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 		ms->kUNCServer = b;
+		launchd_assumes((mhp = mach_host_self()) == KERN_SUCCESS);
+		launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
+		launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 	}
 }
 
@@ -2285,7 +2289,7 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 {
 	struct jobcb *j = context;
 	struct machservice *ms;
-	mach_port_t mhp, p = MACH_PORT_NULL;
+	mach_port_t p = MACH_PORT_NULL;
 
 	if ((ms = job_lookup_service(j->parent, key, false))) {
 		job_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
@@ -2302,13 +2306,6 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	if (launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
 		launch_data_dict_iterate(obj, machservice_setup_options, ms);
 	}
-
-	if (ms->kUNCServer || strcmp(ms->name, "com.apple.system.Kernel[UNC]Notifications") != 0)
-		return;
-
-	launchd_assumes((mhp = mach_host_self()) == KERN_SUCCESS);
-	launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
-	launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 }
 
 /*
