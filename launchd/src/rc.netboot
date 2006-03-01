@@ -158,23 +158,20 @@ do_start()
 
 }
 
-do_computername()
+do_init()
 {
-    machine_name=$(ipconfig netbootoption machine_name 2>&1)
-    if [ $? -ne 0 ]; then
-	echo "no machine name option available"
-    else
-	echo "Setting ComputerName to ${machine_name}"
-	scutil --set ComputerName "${machine_name}"
-    fi
-}
+    # attach the shadow file to the root disk image
+    do_start
 
-do_vm()
-{
-    swapdir=${1:-/private/var/vm}
+    # make sure the root filesystem is clean
+    fsck -p || fsck -fy || Failed "Could not clean root filesystem"
 
+    # make it writable
+    mount -uw /
+
+    # adjust /private/var/vm to point to the writable area (if not diskless)
+    swapdir=/private/var/vm
     mounted_from=$(mount | sed -n 's:\(.*\) on .*/var/netboot.*:\1:p')
-
     case "${mounted_from}" in
 	/dev/*)
 		netboot_dir="${NETBOOT_MOUNT}/.com.apple.NetBootX"
@@ -186,7 +183,17 @@ do_vm()
 	*)
 	;;
     esac
+
+    # set the ComputerName based on what the NetBoot server told us it was
+    machine_name=$(ipconfig netbootoption machine_name 2>&1)
+    if [ $? -ne 0 ]; then
+	echo "no machine name option available"
+    else
+	echo "Setting ComputerName to ${machine_name}"
+	scutil --set ComputerName "${machine_name}"
+    fi
 }
+
 
 if [ $# -lt 1 ] ; then
     exit 0
@@ -197,14 +204,8 @@ command=$1
 shift
 
 case "${command}" in
-    start)
-	do_start $@
-	;;
-    setup_vm)
-	do_vm $@
-	;;
-    setup_computername)
-	do_computername $@
+    init)
+	do_init $@
 	;;
 esac 
 

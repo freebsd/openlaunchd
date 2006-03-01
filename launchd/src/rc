@@ -17,14 +17,13 @@ fi
 
 if [ "${NetBoot}" = "-N" ] ; then
 	echo "Initializing NetBoot"
-	if ! sh /etc/rc.netboot start ; then
+	if ! sh /etc/rc.netboot init ; then
 		echo NetBoot initialization failed, shut down in 10 seconds...
 		sleep 10
 		halt
 	fi
-fi
 
-if [ "${FsckSlash}" = "-F" ]; then
+elif [ "${FsckSlash}" = "-F" ]; then
 	# Benignly clean up ("preen") any dirty filesystems. 
 	# fsck -p will skip disks which were properly unmounted during
 	# a normal shutdown.
@@ -179,10 +178,6 @@ if [ ! -f /System/Library/LaunchDaemons/com.apple.dynamic_pager.plist ]; then
 	echo "Starting virtual memory"
 
 	swapdir=/private/var/vm
-	if [ "${NetBoot}" = "-N" ]; then
-		sh /etc/rc.netboot setup_vm ${swapdir}
-	fi
-
 	if [ ! -d ${swapdir} ]; then
 		echo "Creating default swap directory"
 		mkdir -p -m 755 ${swapdir}
@@ -245,10 +240,6 @@ fi
 
 if [ ! -f /System/Library/LaunchDaemons/com.apple.update.plist  ]; then
 	/usr/sbin/update
-fi
-
-if [ "${NetBoot}" = "-N" ]; then
-    sh /etc/rc.netboot setup_computername
 fi
 
 # Set language from CDIS.custom - assumes this is parse-able by sh
