@@ -80,7 +80,10 @@ struct ldcred {
 	gid_t	egid;
 	gid_t	gid;
 	pid_t	pid;
+	au_asid_t asid;
 };
+
+static au_asid_t inherited_asid = 0;
 
 static bool canReceive(mach_port_t);
 static void init_ports(void);
@@ -156,8 +159,12 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 		name_array_t l2l_names, mach_port_array_t l2l_ports, mach_msg_type_number_t l2l_cnt)
 {
 	mach_msg_type_number_t l2l_i;
+	auditinfo_t inherited_audit;
 	pthread_attr_t attr;
 	int pipepair[2];
+
+	getaudit(&inherited_audit);
+	inherited_asid = inherited_audit.ai_asid;
 
 	init_ports();
 
@@ -354,7 +361,7 @@ audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc)
 	audit_token_to_au32(au_tok, /* audit UID */ NULL,
 			&ldc->euid, &ldc->egid,
 			&ldc->uid, &ldc->gid, &ldc->pid,
-			/* au_asid_t */ NULL, /* au_tid_t */ NULL);
+			&ldc->asid, /* au_tid_t */ NULL);
 }
 
 kern_return_t
@@ -833,6 +840,8 @@ trusted_client_check(struct jobcb *j, struct ldcred *ldc)
 	 * warning level here.
 	 */
 
+	if (inherited_asid == ldc->asid)
+		return true;
 	if (progeny_check(ldc->pid))
 		return true;
 	if (ldc->euid == geteuid())
@@ -842,7 +851,7 @@ trusted_client_check(struct jobcb *j, struct ldcred *ldc)
 	if (last_warned_pid == ldc->pid)
 		return false;
 
-	job_log(j, LOG_NOTICE, "Security: PID %d was leaked into this session. This will be denied in the future.", ldc->pid);
+	job_log(j, LOG_NOTICE, "Security: PID %d (ASID %d) was leaked into this session (ASID %d). This will be denied in the future.", ldc->pid, ldc->asid, inherited_asid);
 
 	last_warned_pid = ldc->pid;
 
