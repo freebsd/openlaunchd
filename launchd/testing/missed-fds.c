@@ -29,10 +29,10 @@ int main(void)
 	assert((p = fork()) != -1);
 
 	if (p == 0) {
-		close(sp[0]);
+		assert(close(sp[0]) != -1);
 		do_child(sp[1]);
 	} else {
-		close(sp[1]);
+		assert(close(sp[1]) != -1);
 		do_parent(sp[0]);
 	}
 
@@ -64,7 +64,7 @@ send_fds(int thefd)
 	struct iovec iov;
 	size_t sentctrllen = 0;
 	int fdcnt = (rand() % 223) + 1; /* 223 is prime */
-	int i, fds[fdcnt];
+	int r, i, fds[fdcnt];
 
 	memset(&mh, 0, sizeof(mh));
 
@@ -93,14 +93,19 @@ send_fds(int thefd)
 		fprintf(stderr, "Child: sendmsg(): %s\n", strerror(errno));
 		fprintf(stderr, "Child: Tried to send %d fds\n", fdcnt);
 		fprintf(stderr, "Child: Total FDs sent: %d\n", total_fds_sent);
+		sleep(1);
 		exit(EXIT_FAILURE);
 	}
 	total_fds_sent += fdcnt;
 
 	assert(sentctrllen == mh.msg_controllen);
 
+	r = read(thefd, &i, sizeof(i));
+	assert(r != -1);
+	assert(r != 0);
+
 	for (i = 0; i < fdcnt; i++) {
-		close(fds[i]);
+		assert(close(fds[i]) != -1);
 	}
 }
 
@@ -120,7 +125,7 @@ fetch_and_check_fds(int thefd)
 	struct cmsghdr *cm = alloca(4096);
 	struct msghdr mh;       
 	struct iovec iov;
-	int i, *fds, fdcnt = 0, sentfds;
+	int r, i, *fds, fdcnt = 0, sentfds;
 
 	memset(&mh, 0, sizeof(mh));
 
@@ -131,20 +136,29 @@ fetch_and_check_fds(int thefd)
 	mh.msg_control = cm;
 	mh.msg_controllen = 4096;
 
-	assert(recvmsg(thefd, &mh, 0) != -1);
+	r = recvmsg(thefd, &mh, 0);
+	assert(r != -1);
+	assert(r != 0);
 	assert(!(mh.msg_flags & MSG_CTRUNC));
+	assert(mh.msg_controllen > 0);
 
 	fds = (int *)CMSG_DATA(cm);
 	sentfds = (mh.msg_controllen - sizeof(struct cmsghdr)) / sizeof(int);
 
-	if (sentfds != fdcnt)
+	if (sentfds != fdcnt) {
+		fprintf(stderr, "%d FDs sent, %d actually received.\n", fdcnt, sentfds);
 		return false;
+	}
 
 	total_fds_received += fdcnt;
 
 	for (i = 0; i < fdcnt; i++) {
-		close(fds[i]);
+		assert(close(fds[i]) != -1);
 	}
+
+	r = write(thefd, &fdcnt, sizeof(fdcnt));
+	assert(r != -1);
+	assert(r != 0);
 
 	return true;
 }
