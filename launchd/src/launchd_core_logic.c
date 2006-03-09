@@ -2278,9 +2278,10 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		ms->hide = b;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 		ms->kUNCServer = b;
-		launchd_assumes((mhp = mach_host_self()) == KERN_SUCCESS);
-		launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
-		launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
+		if (launchd_assumes((mhp = mach_host_self()) != MACH_PORT_NULL)) {
+			launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
+			launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
+		}
 	}
 }
 
