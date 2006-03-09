@@ -187,6 +187,7 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 
 	launchd_assert(pthread_create(&demand_thread, &attr, demand_loop, NULL) == 0);
 
