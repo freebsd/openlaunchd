@@ -41,16 +41,20 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
+launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c
 
-launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
+launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h launchd_internal.h
 launchd_core_logic.c:: bootstrap.h
-launchd.c:: bootstrap.h
+launchd.c:: bootstrap.h launchd_internalServer.h launchd_internal.h notifyServer.h bootstrapServer.h
 
 launchproxy_LDFLAGS = -weak_framework Security
 
 notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
 	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
+
+launchd_internal.h launchd_internalServer.c launchd_internalUser.c launchd_internalServer.h: $(srcdir)/launchd_internal.defs
+	mig $(MIGFLAGS) -sheader launchd_internalServer.h $(srcdir)/launchd_internal.defs
+
 
 man1_MANS = wait4path.1 launchctl.1
 

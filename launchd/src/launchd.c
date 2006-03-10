@@ -59,6 +59,7 @@
 #include <dlfcn.h>
 #include <dirent.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "bootstrap_public.h"
 #include "bootstrap_private.h"
@@ -67,6 +68,22 @@
 #include "launchd.h"
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
+
+#include "launchd_internalServer.h"
+#include "launchd_internal.h"
+#include "notifyServer.h"
+#include "bootstrapServer.h"
+
+union MaxRequestSize {
+	union __RequestUnion__do_notify_subsystem req;
+	union __ReplyUnion__do_notify_subsystem rep;
+	union __RequestUnion__x_launchd_internal_subsystem req2;
+	union __ReplyUnion__x_launchd_internal_subsystem rep2;
+	union __RequestUnion__x_bootstrap_subsystem req3;
+	union __ReplyUnion__x_bootstrap_subsystem rep3;
+};
+
+static boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
 #define PID1LAUNCHD_CONF "/etc/launchd.conf"
 #define LAUNCHD_CONF ".launchd.conf"
@@ -100,7 +117,9 @@ static void workaround3048875(int argc, char *const *argv);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
+static void *kqueue_demand_loop(void *arg);
 
+static pthread_t kqueue_demand_thread;
 static int mainkq = 0;
 static int asynckq = 0;
 static bool re_exec_in_single_user_mode = false;
@@ -113,6 +132,8 @@ sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
 bool network_up = false;
 int batch_disabler_count = 0;
+mach_port_t launchd_internal_port = MACH_PORT_NULL;
+mach_port_t ipc_port_set = MACH_PORT_NULL;
 
 int
 main(int argc, char *const *argv)
@@ -131,7 +152,6 @@ main(int argc, char *const *argv)
 	const char *session_type = NULL;
 	const char *optargs = NULL;
 	launch_data_t ldresp, ldmsg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
-	struct kevent kev;
 	struct stat sb;
 	size_t i, checkin_fdcnt = 0;
 	int *checkin_fds = NULL;
@@ -211,6 +231,11 @@ main(int argc, char *const *argv)
 
 	if (dflag)
 		launchd_assumes(daemon(0, 0) == 0);
+
+	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &ipc_port_set)) == KERN_SUCCESS);
+	launchd_assert(launchd_mport_create_recv(&launchd_internal_port) == KERN_SUCCESS);
+	launchd_assert(launchd_mport_make_send(launchd_internal_port) == KERN_SUCCESS);
+	launchd_assert((errno = mach_port_move_member(mach_task_self(), launchd_internal_port, ipc_port_set)) == KERN_SUCCESS);
 
 	logopts = LOG_CONS;
 	if (getpid() != 1)
@@ -303,26 +328,71 @@ main(int argc, char *const *argv)
 	if (fbj)
 		job_start(fbj);
 
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+	launchd_assert(pthread_create(&kqueue_demand_thread, &attr, kqueue_demand_loop, NULL) == 0);
+	pthread_attr_destroy(&attr); 
+
+	mach_msg_return_t msgr;
+	mach_msg_size_t mxmsgsz = sizeof(union MaxRequestSize) + MAX_TRAILER_SIZE;
+
+	if (getpid() == 1 && !job_active(rlcj))
+		init_pre_kevent();
+
 	for (;;) {
-		if (getpid() == 1 && !job_active(rlcj))
-			init_pre_kevent();
-
-		if (shutdown_in_progress && total_children == 0) {
-			mach_init_reap();
-
-			shutdown_in_progress = false;
-
-			if (getpid() != 1) {
-				exit(EXIT_SUCCESS);
-			} else if (re_exec_in_single_user_mode) {
-				re_exec_in_single_user_mode = false;
-				launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
-			}
-		}
-
-		if (launchd_assumes(kevent(mainkq, NULL, 0, &kev, 1, NULL) == 1))
-			(*((kq_callback *)kev.udata))(kev.udata, &kev);
+		msgr = mach_msg_server(launchd_internal_demux, mxmsgsz, ipc_port_set,
+				MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT) |
+				MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
+		launchd_assumes(msgr == MACH_MSG_SUCCESS);
 	}
+}
+
+void *
+kqueue_demand_loop(void *arg __attribute__(()))
+{
+	fd_set rfds;
+
+	for (;;) {
+		FD_ZERO(&rfds);
+		FD_SET(mainkq, &rfds);
+		launchd_assumes(select(mainkq + 1, &rfds, NULL, NULL, NULL) == 1);
+		launchd_assumes(handle_kqueue(launchd_internal_port, mainkq) == 0);
+	}
+
+	return NULL;
+}
+
+kern_return_t
+x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
+{
+	struct timespec ts = { 0, 0 };
+	struct kevent kev;
+	int kevr;
+
+	launchd_assumes((kevr = kevent(fd, NULL, 0, &kev, 1, &ts)) != -1);
+
+	if (kevr == 1)
+		(*((kq_callback *)kev.udata))(kev.udata, &kev);
+
+	if (shutdown_in_progress && total_children == 0) {
+		mach_init_reap();
+
+		shutdown_in_progress = false;
+
+		if (getpid() != 1) {
+			exit(EXIT_SUCCESS);
+		} else if (re_exec_in_single_user_mode) {
+			re_exec_in_single_user_mode = false;
+			launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
+		}
+	}
+
+	if (getpid() == 1 && !job_active(rlcj))
+		init_pre_kevent();
+
+	return 0;
 }
 
 void
@@ -350,7 +420,7 @@ pid1_magic_init(bool sflag, bool vflag, bool xflag)
 	}
 #endif
 
-	setpriority(PRIO_PROCESS, 0, -1);
+	//setpriority();
 
 	if (setsid() == -1)
 		syslog(LOG_ERR, "setsid(): %m");
@@ -816,4 +886,23 @@ progeny_check(pid_t p)
 		return true;
 
 	return false;
+}
+
+boolean_t
+launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
+{
+	if (gc_this_job) {
+		job_remove(gc_this_job);
+		gc_this_job = NULL;
+	}
+
+	if (Request->msgh_local_port == launchd_internal_port) {
+		if (launchd_internal_server_routine(Request))
+			return launchd_internal_server(Request, Reply);
+	} else {
+		if (bootstrap_server_routine(Request))
+			return bootstrap_server(Request, Reply);
+	}
+
+	return notify_server(Request, Reply);
 }

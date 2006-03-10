@@ -70,6 +70,8 @@
 #include "bootstrap.h"
 #include "bootstrapServer.h"
 #include "notifyServer.h"
+#include "launchd_internal.h"
+#include "launchd_internalServer.h"
 #include "launchd.h"
 #include "launchd_core_logic.h"
 #include "launch_priv.h"
@@ -88,71 +90,32 @@ static au_asid_t inherited_asid = 0;
 
 static bool canReceive(mach_port_t);
 static void init_ports(void);
-static void *demand_loop(void *arg);
-static void mport_callback(void *obj, struct kevent *kev);
-static void notify_callback(void);
+static void *mport_demand_loop(void *arg);
 static void audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc);
 
 static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 static mach_port_t demand_port_set = MACH_PORT_NULL;
-static mach_port_t notify_port = MACH_PORT_NULL;
 static size_t port_to_obj_size = 0;
 static void **port_to_obj = NULL;
-static int main_to_demand_loop_fd = -1;
-static int demand_loop_to_main_fd = -1;
 static pthread_t demand_thread;
-static kq_callback kqmport_callback = mport_callback;
-static kq_callback kqnotify_callback = (kq_callback)notify_callback;
 
 static bool trusted_client_check(struct jobcb *j, struct ldcred *ldc);
 
-void
-mport_callback(void *obj, struct kevent *kev)
+struct jobcb *
+job_find_by_port(mach_port_t mp)
 {
-	struct kevent newkev;
-	mach_port_name_array_t members;
-	mach_msg_type_number_t membersCnt;
-	mach_port_status_t status;
-	mach_msg_type_number_t statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-	unsigned int i;
-	char junk = '\0';
+	return port_to_obj[MACH_PORT_INDEX(mp)];
+}
 
-	launchd_assumes(read(main_to_demand_loop_fd, &junk, sizeof(junk)) != -1);
+kern_return_t
+x_handle_mport(mach_port_t junk __attribute__((unused)), integer_t mport)
+{
+	struct kevent kev;
 
-	/* Messages from the kernel should be drained before handling client requests. */
+	EV_SET(&kev, mport, EVFILT_MACHPORT, 0, 0, 0, job_find_by_port(mport));
+	(*((kq_callback *)kev.udata))(kev.udata, &kev);
 
-	if (mach_port_get_attributes(mach_task_self(), notify_port, MACH_PORT_RECEIVE_STATUS,
-				(mach_port_info_t)&status, &statusCnt) == KERN_SUCCESS) {
-		if (status.mps_msgcount) {
-			EV_SET(&newkev, notify_port, EVFILT_MACHPORT, 0, 0, 0, port_to_obj[MACH_PORT_INDEX(notify_port)]);
-			(*((kq_callback *)newkev.udata))(newkev.udata, &newkev);
-			goto out;
-		}
-	}
-
-	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
-		goto out;
-
-	for (i = 0; i < membersCnt; i++) {
-		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-		if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
-					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
-			continue;
-
-		if (status.mps_msgcount) {
-			EV_SET(&newkev, members[i], EVFILT_MACHPORT, 0, 0, 0, port_to_obj[MACH_PORT_INDEX(members[i])]);
-			(*((kq_callback *)newkev.udata))(newkev.udata, &newkev);
-
-			/* the callback may have tainted our ability to continue this for loop */
-			break;
-		}
-	}
-
-	launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
-				(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
-
-out:
-	launchd_assumes(write(main_to_demand_loop_fd, &junk, sizeof(junk)) != -1);
+	return 0;
 }
 
 void
@@ -162,19 +125,11 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 	mach_msg_type_number_t l2l_i;
 	auditinfo_t inherited_audit;
 	pthread_attr_t attr;
-	int pipepair[2];
 
 	getaudit(&inherited_audit);
 	inherited_asid = inherited_audit.ai_asid;
 
 	init_ports();
-
-	launchd_assert(socketpair(AF_UNIX, SOCK_STREAM, 0, pipepair) != -1);
-
-	main_to_demand_loop_fd = _fd(pipepair[0]);
-	demand_loop_to_main_fd = _fd(pipepair[1]);
-
-	launchd_assert(kevent_mod(main_to_demand_loop_fd, EVFILT_READ, EV_ADD, 0, 0, &kqmport_callback) != -1);
 
 	launchd_assert((root_job = job_new_bootstrap(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
 
@@ -190,7 +145,7 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 
-	launchd_assert(pthread_create(&demand_thread, &attr, demand_loop, NULL) == 0);
+	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
 
 	pthread_attr_destroy(&attr);
 
@@ -222,40 +177,57 @@ init_ports(void)
 {
 	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET,
 					&demand_port_set)) == KERN_SUCCESS);
-	
-	launchd_assert(launchd_mport_create_recv(&notify_port) == KERN_SUCCESS);
-
-	launchd_assert(launchd_mport_request_callback(notify_port, &kqnotify_callback) == KERN_SUCCESS);
 }
 
 void *
-demand_loop(void *arg __attribute__((unused)))
+mport_demand_loop(void *arg __attribute__((unused)))
 {
 	mach_msg_empty_rcv_t dummy;
-	kern_return_t dresult;
-	char junk = '\0';
+	mach_port_name_array_t members;
+	mach_msg_type_number_t membersCnt;
+	mach_port_status_t status;
+	mach_msg_type_number_t statusCnt;
+	kern_return_t kr;
+	unsigned int i;
 
 	for (;;) {
-		dresult = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
-		if (dresult == MACH_RCV_PORT_CHANGED) {
+		kr = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
+		if (kr == MACH_RCV_PORT_CHANGED) {
 			break;
-		} else if (!launchd_assumes(dresult == MACH_RCV_TOO_LARGE)) {
+		} else if (!launchd_assumes(kr == MACH_RCV_TOO_LARGE)) {
 			continue;
 		}
-		/* This is our brain dead way of telling the main thread there
-		 * is work to do and waiting for the main thread to tell us
-		 * when it is safe to check the Mach port-set again.
-		 */
-		launchd_assumes(write(demand_loop_to_main_fd, &junk, sizeof(junk)) != -1);
-		launchd_assumes(read(demand_loop_to_main_fd, &junk, sizeof(junk)) != -1);
+
+		if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
+			continue;
+
+		for (i = 0; i < membersCnt; i++) {
+			statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
+			if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
+						(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
+				continue;
+
+			if (status.mps_msgcount) {
+				launchd_assumes(handle_mport(launchd_internal_port, members[i]) == 0);
+				/* the callback may have tainted our ability to continue this for loop */
+				break;
+			}
+		}
+
+		launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
+					(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
 	}
+
 	return NULL;
 }
 								
 boolean_t
 launchd_mach_ipc_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 {
-	return bootstrap_server(Request, Reply) ? true : notify_server(Request, Reply);
+	if (bootstrap_server_routine(Request))
+		return bootstrap_server(Request, Reply);
+
+	return notify_server(Request, Reply);
 }
 
 bool
@@ -285,7 +257,7 @@ kern_return_t
 launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 {
 	mach_port_mscount_t msgc = (which == MACH_NOTIFY_NO_SENDERS) ? 1 : 0;
-	mach_port_t previous, where = (which == MACH_NOTIFY_NO_SENDERS) ? name : notify_port;
+	mach_port_t previous, where = (which == MACH_NOTIFY_NO_SENDERS) ? name : launchd_internal_port;
 
 	if (which == MACH_NOTIFY_NO_SENDERS) {
 		/* Always make sure the send count is zero, in case a receive right is reused */
@@ -304,7 +276,7 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 }
 
 kern_return_t
-launchd_mport_request_callback(mach_port_t name, void *obj)
+launchd_mport_request_callback(mach_port_t name, void *obj, bool readmsg)
 {
 	size_t needed_size;
 
@@ -325,7 +297,7 @@ launchd_mport_request_callback(mach_port_t name, void *obj)
 
 	port_to_obj[MACH_PORT_INDEX(name)] = obj;
 
-	return errno = mach_port_move_member(mach_task_self(), name, demand_port_set);
+	return errno = mach_port_move_member(mach_task_self(), name, readmsg ? ipc_port_set : demand_port_set);
 }
 
 kern_return_t
@@ -367,10 +339,10 @@ audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc)
 }
 
 kern_return_t
-x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
+x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
 		audit_token_t au_tok, mach_port_t *server_portp)
 {
-	struct jobcb *js, *j = current_rpc_job;
+	struct jobcb *js, *j = job_find_by_port(bp);
 	struct ldcred ldc;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
@@ -417,9 +389,9 @@ x_bootstrap_getsocket(mach_port_t bp, name_t spr)
 }
 
 kern_return_t
-x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
+x_bootstrap_unprivileged(mach_port_t bp, mach_port_t *unprivportp)
 {
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(bp);
 
 	job_log(j, LOG_DEBUG, "Requested unprivileged bootstrap port");
 
@@ -432,10 +404,10 @@ x_bootstrap_unprivileged(mach_port_t bootstrapport, mach_port_t *unprivportp)
 
   
 kern_return_t
-x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
+x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -472,9 +444,9 @@ x_bootstrap_check_in(mach_port_t bootstrapport, name_t servicename, audit_token_
 }
 
 kern_return_t
-x_bootstrap_register(mach_port_t bootstrapport, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
+x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
 {
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -510,9 +482,9 @@ x_bootstrap_register(mach_port_t bootstrapport, audit_token_t au_tok, name_t ser
 }
 
 kern_return_t
-x_bootstrap_look_up(mach_port_t bootstrapport, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
+x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -543,9 +515,9 @@ x_bootstrap_look_up(mach_port_t bootstrapport, audit_token_t au_tok, name_t serv
 }
 
 kern_return_t
-x_bootstrap_parent(mach_port_t bootstrapport, mach_port_t *parentport, mach_msg_type_name_t *pptype)
+x_bootstrap_parent(mach_port_t bp, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(bp);
 
 	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
 
@@ -597,11 +569,11 @@ x_bootstrap_info_copyservices(struct machservice *ms, void *context)
 }
 
 kern_return_t
-x_bootstrap_info(mach_port_t bootstrapport, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
+x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	struct jobcb *ji, *j = current_rpc_job;
+	struct jobcb *ji, *j = job_find_by_port(bp);
 	kern_return_t result;
 	unsigned int cnt = 0;
 
@@ -635,12 +607,12 @@ out_bad:
 }
 
 kern_return_t
-x_bootstrap_transfer_subset(mach_port_t bootstrapport, mach_port_t *reqport, mach_port_t *rcvright,
+x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 	name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 	mach_port_array_t *ports, unsigned int *ports_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(bp);
 	unsigned int cnt = 0;
 	kern_return_t result;
 
@@ -675,7 +647,7 @@ x_bootstrap_transfer_subset(mach_port_t bootstrapport, mach_port_t *reqport, mac
 	*reqport = job_get_reqport(j);
 	*rcvright = job_get_bsport(j);
 
-	launchd_assumes(launchd_mport_request_callback(*rcvright, NULL) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_request_callback(*rcvright, NULL, true) == KERN_SUCCESS);
 
 	launchd_assumes(launchd_mport_make_send(*rcvright) == KERN_SUCCESS);
 
@@ -689,15 +661,15 @@ out_bad:
 }
 
 kern_return_t
-x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_port_t *subsetportp)
+x_bootstrap_subset(mach_port_t bp, mach_port_t requestorport, mach_port_t *subsetportp)
 {
-	struct jobcb *js, *j = current_rpc_job;
+	struct jobcb *js, *j = job_find_by_port(bp);
 	int bsdepth = 0;
 
 	while ((j = job_parent(j)) != NULL)
 		bsdepth++;
 
-	j = current_rpc_job;
+	j = job_find_by_port(bp);
 
 	/* Since we use recursion, we need an artificial depth for subsets */
 	if (bsdepth > 100) {
@@ -716,9 +688,9 @@ x_bootstrap_subset(mach_port_t bootstrapport, mach_port_t requestorport, mach_po
 }
 
 kern_return_t
-x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_port_t *serviceportp)
+x_bootstrap_create_service(mach_port_t bp, name_t servicename, mach_port_t *serviceportp)
 {
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(bp);
 	struct machservice *ms;
 
 	ms = job_lookup_service(j, servicename, false);
@@ -746,7 +718,7 @@ x_bootstrap_spawn(mach_port_t bp, audit_token_t au_tok,
 		_internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask, pid_t *child_pid)
 {
-	struct jobcb *jr, *j = current_rpc_job;
+	struct jobcb *jr, *j = job_find_by_port(bp);
 	struct ldcred ldc;
 	size_t offset = 0;
 	char *tmpp;
@@ -839,7 +811,7 @@ do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
 kern_return_t
 do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 {
-	struct jobcb *j = current_rpc_job;
+	struct jobcb *j = job_find_by_port(notify);
 
 	/* This message is sent to us when the last customer of one of our objects
 	 * goes away.
@@ -885,23 +857,6 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 	launchd_assumes(launchd_mport_deallocate(name) == KERN_SUCCESS);
 
 	return KERN_SUCCESS;
-}
-
-union notifyMaxRequestSize {
-	union __RequestUnion__do_notify_subsystem req;
-	union __ReplyUnion__do_notify_subsystem rep;
-};
-
-void
-notify_callback(void)
-{
-	mach_msg_return_t mr;
-
-	mr = mach_msg_server_once(notify_server, sizeof(union notifyMaxRequestSize), notify_port, 0);
-	
-	if (!launchd_assumes(mr == MACH_MSG_SUCCESS)) {
-		job_log(root_job, LOG_ERR, "notify_port: mach_msg_server_once(): %s", mach_error_string(mr));
-	}
 }
 
 bool

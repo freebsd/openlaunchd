@@ -337,7 +337,7 @@ single_user(void)
 
 		argv[0] = "-sh";
 		argv[1] = NULL;
-		setpriority(PRIO_PROCESS, 0, 0);
+		//setpriority(PRIO_PROCESS, 0, 0);
 		execv(_PATH_BSHELL, argv);
 		syslog(LOG_ERR, "can't exec %s for single user: %m", _PATH_BSHELL);
 		sleep(STALL_TIMEOUT);
@@ -439,7 +439,7 @@ runcom(void)
 	setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
 	setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 
-	setpriority(PRIO_PROCESS, 0, 0);
+	//setpriority(PRIO_PROCESS, 0, 0);
 	execv(_PATH_BSHELL, argv);
 	stall("can't exec %s for %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
 	exit(EXIT_FAILURE);
@@ -685,7 +685,7 @@ session_launch(session_t s)
 	sigemptyset(&mask);
 	sigprocmask(SIG_SETMASK, &mask, NULL);
 
-	setpriority(PRIO_PROCESS, 0, 0);
+	//setpriority(PRIO_PROCESS, 0, 0);
 
 	if (!is_loginwindow)
 		launchd_SessionCreate();

@@ -103,7 +103,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h not
 
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c
 
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 
@@ -156,7 +156,9 @@ launchctl_DEPENDENCIES =
 @LIBS_ONLY_FALSE@	launchd-launchd_mach_ipc.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-init.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-bootstrapServer.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-notifyServer.$(OBJEXT)
+@LIBS_ONLY_FALSE@	launchd-notifyServer.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-launchd_internalUser.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-launchd_internalServer.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
@@ -188,6 +190,8 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-init.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_core_logic.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_internalServer.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_internalUser.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_mach_ipc.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_unix_ipc.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-notifyServer.Po \
@@ -342,6 +346,8 @@ launchd-launchd_mach_ipc.$(OBJEXT): launchd_mach_ipc.c
 launchd-init.$(OBJEXT): init.c
 launchd-bootstrapServer.$(OBJEXT): bootstrapServer.c
 launchd-notifyServer.$(OBJEXT): notifyServer.c
+launchd-launchd_internalUser.$(OBJEXT): launchd_internalUser.c
+launchd-launchd_internalServer.$(OBJEXT): launchd_internalServer.c
 launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES) 
 	@rm -f launchd$(EXEEXT)
 	$(LINK) $(launchd_LDFLAGS) $(launchd_OBJECTS) $(launchd_LDADD) $(LIBS)
@@ -387,6 +393,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-init.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_core_logic.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalServer.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_mach_ipc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_unix_ipc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-notifyServer.Po@am__quote@
@@ -566,6 +574,30 @@ launchd-notifyServer.obj: notifyServer.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-notifyServer.Po' tmpdepfile='$(DEPDIR)/launchd-notifyServer.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-notifyServer.obj `cygpath -w notifyServer.c`
+
+launchd-launchd_internalUser.o: launchd_internalUser.c
+@AMDEP_TRUE@	source='launchd_internalUser.c' object='launchd-launchd_internalUser.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-launchd_internalUser.Po' tmpdepfile='$(DEPDIR)/launchd-launchd_internalUser.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_internalUser.o `test -f 'launchd_internalUser.c' || echo '$(srcdir)/'`launchd_internalUser.c
+
+launchd-launchd_internalUser.obj: launchd_internalUser.c
+@AMDEP_TRUE@	source='launchd_internalUser.c' object='launchd-launchd_internalUser.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-launchd_internalUser.Po' tmpdepfile='$(DEPDIR)/launchd-launchd_internalUser.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_internalUser.obj `cygpath -w launchd_internalUser.c`
+
+launchd-launchd_internalServer.o: launchd_internalServer.c
+@AMDEP_TRUE@	source='launchd_internalServer.c' object='launchd-launchd_internalServer.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-launchd_internalServer.Po' tmpdepfile='$(DEPDIR)/launchd-launchd_internalServer.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_internalServer.o `test -f 'launchd_internalServer.c' || echo '$(srcdir)/'`launchd_internalServer.c
+
+launchd-launchd_internalServer.obj: launchd_internalServer.c
+@AMDEP_TRUE@	source='launchd_internalServer.c' object='launchd-launchd_internalServer.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-launchd_internalServer.Po' tmpdepfile='$(DEPDIR)/launchd-launchd_internalServer.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_internalServer.obj `cygpath -w launchd_internalServer.c`
 CCDEPMODE = @CCDEPMODE@
 uninstall-info-am:
 
@@ -884,12 +916,15 @@ bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/boots
 @LIBS_ONLY_TRUE@	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
-@LIBS_ONLY_FALSE@launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h
+@LIBS_ONLY_FALSE@launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h launchd_internal.h
 @LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h
-@LIBS_ONLY_FALSE@launchd.c:: bootstrap.h
+@LIBS_ONLY_FALSE@launchd.c:: bootstrap.h launchd_internalServer.h launchd_internal.h notifyServer.h bootstrapServer.h
 
 @LIBS_ONLY_FALSE@notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
+
+@LIBS_ONLY_FALSE@launchd_internal.h launchd_internalServer.c launchd_internalUser.c launchd_internalServer.h: $(srcdir)/launchd_internal.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader launchd_internalServer.h $(srcdir)/launchd_internal.defs
 
 @LIBS_ONLY_FALSE@$(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
 @LIBS_ONLY_FALSE@	mkdir -p $@

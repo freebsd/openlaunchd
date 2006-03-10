@@ -235,7 +235,6 @@ static bool job_keepalive(struct jobcb *j);
 static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
 static bool job_setup_machport(struct jobcb *j);
-static void job_handle_bs_port(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static pid_t job_fork(struct jobcb *j);
 static void job_setup_env_from_other_jobs(struct jobcb *j);
@@ -271,7 +270,7 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 static int dir_has_files(const char *path);
 static char **mach_cmd2argv(const char *string);
 struct jobcb *root_job = NULL;
-struct jobcb *current_rpc_job = NULL;
+struct jobcb *gc_this_job = NULL;
 size_t total_children = 0;
 
 void
@@ -294,7 +293,7 @@ job_ignore(struct jobcb *j)
 		watchpath_ignore(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		launchd_assumes(launchd_mport_request_callback(ms->port, NULL) == KERN_SUCCESS);
+		launchd_assumes(launchd_mport_request_callback(ms->port, NULL, false) == KERN_SUCCESS);
 }
 
 void
@@ -311,7 +310,7 @@ job_watch(struct jobcb *j)
 		watchpath_watch(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		launchd_assumes(launchd_mport_request_callback(ms->port, j) == KERN_SUCCESS);
+		launchd_assumes(launchd_mport_request_callback(ms->port, j, false) == KERN_SUCCESS);
 }
 
 void
@@ -570,7 +569,7 @@ job_setup_machport(struct jobcb *j)
 	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
 		goto out_bad;
 
-	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j) == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
 		goto out_bad2;
 
 	return true;
@@ -1325,11 +1324,7 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_MACHPORT:
-		if (j->bs_port == kev->ident) {
-			job_handle_bs_port(j);
-		} else {
-			job_start(j);
-		}
+		job_start(j);
 		break;
 	default:
 		launchd_assumes(false);
@@ -2349,37 +2344,6 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	}
 }
 
-/*
- * server_loop -- pick requests off our service port and process them
- * Also handles notifications
- */
-union bootstrapMaxRequestSize {
-	union __RequestUnion__x_bootstrap_subsystem req;
-	union __ReplyUnion__x_bootstrap_subsystem rep;
-};
-
-void
-job_handle_bs_port(struct jobcb *j)
-{
-	mach_msg_return_t mresult;
-	mach_msg_size_t mxmsgsz = sizeof(union bootstrapMaxRequestSize) + MAX_TRAILER_SIZE;
-
-	current_rpc_job = j;
-
-	mresult = mach_msg_server_once(launchd_mach_ipc_demux, mxmsgsz, j->bs_port,
-			MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT)|MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
-
-	current_rpc_job = NULL;
-
-	if (!launchd_assumes(mresult == MACH_MSG_SUCCESS)) {
-		job_log(j, LOG_ERR, "mach_msg_server_once(): %s", mach_error_string(mresult));
-	}
-
-	if (j->transfer_bstrap) {
-		job_remove(j);
-	}
-}
-
 struct jobcb *
 job_parent(struct jobcb *j)
 {
@@ -2434,7 +2398,7 @@ job_new_bootstrap(struct jobcb *p, mach_port_t requestorport, mach_port_t checki
 
 	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
-	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j) == KERN_SUCCESS))
+	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
 		goto out_bad;
 
 	if (p) {
@@ -2701,6 +2665,7 @@ mach_port_t
 job_get_reqport(struct jobcb *j)
 {
 	j->transfer_bstrap = true;
+	gc_this_job = j;
 
 	return j->req_port;
 }

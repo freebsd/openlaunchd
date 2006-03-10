@@ -56,6 +56,8 @@ extern sigset_t blocked_signals;
 extern bool shutdown_in_progress;
 extern bool network_up;
 extern int batch_disabler_count;
+extern mach_port_t launchd_internal_port;
+extern mach_port_t ipc_port_set;
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 extern int pid1_child_exit_status;
@@ -76,7 +78,7 @@ kern_return_t launchd_set_bport(mach_port_t name);
 kern_return_t launchd_get_bport(mach_port_t *name);
 kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
 kern_return_t launchd_mport_notify_cancel(mach_port_t name, mach_msg_id_t which);
-kern_return_t launchd_mport_request_callback(mach_port_t name, void *obj);
+kern_return_t launchd_mport_request_callback(mach_port_t name, void *obj, bool readmsg);
 kern_return_t launchd_mport_create_recv(mach_port_t *name);
 kern_return_t launchd_mport_deallocate(mach_port_t name);
 kern_return_t launchd_mport_make_send(mach_port_t name);
