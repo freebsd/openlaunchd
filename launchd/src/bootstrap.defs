@@ -34,10 +34,6 @@ subsystem bootstrap 400;
 import "bootstrap_public.h";
 import "bootstrap_private.h";
 
-/* MIG isn't very well documented. A coworker promises me that MIG promises
- * that a "c_string" will be NULL terminated on the server side in the event that a
- * client passed in a string longer than size specified here.
- */
 type pid_t			= integer_t;
 type cmd_t			= c_string[512];
 type cmd_array_t		= ^array [] of cmd_t;
