@@ -26,10 +26,16 @@
 
 #include "bootstrap_public.h"
 #include "bootstrap_private.h"
+#include "launch.h"
+#include "launch_priv.h"
 
 #define mig_external static
 #include "bootstrap.h"
 #include "bootstrapUser.c"
+
+#include <sys/param.h>
+#include <stdlib.h>
+#include <errno.h>
 
 kern_return_t
 _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
@@ -37,6 +43,83 @@ _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt)
 {
 	return raw_bootstrap_transfer_subset(bp, reqport, rcvright, service_names, service_namesCnt, ports, portCnt);
+}
+
+pid_t
+_spawn_via_launchd(const char *label, const char *const *argv, const struct spawn_via_launchd_attr *spawn_attrs, int struct_version)
+{
+	kern_return_t kr;
+	const char *const *tmpp;
+	size_t len, buf_len = strlen(label) + 1;
+	char *buf = strdup(label);
+	uint64_t flags = 0;
+	uint32_t argc = 0;
+	uint32_t envc = 0;
+	pid_t p = -1;
+	mode_t u_mask = CMASK;
+
+	for (tmpp = argv; *tmpp; tmpp++) {
+		argc++;
+		len = strlen(*tmpp) + 1;
+		buf = reallocf(buf, buf_len + len);
+		strcpy(buf + buf_len, *tmpp);
+		buf_len += len;
+	}
+
+	if (spawn_attrs) switch (struct_version) {
+	case 0:
+		if (spawn_attrs->spawn_env) {
+			for (tmpp = spawn_attrs->spawn_env; *tmpp; tmpp++) {
+				envc++;
+				len = strlen(*tmpp) + 1;
+				buf = reallocf(buf, buf_len + len);
+				strcpy(buf + buf_len, *tmpp);
+				buf_len += len;
+			}
+		}
+
+		if (spawn_attrs->spawn_path) {
+			flags |= SPAWN_HAS_PATH;
+			len = strlen(spawn_attrs->spawn_path) + 1;
+			buf = reallocf(buf, buf_len + len);
+			strcpy(buf + buf_len, spawn_attrs->spawn_path);
+			buf_len += len;
+		}
+
+		if (spawn_attrs->spawn_chdir) {
+			flags |= SPAWN_HAS_WDIR;
+			len = strlen(spawn_attrs->spawn_chdir) + 1;
+			buf = reallocf(buf, buf_len + len);
+			strcpy(buf + buf_len, spawn_attrs->spawn_chdir);
+			buf_len += len;
+		}
+
+		if (spawn_attrs->spawn_umask) {
+			flags |= SPAWN_HAS_UMASK;
+			u_mask = *spawn_attrs->spawn_umask;
+		}
+
+		break;
+	default:
+		break;
+	}
+
+	kr = raw_bootstrap_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, &p);
+
+	free(buf);
+
+	if (kr == BOOTSTRAP_SUCCESS)
+		return p;
+
+	switch (kr) {
+	case BOOTSTRAP_NOT_PRIVILEGED:
+		errno = EPERM; break;
+	case BOOTSTRAP_NO_MEMORY:
+		errno = ENOMEM; break;
+	default:
+		errno = EINVAL; break;
+	}
+	return -1;
 }
 
 kern_return_t

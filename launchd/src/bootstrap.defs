@@ -32,15 +32,18 @@ subsystem bootstrap 400;
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
 import "bootstrap_public.h";
+import "bootstrap_private.h";
 
 /* MIG isn't very well documented. A coworker promises me that MIG promises
  * that a "c_string" will be NULL terminated on the server side in the event that a
  * client passed in a string longer than size specified here.
  */
+type pid_t			= integer_t;
 type cmd_t			= c_string[512];
-type name_t			= c_string[128];
 type cmd_array_t		= ^array [] of cmd_t;
+type name_t			= c_string[128];
 type name_array_t		= ^array [] of name_t;
+type _internal_string_t		= ^array [] of char;
 type bootstrap_status_t		= integer_t;
 type bootstrap_status_array_t	= ^array [] of bootstrap_status_t;
 
@@ -110,3 +113,13 @@ routine bootstrap_transfer_subset(
 routine bootstrap_getsocket(
 		__bs_port	: mach_port_t;
 	out	__sockpath	: name_t);
+
+routine bootstrap_spawn(
+		__bs_port	: mach_port_t;
+	ServerAuditToken	__token	: audit_token_t;
+		__chars		: _internal_string_t;
+		__argc		: uint32_t;
+		__envc		: uint32_t;
+		__flags		: uint64_t;
+		__umask		: uint16_t;
+	out	__pid		: pid_t);

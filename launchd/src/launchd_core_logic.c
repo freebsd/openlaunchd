@@ -74,6 +74,7 @@
 #include "launchd.h"
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
+#include "bootstrap_private.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
 
@@ -622,6 +623,45 @@ out_bad:
 	if (j)
 		job_remove(j);
 	return NULL;
+}
+
+struct jobcb *
+job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask)
+{
+	struct jobcb *jr;
+
+	if ((jr = job_find(root_job, label)) != NULL) {
+		errno = EEXIST;
+		return NULL;
+	}
+
+	jr = job_new(root_job, label, path, argv, NULL, MACH_PORT_NULL);
+
+	if (!jr)
+		return NULL;
+
+	if (workingdir)
+		jr->workingdir = strdup(workingdir);
+
+	if (u_mask) {
+		jr->mask = *u_mask;
+		jr->setmask = true;
+	}
+
+	if (env) for (; *env; env++) {
+		char newkey[strlen(*env) + 1], *eqoff = strchr(*env, '=');
+		if (!eqoff) {
+			job_log(jr, LOG_WARNING, "Environmental variable missing '=' separator: %s", *env);
+			continue;
+		}
+		strcpy(newkey, *env);
+		*eqoff = '\0';
+		envitem_new(jr, newkey, eqoff + 1, false);
+	}
+
+	job_start(jr);
+
+	return jr;
 }
 
 struct jobcb *
@@ -2681,6 +2721,12 @@ job_get_bs(struct jobcb *j)
 		return j->parent;
 
 	return NULL;
+}
+
+pid_t
+job_get_pid(struct jobcb *j)
+{
+	return j->p;
 }
 
 bool

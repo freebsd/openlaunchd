@@ -137,7 +137,7 @@ main(int argc, char *const *argv)
 	int *checkin_fds = NULL;
 	mach_port_t req_mport = MACH_PORT_NULL;
 	mach_port_t checkin_mport = MACH_PORT_NULL;
-	int ch, ker;
+	int ch, ker, logopts;
 
 	/* main() phase one: sanitize the process */
 
@@ -212,7 +212,13 @@ main(int argc, char *const *argv)
 	if (dflag)
 		launchd_assumes(daemon(0, 0) == 0);
 
-	openlog(getprogname(), LOG_CONS|(getpid() != 1 ? LOG_PID|LOG_PERROR : 0), LOG_LAUNCHD);
+	logopts = LOG_CONS;
+	if (getpid() != 1)
+		logopts |= LOG_PID;
+	if (Dflag)
+		logopts |= LOG_PERROR;
+
+	openlog(getprogname(), logopts, LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(Dflag ? LOG_DEBUG : LOG_NOTICE));
 
 	launchd_assert((mainkq = kqueue()) != -1);

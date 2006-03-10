@@ -82,4 +82,21 @@ pid_t create_and_switch_to_per_session_launchd(const char *login, int flags, ...
 void launchd_batch_enable(bool);
 bool launchd_batch_query(void);
 
+/* For CoreProcesses
+ */
+
+struct spawn_via_launchd_attr {
+	const char *		spawn_path;
+	const char *		spawn_chdir;
+ 	const char *const *	spawn_env;
+ 	const mode_t *		spawn_umask;
+};
+
+#define spawn_via_launchd(a, b, c) _spawn_via_launchd(a, b, c, 0)
+pid_t _spawn_via_launchd(
+		const char *label,
+		const char *const *argv,
+		const struct spawn_via_launchd_attr *spawn_attrs,
+		int struct_version);
+
 #endif

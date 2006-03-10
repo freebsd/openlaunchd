@@ -66,6 +66,7 @@
 
 
 #include "bootstrap_public.h"
+#include "bootstrap_private.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
 #include "notifyServer.h"
@@ -396,6 +397,9 @@ x_bootstrap_create_server(mach_port_t bootstrapport, cmd_t server_cmd, uid_t ser
 	}
 
 	js = job_new_via_mach_init(j, server_cmd, server_uid, on_demand);
+
+	if (js == NULL)
+		return BOOTSTRAP_NO_MEMORY;
 
 	*server_portp = job_get_bsport(js);
 	return BOOTSTRAP_SUCCESS;
@@ -735,6 +739,77 @@ x_bootstrap_create_service(mach_port_t bootstrapport, name_t servicename, mach_p
 out_bad:
 	launchd_assumes(launchd_mport_close_recv(*serviceportp) == KERN_SUCCESS);
 	return BOOTSTRAP_NO_MEMORY;
+}
+
+kern_return_t
+x_bootstrap_spawn(mach_port_t bp, audit_token_t au_tok,
+		_internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
+		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask, pid_t *child_pid)
+{
+	struct jobcb *jr, *j = current_rpc_job;
+	struct ldcred ldc;
+	size_t offset = 0;
+	char *tmpp;
+	const char **argv = NULL, **env = NULL;
+	const char *label = NULL;
+	const char *path = NULL;
+	const char *workingdir = NULL;
+	size_t argv_i = 0, env_i = 0;
+
+	audit_token_to_launchd_cred(au_tok, &ldc);
+
+#if 0
+	if (ldc.asid != inherited_asid) {
+		job_log(j, LOG_ERR, "Security: PID %d (ASID %d) was denied a request to spawn a process in this session (ASID %d)",
+				ldc.pid, ldc.asid, inherited_asid);
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+#endif
+
+	argv = alloca((argc + 1) * sizeof(char *));
+	memset(argv, 0, (argc + 1) * sizeof(char *));
+
+	if (envc > 0) {
+		env = alloca((envc + 1) * sizeof(char *));
+		memset(env, 0, (envc + 1) * sizeof(char *));
+	}
+
+	while (offset < charbuf_cnt) {
+		tmpp = charbuf + offset;
+		offset += strlen(tmpp) + 1;
+		if (!label) {
+			label = tmpp;
+		} else if (argc > 0) {
+			argv[argv_i] = tmpp;
+			argv_i++;
+			argc--;
+		} else if (envc > 0) {
+			env[env_i] = tmpp;
+			env_i++;
+			envc--;
+		} else if (flags & SPAWN_HAS_PATH) {
+			path = tmpp;
+			flags &= ~SPAWN_HAS_PATH;
+		} else if (flags & SPAWN_HAS_WDIR) {
+			workingdir = tmpp;
+			flags &= ~SPAWN_HAS_WDIR;
+		}
+	}
+	
+	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL);
+
+	if (jr == NULL) switch (errno) {
+	case EEXIST:
+		return BOOTSTRAP_NAME_IN_USE;
+	default:
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	*child_pid = job_get_pid(jr);
+
+	job_log(j, LOG_INFO, "Spawned PID %d", *child_pid);
+
+	return BOOTSTRAP_SUCCESS;
 }
 
 kern_return_t
