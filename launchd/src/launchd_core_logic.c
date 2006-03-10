@@ -216,7 +216,7 @@ struct jobcb {
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
 		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, __pad:29;
+	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, __pad:28;
 	char label[0];
 };
 
@@ -638,6 +638,8 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 
 	if (!jr)
 		return NULL;
+
+	jr->unload_at_exit = true;
 
 	if (workingdir)
 		jr->workingdir = strdup(workingdir);
@@ -2093,7 +2095,10 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_useless(struct jobcb *j)
 {
-	if (shutdown_in_progress) {
+	if (j->unload_at_exit) {
+		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
+		return true;
+	} else if (shutdown_in_progress) {
 		job_log(j, LOG_INFO, "Exited while shutdown in progress.");
 		return true;
 	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
