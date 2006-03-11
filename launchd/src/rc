@@ -229,6 +229,11 @@ if [ -f /Library/Preferences/com.apple.sharing.firewall.plist ]; then
 	/usr/libexec/FirewallTool
 fi
 
+# Workaround a bug for now. Let the kextd team move forward on their Leopard work.
+if [ -f /System/Library/LaunchDaemons/com.apple.kextd.plist ]; then
+	launchctl load /System/Library/LaunchDaemons/com.apple.kextd.plist
+	sleep 10
+fi
 # Load [ideally on demand] daemons
 if [ "${SafeBoot}" = "-x" ]; then
 	launchctl load -D system /etc/mach_init.d
