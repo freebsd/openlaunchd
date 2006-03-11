@@ -693,6 +693,11 @@ x_bootstrap_create_service(mach_port_t bp, name_t servicename, mach_port_t *serv
 	struct jobcb *j = job_find_by_port(bp);
 	struct machservice *ms;
 
+	if (job_prog(j)[0] == '\0') {
+		job_log(j, LOG_ERR, "Mach service creation requires a target server: %s", servicename);
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
 	ms = job_lookup_service(j, servicename, false);
 	if (ms) {
 		job_log(j, LOG_DEBUG, "Mach service creation attempt for failed. Already exists: %s", servicename);
