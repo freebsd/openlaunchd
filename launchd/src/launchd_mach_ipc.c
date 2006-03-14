@@ -706,6 +706,7 @@ x_bootstrap_create_service(mach_port_t bp, name_t servicename, mach_port_t *serv
 
 	job_checkin(j);
 
+	*serviceportp = MACH_PORT_NULL;
 	ms = machservice_new(j, servicename, serviceportp);
 
 	if (!launchd_assumes(ms != NULL))
