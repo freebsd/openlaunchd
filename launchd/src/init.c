@@ -811,7 +811,7 @@ catatonia(void)
 }
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
-__private_extern__ bool init_check_pid(pid_t p)
+bool init_check_pid(pid_t p)
 {
 	struct kevent kev;
 	session_t s;
