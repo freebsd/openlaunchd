@@ -20,6 +20,9 @@
  * 
  * @APPLE_LICENSE_HEADER_END@
  */
+
+static const char *const __rcs_file_version__ = "$Revision: 1.60 $";
+
 #include <mach/mach.h>
 #include <mach/mach_error.h>
 #include <mach/boolean.h>

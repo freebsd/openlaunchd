@@ -34,7 +34,7 @@
  * Use launchd_assert() for core initialization routines.
  */
 #define launchd_assumes(e)	\
-	(__builtin_expect(!(e), 0) ? _log_launchd_bug(__FILE__, __LINE__, #e), false : true)
+	(__builtin_expect(!(e), 0) ? _log_launchd_bug(__rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
 #define launchd_blame(e, b)	\
 	(__builtin_expect(!(e), 0) ? syslog(LOG_DEBUG, "Encountered bug: %d", b), false : true)
@@ -96,7 +96,7 @@ void mach_init_reap(void);
 
 int _fd(int fd);
 
-void _log_launchd_bug(const char *path, unsigned int line, const char *test);
+void _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
 bool progeny_check(pid_t p);
 

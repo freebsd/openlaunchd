@@ -314,6 +314,6 @@ kern_return_t bootstrap_status(
  *
  * Translate a return value from the bootstrap_*() APIs to a string.
  */
-const char *bootstrap_strerror(kern_return_t r);
+const char *bootstrap_strerror(kern_return_t r) __attribute__((__nothrow__, __pure__, __warn_unused_result__));
 
 #endif

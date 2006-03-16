@@ -29,6 +29,8 @@
  * bootstrap.c -- implementation of bootstrap main service loop
  */
 
+static const char *const __rcs_file_version__ = "$Revision: 1.47 $";
+
 #include <mach/mach.h>
 #include <mach/mach_error.h>
 #include <mach/boolean.h>
@@ -55,15 +57,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <syslog.h>
-
-/* <rdar://problem/2685209> sys/queue.h is not up to date */
-#ifndef SLIST_FOREACH_SAFE
-#define	SLIST_FOREACH_SAFE(var, head, field, tvar)			\
-	for ((var) = SLIST_FIRST((head));				\
-		(var) && ((tvar) = SLIST_NEXT((var), field), 1);	\
-		(var) = (tvar))
-#endif
-
 
 #include "bootstrap_public.h"
 #include "bootstrap_private.h"

@@ -20,6 +20,9 @@
  * 
  * @APPLE_LICENSE_HEADER_END@
  */
+
+static const char *const __rcs_file_version__ = "$Revision: 1.208 $";
+
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
@@ -245,6 +248,8 @@ main(int argc, char *const *argv)
 
 	openlog(getprogname(), logopts, LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(Dflag ? LOG_DEBUG : LOG_NOTICE));
+
+	launchd_assumes(!"hello world");
 
 	launchd_assert((mainkq = kqueue()) != -1);
 
@@ -850,9 +855,12 @@ pfsystem_callback(void *obj, struct kevent *kev)
 }
 
 void
-_log_launchd_bug(const char *path, unsigned int line, const char *test)
+_log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test)
 {
+	int saved_errno = errno;
+	char buf[100];
 	const char *file = strrchr(path, '/');
+	char *rcs_rev_tmp = strchr(rcs_rev, ' ');
 
 	if (!file) {
 		file = path;
@@ -860,7 +868,16 @@ _log_launchd_bug(const char *path, unsigned int line, const char *test)
 		file += 1;
 	}
 
-	syslog(LOG_NOTICE, "Bug: %s:%u:%u: %s", file, line, errno, test);
+	if (!rcs_rev_tmp) {
+		strlcpy(buf, rcs_rev, sizeof(buf));
+	} else {
+		strlcpy(buf, rcs_rev_tmp + 1, sizeof(buf));
+		rcs_rev_tmp = strchr(buf, ' ');
+		if (rcs_rev_tmp)
+			*rcs_rev_tmp = '\0';
+	}
+
+	syslog(LOG_NOTICE, "Bug: %s@%u(%s):%u: %s", file, line, buf, saved_errno, test);
 }
 
 bool

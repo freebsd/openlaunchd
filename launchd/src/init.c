@@ -57,6 +57,8 @@
  * SUCH DAMAGE.
  */
 
+static const char *const __rcs_file_version__ = "$Revision: 1.34 $";
+
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
