@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.208 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.209 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -248,8 +248,6 @@ main(int argc, char *const *argv)
 
 	openlog(getprogname(), logopts, LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(Dflag ? LOG_DEBUG : LOG_NOTICE));
-
-	launchd_assumes(!"hello world");
 
 	launchd_assert((mainkq = kqueue()) != -1);
 
@@ -877,7 +875,7 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 			*rcs_rev_tmp = '\0';
 	}
 
-	syslog(LOG_NOTICE, "Bug: %s@%u(%s):%u: %s", file, line, buf, saved_errno, test);
+	syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
 }
 
 bool
