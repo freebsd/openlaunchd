@@ -194,25 +194,6 @@ if [ ! -f /System/Library/LaunchDaemons/com.apple.dynamic_pager.plist ]; then
 	/sbin/dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
 fi
 
-if [ ! -f /System/Library/LaunchDaemons/com.apple.kextd.plist ]; then
-	# Create mach symbol file
-	sysctl -n kern.symfile
-	if [ -f /mach.sym ]; then
-		ln -sf /mach.sym /mach
-	else
-		ln -sf /mach_kernel /mach
-	fi
-
-	if [ "${SafeBoot}" = "-x" ]; then
-		echo "Configuring kernel extensions for safe boot"
-		touch /private/tmp/.SafeBoot
-		kextd -x
-	else
-		echo "Configuring kernel extensions"
-		kextd
-	fi
-fi
-
 # Create local NetInfo database if it doesn't exist
 if [ ! -d /var/db/netinfo/local.nidb ]; then
 	echo "Creating local NetInfo database"
@@ -229,58 +210,53 @@ if [ -f /Library/Preferences/com.apple.sharing.firewall.plist ]; then
 	/usr/libexec/FirewallTool
 fi
 
-# Workaround a bug for now. Let the kextd team move forward on their Leopard work.
-if [ -f /System/Library/LaunchDaemons/com.apple.kextd.plist ]; then
-	launchctl load /System/Library/LaunchDaemons/com.apple.kextd.plist
-	sleep 10
-fi
+# Workaround 4476484
+launchctl load /System/Library/LaunchDaemons/com.apple.kextd.plist
+sleep 10
 # Load [ideally on demand] daemons
 if [ "${SafeBoot}" = "-x" ]; then
 	launchctl load -D system /etc/mach_init.d
 else
 	launchctl load -D all /etc/mach_init.d
 	BootCacheControl tag
-	SystemStarter ${VerboseFlag}
+	SystemStarter
 fi
 
 if [ ! -f /System/Library/LaunchDaemons/com.apple.update.plist  ]; then
 	/usr/sbin/update
 fi
 
-# Set language from CDIS.custom - assumes this is parse-able by sh
-if [ -f /var/log/CDIS.custom ]; then
-	. /var/log/CDIS.custom 
+if [ ! -f /System/Library/LaunchDaemons/com.apple.loginwindow.plist ]; then
+	# Set language from CDIS.custom - assumes this is parse-able by sh
+	if [ -f /var/log/CDIS.custom ]; then
+		. /var/log/CDIS.custom 
+	fi
+
+	# Start the Language Chooser. This code should be able to go away as far as I
+	# know once loginwindow becomes more dynamic.
+	STARTPBS="/System/Library/CoreServices/pbs"            # apps stall w/o
+	BUDDYCOOKIE="/var/db/.AppleSetupDone"
+	LCACOOKIE="/var/db/.RunLanguageChooserToo"
+	STARTLCA="/System/Library/CoreServices/Language Chooser.app/Contents/MacOS/Language Chooser"
+
+	if [ -x "$STARTLCA" -a -x "$STARTPBS" -a ! -f "$BUDDYCOOKIE" -a -f "$LCACOOKIE" ]; then
+		"$STARTPBS" &
+		pbspid=$!
+		"$STARTLCA"
+		kill $pbspid    # XSelect does this independently
+	fi
+
+	if [ ! -s "/var/log/CDIS.custom" ]; then
+		echo "Language Chooser seems to have failed; defaulting to English"
+		echo "LANGUAGE=English" > "/var/log/CDIS.custom"
+	fi
+
+	touch /var/run/.systemStarterRunning
+	launchctl reloadttys
 fi
-
-# Start the Language Chooser. This code should be able to go away as far as I
-# know once loginwindow becomes more dynamic.
-STARTPBS="/System/Library/CoreServices/pbs"            # apps stall w/o
-BUDDYCOOKIE="/var/db/.AppleSetupDone"
-LCACOOKIE="/var/db/.RunLanguageChooserToo"
-STARTLCA="/System/Library/CoreServices/Language Chooser.app/Contents/MacOS/Language Chooser"
-
-if [ -x "$STARTLCA" -a -x "$STARTPBS" -a ! -f "$BUDDYCOOKIE" -a -f "$LCACOOKIE" ]; then
-	"$STARTPBS" &
-	pbspid=$!
-	"$STARTLCA"
-	kill $pbspid    # XSelect does this independently
-fi
-
-if [ ! -s "/var/log/CDIS.custom" ]; then
-	echo "Language Chooser seems to have failed; defaulting to English"
-	echo "LANGUAGE=English" > "/var/log/CDIS.custom"
-fi
-
-export LANGUAGE
 
 if [ -f /etc/rc.local ]; then
 	sh /etc/rc.local
-fi
-
-touch /var/run/.systemStarterRunning
-
-if [ ! -f /System/Library/LaunchDaemons/com.apple.loginwindow.plist ]; then
-	launchctl reloadttys
 fi
 
 exit 0
