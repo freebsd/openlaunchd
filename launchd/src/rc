@@ -213,6 +213,7 @@ fi
 # Workaround 4476484
 launchctl load /System/Library/LaunchDaemons/com.apple.kextd.plist
 sleep 10
+touch /var/run/.systemStarterRunning
 # Load [ideally on demand] daemons
 if [ "${SafeBoot}" = "-x" ]; then
 	launchctl load -D system /etc/mach_init.d
@@ -251,7 +252,6 @@ if [ ! -f /System/Library/LaunchDaemons/com.apple.loginwindow.plist ]; then
 		echo "LANGUAGE=English" > "/var/log/CDIS.custom"
 	fi
 
-	touch /var/run/.systemStarterRunning
 	launchctl reloadttys
 fi
 
