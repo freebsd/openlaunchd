@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.60 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.61 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -628,7 +628,7 @@ out_bad:
 }
 
 struct jobcb *
-job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask)
+job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d)
 {
 	struct jobcb *jr;
 
@@ -643,6 +643,7 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 		return NULL;
 
 	jr->unload_at_exit = true;
+	jr->wait4debugger = w4d;
 
 	if (workingdir)
 		jr->workingdir = strdup(workingdir);

@@ -29,7 +29,7 @@
  * bootstrap.c -- implementation of bootstrap main service loop
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.47 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.48 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -767,7 +767,7 @@ x_bootstrap_spawn(mach_port_t bp, audit_token_t au_tok,
 		}
 	}
 	
-	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL);
+	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL, flags & SPAWN_WANTS_WAIT4DEBUGGER);
 
 	if (jr == NULL) switch (errno) {
 	case EEXIST:

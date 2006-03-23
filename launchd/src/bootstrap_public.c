@@ -68,6 +68,10 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 
 	if (spawn_attrs) switch (struct_version) {
 	case 0:
+		if (spawn_attrs->spawn_flags & SPAWN_VIA_LAUNCHD_STOPPED) {
+			flags |= SPAWN_WANTS_WAIT4DEBUGGER;
+		}
+
 		if (spawn_attrs->spawn_env) {
 			for (tmpp = spawn_attrs->spawn_env; *tmpp; tmpp++) {
 				envc++;

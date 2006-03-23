@@ -24,8 +24,11 @@
 #define _LAUNCH_H_
 
 #include <mach/mach.h>
+#include <sys/cdefs.h>
 #include <stddef.h>
 #include <stdbool.h>
+
+__BEGIN_DECLS
 
 #ifdef __GNUC__
 #define __ld_normal __attribute__((__nothrow__))
@@ -210,5 +213,7 @@ int launch_get_fd(void) __ld_normal;
  * no more asynchronous messages are available.
  */
 launch_data_t launch_msg(const launch_data_t) __ld_normal;
+
+__END_DECLS
 
 #endif

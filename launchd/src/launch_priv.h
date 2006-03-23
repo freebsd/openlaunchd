@@ -23,6 +23,10 @@
 #ifndef _LAUNCH_PRIV_H_
 #define _LAUNCH_PRIV_H_
 
+#include <launch.h>
+
+__BEGIN_DECLS
+
 #define LAUNCH_KEY_GETUSERENVIRONMENT	"GetUserEnvironment"
 #define LAUNCH_KEY_SETUSERENVIRONMENT	"SetUserEnvironment"
 #define LAUNCH_KEY_UNSETUSERENVIRONMENT	"UnsetUserEnvironment"
@@ -85,7 +89,10 @@ bool launchd_batch_query(void);
 /* For CoreProcesses
  */
 
+#define SPAWN_VIA_LAUNCHD_STOPPED	0x0001
+
 struct spawn_via_launchd_attr {
+	uint64_t		spawn_flags;
 	const char *		spawn_path;
 	const char *		spawn_chdir;
  	const char *const *	spawn_env;
@@ -98,5 +105,7 @@ pid_t _spawn_via_launchd(
 		const char *const *argv,
 		const struct spawn_via_launchd_attr *spawn_attrs,
 		int struct_version);
+
+__END_DECLS
 
 #endif

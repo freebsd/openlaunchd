@@ -50,7 +50,7 @@ struct jobcb *job_find_by_port(mach_port_t mp);
 struct jobcb *job_import(launch_data_t pload);
 launch_data_t job_import_bulk(launch_data_t pload);
 struct jobcb *job_new(struct jobcb *p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t);
-struct jobcb *job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask);
+struct jobcb *job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
 struct jobcb *job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond);
 struct jobcb *job_new_bootstrap(struct jobcb *p, mach_port_t requestorport, mach_port_t checkin_port);
 launch_data_t job_export(struct jobcb *j);
