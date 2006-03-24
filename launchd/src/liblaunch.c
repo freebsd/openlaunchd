@@ -182,7 +182,7 @@ launch_client_init(void)
 		memset(&sun, 0, sizeof(sun));
 		sun.sun_family = AF_UNIX;
 		
-		if (where) {
+		if (where && where[0] != '\0') {
 			strncpy(sun.sun_path, where, sizeof(sun.sun_path));
 		} else if (getuid() == 0) {
 			strncpy(sun.sun_path, LAUNCHD_SOCK_PREFIX "/sock", sizeof(sun.sun_path));
