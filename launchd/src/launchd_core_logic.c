@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.61 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.62 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -2235,7 +2235,7 @@ job_fork(struct jobcb *j)
 	} else if (r == 0) {
 		size_t i;
 
-		for (i = 0; i <= NSIG; i++) {
+		for (i = 0; i < NSIG; i++) {
 			if (sigismember(&blocked_signals, i))
 				signal(i, SIG_DFL);
 		}
