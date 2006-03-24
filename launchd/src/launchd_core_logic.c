@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.62 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.63 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -240,7 +240,9 @@ static void job_setup_attributes(struct jobcb *j);
 static bool job_setup_machport(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static pid_t job_fork(struct jobcb *j);
+static size_t job_prep_log_preface(struct jobcb *j, char *buf);
 static void job_setup_env_from_other_jobs(struct jobcb *j);
+static void job_export_all2(struct jobcb *j, launch_data_t where);
 static launch_data_t job_export2(struct jobcb *j, bool subjobs);
 
 
@@ -1176,7 +1178,7 @@ job_find_by_pid(struct jobcb *j, pid_t p)
 	return NULL;
 }
 
-static void
+void
 job_export_all2(struct jobcb *j, launch_data_t where)
 {
 	launch_data_t tmp;
@@ -1693,7 +1695,7 @@ calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci)
 	}
 }
 
-static size_t
+size_t
 job_prep_log_preface(struct jobcb *j, char *buf)
 {
 	size_t r = 0;
@@ -2211,7 +2213,8 @@ job_active(struct jobcb *j)
 	return false;
 }
 
-pid_t launchd_fork(void)
+pid_t
+launchd_fork(void)
 {
 	return job_fork(root_job);
 }
@@ -2304,7 +2307,7 @@ machservice_status(struct machservice *ms)
 	}
 }
 
-static void
+void
 machservice_setup_options(launch_data_t obj, const char *key, void *context)
 {
 	struct machservice *ms = context;
@@ -2549,7 +2552,8 @@ machservice_watch(struct machservice *ms)
 
 #ifdef PID1_REAP_ADOPTED_CHILDREN
 
-bool job_reap_pid(struct jobcb *j, pid_t p)
+bool
+job_reap_pid(struct jobcb *j, pid_t p)
 {
 	struct jobcb *ji;
 	struct kevent kev;
