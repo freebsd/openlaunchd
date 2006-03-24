@@ -94,12 +94,12 @@ This optional key specifies the user to run the job as. The default is the user 
 This optional key specifies the user to run the job as. The default is the group of the user who submitted the job to
 .Nm launchd .
 .It Sy inetdCompatibility <dictionary>
-The presence of this key specifies that the daemon expects to be run as if it were launched from
-.Xr inetd 8 .
+The presence of this key specifies that the daemon expects to be run as if it were launched from inetd.
 .Bl -ohang -offset indent
 .It Sy Wait <boolean>
-This flag corresponds to the "wait" or "nowait" option of
-.Xr inetd 8 .
+This flag corresponds to the "wait" or "nowait" option of inetd. If true, then the listening socket is passed via the standard in/out/error file descriptors. If false, then
+.Xr accept 2
+is called on behalf of the job, and the result is passed via the standard in/out/error descriptors.
 .El
 .It Sy LimitLoadToHosts <array of strings>
 This configuration file only applies to the hosts listed with this key.
