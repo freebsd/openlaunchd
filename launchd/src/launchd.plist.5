@@ -169,7 +169,7 @@ This optional key specifies what value should be passed to
 .Xr umask 2
 before running the job. Known bug: Property lists don't support octal, so please convert the value to decimal.
 .It Sy TimeOut <integer>
-The recommended time out to pass to the job. If no value is specified, a default time out will be supplied by
+The recommended time out (in seconds) to pass to the job. If no value is specified, a default time out will be supplied by
 .Nm launchd
 for use by the job at check in time.
 .It Sy InitGroups <boolean>
