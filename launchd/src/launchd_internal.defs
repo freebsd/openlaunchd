@@ -34,5 +34,4 @@ routine handle_kqueue(
 		__fd	: integer_t);
 
 routine handle_mport(
-		__port	: mach_port_t;
-		__mport	: integer_t);
+		__port	: mach_port_t);

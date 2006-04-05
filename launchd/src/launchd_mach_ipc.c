@@ -29,7 +29,7 @@
  * bootstrap.c -- implementation of bootstrap main service loop
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.48 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.49 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -101,12 +101,34 @@ job_find_by_port(mach_port_t mp)
 }
 
 kern_return_t
-x_handle_mport(mach_port_t junk __attribute__((unused)), integer_t mport)
+x_handle_mport(mach_port_t junk __attribute__((unused)))
 {
+	mach_port_name_array_t members;
+	mach_msg_type_number_t membersCnt;
+	mach_port_status_t status;
+	mach_msg_type_number_t statusCnt;
 	struct kevent kev;
+	unsigned int i;
 
-	EV_SET(&kev, mport, EVFILT_MACHPORT, 0, 0, 0, job_find_by_port(mport));
-	(*((kq_callback *)kev.udata))(kev.udata, &kev);
+	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
+		return 1; 
+
+	for (i = 0; i < membersCnt; i++) {
+		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
+		if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
+					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
+			continue;
+
+		if (status.mps_msgcount) {
+			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, job_find_by_port(members[i]));
+			(*((kq_callback *)kev.udata))(kev.udata, &kev);
+			/* the callback may have tainted our ability to continue this for loop */
+			break;
+		}
+	}
+
+	launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
+				(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
 
 	return 0;
 }
@@ -176,12 +198,7 @@ void *
 mport_demand_loop(void *arg __attribute__((unused)))
 {
 	mach_msg_empty_rcv_t dummy;
-	mach_port_name_array_t members;
-	mach_msg_type_number_t membersCnt;
-	mach_port_status_t status;
-	mach_msg_type_number_t statusCnt;
 	kern_return_t kr;
-	unsigned int i;
 
 	for (;;) {
 		kr = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
@@ -190,25 +207,7 @@ mport_demand_loop(void *arg __attribute__((unused)))
 		} else if (!launchd_assumes(kr == MACH_RCV_TOO_LARGE)) {
 			continue;
 		}
-
-		if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
-			continue;
-
-		for (i = 0; i < membersCnt; i++) {
-			statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-			if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
-						(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
-				continue;
-
-			if (status.mps_msgcount) {
-				launchd_assumes(handle_mport(launchd_internal_port, members[i]) == 0);
-				/* the callback may have tainted our ability to continue this for loop */
-				break;
-			}
-		}
-
-		launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
-					(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
+		launchd_assumes(handle_mport(launchd_internal_port) == 0);
 	}
 
 	return NULL;
