@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.63 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.64 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -98,6 +98,7 @@ struct machservice {
 };
 
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
+static void machservice_setup_options(launch_data_t obj, const char *key, void *context);
 static void machservice_resetport(struct jobcb *j, struct machservice *ms);
 
 
