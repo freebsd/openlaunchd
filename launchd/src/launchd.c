@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.209 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.210 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -92,7 +92,6 @@ static boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_hea
 #define LAUNCHD_CONF ".launchd.conf"
 #define LAUNCHCTL_PATH "/bin/launchctl"
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
-#define VOLFSDIR "/.vol"
 
 extern char **environ;
 
@@ -586,11 +585,6 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 void
 fs_callback(void)
 {
-	static bool mounted_volfs = false;
-
-	if (1 != getpid())
-		mounted_volfs = true;
-
 	if (pending_stdout) {
 		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY|O_NOCTTY, DEFFILEMODE);
 		if (fd != -1) {
@@ -607,21 +601,6 @@ fs_callback(void)
 			launchd_assumes(close(fd) == 0);
 			free(pending_stderr);
 			pending_stderr = NULL;
-		}
-	}
-
-	if (!mounted_volfs) {
-		int r = mount("volfs", VOLFSDIR, MNT_RDONLY, NULL);
-
-		if (-1 == r && errno == ENOENT) {
-			mkdir(VOLFSDIR, ACCESSPERMS & ~(S_IWUSR|S_IWGRP|S_IWOTH));
-			r = mount("volfs", VOLFSDIR, MNT_RDONLY, NULL);
-		}
-
-		if (-1 == r) {
-			syslog(LOG_WARNING, "mount(\"%s\", \"%s\", ...): %m", "volfs", VOLFSDIR);
-		} else {
-			mounted_volfs = true;
 		}
 	}
 
