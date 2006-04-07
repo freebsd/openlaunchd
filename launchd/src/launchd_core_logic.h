@@ -62,9 +62,6 @@ void job_stop(struct jobcb *j);
 bool job_active(struct jobcb *j);
 void job_checkin(struct jobcb *j);
 const char *job_prog(struct jobcb *j);
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-bool job_reap_pid(struct jobcb *j, pid_t p);
-#endif
 void job_remove(struct jobcb *j);
 void job_remove_all_inactive(struct jobcb *j);
 bool job_ack_port_destruction(struct jobcb *j, mach_port_t p);

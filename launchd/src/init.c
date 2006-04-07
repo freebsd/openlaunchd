@@ -57,7 +57,7 @@
  * SUCH DAMAGE.
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.34 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.35 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -354,21 +354,10 @@ single_user(void)
 static void
 single_user_callback(void *obj __attribute__((unused)), struct kevent *kev __attribute__((unused)))
 {
-	int status, r = single_user_pid;
+	int status;
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-	status = pid1_child_exit_status;
-#else
-	r = waitpid(single_user_pid, &status, 0);
-#endif
-
-	if (r != single_user_pid) {
-		if (r == -1)
-			syslog(LOG_ERR, "single_user_callback(): waitpid(): %m");
-		if (r == 0)
-			syslog(LOG_ERR, "single_user_callback(): waitpid() returned 0");
+	if (!launchd_assumes(waitpid(single_user_pid, &status, 0) == single_user_pid))
 		return;
-	}
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
 		syslog(LOG_INFO, "single user shell terminated, restarting");
@@ -453,7 +442,6 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 	int status;
 	struct timeval runcom_end_tv, runcom_total_tv;
 	double sec;
-	pid_t r = runcom_pid;
 
 	gettimeofday(&runcom_end_tv, NULL);
 	timersub(&runcom_end_tv, &runcom_start_tv, &runcom_total_tv);
@@ -461,19 +449,9 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 	sec += (double)runcom_total_tv.tv_usec / (double)1000000;
 	syslog(LOG_INFO, "%s finished in: %.3f seconds", _PATH_RUNCOM, sec);
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-	status = pid1_child_exit_status;
-#else
-	r = waitpid(runcom_pid, &status, 0);
-#endif
-
-	if (r == runcom_pid) {
+	if (launchd_assumes(waitpid(runcom_pid, &status, 0) == runcom_pid)) {
 		runcom_pid = 0;
 	} else {
-		if (r == -1)
-			syslog(LOG_ERR, "waitpid() for '%s %s' failed: %m", _PATH_BSHELL, _PATH_RUNCOM);
-		if (r == 0)
-			syslog(LOG_ERR, "waitpid() for '%s %s' returned 0", _PATH_BSHELL, _PATH_RUNCOM);
 		syslog(LOG_ERR, "going to single user mode");
 		single_user_mode = true;
 		return;
@@ -714,40 +692,28 @@ session_callback(void *obj, struct kevent *kev __attribute__((unused)))
 static void
 session_reap(session_t s)
 {
-	pid_t pr = s->se_process;
 	char *line;
 	int status;
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-	status = pid1_child_exit_status;
-#else
-	pr = waitpid(s->se_process, &status, 0);
-#endif
+	if (!launchd_assumes(waitpid(s->se_process, &status, 0) == s->se_process))
+		return;
 
-	switch (pr) {
-	case -1:
-		syslog(LOG_ERR, "waitpid(): %m");
-		return;
-	case 0:
-		syslog(LOG_ERR, "waitpid() == 0");
-		return;
-	default:
-		if (WIFSIGNALED(status)) {
-			syslog(LOG_WARNING, "%s port %s exited abnormally: %s",
-					s->se_getty.path, s->se_device, strsignal(WTERMSIG(status)));
-			s->se_flags |= SE_ONERROR; 
-		} else if (WEXITSTATUS(status) == REALLY_EXIT_TO_CONSOLE) {
-			/* WIFEXITED(status) assumed */
-			s->se_flags |= SE_ONOPTION;
-		} else {
-			s->se_flags |= SE_ONERROR;
-		}       
-		s->se_process = 0;
-		line = s->se_device + sizeof(_PATH_DEV) - 1;
-		if (logout(line))
-			logwtmp(line, "", "");
-		break;
+	if (WIFSIGNALED(status)) {
+		syslog(LOG_WARNING, "%s port %s exited abnormally: %s",
+				s->se_getty.path, s->se_device, strsignal(WTERMSIG(status)));
+		s->se_flags |= SE_ONERROR; 
+	} else if (WEXITSTATUS(status) == REALLY_EXIT_TO_CONSOLE) {
+		/* WIFEXITED(status) assumed */
+		s->se_flags |= SE_ONOPTION;
+	} else {
+		s->se_flags |= SE_ONERROR;
 	}
+
+	s->se_process = 0;
+	line = s->se_device + sizeof(_PATH_DEV) - 1;
+
+	if (logout(line))
+		logwtmp(line, "", "");
 }
 
 /*
@@ -812,30 +778,23 @@ catatonia(void)
 		s->se_flags |= SE_SHUTDOWN;
 }
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
 bool init_check_pid(pid_t p)
 {
-	struct kevent kev;
 	session_t s;
 
 	TAILQ_FOREACH(s, &sessions, tqe) {
-		if (s->se_process == p) {
-			EV_SET(&kev, p, EVFILT_PROC, 0, 0, 0, s);
-			s->se_callback(s, &kev);
+		if (s->se_process == p)
 			return true;
-		}
 	}
-	if (single_user_pid == p) {
-		single_user_callback(NULL, NULL);
+
+	if (single_user_pid == p)
 		return true;
-	}
-	if (runcom_pid == p) {
-		runcom_callback(NULL, NULL);
+
+	if (runcom_pid == p)
 		return true;
-	}
+
 	return false;
 }
-#endif
 
 bool
 should_fsck(void)

@@ -41,8 +41,6 @@
 
 #define launchd_assert(e)	launchd_assumes(e) ? true : abort();
 
-#define PID1_REAP_ADOPTED_CHILDREN
-
 #define FIRSTBORN_LABEL "com.apple.launchd.firstborn"
 #define READCONF_LABEL "com.apple.launchd.readconfig"
 
@@ -59,10 +57,7 @@ extern int batch_disabler_count;
 extern mach_port_t launchd_internal_port;
 extern mach_port_t ipc_port_set;
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-extern int pid1_child_exit_status;
 bool init_check_pid(pid_t);
-#endif
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 void batch_job_enable(bool e, struct conncb *c);

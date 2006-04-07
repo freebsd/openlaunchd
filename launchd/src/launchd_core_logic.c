@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.64 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.65 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -1216,12 +1216,7 @@ job_reap(struct jobcb *j)
 		j->execfd = 0;
 	}
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-	if (getpid() == 1)
-		status = pid1_child_exit_status;
-	else
-#endif
-	if (-1 == waitpid(j->p, &status, 0)) {
+	if (waitpid(j->p, &status, 0) == -1) {
 		job_log_error(j, LOG_ERR, "waitpid(%d, ...)", j->p);
 		return;
 	}
@@ -2550,35 +2545,6 @@ machservice_watch(struct machservice *ms)
 
 	launchd_assumes(launchd_mport_notify_req(ms->port, which) == KERN_SUCCESS);
 }
-
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-
-bool
-job_reap_pid(struct jobcb *j, pid_t p)
-{
-	struct jobcb *ji;
-	struct kevent kev;
-
-	if (j->p == p) {
-		if (WIFSTOPPED(pid1_child_exit_status) || WIFCONTINUED(pid1_child_exit_status)) {
-			int s = WSTOPSIG(pid1_child_exit_status);
-			job_log(j, LOG_DEBUG, "Received signal: %s", strsignal(s));
-			return true;
-		}
-		EV_SET(&kev, p, EVFILT_PROC, 0, NOTE_EXIT, 0, j);
-		j->kqjob_callback(j, &kev);
-		return true;
-	}
-
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (job_reap_pid(ji, p))
-			return true;
-	}
-
-	return false;
-}
-
-#endif
 
 #define NELEM(x)                (sizeof(x)/sizeof(x[0]))
 #define END_OF(x)               (&(x)[NELEM(x)])

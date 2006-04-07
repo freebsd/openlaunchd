@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.210 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.211 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -107,15 +107,13 @@ static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqppidexit_callback = (kq_callback)ppidexit_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-static void pid1waitpid(void);
-#endif
 static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
 
 static void usage(FILE *where);
 
 static void loopback_setup(void);
 static void workaround3048875(int argc, char *const *argv);
+static void workaround3632556(void);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
@@ -359,8 +357,8 @@ kqueue_demand_loop(void *arg __attribute__(()))
 	for (;;) {
 		FD_ZERO(&rfds);
 		FD_SET(mainkq, &rfds);
-		launchd_assumes(select(mainkq + 1, &rfds, NULL, NULL, NULL) == 1);
-		launchd_assumes(handle_kqueue(launchd_internal_port, mainkq) == 0);
+		if (launchd_assumes(select(mainkq + 1, &rfds, NULL, NULL, NULL) == 1))
+			launchd_assumes(handle_kqueue(launchd_internal_port, mainkq) == 0);
 	}
 
 	return NULL;
@@ -488,10 +486,6 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 		return -1;
 	}
 
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-		if (filter == EVFILT_PROC && getpid() == 1)
-			return 0;
-#endif
 	EV_SET(&kev, ident, filter, flags, fflags, data, udata);
 	return kevent(q, &kev, 1, NULL, 0, NULL);
 }
@@ -503,19 +497,6 @@ _fd(int fd)
 		fcntl(fd, F_SETFD, 1);
 	return fd;
 }
-
-#ifdef PID1_REAP_ADOPTED_CHILDREN
-int pid1_child_exit_status = 0;
-
-void
-pid1waitpid(void)
-{
-	pid_t p;
-
-	while ((p = waitpid(-1, &pid1_child_exit_status, WNOHANG)) > 0)
-		launchd_blame(job_reap_pid(root_job, p) || init_check_pid(p), 3632556);
-}
-#endif
 
 void
 ppidexit_callback(void)
@@ -570,13 +551,9 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	case SIGTERM:
 		launchd_shutdown();
 		break;
-#ifdef PID1_REAP_ADOPTED_CHILDREN
 	case SIGCHLD:
-		/* <rdar://problem/3632556> Please automatically reap processes reparented to PID 1 */
-		if (getpid() == 1) 
-			pid1waitpid();
+		workaround3632556();
 		break;
-#endif
 	default:
 		break;
 	} 
@@ -662,6 +639,49 @@ loopback_setup(void)
  
 	launchd_assumes(close(s) == 0);
 	launchd_assumes(close(s6) == 0);
+}
+
+void
+workaround3632556(void)
+{
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
+	size_t miblen = sizeof(mib) / sizeof(mib[0]);
+	struct kinfo_proc *kp = NULL;
+	size_t i, kplen = 0;
+	int wstatus;
+	pid_t p;
+
+	if (getpid() != 1)
+		return;
+
+	if (!launchd_assumes(sysctl(mib, miblen, kp, &kplen, NULL, 0) != -1))
+		return;
+
+	kplen *= 2;
+
+	if (!launchd_assumes((kp = malloc(kplen)) != NULL))
+		return;
+
+	if (!launchd_assumes(sysctl(mib, miblen, kp, &kplen, NULL, 0) != -1))
+		goto out;
+
+	for (i = 0; ((size_t)&kp[i] - (size_t)kp) < kplen; i++) {
+		p = kp[i].kp_proc.p_pid;
+
+		if (kp[i].kp_eproc.e_ppid != 1)
+			continue;
+		if (kp[i].kp_proc.p_stat != SZOMB)
+			continue;
+		if (job_find_by_pid(root_job, p))
+			continue;
+		if (init_check_pid(p))
+			continue;
+
+		launchd_assumes(waitpid(p, &wstatus, 0) != -1);
+	}
+
+out:
+	free(kp);
 }
 
 void
