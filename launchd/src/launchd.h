@@ -79,7 +79,7 @@ kern_return_t launchd_mport_deallocate(mach_port_t name);
 kern_return_t launchd_mport_make_send(mach_port_t name);
 kern_return_t launchd_mport_close_recv(mach_port_t name);
 
-void init_boot(bool sflag, bool vflag, bool xflag);
+void init_boot(bool sflag);
 void init_pre_kevent(void);
 
 void update_ttys(void);

@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.211 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.212 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -107,7 +107,7 @@ static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqppidexit_callback = (kq_callback)ppidexit_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
-static void pid1_magic_init(bool sflag, bool vflag, bool xflag);
+static void pid1_magic_init(bool sflag);
 
 static void usage(FILE *where);
 
@@ -143,7 +143,7 @@ main(int argc, char *const *argv)
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
-	bool sflag = false, xflag = false, vflag = false, dflag = false, Dflag = false;
+	bool sflag = false, dflag = false, Dflag = false;
 	mach_msg_type_number_t l2l_name_cnt = 0, l2l_port_cnt = 0;
 	name_array_t l2l_names = NULL;
 	mach_port_array_t l2l_ports = NULL;
@@ -203,7 +203,7 @@ main(int argc, char *const *argv)
 	/* main phase two: parse arguments */
 
 	if (getpid() == 1) {
-		optargs = "svx";
+		optargs = "s";
 	} else {
 		optargs = "DS:dh";
 	}
@@ -214,8 +214,6 @@ main(int argc, char *const *argv)
 		case 'D': Dflag = true;   break;	/* debug */
 		case 'd': dflag = true;   break;	/* daemonize */
 		case 's': sflag = true;   break;	/* single user */
-		case 'x': xflag = true;   break;	/* safe boot */
-		case 'v': vflag = true;   break;	/* verbose boot */
 		case 'h': usage(stdout);  break;	/* help */
 		case '?': /* we should do something with the global optopt variable here */
 		default:
@@ -237,9 +235,7 @@ main(int argc, char *const *argv)
 	launchd_assert(launchd_mport_make_send(launchd_internal_port) == KERN_SUCCESS);
 	launchd_assert((errno = mach_port_move_member(mach_task_self(), launchd_internal_port, ipc_port_set)) == KERN_SUCCESS);
 
-	logopts = LOG_CONS;
-	if (getpid() != 1)
-		logopts |= LOG_PID;
+	logopts = LOG_PID|LOG_CONS;
 	if (Dflag)
 		logopts |= LOG_PERROR;
 
@@ -293,7 +289,7 @@ main(int argc, char *const *argv)
 		setenv("PATH", _PATH_STDPATH, 1);
 
 	if (getpid() == 1) {
-		pid1_magic_init(sflag, vflag, xflag);
+		pid1_magic_init(sflag);
 	} else {
 		ipc_server_init(checkin_fds, checkin_fdcnt);
 	}
@@ -396,7 +392,7 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 }
 
 void
-pid1_magic_init(bool sflag, bool vflag, bool xflag)
+pid1_magic_init(bool sflag)
 {
 	int memmib[2] = { CTL_HW, HW_MEMSIZE };
 	int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
@@ -446,7 +442,7 @@ pid1_magic_init(bool sflag, bool vflag, bool xflag)
 	if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
 		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
 
-	init_boot(sflag, vflag, xflag);
+	init_boot(sflag);
 }
 
 

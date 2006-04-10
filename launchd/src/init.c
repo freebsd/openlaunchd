@@ -57,7 +57,7 @@
  * SUCH DAMAGE.
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.35 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.36 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -113,7 +113,6 @@ static kq_callback kqruncom_callback = runcom_callback;
 static void single_user(void);
 static void runcom(void);
 
-static bool runcom_verbose = false;
 static bool runcom_safe = false;
 static bool runcom_netboot = false;
 static bool single_user_mode = false;
@@ -178,35 +177,25 @@ static int setupargv(session_t, struct ttyent *);
 static bool should_fsck(void);
 
 void
-init_boot(bool sflag, bool vflag, bool xflag)
+init_boot(bool sflag)
 {
 	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
-	uint64_t nb = 0;
-	size_t nbsz = sizeof(nb);
+	int sbmib[2] = { CTL_KERN, KERN_SAFEBOOT };
+	uint32_t v = 0;
+	size_t vsz = sizeof(v);
 
 	if (sflag) {
 		single_user_mode = true;
 		run_runcom = false;
 	}
-	if (vflag)
-		runcom_verbose = true;
-	if (xflag)
-		runcom_safe = true;
 
-	if (sysctl(nbmib, 2, &nb, &nbsz, NULL, 0) == 0) {
-		/* The following assignment of nb to itself if the size of data
-		 * returned is 32 bits instead of 64 is a clever C trick to
-		 * move the 32 bits on big endian systems to the least
-		 * significant bytes of the 64 mem variable.
-		 *
-		 * On little endian systems, this is effectively a no-op.
-		 */
-		if (nbsz == 4)
-			nb = *(uint32_t *)&nb;
-		if (nb != 0)
+	if (launchd_assumes(sysctl(nbmib, 2, &v, &vsz, NULL, 0) != -1)) {
+		if (v != 0)
 			runcom_netboot = true;
-	} else {
-		syslog(LOG_WARNING, "sysctl(\"kern.netboot\") %m");
+	}
+	if (launchd_assumes(sysctl(sbmib, 2, &v, &vsz, NULL, 0) != -1)) {
+		if (v != 0)
+			runcom_safe = true;
 	}
 
 }
@@ -426,7 +415,6 @@ runcom(void)
 	argv[2] = NULL;
 
 	setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
-	setenv("VerboseFlag", runcom_verbose ? "-v" : "", 1);
 	setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
 	setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 

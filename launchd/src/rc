@@ -4,7 +4,6 @@
 . /etc/rc.common
 
 export -n SafeBoot
-export -n VerboseFlag
 export -n FsckSlash
 export -n NetBoot
 
