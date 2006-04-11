@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.65 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.66 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -194,6 +194,7 @@ struct jobcb {
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
 	SLIST_HEAD(, jobcb) jobs;
+	struct rusage ru;
 	struct jobcb *parent;
 	mach_port_t bs_port;
 	mach_port_t req_port;
@@ -1205,6 +1206,7 @@ job_export_all(void)
 void
 job_reap(struct jobcb *j)
 {
+	struct rusage ru;
 	time_t td = time(NULL) - j->start_time;
 	bool bad_exit = false;
 	int status;
@@ -1216,10 +1218,26 @@ job_reap(struct jobcb *j)
 		j->execfd = 0;
 	}
 
-	if (waitpid(j->p, &status, 0) == -1) {
-		job_log_error(j, LOG_ERR, "waitpid(%d, ...)", j->p);
+	if (!launchd_assumes(wait4(j->p, &status, 0, &ru) != -1)) {
 		return;
 	}
+
+	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
+	timeradd(&ru.ru_stime, &j->ru.ru_stime, &j->ru.ru_stime);
+	j->ru.ru_maxrss += ru.ru_maxrss;
+	j->ru.ru_ixrss += ru.ru_ixrss;
+	j->ru.ru_idrss += ru.ru_idrss;
+	j->ru.ru_isrss += ru.ru_isrss;
+	j->ru.ru_minflt += ru.ru_minflt;
+	j->ru.ru_majflt += ru.ru_majflt;
+	j->ru.ru_maxrss += ru.ru_nswap;
+	j->ru.ru_inblock += ru.ru_inblock;
+	j->ru.ru_oublock += ru.ru_oublock;
+	j->ru.ru_msgsnd += ru.ru_msgsnd;
+	j->ru.ru_msgrcv += ru.ru_msgrcv;
+	j->ru.ru_nsignals += ru.ru_nsignals;
+	j->ru.ru_nvcsw += ru.ru_nvcsw;
+	j->ru.ru_nivcsw += ru.ru_nivcsw;
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
 		job_log(j, LOG_WARNING, "exited with exit code: %d", WEXITSTATUS(status));
