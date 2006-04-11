@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.66 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.67 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -1712,12 +1712,25 @@ calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci)
 size_t
 job_prep_log_preface(struct jobcb *j, char *buf)
 {
-	size_t r = 0;
+	size_t lsz = strlen(j->label);
+	char newlabel[lsz * 2 + 1];
+	size_t i, o, r = 0;
+
+	for (i = 0, o = 0; i < lsz; i++, o++) {
+		if (j->label[i] == '%') {
+			newlabel[o] = '%';
+			o++;
+			newlabel[o] = '%';
+		} else {
+			newlabel[o] = j->label[i];
+		}
+	}
+	newlabel[o] = '\0';
 
 	if (j->parent)
 		r = job_prep_log_preface(j->parent, buf);
 
-	return r + sprintf(buf + r, "%s%s", j->parent ? "/" : "", j->label);
+	return r + sprintf(buf + r, "%s%s", j->parent ? "/" : "", newlabel);
 }
 
 void
