@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.67 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.68 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -2029,7 +2029,7 @@ envitem_new(struct jobcb *j, const char *k, const char *v, bool global)
 		return false;
 
 	strcpy(ei->key, k);
-	ei->value = ei->key + strlen(v) + 1;
+	ei->value = ei->key + strlen(k) + 1;
 	strcpy(ei->value, v);
 
 	if (global) {
