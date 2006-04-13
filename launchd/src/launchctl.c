@@ -1156,9 +1156,9 @@ load_and_unload_cmd(int argc, char *const argv[])
 		glob_t g;
 
 		if (lus.session_type) {
-			strcat(nspath, "/LaunchAgents/*.plist");
+			strcat(nspath, "/LaunchAgents");
 		} else {
-			strcat(nspath, "/LaunchDaemons/*.plist");
+			strcat(nspath, "/LaunchDaemons");
 		}
 
 		if (glob(nspath, GLOB_TILDE|GLOB_NOSORT, NULL, &g) == 0) {
