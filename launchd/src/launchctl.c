@@ -21,9 +21,11 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 #include <CoreFoundation/CoreFoundation.h>
+#include <CoreFoundation/CFPriv.h>
 #include <NSSystemDirectories.h>
 #include <mach/mach.h>
 #include <sys/types.h>
+#include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -102,6 +104,7 @@ static ssize_t name2num(const char *n);
 static void unloadjob(launch_data_t job);
 static void print_key_value(launch_data_t obj, const char *key, void *context);
 static void print_launchd_env(launch_data_t obj, const char *key, void *context);
+static void do_sysversion_sysctl(void);
 
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -165,6 +168,8 @@ int
 main(int argc, char *const argv[])
 {
 	char *l;
+
+	do_sysversion_sysctl();
 
 	istty = isatty(STDIN_FILENO);
 
@@ -2149,4 +2154,37 @@ is_legacy_mach_job(launch_data_t obj)
 	bool has_label = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_LABEL);
 
 	return has_command && has_servicename && !has_label;
+}
+
+void
+do_sysversion_sysctl(void)
+{
+	int mib[] = { CTL_KERN, KERN_OSVERSION };
+	CFDictionaryRef versdict;
+	CFStringRef buildvers;
+	char buf[1024];
+	size_t bufsz = sizeof(buf);
+
+	/* <rdar://problem/4477682> ER: launchd should set kern.osversion very early in boot */
+
+	if (getuid() != 0)
+		return;
+
+	if (sysctl(mib, 2, buf, &bufsz, NULL, 0) == -1) {
+		fprintf(stderr, "sysctl(): %s\n", strerror(errno));
+		return;
+	}
+
+	if (buf[0] != '\0')
+		return;
+
+	versdict = _CFCopySystemVersionDictionary();
+	buildvers = CFDictionaryGetValue(versdict, _kCFSystemVersionBuildVersionKey);
+	CFStringGetCString(buildvers, buf, sizeof(buf), kCFStringEncodingUTF8);
+
+	if (sysctl(mib, 2, NULL, 0, buf, strlen(buf) + 1) == -1) {
+		fprintf(stderr, "sysctl(): %s\n", strerror(errno));
+	}
+
+	CFRelease(versdict);
 }
