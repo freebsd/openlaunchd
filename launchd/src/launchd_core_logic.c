@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.68 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.69 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -1230,7 +1230,7 @@ job_reap(struct jobcb *j)
 	j->ru.ru_isrss += ru.ru_isrss;
 	j->ru.ru_minflt += ru.ru_minflt;
 	j->ru.ru_majflt += ru.ru_majflt;
-	j->ru.ru_maxrss += ru.ru_nswap;
+	j->ru.ru_nswap += ru.ru_nswap;
 	j->ru.ru_inblock += ru.ru_inblock;
 	j->ru.ru_oublock += ru.ru_oublock;
 	j->ru.ru_msgsnd += ru.ru_msgsnd;
