@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.212 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.213 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -112,7 +112,6 @@ static void pid1_magic_init(bool sflag);
 static void usage(FILE *where);
 
 static void loopback_setup(void);
-static void workaround3048875(int argc, char *const *argv);
 static void workaround3632556(void);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
@@ -161,9 +160,7 @@ main(int argc, char *const *argv)
 
 	/* main() phase one: sanitize the process */
 
-	if (getpid() == 1) {
-		workaround3048875(argc, argv);
-	} else if ((ldresp = launch_msg(ldmsg)) && launch_data_get_type(ldresp) == LAUNCH_DATA_DICTIONARY) {
+	if (getpid() != 1 && (ldresp = launch_msg(ldmsg)) && launch_data_get_type(ldresp) == LAUNCH_DATA_DICTIONARY) {
 		const char *ldlabel = launch_data_get_string(launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_LABEL));
 		launch_data_t tmp;
 
@@ -678,31 +675,6 @@ workaround3632556(void)
 
 out:
 	free(kp);
-}
-
-void
-workaround3048875(int argc, char *const *argv)
-{
-	int correct_argc = 1;
-	char **ap, *newargv[100], *p = argv[1];
-
-	if (argc == 1 || argc > 2)
-		return;
-
-	newargv[0] = argv[0];
-	for (ap = newargv + 1; ap < &newargv[100]; ap++, correct_argc++) {
-		if ((*ap = strsep(&p, " \t")) == NULL)
-			break;
-		if (**ap == '\0') {
-			*ap = NULL;
-			break;
-		}
-	}
-
-	if (launchd_blame(argc == correct_argc, 3048875))
-		return;
-
-	execv(newargv[0], newargv);
 }
 
 void
