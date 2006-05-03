@@ -173,26 +173,6 @@ fi
 echo Removing $RMRF_ITEMS
 rm -rf $RMRF_ITEMS
 
-if [ ! -f /System/Library/LaunchDaemons/com.apple.dynamic_pager.plist ]; then
-	echo "Starting virtual memory"
-
-	swapdir=/private/var/vm
-	if [ ! -d ${swapdir} ]; then
-		echo "Creating default swap directory"
-		mkdir -p -m 755 ${swapdir}
-		chown root:wheel ${swapdir}
-	else
-		rm -f ${swapdir}/swap*
-	fi
-			    
-	if [ ${ENCRYPTSWAP:=-NO-} = "-YES-" ]; then
-	    encryptswap="-E"
-	else
-	    encryptswap=""
-	fi
-	/sbin/dynamic_pager ${encryptswap} -F ${swapdir}/swapfile
-fi
-
 # Create local NetInfo database if it doesn't exist
 if [ ! -d /var/db/netinfo/local.nidb ]; then
 	echo "Creating local NetInfo database"
@@ -217,10 +197,6 @@ else
 	launchctl load -D all /etc/mach_init.d
 	BootCacheControl tag
 	SystemStarter
-fi
-
-if [ ! -f /System/Library/LaunchDaemons/com.apple.update.plist  ]; then
-	/usr/sbin/update
 fi
 
 if [ ! -f /System/Library/LaunchDaemons/com.apple.loginwindow.plist ]; then
