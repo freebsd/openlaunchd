@@ -90,6 +90,7 @@ bool launchd_batch_query(void);
  */
 
 #define SPAWN_VIA_LAUNCHD_STOPPED	0x0001
+#define SPAWN_VIA_LAUNCHD_FORCE_PPC	0x0002
 
 struct spawn_via_launchd_attr {
 	uint64_t		spawn_flags;
@@ -97,6 +98,7 @@ struct spawn_via_launchd_attr {
 	const char *		spawn_chdir;
  	const char *const *	spawn_env;
  	const mode_t *		spawn_umask;
+ 	mach_port_t *		spawn_observer_port;
 };
 
 #define spawn_via_launchd(a, b, c) _spawn_via_launchd(a, b, c, 0)
@@ -105,6 +107,9 @@ pid_t _spawn_via_launchd(
 		const char *const *argv,
 		const struct spawn_via_launchd_attr *spawn_attrs,
 		int struct_version);
+
+kern_return_t mpm_wait(mach_port_t ajob, int *wstatus);
+
 
 __END_DECLS
 

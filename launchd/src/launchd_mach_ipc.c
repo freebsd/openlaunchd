@@ -29,7 +29,7 @@
  * bootstrap.c -- implementation of bootstrap main service loop
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.49 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.50 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -492,16 +492,16 @@ x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, ma
 
 	if (ms) {
 		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
-		job_log(j, LOG_DEBUG, "Mach service lookup: %s", servicename);
+		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d): %s", ldc.pid, servicename);
 		*serviceportp = machservice_port(ms);
 		*ptype = MACH_MSG_TYPE_COPY_SEND;
 		return BOOTSTRAP_SUCCESS;
 	} else if (inherited_bootstrap_port != MACH_PORT_NULL) {
-		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
+		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) forwarded: %s", ldc.pid, servicename);
 		*ptype = MACH_MSG_TYPE_MOVE_SEND;
 		return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
 	} else {
-		job_log(j, LOG_DEBUG, "Mach service lookup failed: %s", servicename);
+		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) failed: %s", ldc.pid, servicename);
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 }
@@ -712,9 +712,21 @@ out_bad:
 }
 
 kern_return_t
-x_bootstrap_spawn(mach_port_t bp, audit_token_t au_tok,
+x_mpm_wait(mach_port_t bp, mach_port_t srp, audit_token_t au_tok, integer_t *waitstatus)
+{
+	struct jobcb *j = job_find_by_port(bp);
+#if 0
+	struct ldcred ldc;
+	audit_token_to_launchd_cred(au_tok, &ldc);
+#endif
+	return job_handle_mpm_wait(j, srp, waitstatus);
+}
+
+kern_return_t
+x_mpm_spawn(mach_port_t bp, mach_port_t srp, audit_token_t au_tok,
 		_internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
-		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask, pid_t *child_pid)
+		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
+		pid_t *child_pid, mach_port_t *obsvr_port)
 {
 	struct jobcb *jr, *j = job_find_by_port(bp);
 	struct ldcred ldc;
@@ -765,8 +777,9 @@ x_bootstrap_spawn(mach_port_t bp, audit_token_t au_tok,
 			flags &= ~SPAWN_HAS_WDIR;
 		}
 	}
-	
-	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL, flags & SPAWN_WANTS_WAIT4DEBUGGER);
+
+	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
+			flags & SPAWN_WANTS_WAIT4DEBUGGER, flags & SPAWN_WANTS_FORCE_PPC, srp);
 
 	if (jr == NULL) switch (errno) {
 	case EEXIST:
@@ -775,11 +788,14 @@ x_bootstrap_spawn(mach_port_t bp, audit_token_t au_tok,
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	*child_pid = job_get_pid(jr);
+	job_log(j, LOG_INFO, "Spawned with flags:%s%s",
+			flags & SPAWN_WANTS_FORCE_PPC ? " ppc": "",
+			flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
 
-	job_log(j, LOG_INFO, "Spawned PID %d", *child_pid);
+	*child_pid = -1;
+	*obsvr_port = MACH_PORT_NULL;
 
-	return BOOTSTRAP_SUCCESS;
+	return MIG_NO_REPLY;
 }
 
 kern_return_t

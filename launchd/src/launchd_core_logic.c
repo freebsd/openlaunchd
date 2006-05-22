@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.69 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.70 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -80,6 +80,7 @@ static const char *const __rcs_file_version__ = "$Revision: 1.69 $";
 #include "bootstrap_private.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
+#include "mpm_reply.h"
 
 /* <rdar://problem/2685209> sys/queue.h is not up to date */
 #ifndef SLIST_FOREACH_SAFE
@@ -198,6 +199,8 @@ struct jobcb {
 	struct jobcb *parent;
 	mach_port_t bs_port;
 	mach_port_t req_port;
+	mach_port_t spawn_reply_port;
+	mach_port_t wait_reply_port;
 	uid_t mach_uid;
 	char **argv;
 	char *prog;
@@ -221,7 +224,7 @@ struct jobcb {
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
 		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, __pad:28;
+	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1, __pad:27;
 	char label[0];
 };
 
@@ -482,6 +485,13 @@ job_remove(struct jobcb *j)
 	if (j->req_port)
 		launchd_assumes(launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
 
+#if 0
+	if (j->spawn_reply_port) {
+	}
+	if (j->wait_reply_port) {
+	}
+#endif
+
 	while ((ji = SLIST_FIRST(&j->jobs)))
 		job_remove(ji);
 
@@ -631,8 +641,21 @@ out_bad:
 	return NULL;
 }
 
+kern_return_t
+job_handle_mpm_wait(struct jobcb *j, mach_port_t srp, int *waitstatus)
+{
+	if (j->p) {
+		j->wait_reply_port = srp;
+		return MIG_NO_REPLY;
+	}
+
+	*waitstatus = j->last_exit_status;
+
+	return 0;
+}
+
 struct jobcb *
-job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d)
+job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc, mach_port_t srp)
 {
 	struct jobcb *jr;
 
@@ -648,6 +671,13 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 
 	jr->unload_at_exit = true;
 	jr->wait4debugger = w4d;
+	jr->spawn_reply_port = srp;
+	jr->force_ppc = fppc;
+
+	if (!job_setup_machport(jr)) {
+		job_remove(jr);
+		return NULL;
+	}
 
 	if (workingdir)
 		jr->workingdir = strdup(workingdir);
@@ -797,6 +827,11 @@ void
 job_import_bool(struct jobcb *j, const char *key, bool value)
 {
 	switch (key[0]) {
+	case 'f':
+	case 'F':
+		if (strcasecmp(key, LAUNCH_JOBKEY_FORCEPOWERPC) == 0)
+			j->force_ppc = value;
+		break;
 	case 'k':
 	case 'K':
 		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0)
@@ -1222,6 +1257,12 @@ job_reap(struct jobcb *j)
 		return;
 	}
 
+	if (j->wait_reply_port) {
+		job_log(j, LOG_DEBUG, "MPM wait reply being sent");
+		launchd_assumes(mpm_wait_reply(j->wait_reply_port, 0, status) == 0);
+		j->wait_reply_port = MACH_PORT_NULL;
+	}
+
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
 	timeradd(&ru.ru_stime, &j->ru.ru_stime, &j->ru.ru_stime);
 	j->ru.ru_maxrss += ru.ru_maxrss;
@@ -1338,11 +1379,22 @@ job_callback(void *obj, struct kevent *kev)
 			read(j->execfd, &e, sizeof(e));
 			errno = e;
 			job_log_error(j, LOG_ERR, "execve()");
+			if (j->spawn_reply_port) {
+				job_log(j, LOG_DEBUG, "Spawn reply being sent with error: %d", e);
+				launchd_assumes(mpm_spawn_reply(j->spawn_reply_port, e, -1, MACH_PORT_NULL) == 0);
+				j->spawn_reply_port = MACH_PORT_NULL;
+			}
 			job_remove(j);
 			j = NULL;
 		} else {
 			launchd_assumes(close(j->execfd) == 0);
 			j->execfd = 0;
+			if (j->spawn_reply_port) {
+				job_log(j, LOG_DEBUG, "Spawn reply being sent with PID %d and Mach port %d",
+						j->p, MACH_PORT_INDEX(j->bs_port));
+				launchd_assumes(mpm_spawn_reply(j->spawn_reply_port, 0, j->p, j->bs_port) == 0);
+				j->spawn_reply_port = MACH_PORT_NULL;
+			}
 		}
 		break;
 	case EVFILT_MACHPORT:
@@ -1504,6 +1556,14 @@ job_start_child(struct jobcb *j, int execfd)
 
 	if (j->wait4debugger && ptrace(PT_TRACE_ME, getpid(), NULL, 0) == -1)
 		job_log_error(j, LOG_ERR, "ptrace(PT_TRACE_ME, ...)");
+
+	if (j->force_ppc) {
+		int affinmib[] = { CTL_KERN, KERN_AFFINITY, 1, 1 };
+		size_t mibsz = sizeof(affinmib) / sizeof(affinmib[0]);
+
+		if (sysctl(affinmib, mibsz, NULL, NULL,  NULL, 0) == -1)
+			job_log_error(j, LOG_WARNING, "Failed to force PowerPC execution");
+	}
 
 	if (j->prog) {
 		execv(j->inetcompat ? file2exec : j->prog, (char *const*)argv);
@@ -2224,7 +2284,7 @@ job_active(struct jobcb *j)
 		if (j->start_time && !j->checkedin) {
 			if (j->legacy_mach_job) {
 				job_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
-			} else {
+			} else if (!j->unload_at_exit) {
 				job_log(j, LOG_ERR, "Daemonization is not supported under launchd.");
 				return false;
 			}

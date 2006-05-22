@@ -1,6 +1,6 @@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notifyServer.c notifyServer.h mpm_replyUser.c mpm_reply.h
 
 bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
@@ -41,16 +41,19 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c
+launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c mpm_replyUser.c
 
 launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h launchd_internal.h
-launchd_core_logic.c:: bootstrap.h
+launchd_core_logic.c:: bootstrap.h mpm_reply.h
 launchd.c:: bootstrap.h launchd_internalServer.h launchd_internal.h notifyServer.h bootstrapServer.h
 
 launchproxy_LDFLAGS = -weak_framework Security
 
-notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
-	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
+notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
+	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
+
+mpm_replyUser.c mpm_reply.h: $(srcdir)/mpm_reply.defs
+	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/mpm_reply.defs
 
 launchd_internal.h launchd_internalServer.c launchd_internalUser.c launchd_internalServer.h: $(srcdir)/launchd_internal.defs
 	mig $(MIGFLAGS) -sheader launchd_internalServer.h $(srcdir)/launchd_internal.defs

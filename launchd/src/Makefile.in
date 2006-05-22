@@ -77,7 +77,7 @@ am__quote = @am__quote@
 install_sh = @install_sh@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -W -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notify.h notifyServer.c notifyUser.c notifyServer.h
+CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h notifyServer.c notifyServer.h mpm_replyUser.c mpm_reply.h
 
 @LIBS_ONLY_TRUE@noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
@@ -103,7 +103,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h not
 
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c mpm_replyUser.c
 
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 
@@ -158,7 +158,8 @@ launchctl_DEPENDENCIES =
 @LIBS_ONLY_FALSE@	launchd-bootstrapServer.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-notifyServer.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_internalUser.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-launchd_internalServer.$(OBJEXT)
+@LIBS_ONLY_FALSE@	launchd-launchd_internalServer.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-mpm_replyUser.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_DEPENDENCIES =
@@ -194,6 +195,7 @@ am__depfiles_maybe = depfiles
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_internalUser.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_mach_ipc.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-launchd_unix_ipc.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/launchd-mpm_replyUser.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchd-notifyServer.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/launchproxy.Po ./$(DEPDIR)/liblaunch.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/liblaunch_profile_a-bootstrap_public.Po \
@@ -348,6 +350,7 @@ launchd-bootstrapServer.$(OBJEXT): bootstrapServer.c
 launchd-notifyServer.$(OBJEXT): notifyServer.c
 launchd-launchd_internalUser.$(OBJEXT): launchd_internalUser.c
 launchd-launchd_internalServer.$(OBJEXT): launchd_internalServer.c
+launchd-mpm_replyUser.$(OBJEXT): mpm_replyUser.c
 launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES) 
 	@rm -f launchd$(EXEEXT)
 	$(LINK) $(launchd_LDFLAGS) $(launchd_OBJECTS) $(launchd_LDADD) $(LIBS)
@@ -397,6 +400,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_mach_ipc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_unix_ipc.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-mpm_replyUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-notifyServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
@@ -598,6 +602,18 @@ launchd-launchd_internalServer.obj: launchd_internalServer.c
 @AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-launchd_internalServer.Po' tmpdepfile='$(DEPDIR)/launchd-launchd_internalServer.TPo' @AMDEPBACKSLASH@
 @AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_internalServer.obj `cygpath -w launchd_internalServer.c`
+
+launchd-mpm_replyUser.o: mpm_replyUser.c
+@AMDEP_TRUE@	source='mpm_replyUser.c' object='launchd-mpm_replyUser.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-mpm_replyUser.Po' tmpdepfile='$(DEPDIR)/launchd-mpm_replyUser.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-mpm_replyUser.o `test -f 'mpm_replyUser.c' || echo '$(srcdir)/'`mpm_replyUser.c
+
+launchd-mpm_replyUser.obj: mpm_replyUser.c
+@AMDEP_TRUE@	source='mpm_replyUser.c' object='launchd-mpm_replyUser.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@	depfile='$(DEPDIR)/launchd-mpm_replyUser.Po' tmpdepfile='$(DEPDIR)/launchd-mpm_replyUser.TPo' @AMDEPBACKSLASH@
+@AMDEP_TRUE@	$(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-mpm_replyUser.obj `cygpath -w mpm_replyUser.c`
 CCDEPMODE = @CCDEPMODE@
 uninstall-info-am:
 
@@ -917,11 +933,14 @@ bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/boots
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
 @LIBS_ONLY_FALSE@launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h notifyServer.h launchd_internal.h
-@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h
+@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h mpm_reply.h
 @LIBS_ONLY_FALSE@launchd.c:: bootstrap.h launchd_internalServer.h launchd_internal.h notifyServer.h bootstrapServer.h
 
-@LIBS_ONLY_FALSE@notify.h notifyServer.c notifyUser.c notifyServer.h: /usr/include/mach/notify.defs
-@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader notifyServer.h /usr/include/mach/notify.defs
+@LIBS_ONLY_FALSE@notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
+
+@LIBS_ONLY_FALSE@mpm_replyUser.c mpm_reply.h: $(srcdir)/mpm_reply.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/mpm_reply.defs
 
 @LIBS_ONLY_FALSE@launchd_internal.h launchd_internalServer.c launchd_internalUser.c launchd_internalServer.h: $(srcdir)/launchd_internal.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader launchd_internalServer.h $(srcdir)/launchd_internal.defs

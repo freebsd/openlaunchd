@@ -28,6 +28,7 @@ typedef char *_internal_string_t;
 #define SPAWN_HAS_WDIR			0x0002
 #define SPAWN_HAS_UMASK			0x0004
 #define SPAWN_WANTS_WAIT4DEBUGGER	0x0008
+#define SPAWN_WANTS_FORCE_PPC		0x0010
 
 kern_return_t
 _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,

@@ -76,13 +76,13 @@ routine bootstrap_look_up(
 		__service_name	: name_t;
 	out	__service_port	: mach_port_send_t);
 
-skip;
+skip; /* last used in 10.4 */
 
 routine bootstrap_parent(
 		__bs_port	: mach_port_t;
 	out	__parent_port	: mach_port_send_t);
 
-skip;
+skip; /* last used in 10.4 */
 
 routine bootstrap_info(
 		__bs_port	: mach_port_t;
@@ -110,12 +110,20 @@ routine bootstrap_getsocket(
 		__bs_port	: mach_port_t;
 	out	__sockpath	: name_t);
 
-routine bootstrap_spawn(
+routine mpm_spawn(
 		__bs_port	: mach_port_t;
+	sreplyport		__rport	: mach_port_make_send_once_t;
 	ServerAuditToken	__token	: audit_token_t;
 		__chars		: _internal_string_t;
 		__argc		: uint32_t;
 		__envc		: uint32_t;
 		__flags		: uint64_t;
 		__umask		: uint16_t;
-	out	__pid		: pid_t);
+	out	__pid		: pid_t;
+	out	__obsvr_port	: mach_port_make_send_t);
+
+routine mpm_wait(
+		__bs_port	: mach_port_t;
+	sreplyport		__rport	: mach_port_make_send_once_t;
+	ServerAuditToken	__token	: audit_token_t;
+	out	__waitval	: integer_t);

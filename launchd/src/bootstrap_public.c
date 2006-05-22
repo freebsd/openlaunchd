@@ -57,6 +57,7 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	uint32_t envc = 0;
 	pid_t p = -1;
 	mode_t u_mask = CMASK;
+	mach_port_t obsvr_port = MACH_PORT_NULL;
 
 	for (tmpp = argv; *tmpp; tmpp++) {
 		argc++;
@@ -70,6 +71,9 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	case 0:
 		if (spawn_attrs->spawn_flags & SPAWN_VIA_LAUNCHD_STOPPED) {
 			flags |= SPAWN_WANTS_WAIT4DEBUGGER;
+		}
+		if (spawn_attrs->spawn_flags & SPAWN_VIA_LAUNCHD_FORCE_PPC) {
+			flags |= SPAWN_WANTS_FORCE_PPC;
 		}
 
 		if (spawn_attrs->spawn_env) {
@@ -108,12 +112,18 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 		break;
 	}
 
-	kr = raw_bootstrap_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, &p);
+	kr = raw_mpm_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, &p, &obsvr_port);
 
 	free(buf);
 
-	if (kr == BOOTSTRAP_SUCCESS)
+	if (kr == BOOTSTRAP_SUCCESS) {
+		if (spawn_attrs && spawn_attrs->spawn_observer_port) {
+			*spawn_attrs->spawn_observer_port = obsvr_port;
+		} else {
+			mach_port_deallocate(mach_task_self(), obsvr_port);
+		}
 		return p;
+	}
 
 	switch (kr) {
 	case BOOTSTRAP_NOT_PRIVILEGED:
@@ -124,6 +134,12 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 		errno = EINVAL; break;
 	}
 	return -1;
+}
+
+kern_return_t
+mpm_wait(mach_port_t ajob, int *wstatus)
+{
+	return raw_mpm_wait(ajob, wstatus);
 }
 
 kern_return_t
