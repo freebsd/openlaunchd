@@ -84,7 +84,10 @@
 #include <mach/std_types.h>
 #include <mach/message.h>
 #include <sys/types.h>
+#include <sys/cdefs.h>
 #include <stdbool.h>
+
+__BEGIN_DECLS
 
 #define	BOOTSTRAP_MAX_NAME_LEN			128
 #define	BOOTSTRAP_MAX_CMD_LEN			512
@@ -315,5 +318,7 @@ kern_return_t bootstrap_status(
  * Translate a return value from the bootstrap_*() APIs to a string.
  */
 const char *bootstrap_strerror(kern_return_t r) __attribute__((__nothrow__, __pure__, __warn_unused_result__));
+
+__END_DECLS
 
 #endif
