@@ -29,7 +29,7 @@
  * bootstrap.c -- implementation of bootstrap main service loop
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.50 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.51 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -372,10 +372,13 @@ x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, bo
 kern_return_t
 x_bootstrap_getsocket(mach_port_t bp, name_t spr)
 {
-	strncpy(spr, sockpath, sizeof(name_t));
-
-	if (getpid() == 1)
+	if (!sockpath) {
+		return BOOTSTRAP_NO_MEMORY;
+	} else if (getpid() == 1) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	strncpy(spr, sockpath, sizeof(name_t));
 	
 	return BOOTSTRAP_SUCCESS;
 }

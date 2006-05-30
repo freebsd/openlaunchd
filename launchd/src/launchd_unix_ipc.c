@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.9 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.10 $";
 
 #include <sys/types.h>
 #include <sys/queue.h>
@@ -126,7 +126,8 @@ ipc_server_init(int *fds, size_t fd_cnt)
 		}
 	} else {
 		snprintf(ourdir, sizeof(ourdir), "/tmp/launchd-%u.XXXXXX", getpid());
-		mkdtemp(ourdir);
+		if (!launchd_assumes(mkdtemp(ourdir) != NULL))
+			goto out_bad;
 		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/sock", ourdir);
 		setenv(LAUNCHD_SOCKET_ENV, sun.sun_path, 1);
 	}
@@ -136,10 +137,9 @@ ipc_server_init(int *fds, size_t fd_cnt)
 			syslog(LOG_ERR, "unlink(\"thesocket\"): %m");
 		goto out_bad;
 	}
-	if ((fd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1) {
-		syslog(LOG_ERR, "socket(\"thesocket\"): %m");
+
+	if (!launchd_assumes((fd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) != -1))
 		goto out_bad;
-	}
 
 	oldmask = umask(S_IRWXG|S_IRWXO);
 	r = bind(fd, (struct sockaddr *)&sun, sizeof(sun));
