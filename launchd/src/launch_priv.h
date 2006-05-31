@@ -52,6 +52,7 @@ __BEGIN_DECLS
 #define LAUNCH_KEY_BATCHQUERY		"BatchQuery"
 
 #define LAUNCH_JOBKEY_MACH_KUNCSERVER	"kUNCServer"
+#define LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER	"ExceptionServer"
 
 typedef struct _launch *launch_t;
 

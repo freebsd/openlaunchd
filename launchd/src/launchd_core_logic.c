@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.70 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.71 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -2410,6 +2410,14 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		ms->reset = b;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
 		ms->hide = b;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
+		thread_state_flavor_t f = 0;
+#if defined (__ppc__)
+		f = PPC_THREAD_STATE64;
+#elif defined(__i386__)
+		f = x86_THREAD_STATE;
+#endif
+		launchd_assumes(task_set_exception_ports(mach_task_self(), EXC_MASK_ALL, ms->port, EXCEPTION_STATE_IDENTITY, f) == KERN_SUCCESS);
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 		ms->kUNCServer = b;
 		if (launchd_assumes((mhp = mach_host_self()) != MACH_PORT_NULL)) {
