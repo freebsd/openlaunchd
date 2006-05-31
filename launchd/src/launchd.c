@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.213 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.214 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -112,7 +112,6 @@ static void pid1_magic_init(bool sflag);
 static void usage(FILE *where);
 
 static void loopback_setup(void);
-static void workaround3632556(void);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
@@ -544,9 +543,6 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	case SIGTERM:
 		launchd_shutdown();
 		break;
-	case SIGCHLD:
-		workaround3632556();
-		break;
 	default:
 		break;
 	} 
@@ -632,49 +628,6 @@ loopback_setup(void)
  
 	launchd_assumes(close(s) == 0);
 	launchd_assumes(close(s6) == 0);
-}
-
-void
-workaround3632556(void)
-{
-	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
-	size_t miblen = sizeof(mib) / sizeof(mib[0]);
-	struct kinfo_proc *kp = NULL;
-	size_t i, kplen = 0;
-	int wstatus;
-	pid_t p;
-
-	if (getpid() != 1)
-		return;
-
-	if (!launchd_assumes(sysctl(mib, miblen, kp, &kplen, NULL, 0) != -1))
-		return;
-
-	kplen *= 2;
-
-	if (!launchd_assumes((kp = malloc(kplen)) != NULL))
-		return;
-
-	if (!launchd_assumes(sysctl(mib, miblen, kp, &kplen, NULL, 0) != -1))
-		goto out;
-
-	for (i = 0; ((size_t)&kp[i] - (size_t)kp) < kplen; i++) {
-		p = kp[i].kp_proc.p_pid;
-
-		if (kp[i].kp_eproc.e_ppid != 1)
-			continue;
-		if (kp[i].kp_proc.p_stat != SZOMB)
-			continue;
-		if (job_find_by_pid(root_job, p))
-			continue;
-		if (init_check_pid(p))
-			continue;
-
-		launchd_assumes(waitpid(p, &wstatus, 0) != -1);
-	}
-
-out:
-	free(kp);
 }
 
 void
