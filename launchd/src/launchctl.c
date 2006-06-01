@@ -20,6 +20,9 @@
  * 
  * @APPLE_LICENSE_HEADER_END@
  */
+
+static const char *const __rcs_file_version__ = "$Revision: 1.83 $";
+
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
 #include <NSSystemDirectories.h>
@@ -27,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
+#include <sys/sysctl.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -34,7 +38,12 @@
 #include <sys/event.h>
 #include <sys/resource.h>
 #include <sys/param.h>
+#include <sys/mount.h>
+#include <sys/reboot.h>
+#include <net/if.h>
 #include <netinet/in.h>
+#include <netinet/in_var.h>
+#include <netinet6/nd6.h>
 #include <unistd.h>
 #include <dirent.h>
 #include <libgen.h>
@@ -49,6 +58,9 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <dns_sd.h>
+#include <paths.h>
+#include <utmp.h>
+#include <utmpx.h>
 
 #include "bootstrap_public.h"
 #include "bootstrap_private.h"
@@ -60,9 +72,12 @@
 #define MACHINIT_JOBKEY_ONDEMAND	"OnDemand"
 #define MACHINIT_JOBKEY_SERVICENAME	"ServiceName"
 #define MACHINIT_JOBKEY_COMMAND		"Command"
-#define MACHINIT_JOBKEY_ISKUNCSERVER	"isKUNCServer"
 #define MACHINIT_JOBKEY_SERVERPORT	"ServerPort"
 #define MACHINIT_JOBKEY_SERVICEPORT	"ServicePort"
+
+#define assumes(e)      \
+	        (__builtin_expect(!(e), 0) ? _log_launchctl_bug(__rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+
 
 struct load_unload_state {
 	launch_data_t pass0;
@@ -104,8 +119,21 @@ static ssize_t name2num(const char *n);
 static void unloadjob(launch_data_t job);
 static void print_key_value(launch_data_t obj, const char *key, void *context);
 static void print_launchd_env(launch_data_t obj, const char *key, void *context);
+static void _log_launchctl_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
+static void loopback_setup(void);
+static pid_t fwexec(const char *const *argv, bool _wait);
+static void do_potential_fsck(void);
+static bool path_check(const char *path);
+static bool is_safeboot(void);
+static bool is_netboot(void);
+static void apply_func_to_dir(const char *thedir, void (*thefunc)(const char *));
+static void apply_sysctls_from_file(const char *thefile);
+static void empty_dir(const char *path);
+static int touch_file(const char *path, mode_t m);
 static void do_sysversion_sysctl(void);
+static void workaround4465949(void);
 
+static int bootstrap_cmd(int argc, char *const argv[]);
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
 static int start_stop_remove_cmd(int argc, char *const argv[]);
@@ -140,6 +168,7 @@ static const struct {
 	{ "stop",	start_stop_remove_cmd,	"Stop specified job" },
 	{ "submit",	submit_cmd,		"Submit a job from the command line" },
 	{ "remove",	start_stop_remove_cmd,	"Remove specified job" },
+	{ "bootstrap",	bootstrap_cmd,		"Bootstrap launchd" },
 	{ "list",	list_cmd,		"List jobs and information about jobs" },
 	{ "setenv",	setenv_cmd,		"Set an environmental variable in launchd" },
 	{ "unsetenv",	unsetenv_cmd,		"Unset an environmental variable in launchd" },
@@ -1082,6 +1111,152 @@ _fd(int fd)
 }
 
 int
+bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
+{
+	int memmib[] = { CTL_HW, HW_MEMSIZE };
+	int mvnmib[] = { CTL_KERN, KERN_MAXVNODES };
+	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
+	uint64_t mem = 0;
+	uint32_t mvn;
+	size_t memsz = sizeof(mem);
+	struct group *tfp_gr;
+
+	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
+		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
+		gid_t tfp_r_gid = tfp_gr->gr_gid;
+		assumes(sysctl(tfp_r_mib, 3, NULL, NULL, &tfp_r_gid, sizeof(tfp_r_gid)) != -1);
+	}
+
+	if (assumes((tfp_gr = getgrnam("procmod")) != NULL)) {
+		int tfp_rw_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_RW_GROUP };
+		gid_t tfp_rw_gid = tfp_gr->gr_gid;
+		assumes(sysctl(tfp_rw_mib, 3, NULL, NULL, &tfp_rw_gid, sizeof(tfp_rw_gid)) != -1);
+	}
+
+        if (assumes(sysctl(memmib, 2, &mem, &memsz, NULL, 0) != -1)) {
+		mvn = mem / (64 * 1024) + 1024;
+		assumes(sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) != -1);
+	}
+	assumes(sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) != -1);
+
+	loopback_setup();
+
+	apply_sysctls_from_file("/etc/sysctl-macosxserver.conf");
+	apply_sysctls_from_file("/etc/sysctl.conf");
+
+	if (path_check("/System/Installation") && path_check("/etc/rc.cdrom")) {
+		const char *rccdrom_tool[] = { _PATH_BSHELL, "/etc/rc.cdrom", "multiuser", NULL };
+		assumes(fwexec(rccdrom_tool, true) != -1);
+		assumes(reboot(RB_HALT) != -1);
+		_exit(EXIT_FAILURE);
+	} else if (is_netboot()) {
+		const char *rcnetboot_tool[] = { _PATH_BSHELL, "/etc/rc.netboot", "init", NULL };
+		if (!assumes(fwexec(rcnetboot_tool, true) != -1)) {
+			assumes(reboot(RB_HALT) != -1);
+			_exit(EXIT_FAILURE);
+		}
+	} else {
+		do_potential_fsck();
+	}
+
+	if (path_check("/var/account/acct")) {
+		assumes(acct("/var/account/acct") != -1);
+	}
+
+	if (path_check("/etc/fstab")) {
+		const char *mount_tool[] = { "mount", "-vat", "nonfs", NULL };
+		assumes(fwexec(mount_tool, true) != -1);
+	}
+
+	if (path_check("/etc/rc.installer_cleanup")) {
+		const char *rccleanup_tool[] = { _PATH_BSHELL, "/etc/rc.installer_cleanup", "multiuser", NULL };
+		assumes(fwexec(rccleanup_tool, true) != -1);
+	}
+
+	apply_func_to_dir(_PATH_VARRUN, empty_dir);
+	apply_func_to_dir(_PATH_TMP, empty_dir);
+	remove(_PATH_NOLOGIN);
+
+	// XXX --> RMRF_ITEMS="/var/tmp/folders.*
+
+	// 775 www:www /var/run/davlocks 4489695
+	// 775 root:daemon /var/run/StartupItems
+
+	assumes(touch_file(_PATH_UTMP, DEFFILEMODE) != -1);
+	assumes(touch_file(_PATH_UTMPX, DEFFILEMODE) != -1);
+	assumes(touch_file(_PATH_VARRUN "/.systemStarterRunning", DEFFILEMODE) != -1);
+
+	if (!path_check("/var/db/netinfo/local.nidb")) {
+		const char *create_nidb_tool[] = { "/usr/libexec/create_nidb", NULL };
+
+		fprintf(stderr, "NetInfo database missing. Creating...");
+
+		mkdir("/var/db/netinfo", ACCESSPERMS);
+		remove("/var/db/.AppleSetupDone");
+		assumes(fwexec(create_nidb_tool, true) != -1);
+	}
+
+	if (path_check("/etc/security/rc.audit")) {
+		const char *audit_tool[] = { _PATH_BSHELL, "/etc/security/rc.audit", NULL };
+		assumes(fwexec(audit_tool, true) != -1);
+	}
+
+	if (path_check("/Library/Preferences/com.apple.sharing.firewall.plist")) {
+		const char *fw_tool[] = { "/usr/libexec/FirewallTool", NULL };
+		assumes(fwexec(fw_tool, true) != -1);
+	}
+
+	const char *bcc_tool[] = { "BootCacheControl", "start", NULL };
+	assumes(fwexec(bcc_tool, true) != -1);
+
+	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL };
+	if (is_safeboot())
+		load_launchd_items[2] = "system";
+	assumes(load_and_unload_cmd(4, load_launchd_items) == 0);
+
+	const char *bcc_tag_tool[] = { "BootCacheControl", "tag", NULL };
+	assumes(fwexec(bcc_tag_tool, true) != -1);
+
+	const char *SystemStarter_tool[] = { "SystemStarter", NULL };
+	assumes(fwexec(SystemStarter_tool, false) != -1);
+
+	workaround4465949();
+
+	if (path_check("/etc/rc.local")) {
+		const char *rc_local_tool[] = { _PATH_BSHELL, "/etc/rc.local", NULL };
+		assumes(fwexec(rc_local_tool, false) != -1);
+	}
+
+	return 0;
+}
+
+void
+workaround4465949(void)
+{
+	const char *pbs_tool[] = { "/System/Library/CoreServices/pbs", NULL };
+	const char *lca_tool[] = { "/System/Library/CoreServices/Language Chooser.app/Contents/MacOS/Language Chooser", NULL};
+	char *const reloadttys_argv[] = { "reloadttys", NULL };
+	int wstatus;
+	pid_t pbs_p;
+
+	if (path_check("/System/Library/LaunchDaemons/com.apple.loginwindow.plist")) {
+		return;
+	}
+
+	if (path_check(pbs_tool[0]) && path_check(lca_tool[0]) &&
+			!path_check("/var/db/.AppleSetupDone") &&
+			!path_check("/var/db/.RunLanguageChooserToo")) {
+		if (assumes((pbs_p = fwexec(pbs_tool, false)) != -1)) {
+			assumes(fwexec(lca_tool, true) != -1);
+			assumes(kill(pbs_p, SIGTERM) != -1);
+			assumes(waitpid(pbs_p, &wstatus, 0) != -1);
+		}
+	}
+
+	assumes(fyi_cmd(1, reloadttys_argv) == 0);
+}
+
+int
 load_and_unload_cmd(int argc, char *const argv[])
 {
         NSSearchPathEnumerationState es = 0;
@@ -1214,15 +1389,13 @@ submit_mach_jobs(launch_data_t jobs)
 	for (i = 0; i < c; i++) {
 		launch_data_t tmp, oai = launch_data_array_get_index(jobs, i);
 		const char *sn = NULL, *cmd = NULL;
-		bool d = true, k = false;
-		mach_port_t msr, msv, mhp;
+		bool d = true;
+		mach_port_t msr, msv;
 		kern_return_t kr;
 		uid_t u = getuid();
 
 		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_ONDEMAND)))
 			d = launch_data_get_bool(tmp);
-		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_ISKUNCSERVER)))
-			k = launch_data_get_bool(tmp);
 		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_SERVICENAME)))
 			sn = launch_data_get_string(tmp);
 		if ((tmp = launch_data_dict_lookup(oai, MACHINIT_JOBKEY_COMMAND)))
@@ -1236,12 +1409,6 @@ submit_mach_jobs(launch_data_t jobs)
 			fprintf(stderr, "%s: bootstrap_create_service(): %d\n", getprogname(), kr);
 			mach_port_destroy(mach_task_self(), msr);
 			continue;
-		}
-		if (k) {
-			mhp = mach_host_self();
-			if ((kr = host_set_UNDServer(mhp, msv)) != KERN_SUCCESS)
-				fprintf(stderr, "%s: host_set_UNDServer(): %s\n", getprogname(), mach_error_string(kr));
-			mach_port_deallocate(mach_task_self(), mhp);
 		}
 		launch_data_dict_insert(oai, launch_data_new_machport(msr), MACHINIT_JOBKEY_SERVERPORT);
 		launch_data_dict_insert(oai, launch_data_new_machport(msv), MACHINIT_JOBKEY_SERVICEPORT);
@@ -2154,6 +2321,270 @@ is_legacy_mach_job(launch_data_t obj)
 	bool has_label = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_LABEL);
 
 	return has_command && has_servicename && !has_label;
+}
+
+void
+_log_launchctl_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test)
+{
+	int saved_errno = errno;
+	char buf[100];
+	const char *file = strrchr(path, '/');
+	char *rcs_rev_tmp = strchr(rcs_rev, ' ');
+
+	if (!file) {
+		file = path;
+	} else {
+		file += 1;
+	}
+
+	if (!rcs_rev_tmp) {
+		strlcpy(buf, rcs_rev, sizeof(buf));
+	} else {
+		strlcpy(buf, rcs_rev_tmp + 1, sizeof(buf));
+		rcs_rev_tmp = strchr(buf, ' ');
+		if (rcs_rev_tmp)
+			*rcs_rev_tmp = '\0';
+	}
+
+	fprintf(stderr, "Bug: %s:%u (%s):%u: %s\n", file, line, buf, saved_errno, test);
+}
+
+void
+loopback_setup(void)
+{
+	struct ifaliasreq ifra;
+	struct in6_aliasreq ifra6;
+	struct ifreq ifr;
+	int s, s6;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "lo0");
+
+	assumes((s = socket(AF_INET, SOCK_DGRAM, 0)) != -1);
+	assumes((s6 = socket(AF_INET6, SOCK_DGRAM, 0)) != -1);
+
+	if (assumes(ioctl(s, SIOCGIFFLAGS, &ifr) != -1)) {
+		ifr.ifr_flags |= IFF_UP;
+		assumes(ioctl(s, SIOCSIFFLAGS, &ifr) != -1);
+	}
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "lo0");
+
+	if (assumes(ioctl(s6, SIOCGIFFLAGS, &ifr) != -1)) {
+		ifr.ifr_flags |= IFF_UP;
+		assumes(ioctl(s6, SIOCSIFFLAGS, &ifr) != -1);
+	}
+
+	memset(&ifra, 0, sizeof(ifra));
+	strcpy(ifra.ifra_name, "lo0");
+	((struct sockaddr_in *)&ifra.ifra_addr)->sin_family = AF_INET;
+	((struct sockaddr_in *)&ifra.ifra_addr)->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	((struct sockaddr_in *)&ifra.ifra_addr)->sin_len = sizeof(struct sockaddr_in);
+	((struct sockaddr_in *)&ifra.ifra_mask)->sin_family = AF_INET;
+	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = htonl(IN_CLASSA_NET);
+	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
+
+	assumes(ioctl(s, SIOCAIFADDR, &ifra) != -1);
+
+	memset(&ifra6, 0, sizeof(ifra6));
+	strcpy(ifra6.ifra_name, "lo0");
+
+	ifra6.ifra_addr.sin6_family = AF_INET6;
+	ifra6.ifra_addr.sin6_addr = in6addr_loopback;
+	ifra6.ifra_addr.sin6_len = sizeof(struct sockaddr_in6);
+	ifra6.ifra_prefixmask.sin6_family = AF_INET6;
+	memset(&ifra6.ifra_prefixmask.sin6_addr, 0xff, sizeof(struct in6_addr));
+	ifra6.ifra_prefixmask.sin6_len = sizeof(struct sockaddr_in6);
+	ifra6.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
+	ifra6.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
+
+	assumes(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1);
+
+	assumes(close(s) == 0);
+	assumes(close(s6) == 0);
+}
+
+pid_t
+fwexec(const char *const *argv, bool _wait)
+{
+	int wstatus;
+	pid_t p;
+
+	switch ((p = vfork())) {
+	case -1:
+		break;
+	case 0:
+		execvp(argv[0], (char *const *)argv);
+		_exit(EXIT_FAILURE);
+		break;
+	default:
+		if (!_wait)
+			return p;
+		if (p == waitpid(p, &wstatus, 0)) {
+			if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EXIT_SUCCESS)
+				return p;
+		}
+		break;
+	}
+
+	return -1;
+}
+
+void
+do_potential_fsck(void)
+{
+	const char *safe_fsck_tool[] = { "fsck", "-fy", NULL };
+	const char *fsck_tool[] = { "fsck", "-p", NULL };
+	const char *remount_tool[] = { "mount", "-uw", "/", NULL };
+	struct statfs sfs;
+
+	if (assumes(statfs("/", &sfs) != -1)) {
+		if (!(sfs.f_flags & MNT_RDONLY)) {
+			fprintf(stdout, "Root file system is read-write, skipping fsck.\n");
+			return;
+		}
+	}
+
+	if (!is_safeboot()) {
+		if (fwexec(fsck_tool, true) != -1)
+			goto out;
+	}
+
+	if (fwexec(safe_fsck_tool, true) != -1) {
+		goto out;
+	}
+
+	fprintf(stderr, "fsck failed! Leaving the root file system read-only...\n");
+
+	return;
+out:
+	assumes(fwexec(remount_tool, true) != -1);
+}
+
+bool
+path_check(const char *path)
+{
+	struct stat sb;
+
+	if (stat(path, &sb) == 0)
+		return true;
+	return false;
+}
+
+bool
+is_safeboot(void)
+{
+	int sbmib[] = { CTL_KERN, KERN_SAFEBOOT };
+	uint32_t sb = 0;
+	size_t sbsz = sizeof(sb);
+
+	if (!assumes(sysctl(sbmib, 2, &sb, &sbsz, NULL, 0) == 0))
+		return false;
+
+	return (bool)sb;
+}
+
+bool
+is_netboot(void)
+{
+	int nbmib[] = { CTL_KERN, KERN_NETBOOT };
+	uint32_t nb = 0;
+	size_t nbsz = sizeof(nb);
+
+	if (!assumes(sysctl(nbmib, 2, &nb, &nbsz, NULL, 0) == 0))
+		return false;
+
+	return (bool)nb;
+}
+
+void
+apply_func_to_dir(const char *thedir, void (*thefunc)(const char *))
+{
+	struct dirent *de;
+	DIR *od;
+	int currend_dir_fd;
+
+	if (!assumes((currend_dir_fd = open(".", 0)) != -1))
+		return;
+
+	if (!assumes(chdir(thedir) != -1))
+		goto out;
+
+	if (!assumes(od = opendir(".")))
+		goto out;
+
+	while ((de = readdir(od))) {
+		struct stat sb;
+
+		if (strcmp(de->d_name, ".") == 0)
+			continue;
+		if (strcmp(de->d_name, "..") == 0)
+			continue;
+
+		if (assumes(stat(de->d_name, &sb) != -1)) {
+			if (S_ISDIR(sb.st_mode))
+				apply_func_to_dir(de->d_name, thefunc);
+			thefunc(de->d_name);
+		}
+	}
+
+	assumes(closedir(od) != -1);
+
+out:
+	assumes(fchdir(currend_dir_fd) != -1);
+	assumes(close(currend_dir_fd) != -1);
+}
+
+void
+empty_dir(const char *path)
+{
+	assumes(chflags(path, 0) != -1);
+	assumes(remove(path) != -1);
+}
+
+int
+touch_file(const char *path, mode_t m)
+{
+	int fd = open(path, O_CREAT, m);
+
+	if (fd == -1)
+		return -1;
+
+	return close(fd);
+}
+
+void
+apply_sysctls_from_file(const char *thefile)
+{
+	const char *sysctl_tool[] = { "sysctl", "-w", NULL, NULL };
+	size_t ln_len = 0;
+	char *val, *tmpstr;
+	FILE *sf;
+
+	if (!(sf = fopen(thefile, "r")))
+		return;
+
+	while ((val = fgetln(sf, &ln_len))) {
+		if (ln_len == 0)
+			continue;
+		if (!assumes((tmpstr = malloc(ln_len + 1)) != NULL))
+			continue;
+		memcpy(tmpstr, val, ln_len);
+		tmpstr[ln_len] = 0;
+		val = tmpstr;
+
+		while (*val && isspace(*val))
+			val++;
+		if (*val == '\0' || *val == '#')
+			goto skip_sysctl_tool;
+		sysctl_tool[2] = val;
+		assumes(fwexec(sysctl_tool, true) != -1);
+skip_sysctl_tool:
+		free(tmpstr);
+	}
+
+	assumes(fclose(sf) == 0);
 }
 
 void

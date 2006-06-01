@@ -117,7 +117,6 @@ main(int argc, char *argv[])
 		int status;
 
 		setpriority(PRIO_PROCESS, 0, 20);
-		daemon(0, 0);
 
 		/* Too many old StartupItems had implicit dependancies on
 		 * "Network" via other StartupItems that are now no-ops.

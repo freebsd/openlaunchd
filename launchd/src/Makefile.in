@@ -92,7 +92,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h not
 @LIBS_ONLY_FALSE@sbin_PROGRAMS = launchd SystemStarter
 @LIBS_ONLY_FALSE@libexec_PROGRAMS = launchproxy
 
-@LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
+@LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
 
 @LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
 @LIBS_ONLY_FALSE@launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib

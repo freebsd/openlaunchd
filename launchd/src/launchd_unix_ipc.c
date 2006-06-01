@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.10 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.11 $";
 
 #include <sys/types.h>
 #include <sys/queue.h>
@@ -461,24 +461,21 @@ ipc_close(struct conncb *c)
 launch_data_t
 adjust_rlimits(launch_data_t in)
 {
-	static struct rlimit *l = NULL;
-	static size_t lsz = sizeof(struct rlimit) * RLIM_NLIMITS;
+	struct rlimit l[RLIM_NLIMITS];
 	struct rlimit *ltmp;
 	size_t i,ltmpsz;
 
-	if (l == NULL) {
-		l = malloc(lsz);
-		for (i = 0; i < RLIM_NLIMITS; i++)
-			launchd_assumes(getrlimit(i, l + i) != -1);
+	for (i = 0; i < RLIM_NLIMITS; i++) {
+		launchd_assumes(getrlimit(i, l + i) != -1);
 	}
 
 	if (in) {
 		ltmp = launch_data_get_opaque(in);
 		ltmpsz = launch_data_get_opaque_size(in);
 
-		if (ltmpsz > lsz) {
+		if (ltmpsz > sizeof(l)) {
 			syslog(LOG_WARNING, "Too much rlimit data sent!");
-			ltmpsz = lsz;
+			ltmpsz = sizeof(l);
 		}
 		
 		for (i = 0; i < (ltmpsz / sizeof(struct rlimit)); i++) {

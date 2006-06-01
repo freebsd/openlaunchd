@@ -57,7 +57,7 @@
  * SUCH DAMAGE.
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.36 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.37 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -328,7 +328,6 @@ single_user(void)
 
 		argv[0] = "-sh";
 		argv[1] = NULL;
-		//setpriority(PRIO_PROCESS, 0, 0);
 		execv(_PATH_BSHELL, argv);
 		syslog(LOG_ERR, "can't exec %s for single user: %m", _PATH_BSHELL);
 		sleep(STALL_TIMEOUT);
@@ -370,7 +369,7 @@ static void
 runcom(void)
 {
 	bool runcom_fsck = should_fsck();
-	char *argv[3];
+	char *argv[] = { "/bin/launchctl", "bootstrap", NULL };
 	struct termios term;
 	int vdisable;
 
@@ -410,16 +409,11 @@ runcom(void)
 			syslog(LOG_WARNING, "tcsetattr(\"%s\") %m", _PATH_CONSOLE);
 	}
 
-	argv[0] = "sh";
-	argv[1] = _PATH_RUNCOM;
-	argv[2] = NULL;
-
 	setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
 	setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
 	setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 
-	//setpriority(PRIO_PROCESS, 0, 0);
-	execv(_PATH_BSHELL, argv);
+	execv(argv[0], argv);
 	stall("can't exec %s for %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
 	exit(EXIT_FAILURE);
 }
@@ -653,7 +647,6 @@ session_launch(session_t s)
 	sigemptyset(&mask);
 	sigprocmask(SIG_SETMASK, &mask, NULL);
 
-	//setpriority(PRIO_PROCESS, 0, 0);
 
 	if (!is_loginwindow)
 		launchd_SessionCreate();

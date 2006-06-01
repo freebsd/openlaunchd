@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.214 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.215 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -111,7 +111,6 @@ static void pid1_magic_init(bool sflag);
 
 static void usage(FILE *where);
 
-static void loopback_setup(void);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
@@ -342,7 +341,7 @@ main(int argc, char *const *argv)
 }
 
 void *
-kqueue_demand_loop(void *arg __attribute__(()))
+kqueue_demand_loop(void *arg __attribute__((unused)))
 {
 	fd_set rfds;
 
@@ -390,53 +389,10 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 void
 pid1_magic_init(bool sflag)
 {
-	int memmib[2] = { CTL_HW, HW_MEMSIZE };
-	int mvnmib[2] = { CTL_KERN, KERN_MAXVNODES };
-	int hnmib[2] = { CTL_KERN, KERN_HOSTNAME };
-	uint64_t mem = 0;
-	uint32_t mvn;
-	size_t memsz = sizeof(mem);
-#ifdef KERN_TFP
-	struct group *tfp_gr;
-		
-	if (launchd_assumes((tfp_gr = getgrnam("procview")) != NULL)) {
-		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
-		gid_t tfp_r_gid = tfp_gr->gr_gid;
-		launchd_assumes(sysctl(tfp_r_mib, 3, NULL, NULL, &tfp_r_gid, sizeof(tfp_r_gid)) != -1);
-	}
-
-	if (launchd_assumes((tfp_gr = getgrnam("procmod")) != NULL)) {
-		int tfp_rw_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_RW_GROUP };
-		gid_t tfp_rw_gid = tfp_gr->gr_gid;
-		launchd_assumes(sysctl(tfp_rw_mib, 3, NULL, NULL, &tfp_rw_gid, sizeof(tfp_rw_gid)) != -1);
-	}
-#endif
-
-	//setpriority();
-
-	if (setsid() == -1)
-		syslog(LOG_ERR, "setsid(): %m");
-
-	if (chdir("/") == -1)
-		syslog(LOG_ERR, "chdir(\"/\"): %m");
-
-	if (sysctl(memmib, 2, &mem, &memsz, NULL, 0) == -1) {
-		syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "hw.physmem");
-	} else {
-		mvn = mem / (64 * 1024) + 1024;
-		if (sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) == -1)
-			syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "kern.maxvnodes");
-	}
-	if (sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) == -1)
-		syslog(LOG_WARNING, "sysctl(\"%s\"): %m", "kern.hostname");
-
-	if (setlogin("root") == -1)
-		syslog(LOG_ERR, "setlogin(\"root\"): %m");
-
-	loopback_setup();
-
-	if (mount("fdesc", "/dev", MNT_UNION, NULL) == -1)
-		syslog(LOG_ERR, "mount(\"%s\", \"%s\", ...): %m", "fdesc", "/dev/");
+	launchd_assumes(setsid() != -1);
+	launchd_assumes(chdir("/") != -1);
+	launchd_assumes(setlogin("root") != -1);
+	launchd_assumes(mount("fdesc", "/dev", MNT_UNION, NULL) != -1);
 
 	init_boot(sflag);
 }
@@ -571,63 +527,6 @@ fs_callback(void)
 	}
 
 	ipc_server_init(NULL, 0);
-}
-
-void
-loopback_setup(void)
-{
-	struct ifaliasreq ifra;
-	struct in6_aliasreq ifra6;
-	struct ifreq ifr;
-	int s, s6;
-
-	memset(&ifr, 0, sizeof(ifr));
-	strcpy(ifr.ifr_name, "lo0");
-
-	launchd_assumes((s = socket(AF_INET, SOCK_DGRAM, 0)) != -1);
-	launchd_assumes((s6 = socket(AF_INET6, SOCK_DGRAM, 0)) != -1);
-
-	if (launchd_assumes(ioctl(s, SIOCGIFFLAGS, &ifr) != -1)) {
-		ifr.ifr_flags |= IFF_UP;
-		launchd_assumes(ioctl(s, SIOCSIFFLAGS, &ifr) != -1);
-	}
-
-	memset(&ifr, 0, sizeof(ifr));
-	strcpy(ifr.ifr_name, "lo0");
-
-	if (launchd_assumes(ioctl(s6, SIOCGIFFLAGS, &ifr) != -1)) {
-		ifr.ifr_flags |= IFF_UP;
-		launchd_assumes(ioctl(s6, SIOCSIFFLAGS, &ifr) != -1);
-	}
-
-	memset(&ifra, 0, sizeof(ifra));
-	strcpy(ifra.ifra_name, "lo0");
-
-	((struct sockaddr_in *)&ifra.ifra_addr)->sin_family = AF_INET;
-	((struct sockaddr_in *)&ifra.ifra_addr)->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	((struct sockaddr_in *)&ifra.ifra_addr)->sin_len = sizeof(struct sockaddr_in);
-	((struct sockaddr_in *)&ifra.ifra_mask)->sin_family = AF_INET;
-	((struct sockaddr_in *)&ifra.ifra_mask)->sin_addr.s_addr = htonl(IN_CLASSA_NET);
-	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
-
-	launchd_blame(ioctl(s, SIOCAIFADDR, &ifra) != -1, 4282331);
-
-	memset(&ifra6, 0, sizeof(ifra6));
-	strcpy(ifra6.ifra_name, "lo0");
-
-	ifra6.ifra_addr.sin6_family = AF_INET6;
-	ifra6.ifra_addr.sin6_addr = in6addr_loopback;
-	ifra6.ifra_addr.sin6_len = sizeof(struct sockaddr_in6);
-	ifra6.ifra_prefixmask.sin6_family = AF_INET6;
-	memset(&ifra6.ifra_prefixmask.sin6_addr, 0xff, sizeof(struct in6_addr));
-	ifra6.ifra_prefixmask.sin6_len = sizeof(struct sockaddr_in6);
-	ifra6.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
-	ifra6.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
-
-	launchd_blame(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1, 4282331);
- 
-	launchd_assumes(close(s) == 0);
-	launchd_assumes(close(s6) == 0);
 }
 
 void

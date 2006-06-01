@@ -1,3 +1,5 @@
+# This file is going away
+
 AFPSERVER=-NO-
 AUTHSERVER=-NO-
 AUTOMOUNT=-YES-

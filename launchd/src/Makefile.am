@@ -30,7 +30,7 @@ bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
 libexec_PROGRAMS = launchproxy
 
-sysconf_DATA = hostconfig rc rc.common rc.netboot rc.shutdown
+sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
 
 launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
