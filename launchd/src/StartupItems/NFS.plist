@@ -1,5 +1,0 @@
-{
-  Description     = "network file system";
-  Provides        = ("NFS");
-  Uses            = ("Disks");
-}
