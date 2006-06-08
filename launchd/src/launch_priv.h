@@ -53,6 +53,8 @@ __BEGIN_DECLS
 
 #define LAUNCH_JOBKEY_MACH_KUNCSERVER	"kUNCServer"
 #define LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER	"ExceptionServer"
+#define LAUNCH_JOBKEY_MACH_TASKSPECIALPORT	"TaskSpecialPort"
+#define LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT	"HostSpecialPort"
 
 typedef struct _launch *launch_t;
 

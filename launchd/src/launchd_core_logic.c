@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.71 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.72 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -1867,17 +1867,17 @@ watchpath_ignore(struct jobcb *j, struct watchpath *wp)
 void
 watchpath_watch(struct jobcb *j, struct watchpath *wp)
 {
-	int fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_ATTRIB|NOTE_LINK;
+	int fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK;
 	int qdir_file_cnt;
 
-	if (wp->is_qdir)
-		fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK;
+	if (!wp->is_qdir)
+		fflags |= NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE;
 
 	if (wp->fd == -1)
-		wp->fd = _fd(open(wp->name, O_EVTONLY|O_NOCTTY));
+		wp->fd = _fd(open(wp->name, O_EVTONLY|O_NOCTTY|O_NOFOLLOW));
 
 	if (wp->fd == -1)
-		return job_log_error(j, LOG_ERR, "open(\"%s\", O_EVTONLY)", wp->name);
+		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\":", wp->name);
 
 	job_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
 	launchd_assumes(kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
@@ -2398,33 +2398,49 @@ void
 machservice_setup_options(launch_data_t obj, const char *key, void *context)
 {
 	struct machservice *ms = context;
-	mach_port_t mhp;
+	mach_port_t mhp = mach_host_self();
+	mach_port_t mts = mach_task_self();
+	thread_state_flavor_t f = 0;
+	int which_port;
 	bool b;
 
-	if (launch_data_get_type(obj) != LAUNCH_DATA_BOOL)
-		return;
-
-	b = launch_data_get_bool(obj);
-
-	if (strcasecmp(key, LAUNCH_JOBKEY_MACH_RESETATCLOSE) == 0) {
-		ms->reset = b;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
-		ms->hide = b;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
-		thread_state_flavor_t f = 0;
 #if defined (__ppc__)
-		f = PPC_THREAD_STATE64;
+	f = PPC_THREAD_STATE64;
 #elif defined(__i386__)
-		f = x86_THREAD_STATE;
+	f = x86_THREAD_STATE;
 #endif
-		launchd_assumes(task_set_exception_ports(mach_task_self(), EXC_MASK_ALL, ms->port, EXCEPTION_STATE_IDENTITY, f) == KERN_SUCCESS);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
-		ms->kUNCServer = b;
-		if (launchd_assumes((mhp = mach_host_self()) != MACH_PORT_NULL)) {
-			launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
-			launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
-		}
+
+	if (!launchd_assumes(mhp != MACH_PORT_NULL)) {
+		return;
 	}
+
+	switch (launch_data_get_type(obj)) {
+	case LAUNCH_DATA_INTEGER:
+		which_port = launch_data_get_integer(obj);
+		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_TASKSPECIALPORT) == 0) {
+			launchd_assumes(task_set_special_port(mts, which_port, ms->port) == KERN_SUCCESS);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
+			launchd_assumes(host_set_special_port(mhp, which_port, ms->port) == KERN_SUCCESS);
+		}
+	case LAUNCH_DATA_BOOL:
+		b = launch_data_get_bool(obj);
+		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_RESETATCLOSE) == 0) {
+			ms->reset = b;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
+			ms->hide = b;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
+			launchd_assumes(task_set_exception_ports(mts, EXC_MASK_ALL, ms->port,
+						EXCEPTION_STATE_IDENTITY, f) == KERN_SUCCESS);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
+			ms->kUNCServer = b;
+			launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
+		}
+		break;
+	default:
+		break;
+	}
+
+	launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 }
 
 void
