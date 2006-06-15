@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.72 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.73 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -2418,9 +2418,9 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 	case LAUNCH_DATA_INTEGER:
 		which_port = launch_data_get_integer(obj);
 		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_TASKSPECIALPORT) == 0) {
-			launchd_assumes(task_set_special_port(mts, which_port, ms->port) == KERN_SUCCESS);
+			launchd_assumes((errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
-			launchd_assumes(host_set_special_port(mhp, which_port, ms->port) == KERN_SUCCESS);
+			launchd_assumes((errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
 		}
 	case LAUNCH_DATA_BOOL:
 		b = launch_data_get_bool(obj);
