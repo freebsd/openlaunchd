@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.83 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.84 $";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
@@ -1245,7 +1245,7 @@ workaround4465949(void)
 
 	if (path_check(pbs_tool[0]) && path_check(lca_tool[0]) &&
 			!path_check("/var/db/.AppleSetupDone") &&
-			!path_check("/var/db/.RunLanguageChooserToo")) {
+			path_check("/var/db/.RunLanguageChooserToo")) {
 		if (assumes((pbs_p = fwexec(pbs_tool, false)) != -1)) {
 			assumes(fwexec(lca_tool, true) != -1);
 			assumes(kill(pbs_p, SIGTERM) != -1);
