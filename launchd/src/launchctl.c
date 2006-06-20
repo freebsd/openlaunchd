@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.84 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.85 $";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
@@ -2411,10 +2411,11 @@ fwexec(const char *const *argv, bool _wait)
 	int wstatus;
 	pid_t p;
 
-	switch ((p = vfork())) {
+	switch ((p = fork())) {
 	case -1:
 		break;
 	case 0:
+		setsid();
 		execvp(argv[0], (char *const *)argv);
 		_exit(EXIT_FAILURE);
 		break;
