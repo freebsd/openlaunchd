@@ -119,6 +119,8 @@ This flag causes
 to use the
 .Xr glob 3
 mechanism to update the program arguments before invocation.
+.It Sy OnDemand <boolean>
+This key was used in Mac OS X 10.4 to control whether a job was kept alive or not. The default was true. This key has been deprecated andreplaced in Mac OS X 10.5 with the more powerful KeepAlive option.
 .It Sy KeepAlive <boolean or dictionary of stuff>
 This optional key is used to control whether your job is to be kept
 continuously running or to let demand and conditions control the invocation. The
@@ -355,8 +357,8 @@ The following XML Property List simply keeps "exampled" running continuously:
 .Dl 	<array>
 .Dl 		<string>exampled</string>
 .Dl 	</array>
-.Dl 	<key>OnDemand</key>
-.Dl 	<false/>
+.Dl 	<key>KeepAlive</key>
+.Dl 	<true/>
 .Dl </dict>
 .Dl </plist>
 .Pp
