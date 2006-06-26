@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.85 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.86 $";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
@@ -120,7 +120,8 @@ static void unloadjob(launch_data_t job);
 static void print_key_value(launch_data_t obj, const char *key, void *context);
 static void print_launchd_env(launch_data_t obj, const char *key, void *context);
 static void _log_launchctl_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
-static void loopback_setup(void);
+static void loopback_setup_ipv4(void);
+static void loopback_setup_ipv6(void);
 static pid_t fwexec(const char *const *argv, bool _wait);
 static void do_potential_fsck(void);
 static bool path_check(const char *path);
@@ -1139,7 +1140,8 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	}
 	assumes(sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) != -1);
 
-	loopback_setup();
+	loopback_setup_ipv4();
+	loopback_setup_ipv6();
 
 	apply_sysctls_from_file("/etc/sysctl-macosxserver.conf");
 	apply_sysctls_from_file("/etc/sysctl.conf");
@@ -2350,30 +2352,21 @@ _log_launchctl_bug(const char *rcs_rev, const char *path, unsigned int line, con
 }
 
 void
-loopback_setup(void)
+loopback_setup_ipv4(void)
 {
 	struct ifaliasreq ifra;
-	struct in6_aliasreq ifra6;
 	struct ifreq ifr;
-	int s, s6;
+	int s;
 
 	memset(&ifr, 0, sizeof(ifr));
 	strcpy(ifr.ifr_name, "lo0");
 
-	assumes((s = socket(AF_INET, SOCK_DGRAM, 0)) != -1);
-	assumes((s6 = socket(AF_INET6, SOCK_DGRAM, 0)) != -1);
+	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+		return;
 
 	if (assumes(ioctl(s, SIOCGIFFLAGS, &ifr) != -1)) {
 		ifr.ifr_flags |= IFF_UP;
 		assumes(ioctl(s, SIOCSIFFLAGS, &ifr) != -1);
-	}
-
-	memset(&ifr, 0, sizeof(ifr));
-	strcpy(ifr.ifr_name, "lo0");
-
-	if (assumes(ioctl(s6, SIOCGIFFLAGS, &ifr) != -1)) {
-		ifr.ifr_flags |= IFF_UP;
-		assumes(ioctl(s6, SIOCSIFFLAGS, &ifr) != -1);
 	}
 
 	memset(&ifra, 0, sizeof(ifra));
@@ -2386,6 +2379,30 @@ loopback_setup(void)
 	((struct sockaddr_in *)&ifra.ifra_mask)->sin_len = sizeof(struct sockaddr_in);
 
 	assumes(ioctl(s, SIOCAIFADDR, &ifra) != -1);
+
+	assumes(close(s) == 0);
+}
+
+void
+loopback_setup_ipv6(void)
+{
+	struct in6_aliasreq ifra6;
+	struct ifreq ifr;
+	int s6;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "lo0");
+
+	if ((s6 = socket(AF_INET6, SOCK_DGRAM, 0)) == -1)
+		return;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "lo0");
+
+	if (assumes(ioctl(s6, SIOCGIFFLAGS, &ifr) != -1)) {
+		ifr.ifr_flags |= IFF_UP;
+		assumes(ioctl(s6, SIOCSIFFLAGS, &ifr) != -1);
+	}
 
 	memset(&ifra6, 0, sizeof(ifra6));
 	strcpy(ifra6.ifra_name, "lo0");
@@ -2401,7 +2418,6 @@ loopback_setup(void)
 
 	assumes(ioctl(s6, SIOCAIFADDR_IN6, &ifra6) != -1);
 
-	assumes(close(s) == 0);
 	assumes(close(s6) == 0);
 }
 
