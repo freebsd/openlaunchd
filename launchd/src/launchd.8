@@ -13,9 +13,14 @@
 .Op Ar -- command Op Ar args ...
 .Sh DESCRIPTION
 .Nm 
-manages daemons, both for the system as a whole and for individual users. Ideal daemons can launch
-on demand based on criteria specified in their respective XML property lists located in one of the
-directories specified in the FILES section.
+manages processes, both for the system as a whole and for individual users.
+The primary and preferred interface to
+.Nm
+is via the
+.Xr launchctl 1
+tool which (among other options) allows the user or administrator to load and unload jobs.
+Where possible, it is preferable for jobs to launch on demand based on criteria specified
+in their respective configuration files.
 .Pp
 When run with a command, a specific instance of
 .Nm
