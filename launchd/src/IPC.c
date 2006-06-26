@@ -123,7 +123,7 @@ MonitorStartupItem(StartupContext aStartupContext, CFMutableDictionaryRef anItem
 		aContext.retain = 0;
 		aContext.release = 0;
 
-		if ((aResult = task_for_pid(mach_task_self(), aPID, &aPort)) != KERN_SUCCESS)
+		if ((aResult = task_name_for_pid(mach_task_self(), aPID, &aPort)) != KERN_SUCCESS)
 			goto out_bad;
 
 		if (!(aMachPort = CFMachPortCreateWithPort(NULL, aPort, NULL, &aContext, NULL)))
