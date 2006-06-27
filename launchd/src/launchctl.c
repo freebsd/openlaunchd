@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.86 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.87 $";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
@@ -97,6 +97,7 @@ static launch_data_t CF2launch_data(CFTypeRef);
 static launch_data_t read_plist_file(const char *file, bool editondisk, bool load);
 static CFPropertyListRef CreateMyPropertyListFromFile(const char *);
 static void WriteMyPropertyListToFile(CFPropertyListRef, const char *);
+static bool path_goodness_check(const char *path, bool forceload);
 static void readpath(const char *, struct load_unload_state *);
 static void readfile(const char *, struct load_unload_state *);
 static int _fd(int);
@@ -585,6 +586,37 @@ out_bad:
 	launch_data_free(thejob);
 }
 
+bool
+path_goodness_check(const char *path, bool forceload)
+{
+	struct stat sb;
+
+	if (stat(path, &sb) == -1) {
+		fprintf(stderr, "%s: Couldn't stat(\"%s\"): %s\n", getprogname(), path, strerror(errno));
+		return false;
+	}
+
+	if (forceload)
+		return true;
+
+	if (sb.st_mode & (S_IWOTH|S_IWGRP)) {
+		fprintf(stderr, "%s: Dubious permissions on file (skipping): %s\n", getprogname(), path);
+		return false;
+	}
+
+	if (sb.st_uid != 0 && sb.st_uid != getuid()) {
+		fprintf(stderr, "%s: Dubious ownership on file (skipping): %s\n", getprogname(), path);
+		return false;
+	}
+
+	if (!(S_ISREG(sb.st_mode) || S_ISDIR(sb.st_mode))) {
+		fprintf(stderr, "%s: Dubious path. Not a regular file or directory (skipping):  %s\n", getprogname(), path);
+		return false;
+	}
+
+	return true;
+}
+
 void
 readpath(const char *what, struct load_unload_state *lus)
 {
@@ -593,12 +625,15 @@ readpath(const char *what, struct load_unload_state *lus)
 	struct dirent *de;
 	DIR *d;
 
+	if (!path_goodness_check(what, lus->forceload))
+		return;
+
 	if (stat(what, &sb) == -1)
 		return;
 
-	if (S_ISREG(sb.st_mode) && !(sb.st_mode & S_IWOTH)) {
+	if (S_ISREG(sb.st_mode)) {
 		readfile(what, lus);
-	} else {
+	} else if (S_ISDIR(sb.st_mode)) {
 		if ((d = opendir(what)) == NULL) {
 			fprintf(stderr, "%s: opendir() failed to open the directory\n", getprogname());
 			return;
@@ -608,6 +643,9 @@ readpath(const char *what, struct load_unload_state *lus)
 			if ((de->d_name[0] == '.'))
 				continue;
 			snprintf(buf, sizeof(buf), "%s/%s", what, de->d_name);
+
+			if (!path_goodness_check(buf, lus->forceload))
+				continue;
 
 			readfile(buf, lus);
 		}
