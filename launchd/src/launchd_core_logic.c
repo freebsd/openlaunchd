@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.73 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.74 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -2211,40 +2211,66 @@ job_useless(struct jobcb *j)
 bool
 job_keepalive(struct jobcb *j)
 {
+	mach_msg_type_number_t statusCnt;
+	mach_port_status_t status;
 	struct semaphoreitem *si;
+	struct machservice *ms;
 	struct stat sb;
-	bool dispatch_others = false;
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
+	bool dispatch_others = false;
 
-	if (j->runatload && j->start_time == 0)
+	if (j->runatload && j->start_time == 0) {
+		job_log(j, LOG_DEBUG, "KeepAlive check: job needs to run at least once.");
 		return true;
+	}
 
-	if (!j->ondemand)
+	if (!j->ondemand) {
+		job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run continuously.");
 		return true;
+	}
 
-	if (SLIST_EMPTY(&j->semaphores))
-		return false;
+	SLIST_FOREACH(ms, &j->machservices, sle) {
+		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
+		if (mach_port_get_attributes(mach_task_self(), ms->port, MACH_PORT_RECEIVE_STATUS,
+					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
+			continue;
+		if (status.mps_msgcount) {
+			job_log(j, LOG_DEBUG, "KeepAlive check: job restarted due to %d queued Mach messages on service: %s",
+					status.mps_msgcount, ms->name);
+			return true;
+		}
+	}
+
 
 	SLIST_FOREACH(si, &j->semaphores, sle) {
+		bool wanted_state = false;
 		switch (si->why) {
 		case NETWORK_UP:
-			if (network_up) return true;
-			break;
+			wanted_state = true;
 		case NETWORK_DOWN:
-			if (!network_up) return true;
+			if (network_up == wanted_state) {
+				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the network is %s.",
+						wanted_state ? "up" : "down");
+				return true;
+			}
 			break;
 		case SUCCESSFUL_EXIT:
-			if (good_exit) return true;
-			break;
+			wanted_state = true;
 		case FAILED_EXIT:
-			if (!good_exit) return true;
+			if (good_exit == wanted_state) {
+				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the exit state was %s.",
+						wanted_state ? "successful" : "failure");
+				return true;
+			}
 			break;
 		case PATH_EXISTS:
-			if (stat(si->what, &sb) == 0) return true;
-			dispatch_others = true;
-			break;
+			wanted_state = true;
 		case PATH_MISSING:
-			if (stat(si->what, &sb) == -1 && errno == ENOENT) return true;
+			if ((bool)(stat(si->what, &sb) == 0) == wanted_state) {
+				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the following path %s: %s",
+						wanted_state ? "exists" : "is missing", si->what);
+				return true;
+			}
 			dispatch_others = true;
 			break;
 		}
