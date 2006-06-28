@@ -132,7 +132,7 @@ keeps a job alive or not. If multiple keys are provided, launchd ORs them, thus
 providing maximum flexibility to the job to refine the logic and stall if necessary. If
 .Nm launchd
 finds no reason to restart the job, it falls back on demand based invocation.
-Job that exit quickly and frequently when configured to be kept alive will be
+Jobs that exit quickly and frequently when configured to be kept alive will be
 throttled to converve system resources.
 .Bl -ohang -offset indent
 .It Sy SuccessfulExit <boolean>
