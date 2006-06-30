@@ -1,4 +1,0 @@
-{
-  Description     = "network time synchronization";
-  Provides        = ("Network Time");
-}
