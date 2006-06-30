@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.87 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.88 $";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
@@ -1226,10 +1226,10 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	assumes(touch_file(_PATH_UTMPX, DEFFILEMODE) != -1);
 	assumes(touch_file(_PATH_VARRUN "/.systemStarterRunning", DEFFILEMODE) != -1);
 
-	if (!path_check("/var/db/netinfo/local.nidb")) {
+	if (!path_check("/var/db/netinfo/local.nidb.migrated") && !path_check("/var/db/netinfo/local.nidb")) {
 		const char *create_nidb_tool[] = { "/usr/libexec/create_nidb", NULL };
 
-		fprintf(stderr, "NetInfo database missing. Creating...");
+		fprintf(stderr, "NetInfo database missing. Creating...\n");
 
 		mkdir("/var/db/netinfo", ACCESSPERMS);
 		remove("/var/db/.AppleSetupDone");
