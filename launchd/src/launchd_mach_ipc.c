@@ -29,7 +29,7 @@
  * bootstrap.c -- implementation of bootstrap main service loop
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.51 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.52 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -726,7 +726,20 @@ x_mpm_wait(mach_port_t bp, mach_port_t srp, audit_token_t au_tok, integer_t *wai
 }
 
 kern_return_t
-x_mpm_spawn(mach_port_t bp, mach_port_t srp, audit_token_t au_tok,
+x_mpm_uncork_fork(mach_port_t bp, audit_token_t au_tok)
+{
+	struct jobcb *j = job_find_by_port(bp);
+
+	if (!j)
+		return BOOTSTRAP_NOT_PRIVILEGED;
+
+	job_uncork_fork(j);
+
+	return 0;
+}
+
+kern_return_t
+x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
 		_internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
 		pid_t *child_pid, mach_port_t *obsvr_port)
@@ -782,7 +795,7 @@ x_mpm_spawn(mach_port_t bp, mach_port_t srp, audit_token_t au_tok,
 	}
 
 	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
-			flags & SPAWN_WANTS_WAIT4DEBUGGER, flags & SPAWN_WANTS_FORCE_PPC, srp);
+			flags & SPAWN_WANTS_WAIT4DEBUGGER, flags & SPAWN_WANTS_FORCE_PPC);
 
 	if (jr == NULL) switch (errno) {
 	case EEXIST:
@@ -795,10 +808,10 @@ x_mpm_spawn(mach_port_t bp, mach_port_t srp, audit_token_t au_tok,
 			flags & SPAWN_WANTS_FORCE_PPC ? " ppc": "",
 			flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
 
-	*child_pid = -1;
-	*obsvr_port = MACH_PORT_NULL;
+	*child_pid = job_get_pid(jr);
+	*obsvr_port = job_get_bsport(jr);
 
-	return MIG_NO_REPLY;
+	return BOOTSTRAP_SUCCESS;
 }
 
 kern_return_t

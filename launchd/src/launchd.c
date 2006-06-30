@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.215 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.216 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -442,7 +442,7 @@ int
 _fd(int fd)
 {
 	if (fd >= 0)
-		fcntl(fd, F_SETFD, 1);
+		launchd_assumes(fcntl(fd, F_SETFD, 1) != -1);
 	return fd;
 }
 

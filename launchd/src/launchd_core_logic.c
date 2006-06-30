@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.74 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.75 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -199,7 +199,6 @@ struct jobcb {
 	struct jobcb *parent;
 	mach_port_t bs_port;
 	mach_port_t req_port;
-	mach_port_t spawn_reply_port;
 	mach_port_t wait_reply_port;
 	uid_t mach_uid;
 	char **argv;
@@ -224,7 +223,7 @@ struct jobcb {
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
 		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1, __pad:27;
+	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1, stall_before_exec:1, __pad:26;
 	char label[0];
 };
 
@@ -486,8 +485,6 @@ job_remove(struct jobcb *j)
 		launchd_assumes(launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
 
 #if 0
-	if (j->spawn_reply_port) {
-	}
 	if (j->wait_reply_port) {
 	}
 #endif
@@ -655,7 +652,7 @@ job_handle_mpm_wait(struct jobcb *j, mach_port_t srp, int *waitstatus)
 }
 
 struct jobcb *
-job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc, mach_port_t srp)
+job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
 {
 	struct jobcb *jr;
 
@@ -670,8 +667,7 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 		return NULL;
 
 	jr->unload_at_exit = true;
-	jr->wait4debugger = w4d;
-	jr->spawn_reply_port = srp;
+	jr->stall_before_exec = w4d;
 	jr->force_ppc = fppc;
 
 	if (!job_setup_machport(jr)) {
@@ -1379,22 +1375,11 @@ job_callback(void *obj, struct kevent *kev)
 			read(j->execfd, &e, sizeof(e));
 			errno = e;
 			job_log_error(j, LOG_ERR, "execve()");
-			if (j->spawn_reply_port) {
-				job_log(j, LOG_DEBUG, "Spawn reply being sent with error: %d", e);
-				launchd_assumes(mpm_spawn_reply(j->spawn_reply_port, e, -1, MACH_PORT_NULL) == 0);
-				j->spawn_reply_port = MACH_PORT_NULL;
-			}
 			job_remove(j);
 			j = NULL;
 		} else {
 			launchd_assumes(close(j->execfd) == 0);
 			j->execfd = 0;
-			if (j->spawn_reply_port) {
-				job_log(j, LOG_DEBUG, "Spawn reply being sent with PID %d and Mach port %d",
-						j->p, MACH_PORT_INDEX(j->bs_port));
-				launchd_assumes(mpm_spawn_reply(j->spawn_reply_port, 0, j->p, j->bs_port) == 0);
-				j->spawn_reply_port = MACH_PORT_NULL;
-			}
 		}
 		break;
 	case EVFILT_MACHPORT:
@@ -1508,9 +1493,12 @@ job_start(struct jobcb *j)
 		       	if (j->ondemand)
 				job_ignore(j);
 		}
-		/* this unblocks the child and avoids a race
-		 * between the above fork() and the kevent_mod() */
-		write(j->execfd, &c, sizeof(c));
+
+		if (!j->stall_before_exec) {
+			/* this unblocks the child and avoids a race
+			 * between the above fork() and the kevent_mod() */
+			write(j->execfd, &c, sizeof(c));
+		}
 		break;
 	}
 }
@@ -2497,6 +2485,22 @@ struct jobcb *
 job_parent(struct jobcb *j)
 {
 	return j->parent;
+}
+
+void
+job_uncork_fork(struct jobcb *j)
+{
+	pid_t c = j->p;
+
+	if (j->stall_before_exec) {
+		job_log(j, LOG_DEBUG, "Uncorking the fork().");
+		/* this unblocks the child and avoids a race
+		 * between the above fork() and the kevent_mod() */
+		write(j->execfd, &c, sizeof(c));
+		j->stall_before_exec = false;
+	} else {
+		job_log(j, LOG_WARNING, "Attempt to uncork a job that isn't in the middle of a fork().");
+	}
 }
 
 void

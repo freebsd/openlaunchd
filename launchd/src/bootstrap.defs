@@ -112,7 +112,6 @@ routine bootstrap_getsocket(
 
 routine mpm_spawn(
 		__bs_port	: mach_port_t;
-	sreplyport		__rport	: mach_port_make_send_once_t;
 	ServerAuditToken	__token	: audit_token_t;
 		__chars		: _internal_string_t;
 		__argc		: uint32_t;
@@ -127,3 +126,7 @@ routine mpm_wait(
 	sreplyport		__rport	: mach_port_make_send_once_t;
 	ServerAuditToken	__token	: audit_token_t;
 	out	__waitval	: integer_t);
+
+routine mpm_uncork_fork(
+		__bs_port	: mach_port_t;
+	ServerAuditToken	__token	: audit_token_t);

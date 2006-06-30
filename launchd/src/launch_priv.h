@@ -113,6 +113,8 @@ pid_t _spawn_via_launchd(
 
 kern_return_t mpm_wait(mach_port_t ajob, int *wstatus);
 
+kern_return_t mpm_uncork_fork(mach_port_t ajob);
+
 
 __END_DECLS
 

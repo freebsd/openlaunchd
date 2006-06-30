@@ -143,6 +143,12 @@ mpm_wait(mach_port_t ajob, int *wstatus)
 }
 
 kern_return_t
+mpm_uncork_fork(mach_port_t ajob)
+{
+	return raw_mpm_uncork_fork(ajob);
+}
+
+kern_return_t
 bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_port)
 {
 	return raw_bootstrap_create_server(bp, server_cmd, server_uid, on_demand, server_port);

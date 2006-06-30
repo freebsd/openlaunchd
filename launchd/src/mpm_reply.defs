@@ -57,11 +57,7 @@ skip; /* transfer_subset */
 
 skip; /* getsocket */
 
-simpleroutine mpm_spawn_reply(
-		__r_port	: mach_port_move_send_once_t;
-		__result	: kern_return_t, RetCode;
-		__pid		: pid_t;
-		__obsvr_port	: mach_port_make_send_t);
+skip; /* spawn */
 
 simpleroutine mpm_wait_reply(
 		__r_port	: mach_port_move_send_once_t;
