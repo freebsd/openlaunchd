@@ -120,7 +120,8 @@ to use the
 .Xr glob 3
 mechanism to update the program arguments before invocation.
 .It Sy OnDemand <boolean>
-This key was used in Mac OS X 10.4 to control whether a job was kept alive or not. The default was true. This key has been deprecated andreplaced in Mac OS X 10.5 with the more powerful KeepAlive option.
+This key was used in Mac OS X 10.4 to control whether a job was kept alive or not. The default was true.
+This key has been deprecated and replaced in Mac OS X 10.5 with the more powerful KeepAlive option.
 .It Sy KeepAlive <boolean or dictionary of stuff>
 This optional key is used to control whether your job is to be kept
 continuously running or to let demand and conditions control the invocation. The
@@ -321,8 +322,13 @@ This optional key implies SockFamily is set to "Unix". It specifies the path to
 or
 .Xr bind 2
 to.
+.It Sy SecureSocketWithKey <string>
+This optional key is a variant of SockPathName. Instead of binding to a known
+path, a securely generated socket is created and the path is assigned to the
+environment variable that is inherited by all jobs spawned by launchd.
 .It Sy SockPathMode <integer>
-This optional key specifies the mode of the socket. Known bug: Property lists don't support octal, so please convert the value to decimal.
+This optional key specifies the mode of the socket. Known bug: Property lists
+don't support octal, so please convert the value to decimal.
 .It Sy Bonjour <boolean or string or array of strings>
 This optional key can be used to request that the service be registered with the
 .Xr mDNSResponder 8 .
@@ -332,7 +338,8 @@ This optional key can be used to request that the datagram socket join a multica
 If the value is a hostname, then
 .Xr getaddrinfo 3
 will be used to join the correct multicast address for a given socket family.
-If an explicit IPv4 or IPv6 address is given, it is required that the SockFamily family also be set, otherwise the results are undefined.
+If an explicit IPv4 or IPv6 address is given, it is required that the
+SockFamily family also be set, otherwise the results are undefined.
 .El
 .El
 .Pp
