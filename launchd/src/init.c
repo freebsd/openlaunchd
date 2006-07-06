@@ -57,7 +57,7 @@
  * SUCH DAMAGE.
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.37 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.38 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -321,8 +321,8 @@ single_user(void)
 			fprintf(stdout, "Root device is mounted read-only\n\n");
 			fprintf(stdout, "If you want to make modifications to files:\n");
 			fprintf(stdout, "\t/sbin/fsck -fy\n\t/sbin/mount -uw /\n\n");
-			fprintf(stdout, "If you wish to boot the system, but stay in single user mode:\n");
-			fprintf(stdout, "\tsh /etc/rc\n");
+			fprintf(stdout, "If you wish to boot the system:\n");
+			fprintf(stdout, "\texit\n\n");
 			fflush(stdout);
 		}
 
