@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.76 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.77 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -1869,7 +1869,7 @@ watchpath_watch(struct jobcb *j, struct watchpath *wp)
 		wp->fd = _fd(open(wp->name, O_EVTONLY|O_NOCTTY|O_NOFOLLOW));
 
 	if (wp->fd == -1)
-		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\":", wp->name);
+		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", wp->name);
 
 	job_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
 	launchd_assumes(kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
