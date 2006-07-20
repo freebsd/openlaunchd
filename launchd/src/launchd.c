@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.216 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.217 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -122,7 +122,6 @@ static int asynckq = 0;
 static bool re_exec_in_single_user_mode = false;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
-static struct jobcb *fbj = NULL;
 static struct jobcb *rlcj = NULL;
 
 sigset_t blocked_signals = 0;
@@ -149,6 +148,7 @@ main(int argc, char *const *argv)
 	const char *session_type = NULL;
 	const char *optargs = NULL;
 	launch_data_t ldresp, ldmsg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
+	struct jobcb *fbj = NULL;
 	struct stat sb;
 	size_t i, checkin_fdcnt = 0;
 	int *checkin_fds = NULL;
@@ -380,9 +380,13 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 		}
 	}
 
-	if (getpid() == 1 && !job_active(rlcj))
+	if (getpid() == 1) {
+		if (rlcj && job_active(rlcj))
+			goto out;
 		init_pre_kevent();
+	}
 
+out:
 	return 0;
 }
 
@@ -462,6 +466,8 @@ launchd_shutdown(void)
 
 	launchd_assumes(close(asynckq) != -1);
 	
+	rlcj = NULL;
+
 	job_remove_all_inactive(root_job);
 
 	if (getpid() == 1)
@@ -494,7 +500,8 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 {
 	switch (kev->ident) {
 	case SIGHUP:
-		job_start(rlcj);
+		if (rlcj)
+			job_start(rlcj);
 		break;
 	case SIGTERM:
 		launchd_shutdown();
