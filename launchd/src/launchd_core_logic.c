@@ -18,7 +18,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.78 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.79 $";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
@@ -1351,7 +1351,7 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_TIMER:
-		if ((uintptr_t)j == kev->ident) {
+		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
 			job_start(j);
 		} else {
 			calendarinterval_callback(j, kev);
