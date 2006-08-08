@@ -18,7 +18,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.218 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.219 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -60,6 +60,7 @@ static const char *const __rcs_file_version__ = "$Revision: 1.218 $";
 #include <dirent.h>
 #include <string.h>
 #include <pthread.h>
+#include <setjmp.h>
 
 #include "bootstrap_public.h"
 #include "bootstrap_private.h"
@@ -112,6 +113,7 @@ static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
 static void *kqueue_demand_loop(void *arg);
+static void fatal_signal_handler(int sig);
 
 static pthread_t kqueue_demand_thread;
 static int mainkq = 0;
@@ -120,6 +122,7 @@ static bool re_exec_in_single_user_mode = false;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
 static struct jobcb *rlcj = NULL;
+static jmp_buf doom_doom_doom;
 
 sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
@@ -329,12 +332,24 @@ main(int argc, char *const *argv)
 	if (getpid() == 1 && !job_active(rlcj))
 		init_pre_kevent();
 
+	launchd_assert(setjmp(doom_doom_doom) == 0);
+	launchd_assumes(signal(SIGILL, fatal_signal_handler) != SIG_ERR);
+	launchd_assumes(signal(SIGFPE, fatal_signal_handler) != SIG_ERR);
+	launchd_assumes(signal(SIGBUS, fatal_signal_handler) != SIG_ERR);
+	launchd_assumes(signal(SIGSEGV, fatal_signal_handler) != SIG_ERR);
+
 	for (;;) {
 		msgr = mach_msg_server(launchd_internal_demux, mxmsgsz, ipc_port_set,
 				MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT) |
 				MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
 		launchd_assumes(msgr == MACH_MSG_SUCCESS);
 	}
+}
+
+void
+fatal_signal_handler(int sig)
+{
+	longjmp(doom_doom_doom, sig);
 }
 
 void *
