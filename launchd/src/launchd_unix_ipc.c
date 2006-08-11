@@ -18,7 +18,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.12 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.13 $";
 
 #include <sys/types.h>
 #include <sys/queue.h>
@@ -479,7 +479,7 @@ adjust_rlimits(launch_data_t in)
 			if (ltmp[i].rlim_cur == l[i].rlim_cur && ltmp[i].rlim_max == l[i].rlim_max)
 				continue;
 
-			if (/* XXX readcfg_pid && */ getpid() == 1) {
+			if (/* XXX readcfg_pid && */ getpid() == 1 && (i == RLIMIT_NOFILE || i == RLIMIT_NPROC)) {
 				int gmib[] = { CTL_KERN, KERN_MAXPROC };
 				int pmib[] = { CTL_KERN, KERN_MAXPROCPERUID };
 				const char *gstr = "kern.maxproc";
