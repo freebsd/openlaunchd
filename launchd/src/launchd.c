@@ -18,7 +18,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.219 $";
+static const char *const __rcs_file_version__ = "$Revision: 1.220 $";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
@@ -474,6 +474,9 @@ ppidexit_callback(void)
 void
 launchd_shutdown(void)
 {
+	if (shutdown_in_progress)
+		return;
+
 	shutdown_in_progress = true;
 
 	launchd_assumes(close(asynckq) != -1);
