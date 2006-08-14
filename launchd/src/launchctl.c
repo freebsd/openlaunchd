@@ -1223,16 +1223,6 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	assumes(touch_file(_PATH_UTMPX, DEFFILEMODE) != -1);
 	assumes(touch_file(_PATH_VARRUN "/.systemStarterRunning", DEFFILEMODE) != -1);
 
-	if (!path_check("/var/db/netinfo/local.nidb.migrated") && !path_check("/var/db/netinfo/local.nidb")) {
-		const char *create_nidb_tool[] = { "/usr/libexec/create_nidb", NULL };
-
-		fprintf(stderr, "NetInfo database missing. Creating...\n");
-
-		mkdir("/var/db/netinfo", ACCESSPERMS);
-		remove("/var/db/.AppleSetupDone");
-		assumes(fwexec(create_nidb_tool, true) != -1);
-	}
-
 	if (path_check("/etc/security/rc.audit")) {
 		const char *audit_tool[] = { _PATH_BSHELL, "/etc/security/rc.audit", NULL };
 		assumes(fwexec(audit_tool, true) != -1);
