@@ -817,8 +817,11 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 				hints.ai_family = AF_INET6;
 		}
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PROTOCOL))) {
-			if (!strcasecmp("TCP", launch_data_get_string(val)))
+			if (!strcasecmp("TCP", launch_data_get_string(val))) {
 				hints.ai_protocol = IPPROTO_TCP;
+			} else if (!strcasecmp("UDP", launch_data_get_string(val))) {
+				hints.ai_protocol = IPPROTO_UDP;
+			}
 		}
 		if ((rnames = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_BONJOUR))) {
 			rendezvous = true;
