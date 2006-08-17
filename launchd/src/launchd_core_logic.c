@@ -214,7 +214,6 @@ struct jobcb {
 	int nice;
 	int timeout;
 	time_t start_time;
-	size_t failed_exits;
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, inetcompat_wait:1,
 		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
@@ -1236,7 +1235,6 @@ job_reap(struct jobcb *j)
 {
 	struct rusage ru;
 	time_t td = time(NULL) - j->start_time;
-	bool bad_exit = false;
 	int status;
 
 	job_log(j, LOG_DEBUG, "Reaping");
@@ -1275,7 +1273,6 @@ job_reap(struct jobcb *j)
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
 		job_log(j, LOG_WARNING, "exited with exit code: %d", WEXITSTATUS(status));
-		bad_exit = true;
 	}
 
 	if (WIFSIGNALED(status)) {
@@ -1284,29 +1281,12 @@ job_reap(struct jobcb *j)
 			job_log(j, LOG_NOTICE, "Exited: %s", strsignal(s));
 		} else {
 			job_log(j, LOG_WARNING, "Exited abnormally: %s", strsignal(s));
-			bad_exit = true;
 		}
 	}
 
-	if (!j->ondemand && !j->legacy_mach_job) {
-		if (td < LAUNCHD_MIN_JOB_RUN_TIME) {
-			job_log(j, LOG_WARNING, "respawning too quickly! throttling");
-			bad_exit = true;
-			j->throttle = true;
-		} else if (td >= LAUNCHD_REWARD_JOB_RUN_TIME) {
-			job_log(j, LOG_INFO, "lived long enough, forgiving past exit failures");
-			j->failed_exits = 0;
-		}
-	}
-
-	if (!j->legacy_mach_job && bad_exit)
-		j->failed_exits++;
-
-	if (j->failed_exits > 0) {
-		int failures_left = LAUNCHD_FAILED_EXITS_THRESHOLD - j->failed_exits;
-		if (failures_left)
-			job_log(j, LOG_WARNING, "%d more failure%s without living at least %d seconds will cause job removal",
-					failures_left, failures_left > 1 ? "s" : "", LAUNCHD_REWARD_JOB_RUN_TIME);
+	if (!j->ondemand && td < LAUNCHD_MIN_JOB_RUN_TIME) {
+		job_log(j, LOG_WARNING, "respawning too quickly! throttling");
+		j->throttle = true;
 	}
 
 	total_children--;
@@ -1415,7 +1395,7 @@ job_start(struct jobcb *j)
 	if (job_active(j)) {
 		job_log(j, LOG_DEBUG, "Already started");
 		return;
-	} else if (!j->legacy_mach_job && j->throttle) {
+	} else if (j->throttle) {
 		j->throttle = false;
 		job_log(j, LOG_WARNING, "Throttling: Will restart in %d seconds", LAUNCHD_MIN_JOB_RUN_TIME);
 		launchd_assumes(kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
@@ -2182,9 +2162,6 @@ job_useless(struct jobcb *j)
 		return true;
 	} else if (shutdown_in_progress) {
 		job_log(j, LOG_INFO, "Exited while shutdown in progress.");
-		return true;
-	} else if (j->failed_exits >= LAUNCHD_FAILED_EXITS_THRESHOLD) {
-		job_log(j, LOG_WARNING, "too many failures in succession");
 		return true;
 	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
 		job_log(j, LOG_WARNING, "Failed to check-in!");

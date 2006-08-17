@@ -21,8 +21,6 @@
  */
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
-#define LAUNCHD_REWARD_JOB_RUN_TIME 60
-#define LAUNCHD_FAILED_EXITS_THRESHOLD 10
 
 #include "bootstrap_public.h"
 
