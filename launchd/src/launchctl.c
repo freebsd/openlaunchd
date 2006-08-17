@@ -2564,7 +2564,7 @@ apply_func_to_dir(const char *thedir, void (*thefunc)(const char *))
 		if (strcmp(de->d_name, "..") == 0)
 			continue;
 
-		if (assumes(stat(de->d_name, &sb) != -1)) {
+		if (assumes(lstat(de->d_name, &sb) != -1)) {
 			if (S_ISDIR(sb.st_mode))
 				apply_func_to_dir(de->d_name, thefunc);
 			thefunc(de->d_name);
