@@ -183,8 +183,16 @@ main(int argc, char *const *argv)
 
 		for (fdi = STDERR_FILENO + 1; fdi < dts; fdi++)
 			close(fdi);
-		for (sigi = 1; sigi < NSIG; sigi++)
-			launchd_assumes(signal(sigi, SIG_DFL) != SIG_ERR);
+		for (sigi = 1; sigi < NSIG; sigi++) {
+			switch (sigi) {
+			case SIGKILL:
+			case SIGSTOP:
+				break;
+			default:
+				launchd_assumes(signal(sigi, SIG_DFL) != SIG_ERR);
+				break;
+			}
+		}
 		sigemptyset(&emptyset);
 		launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) == 0);
 	}
