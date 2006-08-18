@@ -216,7 +216,7 @@ struct jobcb {
 	time_t start_time;
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, inetcompat_wait:1,
-		ondemand:1, session_create:1, low_pri_io:1, init_groups:1, priv_port_has_senders:1,
+		ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
 		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1, stall_before_exec:1, __pad:26;
@@ -238,6 +238,7 @@ static bool job_keepalive(struct jobcb *j);
 static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
 static bool job_setup_machport(struct jobcb *j);
+static void job_postfork_become_user(struct jobcb *j);
 static void job_callback(void *obj, struct kevent *kev);
 static pid_t job_fork(struct jobcb *j);
 static size_t job_prep_log_preface(struct jobcb *j, char *buf);
@@ -851,8 +852,13 @@ job_import_bool(struct jobcb *j, const char *key, bool value)
 		break;
 	case 'i':
 	case 'I':
-		if (strcasecmp(key, LAUNCH_JOBKEY_INITGROUPS) == 0)
-			j->init_groups = value;
+		if (strcasecmp(key, LAUNCH_JOBKEY_INITGROUPS) == 0) {
+			if (getuid() == 0) {
+				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				return;
+			}
+			j->no_init_groups = !value;
+		}
 		break;
 	case 'r':
 	case 'R':
@@ -878,23 +884,27 @@ void
 job_import_string(struct jobcb *j, const char *key, const char *value)
 {
 	char **where2put = NULL;
-	char **ignore = (char **)-1;
 
 	switch (key[0]) {
 	case 'p':
 	case 'P':
 		if (strcasecmp(key, LAUNCH_JOBKEY_PROGRAM) == 0)
-			where2put = ignore;
+			return;
 		break;
 	case 'l':
 	case 'L':
 		if (strcasecmp(key, LAUNCH_JOBKEY_LABEL) == 0)
-			where2put = ignore;
+			return;
 		break;
 	case 'r':
 	case 'R':
-		if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0) {
+			if (getuid() != 0) {
+				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				return;
+			}
 			where2put = &j->rootdir;
+		}
 		break;
 	case 'w':
 	case 'W':
@@ -903,13 +913,23 @@ job_import_string(struct jobcb *j, const char *key, const char *value)
 		break;
 	case 'u':
 	case 'U':
-		if (strcasecmp(key, LAUNCH_JOBKEY_USERNAME) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_USERNAME) == 0) {
+			if (getuid() != 0 || strcmp(value, "root") == 0) {
+				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				return;
+			}
 			where2put = &j->username;
+		}
 		break;
 	case 'g':
 	case 'G':
-		if (strcasecmp(key, LAUNCH_JOBKEY_GROUPNAME) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_GROUPNAME) == 0) {
+			if (getuid() != 0 || strcmp(value, "wheel") == 0) {
+				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				return;
+			}
 			where2put = &j->groupname;
+		}
 		break;
 	case 's':
 	case 'S':
@@ -924,12 +944,9 @@ job_import_string(struct jobcb *j, const char *key, const char *value)
 	}
 
 	if (where2put) {
-		if (where2put == ignore)
-			return;
-
 		launchd_assumes((*where2put = strdup(value)) != NULL);
 	} else {
-		job_log(j, LOG_WARNING, "Unknown value for key %s: %s", key, value);
+		job_log(j, LOG_WARNING, "Unknown key: %s", key);
 	}
 }
 
@@ -1559,12 +1576,78 @@ void job_setup_env_from_other_jobs(struct jobcb *j)
 }
 
 void
+job_postfork_become_user(struct jobcb *j)
+{
+	char loginname[2000];
+	struct passwd *pwe;
+	gid_t desired_gid = -1;
+	uid_t desired_uid = -1;
+
+	if (getuid() != 0)
+		return;
+
+	if (j->username) {
+		if ((pwe = getpwnam(j->groupname)) == NULL) {
+			job_log(j, LOG_ERR, "getpwnam(\"%s\") failed", j->username);
+			_exit(EXIT_FAILURE);
+		}
+	} else if (j->mach_uid) {
+		if ((pwe = getpwuid(j->mach_uid)) == NULL) {
+			job_log(j, LOG_ERR, "getpwuid(\"%u\") failed", j->mach_uid);
+			_exit(EXIT_FAILURE);
+		}
+	} else {
+		return;
+	}
+
+	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
+
+	if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
+		job_log(j, LOG_ERR, "Expired account");
+		_exit(EXIT_FAILURE);
+	}
+
+	desired_uid = pwe->pw_uid;
+	desired_gid = pwe->pw_gid;
+
+	if (j->groupname) {
+		struct group *gre;
+
+		if ((gre = getgrnam(j->groupname)) == NULL) {
+			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", j->groupname);
+			_exit(EXIT_FAILURE);
+		}
+
+		desired_gid = gre->gr_gid;
+	}
+
+	if (-1 == setgid(desired_gid)) {
+		job_log_error(j, LOG_ERR, "setgid(%u)", desired_gid);
+		_exit(EXIT_FAILURE);
+	}
+
+	/*
+	 * <rdar://problem/4616864> launchctl should invoke initgroups after setgid
+	 */
+
+	if (!j->no_init_groups) {
+		if (initgroups(loginname, desired_gid) == -1) {
+			job_log_error(j, LOG_ERR, "initgroups()");
+			_exit(EXIT_FAILURE);
+		}
+	}
+
+	if (-1 == setuid(desired_uid)) {
+		job_log_error(j, LOG_ERR, "setuid(%u)", desired_uid);
+		_exit(EXIT_FAILURE);
+	}
+}
+
+void
 job_setup_attributes(struct jobcb *j)
 {
 	struct limititem *li;
 	struct envitem *ei;
-	struct group *gre = NULL;
-	gid_t gre_g = 0;
 
 	setpriority(PRIO_PROCESS, 0, j->nice);
 
@@ -1599,64 +1682,17 @@ job_setup_attributes(struct jobcb *j)
 		chroot(j->rootdir);
 		chdir(".");
 	}
-	if (j->groupname) {
-		gre = getgrnam(j->groupname);
-		if (gre) {
-			gre_g = gre->gr_gid;
-			if (-1 == setgid(gre_g)) {
-				job_log_error(j, LOG_ERR, "setgid(%d)", gre_g);
-				exit(EXIT_FAILURE);
-			}
-		} else {
-			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", j->groupname);
-			exit(EXIT_FAILURE);
-		}
-	}
-	if (j->username || j->mach_uid) {
-		struct passwd *pwe;
 
-		if (j->username)
-			pwe = getpwnam(j->username);
-		else
-			pwe = getpwuid(j->mach_uid);
+	job_postfork_become_user(j);
 
-		if (pwe) {
-			uid_t pwe_u = pwe->pw_uid;
-			uid_t pwe_g = pwe->pw_gid;
-
-			if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
-				job_log(j, LOG_ERR, "expired account: %s", j->username);
-				exit(EXIT_FAILURE);
-			}
-			if (j->init_groups) {
-				if (-1 == initgroups(j->username, gre ? gre_g : pwe_g)) {
-					job_log_error(j, LOG_ERR, "initgroups()");
-					exit(EXIT_FAILURE);
-				}
-			}
-			if (!gre) {
-				if (-1 == setgid(pwe_g)) {
-					job_log_error(j, LOG_ERR, "setgid(%d)", pwe_g);
-					exit(EXIT_FAILURE);
-				}
-			}
-			if (-1 == setuid(pwe_u)) {
-				job_log_error(j, LOG_ERR, "setuid(%d)", pwe_u);
-				exit(EXIT_FAILURE);
-			}
-		} else {
-			if (j->username) {
-				job_log(j, LOG_WARNING, "getpwnam(\"%s\") failed", j->username);
-			} else {
-				job_log(j, LOG_WARNING, "getpwuid(\"%d\") failed", j->mach_uid);
-			}
-			exit(EXIT_FAILURE);
-		}
-	}
-	if (j->workingdir)
+	if (j->workingdir) {
 		chdir(j->workingdir);
-	if (j->setmask) 
+	}
+
+	if (j->setmask) {
 		umask(j->mask);
+	}
+
 	if (j->stdinpath) {
 		int sifd = open(j->stdinpath, O_RDONLY|O_NOCTTY);
 		if (sifd == -1) {

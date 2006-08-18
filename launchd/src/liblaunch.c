@@ -1163,8 +1163,8 @@ fexecv_as_user(const char *login, uid_t u, gid_t g, char *const argv[])
 
 	seteuid(0);
 	setegid(0);
-	initgroups(login, g);
 	setgid(g);
+	initgroups(login, g);
 	setuid(u);
 
 	dtsz = getdtablesize();
