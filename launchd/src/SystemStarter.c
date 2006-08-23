@@ -237,7 +237,6 @@ displayErrorMessages(StartupContext aStartupContext)
 static int 
 system_starter(Action anAction, const char *aService_cstr)
 {
-	CFRunLoopSourceRef anIPCSource = NULL;
 	CFStringRef     aService = NULL;
 	NSSearchPathDomainMask aMask;
 
@@ -251,18 +250,6 @@ system_starter(Action anAction, const char *aService_cstr)
 	}
 	if (gDebugFlag && gNoRunFlag)
 		sleep(1);
-
-	/**
-         * Create the IPC port
-         **/
-	anIPCSource = CreateIPCRunLoopSource(CFSTR(kSystemStarterMessagePort), aStartupContext);
-	if (anIPCSource) {
-		CFRunLoopAddSource(CFRunLoopGetCurrent(), anIPCSource, kCFRunLoopCommonModes);
-		CFRelease(anIPCSource);
-	} else {
-		syslog(LOG_ERR, "Could not create IPC bootstrap port: %s", kSystemStarterMessagePort);
-		return (1);
-	}
 
 	/**
          * Get a list of Startup Items which are in /Local and /System.

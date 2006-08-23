@@ -35,9 +35,4 @@
  **/
 void MonitorStartupItem (StartupContext aStartupContext, CFMutableDictionaryRef anItem);
 
-/**
- * Creates a named mach port and run loop source.  The name is encoded using UTF-8.
- **/
-CFRunLoopSourceRef CreateIPCRunLoopSource(CFStringRef aPortName, StartupContext aStartupContext);
-
 #endif /* _IPC_H_ */
