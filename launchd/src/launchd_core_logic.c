@@ -1587,7 +1587,7 @@ job_postfork_become_user(struct jobcb *j)
 		return;
 
 	if (j->username) {
-		if ((pwe = getpwnam(j->groupname)) == NULL) {
+		if ((pwe = getpwnam(j->username)) == NULL) {
 			job_log(j, LOG_ERR, "getpwnam(\"%s\") failed", j->username);
 			_exit(EXIT_FAILURE);
 		}
