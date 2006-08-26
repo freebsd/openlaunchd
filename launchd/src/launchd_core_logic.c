@@ -79,14 +79,6 @@ static const char *const __rcs_file_version__ = "$Revision: 1.79 $";
 #include "bootstrapServer.h"
 #include "mpm_reply.h"
 
-/* <rdar://problem/2685209> sys/queue.h is not up to date */
-#ifndef SLIST_FOREACH_SAFE
-#define	SLIST_FOREACH_SAFE(var, head, field, tvar)			\
-	for ((var) = SLIST_FIRST((head));				\
-		(var) && ((tvar) = SLIST_NEXT((var), field), 1);	\
-		(var) = (tvar))
-#endif
-
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
 	struct jobcb		*job;
@@ -235,6 +227,7 @@ static void job_ignore(struct jobcb *j);
 static void job_reap(struct jobcb *j);
 static bool job_useless(struct jobcb *j);
 static bool job_keepalive(struct jobcb *j);
+static void job_start(struct jobcb *j);
 static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(struct jobcb *j);
 static bool job_setup_machport(struct jobcb *j);
@@ -428,10 +421,11 @@ job_export2(struct jobcb *j, bool subjobs)
 void
 job_remove_all_inactive(struct jobcb *j)
 {
-	struct jobcb *ji;
+	struct jobcb *ji, *jn;
 
-	SLIST_FOREACH(ji, &j->jobs, sle)
+	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
 		job_remove_all_inactive(ji);
+	}
 
 	if (!job_active(j)) {
 		job_remove(j);
@@ -691,7 +685,7 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 		envitem_new(jr, newkey, eqoff + 1, false);
 	}
 
-	job_start(jr);
+	job_dispatch(jr, true);
 
 	return jr;
 }
@@ -787,7 +781,7 @@ job_import(launch_data_t pload)
 	if (j == NULL)
 		return NULL;
 
-	job_dispatch(j);
+	job_dispatch(j, false);
 
 	return j;
 }
@@ -810,7 +804,7 @@ job_import_bulk(launch_data_t pload)
 	for (i = 0; i < c; i++) {
 		if (ja[i] == NULL)
 			continue;
-		job_dispatch(ja[i]);
+		job_dispatch(ja[i], false);
 	}
 
 	return resp;
@@ -1312,13 +1306,21 @@ job_reap(struct jobcb *j)
 }
 
 void
-job_dispatch(struct jobcb *j)
+job_dispatch(struct jobcb *j, bool kickstart)
 {
+	/*
+	 * The whole job removal logic needs to be consolidated. The fact that
+	 * a job can be removed from just about anywhere makes it easy to have
+	 * stale pointers left behind somewhere on the stack that might get
+	 * used after the deallocation. In particular, during job iteration.
+	 *
+	 * This is a classic example. The act of dispatching a job may delete it.
+	 */
 	if (job_active(j)) {
 		return;
 	} else if (job_useless(j)) {
 		job_remove(j);
-	} else if (job_keepalive(j)) {
+	} else if (kickstart || job_keepalive(j)) {
 		job_start(j);
 	} else {
 		job_watch(j);
@@ -1344,12 +1346,12 @@ job_callback(void *obj, struct kevent *kev)
 			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
 			launchd_shutdown();
 		} else {
-			job_dispatch(j);
+			job_dispatch(j, false);
 		}
 		break;
 	case EVFILT_TIMER:
 		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
-			job_start(j);
+			job_dispatch(j, true);
 		} else {
 			calendarinterval_callback(j, kev);
 		}
@@ -1381,7 +1383,7 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_MACHPORT:
-		job_start(j);
+		job_dispatch(j, true);
 		break;
 	default:
 		launchd_assumes(false);
@@ -1893,7 +1895,7 @@ watchpath_watch(struct jobcb *j, struct watchpath *wp)
 	if (-1 == (qdir_file_cnt = dir_has_files(wp->name))) {
 		job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
 	} else if (qdir_file_cnt > 0) {
-		job_start(j);
+		job_dispatch(j, true);
 	}
 }
 
@@ -1927,7 +1929,7 @@ watchpath_callback(struct jobcb *j, struct kevent *kev)
 		}
 	}
 
-	job_start(j);
+	job_dispatch(j, true);
 }
 
 bool
@@ -2000,7 +2002,7 @@ calendarinterval_callback(struct jobcb *j, struct kevent *kev)
 
 	if (launchd_assumes(ci != NULL)) {
 		calendarinterval_setalarm(j, ci);
-		job_start(j);
+		job_dispatch(j, true);
 	}
 }
 
@@ -2082,7 +2084,7 @@ socketgroup_watch(struct jobcb *j, struct socketgroup *sg)
 void
 socketgroup_callback(struct jobcb *j, struct kevent *kev)
 {
-	job_start(j);
+	job_dispatch(j, true);
 }
 
 bool
@@ -2785,7 +2787,7 @@ job_ack_port_destruction(struct jobcb *j, mach_port_t p)
 
 	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
 
-	job_dispatch(j);
+	job_dispatch(j, false);
 
 	return true;
 }
@@ -2797,7 +2799,7 @@ job_ack_no_senders(struct jobcb *j)
 
 	job_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
 
-	job_dispatch(j);
+	job_dispatch(j, false);
 }
 
 mach_port_t
@@ -2896,16 +2898,18 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 void
 job_dispatch_all_other_semaphores(struct jobcb *j, struct jobcb *nj)
 {
-	struct jobcb *ji;
+	struct jobcb *ji, *jn;
 
 	if (j == nj)
 		return;
 
-	if (!SLIST_EMPTY(&j->semaphores))
-		job_dispatch(j);
-
-	SLIST_FOREACH(ji, &j->jobs, sle)
+	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
 		job_dispatch_all_other_semaphores(ji, nj);
+	}
+
+	if (!SLIST_EMPTY(&j->semaphores)) {
+		job_dispatch(j, false);
+	}
 }
 
 time_t

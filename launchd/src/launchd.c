@@ -322,10 +322,10 @@ main(int argc, char *const *argv)
 	}
 
 	if (stat(ldconf, &sb) == 0)
-		job_start(rlcj);
+		job_dispatch(rlcj, true);
 
 	if (fbj)
-		job_start(fbj);
+		job_dispatch(fbj, true);
 
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
@@ -524,7 +524,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	switch (kev->ident) {
 	case SIGHUP:
 		if (rlcj)
-			job_start(rlcj);
+			job_dispatch(rlcj, true);
 		break;
 	case SIGTERM:
 		launchd_shutdown();

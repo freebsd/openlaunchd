@@ -384,7 +384,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
 		if ((j = job_find(root_job, launch_data_get_string(data))) != NULL) {
-			job_start(j);
+			job_dispatch(j, true);
 			errno = 0;
 		}
 		resp = launch_data_new_errno(errno);

@@ -50,9 +50,8 @@ struct jobcb *job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t ui
 struct jobcb *job_new_bootstrap(struct jobcb *p, mach_port_t requestorport, mach_port_t checkin_port);
 launch_data_t job_export(struct jobcb *j);
 launch_data_t job_export_all(void);
-void job_dispatch(struct jobcb *j);
+void job_dispatch(struct jobcb *j, bool kickstart);
 void job_dispatch_all_other_semaphores(struct jobcb *j, struct jobcb *nj);
-void job_start(struct jobcb *j);
 void job_stop(struct jobcb *j);
 bool job_active(struct jobcb *j);
 void job_checkin(struct jobcb *j);
