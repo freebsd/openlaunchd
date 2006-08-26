@@ -473,6 +473,8 @@ _fd(int fd)
 void
 ppidexit_callback(void)
 {
+	syslog(LOG_INFO, "Parent process exited");
+
 	launchd_shutdown();
 
 	/* Let's just bail for now. We should really try to wait for jobs to exit first. */
@@ -521,6 +523,8 @@ out:
 
 static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
+	syslog(LOG_DEBUG, "Received signal: %u", kev->ident);
+
 	switch (kev->ident) {
 	case SIGHUP:
 		if (rlcj)

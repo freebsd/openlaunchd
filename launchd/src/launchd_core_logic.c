@@ -2598,16 +2598,23 @@ job_delete_anything_with_port(struct jobcb *j, mach_port_t port)
 	 * to use.
 	 */
 
-	if (j->req_port == port)
-		return job_remove(j);
-
-	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn)
+	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
 		job_delete_anything_with_port(ji, port);
+	}
 
 	SLIST_FOREACH_SAFE(ms, &j->machservices, sle, next_ms) {
 		if (ms->port == port)
 			machservice_delete(ms);
 	}
+
+	if (j->req_port == port) {
+		if (j == root_job) {
+			launchd_shutdown();
+		} else {
+			job_remove(j);
+		}
+	}
+
 }
 
 struct machservice *
