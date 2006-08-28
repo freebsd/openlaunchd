@@ -207,9 +207,9 @@ struct jobcb {
 	int timeout;
 	time_t start_time;
 	unsigned int start_interval;
-	unsigned int checkedin:1, firstborn:1, debug:1, throttle:1, inetcompat:1, inetcompat_wait:1,
+	unsigned int checkedin:1, firstborn:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
-		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
+		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1, __pad0:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1, stall_before_exec:1, __pad:26;
 	char label[0];
@@ -1245,7 +1245,6 @@ void
 job_reap(struct jobcb *j)
 {
 	struct rusage ru;
-	time_t td = time(NULL) - j->start_time;
 	int status;
 
 	job_log(j, LOG_DEBUG, "Reaping");
@@ -1293,11 +1292,6 @@ job_reap(struct jobcb *j)
 		} else {
 			job_log(j, LOG_WARNING, "Exited abnormally: %s", strsignal(s));
 		}
-	}
-
-	if (!j->ondemand && td < LAUNCHD_MIN_JOB_RUN_TIME) {
-		job_log(j, LOG_WARNING, "respawning too quickly! throttling");
-		j->throttle = true;
 	}
 
 	total_children--;
@@ -1404,6 +1398,7 @@ job_start(struct jobcb *j)
 	char nbuf[64];
 	pid_t c;
 	bool sipc = false;
+	time_t td;
 
 	if (!launchd_assumes(j->req_port == MACH_PORT_NULL))
 		return;
@@ -1414,11 +1409,15 @@ job_start(struct jobcb *j)
 	if (job_active(j)) {
 		job_log(j, LOG_DEBUG, "Already started");
 		return;
-	} else if (j->throttle) {
-		j->throttle = false;
-		job_log(j, LOG_WARNING, "Throttling: Will restart in %d seconds", LAUNCHD_MIN_JOB_RUN_TIME);
-		launchd_assumes(kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT,
-					NOTE_SECONDS, LAUNCHD_MIN_JOB_RUN_TIME, j) != -1);
+	}
+
+	td = time(NULL) - j->start_time;
+
+	if (td < LAUNCHD_MIN_JOB_RUN_TIME) {
+		time_t respawn_delta = LAUNCHD_MIN_JOB_RUN_TIME - td;
+
+		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
+		launchd_assumes(kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
 		return;
 	}
 
