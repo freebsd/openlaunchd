@@ -2195,7 +2195,7 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_useless(struct jobcb *j)
 {
-	if (j->unload_at_exit) {
+	if (j->unload_at_exit && j->start_time != 0) {
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
 		return true;
 	} else if (shutdown_in_progress) {
