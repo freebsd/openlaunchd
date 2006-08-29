@@ -1673,11 +1673,9 @@ job_setup_attributes(struct jobcb *j)
 		launchd_SessionCreate();
 
 	if (j->low_pri_io) {
-		int lowprimib[] = { CTL_KERN, KERN_PROC_LOW_PRI_IO };
-		int val = 1;
-
-		if (sysctl(lowprimib, sizeof(lowprimib) / sizeof(lowprimib[0]), NULL, NULL,  &val, sizeof(val)) == -1)
-			job_log_error(j, LOG_WARNING, "sysctl(\"%s\")", "kern.proc_low_pri_io");
+		if (setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE) == -1) {
+			job_log_error(j, LOG_WARNING, "setiopolicy_np()");
+		}
 	}
 	if (j->rootdir) {
 		chroot(j->rootdir);
