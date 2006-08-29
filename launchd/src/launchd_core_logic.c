@@ -2447,9 +2447,25 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 	case LAUNCH_DATA_INTEGER:
 		which_port = launch_data_get_integer(obj);
 		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_TASKSPECIALPORT) == 0) {
-			launchd_assumes((errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
+			switch (which_port) {
+			case TASK_KERNEL_PORT:
+			case TASK_HOST_PORT:
+			case TASK_NAME_PORT:
+			case TASK_BOOTSTRAP_PORT:
+			/* I find it a little odd that zero isn't reserved in the header */
+			case 0:
+				job_log(ms->job, LOG_WARNING, "Tried to set a reserved task special port: %d", which_port);
+				break;
+			default:
+				launchd_assumes((errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
+				break;
+			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
-			launchd_assumes((errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
+			if (which_port > HOST_MAX_SPECIAL_KERNEL_PORT) {
+				launchd_assumes((errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
+			} else {
+				job_log(ms->job, LOG_WARNING, "Tried to set a reserved host special port: %d", which_port);
+			}
 		}
 	case LAUNCH_DATA_BOOL:
 		b = launch_data_get_bool(obj);
@@ -2684,6 +2700,7 @@ machservice_delete(struct machservice *ms)
 	if (ms->recv) {
 		if (ms->isActive) {
 			/* FIXME we should cancel the notification */
+			job_log(ms->job, LOG_ERR, "Mach service deleted while we didn't own the receive right: %s", ms->name);
 		} else {
 			launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 		}
