@@ -2454,6 +2454,7 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 	mach_port_t mhp = mach_host_self();
 	mach_port_t mts = mach_task_self();
 	thread_state_flavor_t f = 0;
+	exception_mask_t em;
 	int which_port;
 	bool b;
 
@@ -2461,6 +2462,12 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 	f = PPC_THREAD_STATE64;
 #elif defined(__i386__)
 	f = x86_THREAD_STATE;
+#endif
+
+#if defined(EXC_MASK_CRASH)
+	em = EXC_MASK_CRASH;
+#else
+	em = EXC_MASK_RPC_ALERT;
 #endif
 
 	if (!job_assumes(ms->job, mhp != MACH_PORT_NULL)) {
@@ -2498,7 +2505,7 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
 			ms->hide = b;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
-			job_assumes(ms->job, task_set_exception_ports(mts, EXC_MASK_ALL, ms->port,
+			job_assumes(ms->job, task_set_exception_ports(mts, em, ms->port,
 						EXCEPTION_STATE_IDENTITY, f) == KERN_SUCCESS);
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 			ms->kUNCServer = b;
