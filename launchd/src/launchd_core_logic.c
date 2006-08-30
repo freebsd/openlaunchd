@@ -266,7 +266,7 @@ static void simple_zombie_reaper(void *, struct kevent *);
 
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
-static int dir_has_files(const char *path);
+static int dir_has_files(struct jobcb *j, const char *path);
 static char **mach_cmd2argv(const char *string);
 struct jobcb *root_job = NULL;
 struct jobcb *gc_this_job = NULL;
@@ -292,7 +292,7 @@ job_ignore(struct jobcb *j)
 		watchpath_ignore(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		launchd_assumes(launchd_mport_request_callback(ms->port, NULL, false) == KERN_SUCCESS);
+		job_assumes(j, launchd_mport_request_callback(ms->port, NULL, false) == KERN_SUCCESS);
 }
 
 void
@@ -309,7 +309,7 @@ job_watch(struct jobcb *j)
 		watchpath_watch(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		launchd_assumes(launchd_mport_request_callback(ms->port, j, false) == KERN_SUCCESS);
+		job_assumes(j, launchd_mport_request_callback(ms->port, j, false) == KERN_SUCCESS);
 }
 
 void
@@ -462,18 +462,18 @@ job_remove(struct jobcb *j)
 		SLIST_REMOVE(&j->parent->jobs, j, jobcb, sle);
 
 	if (j->execfd)
-		launchd_assumes(close(j->execfd) == 0);
+		job_assumes(j, close(j->execfd) == 0);
 
 	if (j->bs_port) {
 		if (j->transfer_bstrap) {
-			launchd_assumes(launchd_mport_deallocate(j->bs_port) == KERN_SUCCESS);
+			job_assumes(j, launchd_mport_deallocate(j->bs_port) == KERN_SUCCESS);
 		} else {
-			launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+			job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 		}
 	}
 
 	if (j->req_port)
-		launchd_assumes(launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
+		job_assumes(j, launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
 
 #if 0
 	if (j->wait_reply_port) {
@@ -571,15 +571,15 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_setup_machport(struct jobcb *j)
 {
-	if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
+	if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
 		goto out_bad;
 
-	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
+	if (!job_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
 		goto out_bad2;
 
 	return true;
 out_bad2:
-	launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 out_bad:
 	return false;
 }
@@ -591,7 +591,7 @@ job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 	struct jobcb *j = NULL;
 	char buf[1000];
 
-	if (!launchd_assumes(argv != NULL))
+	if (!job_assumes(jbs, argv != NULL))
 		goto out_bad;
 
 	/* preflight the string so we know how big it is */
@@ -601,7 +601,7 @@ job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 
 	free(argv);
 
-	if (!launchd_assumes(j != NULL))
+	if (!job_assumes(jbs, j != NULL))
 		goto out_bad;
 
 	j->mach_uid = uid;
@@ -612,8 +612,8 @@ job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
 	if (!job_setup_machport(j))
 		goto out_bad;
 
-	if (!launchd_assumes(launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
-		launchd_assumes(launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	if (!job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
+		job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 		goto out_bad;
 	}
 
@@ -705,7 +705,7 @@ job_new(struct jobcb *p, const char *label, const char *prog, const char *const 
 
 	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
 
-	if (!launchd_assumes(j != NULL))
+	if (!job_assumes(p, j != NULL))
 		goto out_bad;
 
 	strcpy(j->label, label);
@@ -717,19 +717,19 @@ job_new(struct jobcb *p, const char *label, const char *prog, const char *const 
 
 	if (reqport != MACH_PORT_NULL) {
 		j->req_port = reqport;
-		if (!launchd_assumes(launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
+		if (!job_assumes(j, launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
 			goto out_bad;
 	}
 
 	if (prog) {
 		j->prog = strdup(prog);
-		if (!launchd_assumes(j->prog != NULL))
+		if (!job_assumes(j, j->prog != NULL))
 			goto out_bad;
 	}
 
 	if (stdinpath) {
 		j->stdinpath = strdup(stdinpath);
-		if (!launchd_assumes(j->stdinpath != NULL))
+		if (!job_assumes(j, j->stdinpath != NULL))
 			goto out_bad;
 	}
 
@@ -742,7 +742,7 @@ job_new(struct jobcb *p, const char *label, const char *prog, const char *const 
 
 		j->argv = malloc((j->argc + 1) * sizeof(char *) + cc);
 
-		if (!launchd_assumes(j != NULL))
+		if (!job_assumes(j, j->argv != NULL))
 			goto out_bad;
 
 		co = ((char *)j->argv) + ((j->argc + 1) * sizeof(char *));
@@ -938,7 +938,7 @@ job_import_string(struct jobcb *j, const char *key, const char *value)
 	}
 
 	if (where2put) {
-		launchd_assumes((*where2put = strdup(value)) != NULL);
+		job_assumes(j, (*where2put = strdup(value)) != NULL);
 	} else {
 		job_log(j, LOG_WARNING, "Unknown key: %s", key);
 	}
@@ -1224,7 +1224,7 @@ job_export_all2(struct jobcb *j, launch_data_t where)
 	launch_data_t tmp;
 	struct jobcb *ji;
 
-	if (launchd_assumes((tmp = job_export2(j, false)) != NULL))
+	if (job_assumes(j, (tmp = job_export2(j, false)) != NULL))
 		launch_data_dict_insert(where, tmp, j->label);
 
 	SLIST_FOREACH(ji, &j->jobs, sle)
@@ -1250,17 +1250,17 @@ job_reap(struct jobcb *j)
 	job_log(j, LOG_DEBUG, "Reaping");
 
 	if (j->execfd) {
-		launchd_assumes(close(j->execfd) == 0);
+		job_assumes(j, close(j->execfd) == 0);
 		j->execfd = 0;
 	}
 
-	if (!launchd_assumes(wait4(j->p, &status, 0, &ru) != -1)) {
+	if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
 		return;
 	}
 
 	if (j->wait_reply_port) {
 		job_log(j, LOG_DEBUG, "MPM wait reply being sent");
-		launchd_assumes(mpm_wait_reply(j->wait_reply_port, 0, status) == 0);
+		job_assumes(j, mpm_wait_reply(j->wait_reply_port, 0, status) == 0);
 		j->wait_reply_port = MACH_PORT_NULL;
 	}
 
@@ -1360,8 +1360,8 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		if (j->wait4debugger) {
 			/* Allow somebody else to attach */
-			launchd_assumes(kill(j->p, SIGSTOP) != -1);
-			launchd_assumes(ptrace(PT_DETACH, j->p, NULL, 0) != -1);
+			job_assumes(j, kill(j->p, SIGSTOP) != -1);
+			job_assumes(j, ptrace(PT_DETACH, j->p, NULL, 0) != -1);
 		}
 		if (kev->data > 0) {
 			int e;
@@ -1372,7 +1372,7 @@ job_callback(void *obj, struct kevent *kev)
 			job_remove(j);
 			j = NULL;
 		} else {
-			launchd_assumes(close(j->execfd) == 0);
+			job_assumes(j, close(j->execfd) == 0);
 			j->execfd = 0;
 		}
 		break;
@@ -1380,7 +1380,7 @@ job_callback(void *obj, struct kevent *kev)
 		job_dispatch(j, true);
 		break;
 	default:
-		launchd_assumes(false);
+		job_assumes(j, false);
 		break;
 	}
 
@@ -1400,10 +1400,10 @@ job_start(struct jobcb *j)
 	bool sipc = false;
 	time_t td;
 
-	if (!launchd_assumes(j->req_port == MACH_PORT_NULL))
+	if (!job_assumes(j, j->req_port == MACH_PORT_NULL))
 		return;
 
-	if (!launchd_assumes(j->parent != NULL))
+	if (!job_assumes(j, j->parent != NULL))
 		return;
 
 	if (job_active(j)) {
@@ -1417,7 +1417,7 @@ job_start(struct jobcb *j)
 		time_t respawn_delta = LAUNCHD_MIN_JOB_RUN_TIME - td;
 
 		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
-		launchd_assumes(kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
+		job_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
 		return;
 	}
 
@@ -1440,21 +1440,21 @@ job_start(struct jobcb *j)
 	time(&j->start_time);
 
 	if (j->bs_port) {
-		launchd_assumes(launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
+		job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
 	}
 
 	switch (c = job_fork(j->bs_port ? j : j->parent)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
-		launchd_assumes(close(execspair[0]) == 0);
-		launchd_assumes(close(execspair[1]) == 0);
+		job_assumes(j, close(execspair[0]) == 0);
+		job_assumes(j, close(execspair[1]) == 0);
 		if (sipc) {
-			launchd_assumes(close(spair[0]) == 0);
-			launchd_assumes(close(spair[1]) == 0);
+			job_assumes(j, close(spair[0]) == 0);
+			job_assumes(j, close(spair[1]) == 0);
 		}
 		break;
 	case 0:
-		launchd_assumes(close(execspair[0]) == 0);
+		job_assumes(j, close(execspair[0]) == 0);
 		/* wait for our parent to say they've attached a kevent to us */
 		read(_fd(execspair[1]), &c, sizeof(c));
 		if (j->firstborn) {
@@ -1466,7 +1466,7 @@ job_start(struct jobcb *j)
 		}
 
 		if (sipc) {
-			launchd_assumes(close(spair[0]) == 0);
+			job_assumes(j, close(spair[0]) == 0);
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
@@ -1477,10 +1477,10 @@ job_start(struct jobcb *j)
 			j->priv_port_has_senders = true;
 		j->p = c;
 		total_children++;
-		launchd_assumes(close(execspair[1]) == 0);
+		job_assumes(j, close(execspair[1]) == 0);
 		j->execfd = _fd(execspair[0]);
 		if (sipc) {
-			launchd_assumes(close(spair[1]) == 0);
+			job_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
 		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1)
@@ -1697,8 +1697,8 @@ job_setup_attributes(struct jobcb *j)
 		if (sifd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdinpath);
 		} else {
-			launchd_assumes(dup2(sifd, STDIN_FILENO) != -1);
-			launchd_assumes(close(sifd) == 0);
+			job_assumes(j, dup2(sifd, STDIN_FILENO) != -1);
+			job_assumes(j, close(sifd) == 0);
 		}
 	}
 	if (j->stdoutpath) {
@@ -1706,8 +1706,8 @@ job_setup_attributes(struct jobcb *j)
 		if (sofd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdoutpath);
 		} else {
-			launchd_assumes(dup2(sofd, STDOUT_FILENO) != -1);
-			launchd_assumes(close(sofd) == 0);
+			job_assumes(j, dup2(sofd, STDOUT_FILENO) != -1);
+			job_assumes(j, close(sofd) == 0);
 		}
 	}
 	if (j->stderrpath) {
@@ -1715,8 +1715,8 @@ job_setup_attributes(struct jobcb *j)
 		if (sefd == -1) {
 			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stderrpath);
 		} else {
-			launchd_assumes(dup2(sefd, STDERR_FILENO) != -1);
-			launchd_assumes(close(sefd) == 0);
+			job_assumes(j, dup2(sefd, STDERR_FILENO) != -1);
+			job_assumes(j, close(sefd) == 0);
 		}
 	}
 
@@ -1729,7 +1729,7 @@ job_setup_attributes(struct jobcb *j)
 }
 
 int
-dir_has_files(const char *path)
+dir_has_files(struct jobcb *j, const char *path)
 {
 	DIR *dd = opendir(path);
 	struct dirent *de;
@@ -1745,7 +1745,7 @@ dir_has_files(const char *path)
 		}
 	}
 
-	launchd_assumes(closedir(dd) == 0);
+	job_assumes(j, closedir(dd) == 0);
 	return r;
 }
 
@@ -1798,6 +1798,32 @@ job_prep_log_preface(struct jobcb *j, char *buf)
 }
 
 void
+job_log_bug(struct jobcb *j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
+{
+	int saved_errno = errno;
+	char buf[100];
+	const char *file = strrchr(path, '/');
+	char *rcs_rev_tmp = strchr(rcs_rev, ' ');
+
+	if (!file) {
+		file = path;
+	} else {
+		file += 1;
+	}
+
+	if (!rcs_rev_tmp) {
+		strlcpy(buf, rcs_rev, sizeof(buf));
+	} else {
+		strlcpy(buf, rcs_rev_tmp + 1, sizeof(buf));
+		rcs_rev_tmp = strchr(buf, ' ');
+		if (rcs_rev_tmp)
+			*rcs_rev_tmp = '\0';
+	}
+
+	job_log(j, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
+}
+
+void
 job_log_error(struct jobcb *j, int pri, const char *msg, ...)
 {
 	char newmsg[10000];
@@ -1834,7 +1860,7 @@ watchpath_new(struct jobcb *j, const char *name, bool qdir)
 {
 	struct watchpath *wp = calloc(1, sizeof(struct watchpath) + strlen(name) + 1);
 
-	if (!launchd_assumes(wp != NULL))
+	if (!job_assumes(j, wp != NULL))
 		return false;
 
 	wp->is_qdir = qdir;
@@ -1852,7 +1878,7 @@ void
 watchpath_delete(struct jobcb *j, struct watchpath *wp) 
 {
 	if (wp->fd != -1)
-		launchd_assumes(close(wp->fd) != -1);
+		job_assumes(j, close(wp->fd) != -1);
 
 	SLIST_REMOVE(&j->vnodes, wp, watchpath, sle);
 
@@ -1864,7 +1890,7 @@ watchpath_ignore(struct jobcb *j, struct watchpath *wp)
 {       
 	if (wp->fd != -1) {
 		job_log(j, LOG_DEBUG, "Ignoring Vnode: %d", wp->fd);
-		launchd_assumes(kevent_mod(wp->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
+		job_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
 	}
 }
 
@@ -1884,12 +1910,12 @@ watchpath_watch(struct jobcb *j, struct watchpath *wp)
 		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", wp->name);
 
 	job_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
-	launchd_assumes(kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
+	job_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
 
 	if (!wp->is_qdir)
 		return;
 
-	if (-1 == (qdir_file_cnt = dir_has_files(wp->name))) {
+	if (-1 == (qdir_file_cnt = dir_has_files(j, wp->name))) {
 		job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
 	} else if (qdir_file_cnt > 0) {
 		job_dispatch(j, true);
@@ -1907,18 +1933,18 @@ watchpath_callback(struct jobcb *j, struct kevent *kev)
 			break;
 	}
 
-	launchd_assumes(wp != NULL);
+	job_assumes(j, wp != NULL);
 
 	if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
 		job_log(j, LOG_DEBUG, "Path invalidated: %s", wp->name);
-		launchd_assumes(close(wp->fd) == 0);
+		job_assumes(j, close(wp->fd) == 0);
 		wp->fd = -1; /* this will get fixed in watchpath_watch() */
 	} else if (!wp->is_qdir) {
 		job_log(j, LOG_DEBUG, "Watch path modified: %s", wp->name);
 	} else {
 		job_log(j, LOG_DEBUG, "Queue directory modified: %s", wp->name);
 
-		if (-1 == (dir_file_cnt = dir_has_files(wp->name))) {
+		if (-1 == (dir_file_cnt = dir_has_files(j, wp->name))) {
 			job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
 		} else if (0 == dir_file_cnt) {
 			job_log(j, LOG_DEBUG, "Spurious wake up, directory is empty again: %s", wp->name);
@@ -1965,7 +1991,7 @@ calendarinterval_new(struct jobcb *j, struct tm *w)
 {
 	struct calendarinterval *ci = calloc(1, sizeof(struct calendarinterval));
 
-	if (!launchd_assumes(ci != NULL))
+	if (!job_assumes(j, ci != NULL))
 		return false;
 
 	ci->when = *w;
@@ -1980,7 +2006,7 @@ calendarinterval_new(struct jobcb *j, struct tm *w)
 void
 calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci)
 {
-	launchd_assumes(kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+	job_assumes(j, kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 
 	SLIST_REMOVE(&j->cal_intervals, ci, calendarinterval, sle);
 
@@ -1997,7 +2023,7 @@ calendarinterval_callback(struct jobcb *j, struct kevent *kev)
 			break;
 	}
 
-	if (launchd_assumes(ci != NULL)) {
+	if (job_assumes(j, ci != NULL)) {
 		calendarinterval_setalarm(j, ci);
 		job_dispatch(j, true);
 	}
@@ -2008,14 +2034,14 @@ socketgroup_new(struct jobcb *j, const char *name, int *fds, unsigned int fd_cnt
 {
 	struct socketgroup *sg = calloc(1, sizeof(struct socketgroup) + strlen(name) + 1);
 
-	if (!launchd_assumes(sg != NULL))
+	if (!job_assumes(j, sg != NULL))
 		return false;
 
 	sg->fds = calloc(1, fd_cnt * sizeof(int));
 	sg->fd_cnt = fd_cnt;
 	sg->junkfds = junkfds;
 
-	if (!launchd_assumes(sg->fds != NULL)) {
+	if (!job_assumes(j, sg->fds != NULL)) {
 		free(sg);
 		return false;
 	}
@@ -2034,7 +2060,7 @@ socketgroup_delete(struct jobcb *j, struct socketgroup *sg)
 	unsigned int i;
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		launchd_assumes(close(sg->fds[i]) != -1);
+		job_assumes(j, close(sg->fds[i]) != -1);
 
 	SLIST_REMOVE(&j->sockets, sg, socketgroup, sle);
 
@@ -2057,7 +2083,7 @@ socketgroup_ignore(struct jobcb *j, struct socketgroup *sg)
 	job_log(j, LOG_DEBUG, "Ignoring Sockets:%s", buf);
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		launchd_assumes(kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
+		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
 }
 
 void
@@ -2075,7 +2101,7 @@ socketgroup_watch(struct jobcb *j, struct socketgroup *sg)
 	job_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		launchd_assumes(kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
+		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
 }
 
 void
@@ -2089,7 +2115,7 @@ envitem_new(struct jobcb *j, const char *k, const char *v, bool global)
 {
 	struct envitem *ei = calloc(1, sizeof(struct envitem) + strlen(k) + 1 + strlen(v) + 1);
 
-	if (!launchd_assumes(ei != NULL))
+	if (!job_assumes(j, ei != NULL))
 		return false;
 
 	strcpy(ei->key, k);
@@ -2141,7 +2167,7 @@ limititem_update(struct jobcb *j, int w, rlim_t r)
 	if (li == NULL) {
 		li = calloc(1, sizeof(struct limititem));
 
-		if (!launchd_assumes(li != NULL))
+		if (!job_assumes(j, li != NULL))
 			return false;
 
 		li->which = w;
@@ -2341,14 +2367,14 @@ job_fork(struct jobcb *j)
 
 	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
-	launchd_assumes(launchd_mport_make_send(p) == KERN_SUCCESS);
-	launchd_assumes(launchd_set_bport(p) == KERN_SUCCESS);
-	launchd_assumes(launchd_mport_deallocate(p) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_make_send(p) == KERN_SUCCESS);
+	job_assumes(j, launchd_set_bport(p) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_deallocate(p) == KERN_SUCCESS);
 
 	r = fork();
 
 	if (r != 0) {
-		launchd_assumes(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
+		job_assumes(j, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
 	} else if (r == 0) {
 		size_t i;
 
@@ -2366,10 +2392,10 @@ job_fork(struct jobcb *j)
 void
 machservice_resetport(struct jobcb *j, struct machservice *ms)
 {
-	launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
-	launchd_assumes(launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
-	launchd_assumes(launchd_mport_create_recv(&ms->port) == KERN_SUCCESS);
-	launchd_assumes(launchd_mport_make_send(ms->port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS);
 }
 
 struct machservice *
@@ -2384,10 +2410,10 @@ machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport)
 	ms->job = j;
 
 	if (*serviceport == MACH_PORT_NULL) {
-		if (!launchd_assumes(launchd_mport_create_recv(&ms->port) == KERN_SUCCESS))
+		if (!job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS))
 			goto out_bad;
 
-		if (!launchd_assumes(launchd_mport_make_send(ms->port) == KERN_SUCCESS))
+		if (!job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS))
 			goto out_bad2;
 		*serviceport = ms->port;
 		ms->isActive = false;
@@ -2403,7 +2429,7 @@ machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport)
 
 	return ms;
 out_bad2:
-	launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 out_bad:
 	free(ms);
 	return NULL;
@@ -2437,7 +2463,7 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 	f = x86_THREAD_STATE;
 #endif
 
-	if (!launchd_assumes(mhp != MACH_PORT_NULL)) {
+	if (!job_assumes(ms->job, mhp != MACH_PORT_NULL)) {
 		return;
 	}
 
@@ -2455,12 +2481,12 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 				job_log(ms->job, LOG_WARNING, "Tried to set a reserved task special port: %d", which_port);
 				break;
 			default:
-				launchd_assumes((errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
+				job_assumes(ms->job, (errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
 				break;
 			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
 			if (which_port > HOST_MAX_SPECIAL_KERNEL_PORT) {
-				launchd_assumes((errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
+				job_assumes(ms->job, (errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
 			} else {
 				job_log(ms->job, LOG_WARNING, "Tried to set a reserved host special port: %d", which_port);
 			}
@@ -2472,18 +2498,18 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
 			ms->hide = b;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
-			launchd_assumes(task_set_exception_ports(mts, EXC_MASK_ALL, ms->port,
+			job_assumes(ms->job, task_set_exception_ports(mts, EXC_MASK_ALL, ms->port,
 						EXCEPTION_STATE_IDENTITY, f) == KERN_SUCCESS);
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 			ms->kUNCServer = b;
-			launchd_assumes(host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
+			job_assumes(ms->job, host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
 		}
 		break;
 	default:
 		break;
 	}
 
-	launchd_assumes(launchd_mport_deallocate(mhp) == KERN_SUCCESS);
+	job_assumes(ms->job, launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 }
 
 void
@@ -2574,13 +2600,13 @@ job_new_bootstrap(struct jobcb *p, mach_port_t requestorport, mach_port_t checki
 
 	if (checkin_port != MACH_PORT_NULL) {
 		j->bs_port = checkin_port;
-	} else if (!launchd_assumes(launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
+	} else if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
 	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
-	if (!launchd_assumes(launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
+	if (!job_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
 		goto out_bad;
 
 	if (p) {
@@ -2700,11 +2726,11 @@ machservice_delete(struct machservice *ms)
 			/* FIXME we should cancel the notification */
 			job_log(ms->job, LOG_ERR, "Mach service deleted while we didn't own the receive right: %s", ms->name);
 		} else {
-			launchd_assumes(launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+			job_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 		}
 	}
 
-	launchd_assumes(launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+	job_assumes(ms->job, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 
 	job_log(ms->job, LOG_INFO, "Mach service deleted: %s", ms->name);
 
@@ -2725,7 +2751,7 @@ machservice_watch(struct machservice *ms)
 		job_checkin(ms->job);
 	}
 
-	launchd_assumes(launchd_mport_notify_req(ms->port, which) == KERN_SUCCESS);
+	job_assumes(ms->job, launchd_mport_notify_req(ms->port, which) == KERN_SUCCESS);
 }
 
 #define NELEM(x)                (sizeof(x)/sizeof(x[0]))
@@ -2844,7 +2870,7 @@ job_get_bs(struct jobcb *j)
 	if (j->req_port)
 		return j;
 
-	if (launchd_assumes(j->parent != NULL))
+	if (job_assumes(j, j->parent != NULL))
 		return j->parent;
 
 	return NULL;
@@ -2865,7 +2891,7 @@ semaphoreitem_new(struct jobcb *j, semaphore_reason_t why, const char *what)
 	if (what)
 		alloc_sz += strlen(what) + 1;
 
-	if (!launchd_assumes(si = calloc(1, alloc_sz)))
+	if (!job_assumes(j, si = calloc(1, alloc_sz)))
 		return false;
 
 	si->why = why;

@@ -24,6 +24,10 @@
 
 #include "bootstrap_public.h"
 
+#define job_assumes(j, e)      \
+	        (__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+
+
 struct jobcb;
 struct machservice;
 
@@ -71,6 +75,7 @@ struct machservice *job_lookup_service(struct jobcb *jbs, const char *name, bool
 void job_foreach_service(struct jobcb *jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs);
 void job_log(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 void job_log_error(struct jobcb *j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+void job_log_bug(struct jobcb *j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
 kern_return_t job_handle_mpm_wait(struct jobcb *j, mach_port_t srp, int *waitstatus);
 
 extern size_t total_children;
