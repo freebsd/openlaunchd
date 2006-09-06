@@ -18,7 +18,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.13 $";
+static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <sys/types.h>
 #include <sys/queue.h>

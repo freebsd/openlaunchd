@@ -25,7 +25,7 @@
  * bootstrap.c -- implementation of bootstrap main service loop
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.53 $";
+static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>

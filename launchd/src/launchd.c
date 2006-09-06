@@ -18,7 +18,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-static const char *const __rcs_file_version__ = "$Revision: 1.220 $";
+static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
