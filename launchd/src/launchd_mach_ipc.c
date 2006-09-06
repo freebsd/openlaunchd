@@ -88,10 +88,10 @@ static size_t port_to_obj_size = 0;
 static void **port_to_obj = NULL;
 static pthread_t demand_thread;
 
-static bool trusted_client_check(vproc_t j, struct ldcred *ldc);
+static bool trusted_client_check(job_t j, struct ldcred *ldc);
 
-vproc_t 
-vproc_find_by_port(mach_port_t mp)
+job_t 
+job_find_by_port(mach_port_t mp)
 {
 	return port_to_obj[MACH_PORT_INDEX(mp)];
 }
@@ -116,7 +116,7 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 			continue;
 
 		if (status.mps_msgcount) {
-			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, vproc_find_by_port(members[i]));
+			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, job_find_by_port(members[i]));
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			/* the callback may have tainted our ability to continue this for loop */
 			break;
@@ -142,7 +142,7 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 
 	init_ports();
 
-	launchd_assert((root_job = vproc_new_bootstrap(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
+	launchd_assert((root_job = job_new_bootstrap(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
 
 	launchd_assumes(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
 
@@ -330,19 +330,19 @@ kern_return_t
 x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
 		audit_token_t au_tok, mach_port_t *server_portp)
 {
-	vproc_t js, j = vproc_find_by_port(bp);
+	job_t js, j = job_find_by_port(bp);
 	struct ldcred ldc;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
-	vproc_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
+	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
 
 #define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
 	#ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	if (getpid() == 1) {
 		if (ldc.euid != 0 && ldc.euid != server_uid) {
-			vproc_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
+			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
 					server_cmd, ldc.euid, server_uid);
 			server_uid = ldc.euid;
 		}
@@ -351,17 +351,17 @@ x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, bo
 	if (!trusted_client_check(j, &ldc)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	} else if (server_uid != getuid()) {
-		vproc_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
+		job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
 				server_cmd, getuid(), server_uid);
 		server_uid = getuid();
 	}
 
-	js = vproc_new_via_mach_init(j, server_cmd, server_uid, on_demand);
+	js = job_new_via_mach_init(j, server_cmd, server_uid, on_demand);
 
 	if (js == NULL)
 		return BOOTSTRAP_NO_MEMORY;
 
-	*server_portp = vproc_get_bsport(js);
+	*server_portp = job_get_bsport(js);
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -382,13 +382,13 @@ x_bootstrap_getsocket(mach_port_t bp, name_t spr)
 kern_return_t
 x_bootstrap_unprivileged(mach_port_t bp, mach_port_t *unprivportp)
 {
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 
-	vproc_log(j, LOG_DEBUG, "Requested unprivileged bootstrap port");
+	job_log(j, LOG_DEBUG, "Requested unprivileged bootstrap port");
 
-	j = vproc_get_bs(j);
+	j = job_get_bs(j);
 
-	*unprivportp = vproc_get_bsport(j);
+	*unprivportp = job_get_bsport(j);
 
 	return BOOTSTRAP_SUCCESS;
 }
@@ -398,7 +398,7 @@ kern_return_t
 x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -406,15 +406,15 @@ x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, m
 
 	trusted_client_check(j, &ldc);
 
-	ms = vproc_lookup_service(j, servicename, true);
+	ms = job_lookup_service(j, servicename, true);
 
 	if (ms == NULL) {
-		vproc_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
+		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 	if (machservice_job(ms) != j) {
 		if (last_warned_pid != ldc.pid) {
-			vproc_log(j, LOG_NOTICE, "Check-in of Mach service failed. PID %d is not privileged: %s",
+			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. PID %d is not privileged: %s",
 					ldc.pid, servicename);
 			last_warned_pid = ldc.pid;
 		}
@@ -422,13 +422,13 @@ x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, m
 	}
 	if (!canReceive(machservice_port(ms))) {
 		launchd_assumes(machservice_active(ms));
-		vproc_log(j, LOG_DEBUG, "Check-in of Mach service failed. Already active: %s", servicename);
+		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Already active: %s", servicename);
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
 
 	machservice_watch(ms);
 
-	vproc_log(j, LOG_INFO, "Check-in of service: %s", servicename);
+	job_log(j, LOG_INFO, "Check-in of service: %s", servicename);
 
 	*serviceportp = machservice_port(ms);
 	return BOOTSTRAP_SUCCESS;
@@ -437,7 +437,7 @@ x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, m
 kern_return_t
 x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
 {
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -445,24 +445,24 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 
 	trusted_client_check(j, &ldc);
 
-	vproc_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
+	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
 	
-	ms = vproc_lookup_service(j, servicename, false);
+	ms = job_lookup_service(j, servicename, false);
 
 	if (ms) {
 		if (machservice_job(ms) != j)
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		if (machservice_active(ms)) {
-			vproc_log(j, LOG_DEBUG, "Mach service registration failed. Already active: %s", servicename);
+			job_log(j, LOG_DEBUG, "Mach service registration failed. Already active: %s", servicename);
 			launchd_assumes(!canReceive(machservice_port(ms)));
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
-		vproc_checkin(machservice_job(ms));
+		job_checkin(machservice_job(ms));
 		machservice_delete(ms);
 	}
 
 	if (serviceport != MACH_PORT_NULL) {
-		if ((ms = machservice_new(vproc_get_bs(j), servicename, &serviceport))) {
+		if ((ms = machservice_new(job_get_bs(j), servicename, &serviceport))) {
 			machservice_watch(ms);
 		} else {
 			return BOOTSTRAP_NO_MEMORY;
@@ -475,7 +475,7 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 kern_return_t
 x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -483,24 +483,24 @@ x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, ma
 
 	trusted_client_check(j, &ldc);
 
-	ms = vproc_lookup_service(j, servicename, true);
+	ms = job_lookup_service(j, servicename, true);
 
-	if (ms && machservice_hidden(ms) && !vproc_active(machservice_job(ms))) {
+	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
 		ms = NULL;
 	}
 
 	if (ms) {
 		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
-		vproc_log(j, LOG_DEBUG, "Mach service lookup (by PID %d): %s", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d): %s", ldc.pid, servicename);
 		*serviceportp = machservice_port(ms);
 		*ptype = MACH_MSG_TYPE_COPY_SEND;
 		return BOOTSTRAP_SUCCESS;
 	} else if (inherited_bootstrap_port != MACH_PORT_NULL) {
-		vproc_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) forwarded: %s", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) forwarded: %s", ldc.pid, servicename);
 		*ptype = MACH_MSG_TYPE_MOVE_SEND;
 		return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
 	} else {
-		vproc_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) failed: %s", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) failed: %s", ldc.pid, servicename);
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 }
@@ -508,18 +508,18 @@ x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, ma
 kern_return_t
 x_bootstrap_parent(mach_port_t bp, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 
-	vproc_log(j, LOG_DEBUG, "Requested parent bootstrap port");
+	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
 
-	j = vproc_get_bs(j);
+	j = job_get_bs(j);
 
 	*pptype = MACH_MSG_TYPE_MAKE_SEND;
 
-	if (vproc_parent(j)) {
-		*parentport = vproc_get_bsport(vproc_parent(j));
+	if (job_parent(j)) {
+		*parentport = job_get_bsport(job_parent(j));
 	} else if (MACH_PORT_NULL == inherited_bootstrap_port) {
-		*parentport = vproc_get_bsport(j);
+		*parentport = job_get_bsport(j);
 	} else {
 		*pptype = MACH_MSG_TYPE_COPY_SEND;
 		*parentport = inherited_bootstrap_port;
@@ -564,12 +564,12 @@ x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *serv
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	vproc_t ji, j = vproc_find_by_port(bp);
+	job_t ji, j = job_find_by_port(bp);
 	kern_return_t result;
 	unsigned int cnt = 0;
 
-	for (ji = j; ji; ji = vproc_parent(ji))
-		vproc_foreach_service(ji, x_bootstrap_info_countservices, &cnt, true);
+	for (ji = j; ji; ji = job_parent(ji))
+		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt, true);
 
 	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
 	if (!launchd_assumes(result == KERN_SUCCESS))
@@ -579,8 +579,8 @@ x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *serv
 	if (!launchd_assumes(result == KERN_SUCCESS))
 		goto out_bad;
 
-	for (ji = j; ji; ji = vproc_parent(ji))
-		vproc_foreach_service(ji, x_bootstrap_info_copyservices, &info_resp, true);
+	for (ji = j; ji; ji = job_parent(ji))
+		job_foreach_service(ji, x_bootstrap_info_copyservices, &info_resp, true);
 
 	launchd_assumes(info_resp.i == cnt);
 
@@ -603,21 +603,21 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	mach_port_array_t *ports, unsigned int *ports_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 	unsigned int cnt = 0;
 	kern_return_t result;
 
 	if (getpid() != 1) {
-		vproc_log(j, LOG_ERR, "Only the system launchd will transfer Mach sub-bootstraps.");
+		job_log(j, LOG_ERR, "Only the system launchd will transfer Mach sub-bootstraps.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
-	} else if (!vproc_parent(j)) {
-		vproc_log(j, LOG_ERR, "Root Mach bootstrap cannot be transferred.");
+	} else if (!job_parent(j)) {
+		job_log(j, LOG_ERR, "Root Mach bootstrap cannot be transferred.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	vproc_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
+	job_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
 
-	vproc_foreach_service(j, x_bootstrap_info_countservices, &cnt, false);
+	job_foreach_service(j, x_bootstrap_info_countservices, &cnt, false);
 
 	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
 	if (!launchd_assumes(result == KERN_SUCCESS))
@@ -627,7 +627,7 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	if (!launchd_assumes(result == KERN_SUCCESS))
 		goto out_bad;
 
-	vproc_foreach_service(j, x_bootstrap_info_copyservices, &info_resp, false);
+	job_foreach_service(j, x_bootstrap_info_copyservices, &info_resp, false);
 
 	launchd_assumes(info_resp.i == cnt);
 
@@ -635,8 +635,8 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	*ports = info_resp.ports;
 	*servicenames_cnt = *ports_cnt = cnt;
 
-	*reqport = vproc_get_reqport(j);
-	*rcvright = vproc_get_bsport(j);
+	*reqport = job_get_reqport(j);
+	*rcvright = job_get_bsport(j);
 
 	launchd_assumes(launchd_mport_request_callback(*rcvright, NULL, true) == KERN_SUCCESS);
 
@@ -654,48 +654,48 @@ out_bad:
 kern_return_t
 x_bootstrap_subset(mach_port_t bp, mach_port_t requestorport, mach_port_t *subsetportp)
 {
-	vproc_t js, j = vproc_find_by_port(bp);
+	job_t js, j = job_find_by_port(bp);
 	int bsdepth = 0;
 
-	while ((j = vproc_parent(j)) != NULL)
+	while ((j = job_parent(j)) != NULL)
 		bsdepth++;
 
-	j = vproc_find_by_port(bp);
+	j = job_find_by_port(bp);
 
 	/* Since we use recursion, we need an artificial depth for subsets */
 	if (bsdepth > 100) {
-		vproc_log(j, LOG_ERR, "Mach sub-bootstrap create request failed. Depth greater than: %d", bsdepth);
+		job_log(j, LOG_ERR, "Mach sub-bootstrap create request failed. Depth greater than: %d", bsdepth);
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if ((js = vproc_new_bootstrap(j, requestorport, MACH_PORT_NULL)) == NULL) {
+	if ((js = job_new_bootstrap(j, requestorport, MACH_PORT_NULL)) == NULL) {
 		if (requestorport == MACH_PORT_NULL)
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	*subsetportp = vproc_get_bsport(js);
+	*subsetportp = job_get_bsport(js);
 	return BOOTSTRAP_SUCCESS;
 }
 
 kern_return_t
 x_bootstrap_create_service(mach_port_t bp, name_t servicename, mach_port_t *serviceportp)
 {
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 	struct machservice *ms;
 
-	if (vproc_prog(j)[0] == '\0') {
-		vproc_log(j, LOG_ERR, "Mach service creation requires a target server: %s", servicename);
+	if (job_prog(j)[0] == '\0') {
+		job_log(j, LOG_ERR, "Mach service creation requires a target server: %s", servicename);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	ms = vproc_lookup_service(j, servicename, false);
+	ms = job_lookup_service(j, servicename, false);
 	if (ms) {
-		vproc_log(j, LOG_DEBUG, "Mach service creation attempt for failed. Already exists: %s", servicename);
+		job_log(j, LOG_DEBUG, "Mach service creation attempt for failed. Already exists: %s", servicename);
 		return BOOTSTRAP_NAME_IN_USE;
 	}
 
-	vproc_checkin(j);
+	job_checkin(j);
 
 	*serviceportp = MACH_PORT_NULL;
 	ms = machservice_new(j, servicename, serviceportp);
@@ -713,23 +713,23 @@ out_bad:
 kern_return_t
 x_mpm_wait(mach_port_t bp, mach_port_t srp, audit_token_t au_tok, integer_t *waitstatus)
 {
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 #if 0
 	struct ldcred ldc;
 	audit_token_to_launchd_cred(au_tok, &ldc);
 #endif
-	return vproc_handle_mpm_wait(j, srp, waitstatus);
+	return job_handle_mpm_wait(j, srp, waitstatus);
 }
 
 kern_return_t
 x_mpm_uncork_fork(mach_port_t bp, audit_token_t au_tok)
 {
-	vproc_t j = vproc_find_by_port(bp);
+	job_t j = job_find_by_port(bp);
 
 	if (!j)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 
-	vproc_uncork_fork(j);
+	job_uncork_fork(j);
 
 	return 0;
 }
@@ -740,7 +740,7 @@ x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
 		pid_t *child_pid, mach_port_t *obsvr_port)
 {
-	vproc_t jr, j = vproc_find_by_port(bp);
+	job_t jr, j = job_find_by_port(bp);
 	struct ldcred ldc;
 	size_t offset = 0;
 	char *tmpp;
@@ -754,7 +754,7 @@ x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
 
 #if 0
 	if (ldc.asid != inherited_asid) {
-		vproc_log(j, LOG_ERR, "Security: PID %d (ASID %d) was denied a request to spawn a process in this session (ASID %d)",
+		job_log(j, LOG_ERR, "Security: PID %d (ASID %d) was denied a request to spawn a process in this session (ASID %d)",
 				ldc.pid, ldc.asid, inherited_asid);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -790,7 +790,7 @@ x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
 		}
 	}
 
-	jr = vproc_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
+	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
 			flags & SPAWN_WANTS_WAIT4DEBUGGER, flags & SPAWN_WANTS_FORCE_PPC);
 
 	if (jr == NULL) switch (errno) {
@@ -800,12 +800,12 @@ x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	vproc_log(j, LOG_INFO, "Spawned with flags:%s%s",
+	job_log(j, LOG_INFO, "Spawned with flags:%s%s",
 			flags & SPAWN_WANTS_FORCE_PPC ? " ppc": "",
 			flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
 
-	*child_pid = vproc_get_pid(jr);
-	*obsvr_port = vproc_get_bsport(jr);
+	*child_pid = job_get_pid(jr);
+	*obsvr_port = job_get_bsport(jr);
 
 	return BOOTSTRAP_SUCCESS;
 }
@@ -815,7 +815,7 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 {
 	/* This message is sent to us when a receive right is returned to us. */
 
-	if (!vproc_ack_port_destruction(root_job, rights)) {
+	if (!job_ack_port_destruction(root_job, rights)) {
 		launchd_assumes(launchd_mport_close_recv(rights) == KERN_SUCCESS);
 	}
 
@@ -837,7 +837,7 @@ do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
 kern_return_t
 do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 {
-	vproc_t j = vproc_find_by_port(notify);
+	job_t j = job_find_by_port(notify);
 
 	/* This message is sent to us when the last customer of one of our objects
 	 * goes away.
@@ -846,7 +846,7 @@ do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 	if (!launchd_assumes(j != NULL))
 		return KERN_FAILURE;
 
-	vproc_ack_no_senders(j);
+	job_ack_no_senders(j);
 
 	return KERN_SUCCESS;
 }
@@ -874,7 +874,7 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 		inherited_bootstrap_port = MACH_PORT_NULL;
 	}
 		
-	vproc_delete_anything_with_port(root_job, name);
+	job_delete_anything_with_port(root_job, name);
 
 	/* A dead-name notification about a port appears to increment the
 	 * rights on said port. Let's deallocate it so that we don't leak
@@ -886,7 +886,7 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 }
 
 bool
-trusted_client_check(vproc_t j, struct ldcred *ldc)
+trusted_client_check(job_t j, struct ldcred *ldc)
 {
 	static pid_t last_warned_pid = 0;
 
@@ -908,7 +908,7 @@ trusted_client_check(vproc_t j, struct ldcred *ldc)
 	if (last_warned_pid == ldc->pid)
 		return false;
 
-	vproc_log(j, LOG_NOTICE, "Security: PID %d (ASID %d) was leaked into this session (ASID %d). This will be denied in the future.", ldc->pid, ldc->asid, inherited_asid);
+	job_log(j, LOG_NOTICE, "Security: PID %d (ASID %d) was leaked into this session (ASID %d). This will be denied in the future.", ldc->pid, ldc->asid, inherited_asid);
 
 	last_warned_pid = ldc->pid;
 

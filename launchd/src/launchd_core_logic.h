@@ -24,64 +24,64 @@
 
 #include "bootstrap_public.h"
 
-#define vproc_assumes(j, e)      \
-	        (__builtin_expect(!(e), 0) ? vproc_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+#define job_assumes(j, e)      \
+	        (__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
 
-typedef struct vproc_s *vproc_t;
+typedef struct job_s *job_t;
 struct machservice;
 
 
-struct machservice *machservice_new(vproc_t j, const char *name, mach_port_t *serviceport);
+struct machservice *machservice_new(job_t j, const char *name, mach_port_t *serviceport);
 void machservice_delete(struct machservice *);
 void machservice_watch(struct machservice *);
 mach_port_t machservice_port(struct machservice *);
-vproc_t machservice_job(struct machservice *);
+job_t machservice_job(struct machservice *);
 bool machservice_hidden(struct machservice *);
 bool machservice_active(struct machservice *);
 const char *machservice_name(struct machservice *);
 bootstrap_status_t machservice_status(struct machservice *);
 
 
-vproc_t vproc_find(vproc_t j, const char *label);
-vproc_t vproc_find_by_pid(vproc_t j, pid_t p);
-vproc_t vproc_find_by_port(mach_port_t mp);
-vproc_t vproc_import(launch_data_t pload);
-launch_data_t vproc_import_bulk(launch_data_t pload);
-vproc_t vproc_new(vproc_t p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t);
-vproc_t vproc_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
-vproc_t vproc_new_via_mach_init(vproc_t jbs, const char *cmd, uid_t uid, bool ond);
-vproc_t vproc_new_bootstrap(vproc_t p, mach_port_t requestorport, mach_port_t checkin_port);
-launch_data_t vproc_export(vproc_t j);
-launch_data_t vproc_export_all(void);
-void vproc_dispatch(vproc_t j, bool kickstart);
-void vproc_dispatch_all_other_semaphores(vproc_t j, vproc_t nj);
-void vproc_stop(vproc_t j);
-bool vproc_active(vproc_t j);
-void vproc_checkin(vproc_t j);
-const char *vproc_prog(vproc_t j);
-void vproc_remove(vproc_t j);
-void vproc_remove_all_inactive(vproc_t j);
-bool vproc_ack_port_destruction(vproc_t j, mach_port_t p);
-void vproc_ack_no_senders(vproc_t j);
-pid_t vproc_get_pid(vproc_t j);
-mach_port_t vproc_get_bsport(vproc_t j);
-mach_port_t vproc_get_reqport(vproc_t j);
-vproc_t vproc_get_bs(vproc_t j);
-void vproc_delete_anything_with_port(vproc_t jbs, mach_port_t port);
-vproc_t vproc_parent(vproc_t j);
-void vproc_uncork_fork(vproc_t j);
-struct machservice *vproc_lookup_service(vproc_t jbs, const char *name, bool check_parent);
-void vproc_foreach_service(vproc_t jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs);
-void vproc_log(vproc_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
-void vproc_log_error(vproc_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
-void vproc_log_bug(vproc_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
-kern_return_t vproc_handle_mpm_wait(vproc_t j, mach_port_t srp, int *waitstatus);
+job_t job_find(job_t j, const char *label);
+job_t job_find_by_pid(job_t j, pid_t p);
+job_t job_find_by_port(mach_port_t mp);
+job_t job_import(launch_data_t pload);
+launch_data_t job_import_bulk(launch_data_t pload);
+job_t job_new(job_t p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t);
+job_t job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
+job_t job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond);
+job_t job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port);
+launch_data_t job_export(job_t j);
+launch_data_t job_export_all(void);
+void job_dispatch(job_t j, bool kickstart);
+void job_dispatch_all_other_semaphores(job_t j, job_t nj);
+void job_stop(job_t j);
+bool job_active(job_t j);
+void job_checkin(job_t j);
+const char *job_prog(job_t j);
+void job_remove(job_t j);
+void job_remove_all_inactive(job_t j);
+bool job_ack_port_destruction(job_t j, mach_port_t p);
+void job_ack_no_senders(job_t j);
+pid_t job_get_pid(job_t j);
+mach_port_t job_get_bsport(job_t j);
+mach_port_t job_get_reqport(job_t j);
+job_t job_get_bs(job_t j);
+void job_delete_anything_with_port(job_t jbs, mach_port_t port);
+job_t job_parent(job_t j);
+void job_uncork_fork(job_t j);
+struct machservice *job_lookup_service(job_t jbs, const char *name, bool check_parent);
+void job_foreach_service(job_t jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs);
+void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
+kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
 
 extern size_t total_children;
 
-extern vproc_t root_job;
+extern job_t root_job;
 
-extern vproc_t gc_this_job;
+extern job_t gc_this_job;
 
 #endif

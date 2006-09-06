@@ -181,7 +181,7 @@ out_bad:
 }
 
 void
-ipc_open(int fd, vproc_t j)
+ipc_open(int fd, job_t j)
 {
 	struct conncb *c = calloc(1, sizeof(struct conncb));
 
@@ -324,7 +324,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 {
 	struct readmsg_context *rmc = context;
 	launch_data_t resp = NULL;
-	vproc_t j;
+	job_t j;
 
 	if (rmc->resp)
 		return;
@@ -332,8 +332,8 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	if (data == NULL) {
 		if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
 			if (rmc->c->j) {
-				resp = vproc_export(rmc->c->j);
-				vproc_checkin(rmc->c->j);
+				resp = job_export(rmc->c->j);
+				job_checkin(rmc->c->j);
 			} else {
 				resp = launch_data_new_errno(EACCES);
 			}
@@ -347,7 +347,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			launchd_single_user();
 			resp = launch_data_new_errno(0);
 		} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBS)) {
-			resp = vproc_export_all();
+			resp = job_export_all();
 			ipc_revoke_fds(resp);
 		} else if (!strcmp(cmd, LAUNCH_KEY_GETRESOURCELIMITS)) {
 			resp = adjust_rlimits(NULL);
@@ -383,28 +383,28 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			launch_data_set_bool(resp, batch_disabler_count == 0);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
-		if ((j = vproc_find(root_job, launch_data_get_string(data))) != NULL) {
-			vproc_dispatch(j, true);
+		if ((j = job_find(root_job, launch_data_get_string(data))) != NULL) {
+			job_dispatch(j, true);
 			errno = 0;
 		}
 		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_STOPJOB)) {
-		if ((j = vproc_find(root_job, launch_data_get_string(data))) != NULL) {
-			vproc_stop(j);
+		if ((j = job_find(root_job, launch_data_get_string(data))) != NULL) {
+			job_stop(j);
 			errno = 0;
 		}
 		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
-		if ((j = vproc_find(root_job, launch_data_get_string(data))) != NULL) {
-			vproc_remove(j);
+		if ((j = job_find(root_job, launch_data_get_string(data))) != NULL) {
+			job_remove(j);
 			errno = 0;
 		}
 		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_SUBMITJOB)) {
 		if (launch_data_get_type(data) == LAUNCH_DATA_ARRAY) {
-			resp = vproc_import_bulk(data);
+			resp = job_import_bulk(data);
 		} else {
-			if (vproc_import(data))
+			if (job_import(data))
 				errno = 0;
 			resp = launch_data_new_errno(errno);
 		}
@@ -417,17 +417,17 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETRESOURCELIMITS)) {
 		resp = adjust_rlimits(data);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOB)) {
-		if ((j = vproc_find(root_job, launch_data_get_string(data))) == NULL) {
+		if ((j = job_find(root_job, launch_data_get_string(data))) == NULL) {
 			resp = launch_data_new_errno(errno);
 		} else {
-			resp = vproc_export(j);
+			resp = job_export(j);
 			ipc_revoke_fds(resp);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBWITHHANDLES)) {
-		if ((j = vproc_find(root_job, launch_data_get_string(data))) == NULL) {
+		if ((j = job_find(root_job, launch_data_get_string(data))) == NULL) {
 			resp = launch_data_new_errno(errno);
 		} else {
-			resp = vproc_export(j);
+			resp = job_export(j);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETLOGMASK)) {
 		resp = launch_data_new_integer(setlogmask(launch_data_get_integer(data)));
@@ -438,7 +438,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETSTDERR)) {
 		resp = launchd_setstdio(STDERR_FILENO, data);
 	} else if (!strcmp(cmd, LAUNCH_KEY_BATCHCONTROL)) {
-		batch_vproc_enable(launch_data_get_bool(data), rmc->c);
+		batch_job_enable(launch_data_get_bool(data), rmc->c);
 		resp = launch_data_new_errno(0);
 	}
 
@@ -448,7 +448,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 void
 ipc_close(struct conncb *c)
 {
-	batch_vproc_enable(true, c);
+	batch_job_enable(true, c);
 
 	SLIST_REMOVE(&connections, c, conncb, sle);
 	launchd_close(c->conn);

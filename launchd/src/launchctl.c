@@ -100,7 +100,7 @@ static void readfile(const char *, struct load_unload_state *);
 static int _fd(int);
 static int demux_cmd(int argc, char *const argv[]);
 static launch_data_t do_rendezvous_magic(const struct addrinfo *res, const char *serv);
-static void submit_vproc_pass(launch_data_t jobs);
+static void submit_job_pass(launch_data_t jobs);
 static void submit_mach_jobs(launch_data_t jobs);
 static void let_go_of_mach_jobs(launch_data_t jobs);
 static void do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgroup);
@@ -484,7 +484,7 @@ readfile(const char *what, struct load_unload_state *lus)
 {
 	char ourhostname[1024];
 	launch_data_t tmpd, tmps, thejob, tmpa;
-	bool vproc_disabled = false;
+	bool job_disabled = false;
 	size_t i, c;
 
 	gethostname(ourhostname, sizeof(ourhostname));
@@ -560,12 +560,12 @@ readfile(const char *what, struct load_unload_state *lus)
 	}
 
 	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))
-		vproc_disabled = launch_data_get_bool(tmpd);
+		job_disabled = launch_data_get_bool(tmpd);
 
 	if (lus->forceload)
-		vproc_disabled = false;
+		job_disabled = false;
 
-	if (vproc_disabled && lus->load)
+	if (job_disabled && lus->load)
 		goto out_bad;
 
 	if (delay_to_second_pass(thejob))
@@ -1395,10 +1395,10 @@ load_and_unload_cmd(int argc, char *const argv[])
 	if (lus.load) {
 		distill_jobs(lus.pass1);
 		submit_mach_jobs(lus.pass0);
-		submit_vproc_pass(lus.pass1);
+		submit_job_pass(lus.pass1);
 		let_go_of_mach_jobs(lus.pass0);
 		distill_jobs(lus.pass2);
-		submit_vproc_pass(lus.pass2);
+		submit_job_pass(lus.pass2);
 	} else {
 		for (i = 0; i < launch_data_array_get_count(lus.pass1); i++)
 			unloadjob(launch_data_array_get_index(lus.pass1, i));
@@ -1466,7 +1466,7 @@ let_go_of_mach_jobs(launch_data_t jobs)
 }
 
 void
-submit_vproc_pass(launch_data_t jobs)
+submit_job_pass(launch_data_t jobs)
 {
 	launch_data_t msg, resp;
 	size_t i;
