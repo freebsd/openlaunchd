@@ -88,9 +88,9 @@ static size_t port_to_obj_size = 0;
 static void **port_to_obj = NULL;
 static pthread_t demand_thread;
 
-static bool trusted_client_check(struct jobcb *j, struct ldcred *ldc);
+static bool trusted_client_check(vproc_t j, struct ldcred *ldc);
 
-struct jobcb *
+vproc_t 
 job_find_by_port(mach_port_t mp)
 {
 	return port_to_obj[MACH_PORT_INDEX(mp)];
@@ -330,7 +330,7 @@ kern_return_t
 x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
 		audit_token_t au_tok, mach_port_t *server_portp)
 {
-	struct jobcb *js, *j = job_find_by_port(bp);
+	vproc_t js, j = job_find_by_port(bp);
 	struct ldcred ldc;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
@@ -382,7 +382,7 @@ x_bootstrap_getsocket(mach_port_t bp, name_t spr)
 kern_return_t
 x_bootstrap_unprivileged(mach_port_t bp, mach_port_t *unprivportp)
 {
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 
 	job_log(j, LOG_DEBUG, "Requested unprivileged bootstrap port");
 
@@ -398,7 +398,7 @@ kern_return_t
 x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -437,7 +437,7 @@ x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, m
 kern_return_t
 x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
 {
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -475,7 +475,7 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 kern_return_t
 x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -508,7 +508,7 @@ x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, ma
 kern_return_t
 x_bootstrap_parent(mach_port_t bp, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 
 	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
 
@@ -564,7 +564,7 @@ x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *serv
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	struct jobcb *ji, *j = job_find_by_port(bp);
+	vproc_t ji, j = job_find_by_port(bp);
 	kern_return_t result;
 	unsigned int cnt = 0;
 
@@ -603,7 +603,7 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	mach_port_array_t *ports, unsigned int *ports_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 	unsigned int cnt = 0;
 	kern_return_t result;
 
@@ -654,7 +654,7 @@ out_bad:
 kern_return_t
 x_bootstrap_subset(mach_port_t bp, mach_port_t requestorport, mach_port_t *subsetportp)
 {
-	struct jobcb *js, *j = job_find_by_port(bp);
+	vproc_t js, j = job_find_by_port(bp);
 	int bsdepth = 0;
 
 	while ((j = job_parent(j)) != NULL)
@@ -681,7 +681,7 @@ x_bootstrap_subset(mach_port_t bp, mach_port_t requestorport, mach_port_t *subse
 kern_return_t
 x_bootstrap_create_service(mach_port_t bp, name_t servicename, mach_port_t *serviceportp)
 {
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 	struct machservice *ms;
 
 	if (job_prog(j)[0] == '\0') {
@@ -713,7 +713,7 @@ out_bad:
 kern_return_t
 x_mpm_wait(mach_port_t bp, mach_port_t srp, audit_token_t au_tok, integer_t *waitstatus)
 {
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 #if 0
 	struct ldcred ldc;
 	audit_token_to_launchd_cred(au_tok, &ldc);
@@ -724,7 +724,7 @@ x_mpm_wait(mach_port_t bp, mach_port_t srp, audit_token_t au_tok, integer_t *wai
 kern_return_t
 x_mpm_uncork_fork(mach_port_t bp, audit_token_t au_tok)
 {
-	struct jobcb *j = job_find_by_port(bp);
+	vproc_t j = job_find_by_port(bp);
 
 	if (!j)
 		return BOOTSTRAP_NOT_PRIVILEGED;
@@ -740,7 +740,7 @@ x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
 		pid_t *child_pid, mach_port_t *obsvr_port)
 {
-	struct jobcb *jr, *j = job_find_by_port(bp);
+	vproc_t jr, j = job_find_by_port(bp);
 	struct ldcred ldc;
 	size_t offset = 0;
 	char *tmpp;
@@ -837,7 +837,7 @@ do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
 kern_return_t
 do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 {
-	struct jobcb *j = job_find_by_port(notify);
+	vproc_t j = job_find_by_port(notify);
 
 	/* This message is sent to us when the last customer of one of our objects
 	 * goes away.
@@ -886,7 +886,7 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 }
 
 bool
-trusted_client_check(struct jobcb *j, struct ldcred *ldc)
+trusted_client_check(vproc_t j, struct ldcred *ldc)
 {
 	static pid_t last_warned_pid = 0;
 

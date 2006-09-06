@@ -81,7 +81,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
-	struct jobcb		*job;
+	vproc_t			job;
 	mach_port_name_t	port;
 	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, __junk:27;
 	char			name[0];
@@ -89,7 +89,7 @@ struct machservice {
 
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
 static void machservice_setup_options(launch_data_t obj, const char *key, void *context);
-static void machservice_resetport(struct jobcb *j, struct machservice *ms);
+static void machservice_resetport(vproc_t j, struct machservice *ms);
 
 
 struct socketgroup {
@@ -99,11 +99,11 @@ struct socketgroup {
 	char name[0];
 };
 
-static bool socketgroup_new(struct jobcb *j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds);
-static void socketgroup_delete(struct jobcb *j, struct socketgroup *sg);
-static void socketgroup_watch(struct jobcb *j, struct socketgroup *sg);
-static void socketgroup_ignore(struct jobcb *j, struct socketgroup *sg);
-static void socketgroup_callback(struct jobcb *j, struct kevent *kev);
+static bool socketgroup_new(vproc_t j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds);
+static void socketgroup_delete(vproc_t j, struct socketgroup *sg);
+static void socketgroup_watch(vproc_t j, struct socketgroup *sg);
+static void socketgroup_ignore(vproc_t j, struct socketgroup *sg);
+static void socketgroup_callback(vproc_t j, struct kevent *kev);
 static void socketgroup_setup(launch_data_t obj, const char *key, void *context);
 
 struct watchpath {
@@ -113,22 +113,22 @@ struct watchpath {
 	char name[0];
 };
 
-static bool watchpath_new(struct jobcb *j, const char *name, bool qdir);
-static void watchpath_delete(struct jobcb *j, struct watchpath *wp);
-static void watchpath_watch(struct jobcb *j, struct watchpath *wp);
-static void watchpath_ignore(struct jobcb *j, struct watchpath *wp);
-static void watchpath_callback(struct jobcb *j, struct kevent *kev);
+static bool watchpath_new(vproc_t j, const char *name, bool qdir);
+static void watchpath_delete(vproc_t j, struct watchpath *wp);
+static void watchpath_watch(vproc_t j, struct watchpath *wp);
+static void watchpath_ignore(vproc_t j, struct watchpath *wp);
+static void watchpath_callback(vproc_t j, struct kevent *kev);
 
 struct calendarinterval {
 	SLIST_ENTRY(calendarinterval) sle;
 	struct tm when;
 };
 
-static bool calendarinterval_new(struct jobcb *j, struct tm *w);
-static bool calendarinterval_new_from_obj(struct jobcb *j, launch_data_t obj);
-static void calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci);
-static void calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci);
-static void calendarinterval_callback(struct jobcb *j, struct kevent *kev);
+static bool calendarinterval_new(vproc_t j, struct tm *w);
+static bool calendarinterval_new_from_obj(vproc_t j, launch_data_t obj);
+static void calendarinterval_delete(vproc_t j, struct calendarinterval *ci);
+static void calendarinterval_setalarm(vproc_t j, struct calendarinterval *ci);
+static void calendarinterval_callback(vproc_t j, struct kevent *kev);
 
 struct envitem {
 	SLIST_ENTRY(envitem) sle;
@@ -136,8 +136,8 @@ struct envitem {
 	char key[0];
 };
 
-static bool envitem_new(struct jobcb *j, const char *k, const char *v, bool global);
-static void envitem_delete(struct jobcb *j, struct envitem *ei, bool global);
+static bool envitem_new(vproc_t j, const char *k, const char *v, bool global);
+static void envitem_delete(vproc_t j, struct envitem *ei, bool global);
 static void envitem_setup(launch_data_t obj, const char *key, void *context);
 
 struct limititem {
@@ -146,8 +146,8 @@ struct limititem {
 	unsigned int setsoft:1, sethard:1, which:30;
 };
 
-static bool limititem_update(struct jobcb *j, int w, rlim_t r);
-static void limititem_delete(struct jobcb *j, struct limititem *li);
+static bool limititem_update(vproc_t j, int w, rlim_t r);
+static void limititem_delete(vproc_t j, struct limititem *li);
 static void limititem_setup(launch_data_t obj, const char *key, void *context);
 
 typedef enum {
@@ -166,15 +166,15 @@ struct semaphoreitem {
 	char what[0];
 };
 
-static bool semaphoreitem_new(struct jobcb *j, semaphore_reason_t why, const char *what);
-static void semaphoreitem_delete(struct jobcb *j, struct semaphoreitem *si);
+static bool semaphoreitem_new(vproc_t j, semaphore_reason_t why, const char *what);
+static void semaphoreitem_delete(vproc_t j, struct semaphoreitem *si);
 static void semaphoreitem_setup(launch_data_t obj, const char *key, void *context);
 static void semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context);
 
 
-struct jobcb {
+struct vproc_s {
 	kq_callback kqjob_callback;
-	SLIST_ENTRY(jobcb) sle;
+	SLIST_ENTRY(vproc_s) sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, watchpath) vnodes;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
@@ -183,9 +183,9 @@ struct jobcb {
 	SLIST_HEAD(, limititem) limits;
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
-	SLIST_HEAD(, jobcb) jobs;
+	SLIST_HEAD(, vproc_s) jobs;
 	struct rusage ru;
-	struct jobcb *parent;
+	vproc_t parent;
 	mach_port_t bs_port;
 	mach_port_t req_port;
 	mach_port_t wait_reply_port;
@@ -215,29 +215,29 @@ struct jobcb {
 	char label[0];
 };
 
-static struct jobcb *job_import2(launch_data_t pload);
+static vproc_t job_import2(launch_data_t pload);
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
-static void job_import_bool(struct jobcb *j, const char *key, bool value);
-static void job_import_string(struct jobcb *j, const char *key, const char *value);
-static void job_import_integer(struct jobcb *j, const char *key, long long value);
-static void job_import_dictionary(struct jobcb *j, const char *key, launch_data_t value);
-static void job_import_array(struct jobcb *j, const char *key, launch_data_t value);
-static void job_watch(struct jobcb *j);
-static void job_ignore(struct jobcb *j);
-static void job_reap(struct jobcb *j);
-static bool job_useless(struct jobcb *j);
-static bool job_keepalive(struct jobcb *j);
-static void job_start(struct jobcb *j);
-static void job_start_child(struct jobcb *j, int execfd) __attribute__((noreturn));
-static void job_setup_attributes(struct jobcb *j);
-static bool job_setup_machport(struct jobcb *j);
-static void job_postfork_become_user(struct jobcb *j);
+static void job_import_bool(vproc_t j, const char *key, bool value);
+static void job_import_string(vproc_t j, const char *key, const char *value);
+static void job_import_integer(vproc_t j, const char *key, long long value);
+static void job_import_dictionary(vproc_t j, const char *key, launch_data_t value);
+static void job_import_array(vproc_t j, const char *key, launch_data_t value);
+static void job_watch(vproc_t j);
+static void job_ignore(vproc_t j);
+static void job_reap(vproc_t j);
+static bool job_useless(vproc_t j);
+static bool job_keepalive(vproc_t j);
+static void job_start(vproc_t j);
+static void job_start_child(vproc_t j, int execfd) __attribute__((noreturn));
+static void job_setup_attributes(vproc_t j);
+static bool job_setup_machport(vproc_t j);
+static void job_postfork_become_user(vproc_t j);
 static void job_callback(void *obj, struct kevent *kev);
-static pid_t job_fork(struct jobcb *j);
-static size_t job_prep_log_preface(struct jobcb *j, char *buf);
-static void job_setup_env_from_other_jobs(struct jobcb *j);
-static void job_export_all2(struct jobcb *j, launch_data_t where);
-static launch_data_t job_export2(struct jobcb *j, bool subjobs);
+static pid_t job_fork(vproc_t j);
+static size_t job_prep_log_preface(vproc_t j, char *buf);
+static void job_setup_env_from_other_jobs(vproc_t j);
+static void job_export_all2(vproc_t j, launch_data_t where);
+static launch_data_t job_export2(vproc_t j, bool subjobs);
 
 
 static const struct {
@@ -266,10 +266,10 @@ static void simple_zombie_reaper(void *, struct kevent *);
 
 kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
-static int dir_has_files(struct jobcb *j, const char *path);
+static int dir_has_files(vproc_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
-struct jobcb *root_job = NULL;
-struct jobcb *gc_this_job = NULL;
+vproc_t root_job = NULL;
+vproc_t gc_this_job = NULL;
 size_t total_children = 0;
 
 void
@@ -279,7 +279,7 @@ simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
 }
 
 void
-job_ignore(struct jobcb *j)
+job_ignore(vproc_t j)
 {
 	struct socketgroup *sg;
 	struct machservice *ms;
@@ -296,7 +296,7 @@ job_ignore(struct jobcb *j)
 }
 
 void
-job_watch(struct jobcb *j)
+job_watch(vproc_t j)
 {
 	struct socketgroup *sg;
 	struct machservice *ms;
@@ -313,20 +313,20 @@ job_watch(struct jobcb *j)
 }
 
 void
-job_stop(struct jobcb *j)
+job_stop(vproc_t j)
 {
 	if (j->p)
 		kill(j->p, SIGTERM);
 }
 
 launch_data_t
-job_export(struct jobcb *j)
+job_export(vproc_t j)
 {
 	return job_export2(j, true);
 }
 
 launch_data_t
-job_export2(struct jobcb *j, bool subjobs)
+job_export2(vproc_t j, bool subjobs)
 {
 	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
@@ -403,7 +403,7 @@ job_export2(struct jobcb *j, bool subjobs)
 	}
 
 	if (subjobs && !SLIST_EMPTY(&j->jobs) && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
-		struct jobcb *ji;
+		vproc_t ji;
 		size_t i = 0;
 
 		SLIST_FOREACH(ji, &j->jobs, sle) {
@@ -419,9 +419,9 @@ job_export2(struct jobcb *j, bool subjobs)
 }
 
 void
-job_remove_all_inactive(struct jobcb *j)
+job_remove_all_inactive(vproc_t j)
 {
-	struct jobcb *ji, *jn;
+	vproc_t ji, jn;
 
 	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
 		job_remove_all_inactive(ji);
@@ -435,9 +435,9 @@ job_remove_all_inactive(struct jobcb *j)
 }
 
 void
-job_remove(struct jobcb *j)
+job_remove(vproc_t j)
 {
-	struct jobcb *ji;
+	vproc_t ji;
 	struct calendarinterval *ci;
 	struct socketgroup *sg;
 	struct watchpath *wp;
@@ -459,7 +459,7 @@ job_remove(struct jobcb *j)
 	}
 
 	if (j->parent)
-		SLIST_REMOVE(&j->parent->jobs, j, jobcb, sle);
+		SLIST_REMOVE(&j->parent->jobs, j, vproc_s, sle);
 
 	if (j->execfd)
 		job_assumes(j, close(j->execfd) == 0);
@@ -545,7 +545,7 @@ void
 socketgroup_setup(launch_data_t obj, const char *key, void *context)
 {
 	launch_data_t tmp_oai;
-	struct jobcb *j = context;
+	vproc_t j = context;
 	unsigned int i, fd_cnt = 1;
 	int *fds;
 
@@ -569,7 +569,7 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 }
 
 bool
-job_setup_machport(struct jobcb *j)
+job_setup_machport(vproc_t j)
 {
 	if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
 		goto out_bad;
@@ -584,11 +584,11 @@ out_bad:
 	return false;
 }
 
-struct jobcb *
-job_new_via_mach_init(struct jobcb *jbs, const char *cmd, uid_t uid, bool ond)
+vproc_t 
+job_new_via_mach_init(vproc_t jbs, const char *cmd, uid_t uid, bool ond)
 {
 	const char **argv = (const char **)mach_cmd2argv(cmd);
-	struct jobcb *j = NULL;
+	vproc_t j = NULL;
 	char buf[1000];
 
 	if (!job_assumes(jbs, argv != NULL))
@@ -630,7 +630,7 @@ out_bad:
 }
 
 kern_return_t
-job_handle_mpm_wait(struct jobcb *j, mach_port_t srp, int *waitstatus)
+job_handle_mpm_wait(vproc_t j, mach_port_t srp, int *waitstatus)
 {
 	if (j->p) {
 		j->wait_reply_port = srp;
@@ -642,10 +642,10 @@ job_handle_mpm_wait(struct jobcb *j, mach_port_t srp, int *waitstatus)
 	return 0;
 }
 
-struct jobcb *
+vproc_t 
 job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
 {
-	struct jobcb *jr;
+	vproc_t jr;
 
 	if ((jr = job_find(root_job, label)) != NULL) {
 		errno = EEXIST;
@@ -690,20 +690,20 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 	return jr;
 }
 
-struct jobcb *
-job_new(struct jobcb *p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t reqport)
+vproc_t 
+job_new(vproc_t p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t reqport)
 {
 	const char *const *argv_tmp = argv;
 	char *co;
 	int i, cc = 0;
-	struct jobcb *j;
+	vproc_t j;
 
 	if (reqport == MACH_PORT_NULL && prog == NULL && argv == NULL) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	j = calloc(1, sizeof(struct jobcb) + strlen(label) + 1);
+	j = calloc(1, sizeof(struct vproc_s) + strlen(label) + 1);
 
 	if (!job_assumes(p, j != NULL))
 		goto out_bad;
@@ -773,10 +773,10 @@ out_bad:
 	return NULL;
 }
 
-struct jobcb *
+vproc_t 
 job_import(launch_data_t pload)
 {
-	struct jobcb *j = job_import2(pload);
+	vproc_t j = job_import2(pload);
 
 	if (j == NULL)
 		return NULL;
@@ -790,10 +790,10 @@ launch_data_t
 job_import_bulk(launch_data_t pload)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
-	struct jobcb **ja;
+	vproc_t *ja;
 	size_t i, c = launch_data_array_get_count(pload);
 
-	ja = alloca(c * sizeof(struct jobcb *));
+	ja = alloca(c * sizeof(vproc_t ));
 
 	for (i = 0; i < c; i++) {
 		if ((ja[i] = job_import2(launch_data_array_get_index(pload, i))))
@@ -811,7 +811,7 @@ job_import_bulk(launch_data_t pload)
 }
 
 void
-job_import_bool(struct jobcb *j, const char *key, bool value)
+job_import_bool(vproc_t j, const char *key, bool value)
 {
 	switch (key[0]) {
 	case 'f':
@@ -875,7 +875,7 @@ job_import_bool(struct jobcb *j, const char *key, bool value)
 }
 
 void
-job_import_string(struct jobcb *j, const char *key, const char *value)
+job_import_string(vproc_t j, const char *key, const char *value)
 {
 	char **where2put = NULL;
 
@@ -945,7 +945,7 @@ job_import_string(struct jobcb *j, const char *key, const char *value)
 }
 
 void
-job_import_integer(struct jobcb *j, const char *key, long long value)
+job_import_integer(vproc_t j, const char *key, long long value)
 {
 	switch (key[0]) {
 	case 'n':
@@ -986,7 +986,7 @@ job_import_integer(struct jobcb *j, const char *key, long long value)
 }
 
 void
-job_import_dictionary(struct jobcb *j, const char *key, launch_data_t value)
+job_import_dictionary(vproc_t j, const char *key, launch_data_t value)
 {
 	launch_data_t tmp;
 
@@ -1049,7 +1049,7 @@ job_import_dictionary(struct jobcb *j, const char *key, launch_data_t value)
 }
 
 void
-job_import_array(struct jobcb *j, const char *key, launch_data_t value)
+job_import_array(vproc_t j, const char *key, launch_data_t value)
 {
 	bool is_q_dir = false;
 	bool is_wp = false;
@@ -1097,7 +1097,7 @@ job_import_array(struct jobcb *j, const char *key, launch_data_t value)
 void
 job_import_keys(launch_data_t obj, const char *key, void *context)
 {
-	struct jobcb *j = context;
+	vproc_t j = context;
 	launch_data_type_t kind;
 
 	if (obj == NULL)
@@ -1127,13 +1127,13 @@ job_import_keys(launch_data_t obj, const char *key, void *context)
 	}
 }
 
-struct jobcb *
+vproc_t 
 job_import2(launch_data_t pload)
 {
 	launch_data_t tmp, ldpa;
 	const char *label = NULL, *prog = NULL;
 	const char **argv = NULL;
-	struct jobcb *j;
+	vproc_t j;
 
 	if (pload == NULL)
 		return NULL;
@@ -1181,10 +1181,10 @@ job_import2(launch_data_t pload)
 	return j;
 }
 
-struct jobcb *
-job_find(struct jobcb *j, const char *label)
+vproc_t 
+job_find(vproc_t j, const char *label)
 {
-	struct jobcb *jr, *ji;
+	vproc_t jr, ji;
 
 	if (label[0] == '\0')
 		return root_job;
@@ -1201,10 +1201,10 @@ job_find(struct jobcb *j, const char *label)
 	return NULL;
 }
 
-struct jobcb *
-job_find_by_pid(struct jobcb *j, pid_t p)
+vproc_t 
+job_find_by_pid(vproc_t j, pid_t p)
 {
-	struct jobcb *jr, *ji;
+	vproc_t jr, ji;
 
 	if (j->p == p)
 		return j;
@@ -1219,10 +1219,10 @@ job_find_by_pid(struct jobcb *j, pid_t p)
 }
 
 void
-job_export_all2(struct jobcb *j, launch_data_t where)
+job_export_all2(vproc_t j, launch_data_t where)
 {
 	launch_data_t tmp;
-	struct jobcb *ji;
+	vproc_t ji;
 
 	if (job_assumes(j, (tmp = job_export2(j, false)) != NULL))
 		launch_data_dict_insert(where, tmp, j->label);
@@ -1242,7 +1242,7 @@ job_export_all(void)
 }
 
 void
-job_reap(struct jobcb *j)
+job_reap(vproc_t j)
 {
 	struct rusage ru;
 	int status;
@@ -1300,7 +1300,7 @@ job_reap(struct jobcb *j)
 }
 
 void
-job_dispatch(struct jobcb *j, bool kickstart)
+job_dispatch(vproc_t j, bool kickstart)
 {
 	/*
 	 * The whole job removal logic needs to be consolidated. The fact that
@@ -1324,7 +1324,7 @@ job_dispatch(struct jobcb *j, bool kickstart)
 void
 job_callback(void *obj, struct kevent *kev)
 {
-	struct jobcb *j = obj;
+	vproc_t j = obj;
 	bool d = j->debug;
 	int oldmask = 0;
 
@@ -1391,7 +1391,7 @@ job_callback(void *obj, struct kevent *kev)
 }
 
 void
-job_start(struct jobcb *j)
+job_start(vproc_t j)
 {
 	int spair[2];
 	int execspair[2];
@@ -1503,7 +1503,7 @@ job_start(struct jobcb *j)
 }
 
 void
-job_start_child(struct jobcb *j, int execfd)
+job_start_child(vproc_t j, int execfd)
 {
 	const char *file2exec = "/usr/libexec/launchproxy";
 	const char **argv;
@@ -1564,10 +1564,10 @@ job_start_child(struct jobcb *j, int execfd)
 	exit(EXIT_FAILURE);
 }
 
-void job_setup_env_from_other_jobs(struct jobcb *j)
+void job_setup_env_from_other_jobs(vproc_t j)
 {
 	struct envitem *ei;
-	struct jobcb *ji;
+	vproc_t ji;
 
 	SLIST_FOREACH(ji, &j->jobs, sle)
 		job_setup_env_from_other_jobs(ji);
@@ -1577,7 +1577,7 @@ void job_setup_env_from_other_jobs(struct jobcb *j)
 }
 
 void
-job_postfork_become_user(struct jobcb *j)
+job_postfork_become_user(vproc_t j)
 {
 	char loginname[2000];
 	struct passwd *pwe;
@@ -1645,7 +1645,7 @@ job_postfork_become_user(struct jobcb *j)
 }
 
 void
-job_setup_attributes(struct jobcb *j)
+job_setup_attributes(vproc_t j)
 {
 	struct limititem *li;
 	struct envitem *ei;
@@ -1729,7 +1729,7 @@ job_setup_attributes(struct jobcb *j)
 }
 
 int
-dir_has_files(struct jobcb *j, const char *path)
+dir_has_files(vproc_t j, const char *path)
 {
 	DIR *dd = opendir(path);
 	struct dirent *de;
@@ -1750,7 +1750,7 @@ dir_has_files(struct jobcb *j, const char *path)
 }
 
 void
-calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci)
+calendarinterval_setalarm(vproc_t j, struct calendarinterval *ci)
 {
 	time_t later;
 
@@ -1774,7 +1774,7 @@ calendarinterval_setalarm(struct jobcb *j, struct calendarinterval *ci)
 }
 
 size_t
-job_prep_log_preface(struct jobcb *j, char *buf)
+job_prep_log_preface(vproc_t j, char *buf)
 {
 	size_t lsz = strlen(j->label);
 	char newlabel[lsz * 2 + 1];
@@ -1798,7 +1798,7 @@ job_prep_log_preface(struct jobcb *j, char *buf)
 }
 
 void
-job_log_bug(struct jobcb *j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
+job_log_bug(vproc_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
 {
 	int saved_errno = errno;
 	char buf[100];
@@ -1824,7 +1824,7 @@ job_log_bug(struct jobcb *j, const char *rcs_rev, const char *path, unsigned int
 }
 
 void
-job_log_error(struct jobcb *j, int pri, const char *msg, ...)
+job_log_error(vproc_t j, int pri, const char *msg, ...)
 {
 	char newmsg[10000];
 	va_list ap;
@@ -1840,7 +1840,7 @@ job_log_error(struct jobcb *j, int pri, const char *msg, ...)
 }
 
 void
-job_log(struct jobcb *j, int pri, const char *msg, ...)
+job_log(vproc_t j, int pri, const char *msg, ...)
 {
 	char newmsg[10000];
 	va_list ap;
@@ -1856,7 +1856,7 @@ job_log(struct jobcb *j, int pri, const char *msg, ...)
 }
 
 bool
-watchpath_new(struct jobcb *j, const char *name, bool qdir)
+watchpath_new(vproc_t j, const char *name, bool qdir)
 {
 	struct watchpath *wp = calloc(1, sizeof(struct watchpath) + strlen(name) + 1);
 
@@ -1875,7 +1875,7 @@ watchpath_new(struct jobcb *j, const char *name, bool qdir)
 }       
 
 void
-watchpath_delete(struct jobcb *j, struct watchpath *wp) 
+watchpath_delete(vproc_t j, struct watchpath *wp) 
 {
 	if (wp->fd != -1)
 		job_assumes(j, close(wp->fd) != -1);
@@ -1886,7 +1886,7 @@ watchpath_delete(struct jobcb *j, struct watchpath *wp)
 }       
 
 void    
-watchpath_ignore(struct jobcb *j, struct watchpath *wp)
+watchpath_ignore(vproc_t j, struct watchpath *wp)
 {       
 	if (wp->fd != -1) {
 		job_log(j, LOG_DEBUG, "Ignoring Vnode: %d", wp->fd);
@@ -1895,7 +1895,7 @@ watchpath_ignore(struct jobcb *j, struct watchpath *wp)
 }
 
 void
-watchpath_watch(struct jobcb *j, struct watchpath *wp)
+watchpath_watch(vproc_t j, struct watchpath *wp)
 {
 	int fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK;
 	int qdir_file_cnt;
@@ -1923,7 +1923,7 @@ watchpath_watch(struct jobcb *j, struct watchpath *wp)
 }
 
 void
-watchpath_callback(struct jobcb *j, struct kevent *kev)
+watchpath_callback(vproc_t j, struct kevent *kev)
 {
 	struct watchpath *wp;
 	int dir_file_cnt;
@@ -1956,7 +1956,7 @@ watchpath_callback(struct jobcb *j, struct kevent *kev)
 }
 
 bool
-calendarinterval_new_from_obj(struct jobcb *j, launch_data_t obj)
+calendarinterval_new_from_obj(vproc_t j, launch_data_t obj)
 {
 	launch_data_t tmp_k;
 	struct tm tmptm;
@@ -1987,7 +1987,7 @@ calendarinterval_new_from_obj(struct jobcb *j, launch_data_t obj)
 }
 
 bool
-calendarinterval_new(struct jobcb *j, struct tm *w)
+calendarinterval_new(vproc_t j, struct tm *w)
 {
 	struct calendarinterval *ci = calloc(1, sizeof(struct calendarinterval));
 
@@ -2004,7 +2004,7 @@ calendarinterval_new(struct jobcb *j, struct tm *w)
 }
 
 void
-calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci)
+calendarinterval_delete(vproc_t j, struct calendarinterval *ci)
 {
 	job_assumes(j, kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 
@@ -2014,7 +2014,7 @@ calendarinterval_delete(struct jobcb *j, struct calendarinterval *ci)
 }
 
 void
-calendarinterval_callback(struct jobcb *j, struct kevent *kev)
+calendarinterval_callback(vproc_t j, struct kevent *kev)
 {
 	struct calendarinterval *ci;
 
@@ -2030,7 +2030,7 @@ calendarinterval_callback(struct jobcb *j, struct kevent *kev)
 }
 
 bool
-socketgroup_new(struct jobcb *j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds)
+socketgroup_new(vproc_t j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds)
 {
 	struct socketgroup *sg = calloc(1, sizeof(struct socketgroup) + strlen(name) + 1);
 
@@ -2055,7 +2055,7 @@ socketgroup_new(struct jobcb *j, const char *name, int *fds, unsigned int fd_cnt
 }
 
 void
-socketgroup_delete(struct jobcb *j, struct socketgroup *sg)
+socketgroup_delete(vproc_t j, struct socketgroup *sg)
 {
 	unsigned int i;
 
@@ -2069,7 +2069,7 @@ socketgroup_delete(struct jobcb *j, struct socketgroup *sg)
 }
 
 void
-socketgroup_ignore(struct jobcb *j, struct socketgroup *sg)
+socketgroup_ignore(vproc_t j, struct socketgroup *sg)
 {
 	char buf[10000];
 	unsigned int i, buf_off = 0;
@@ -2087,7 +2087,7 @@ socketgroup_ignore(struct jobcb *j, struct socketgroup *sg)
 }
 
 void
-socketgroup_watch(struct jobcb *j, struct socketgroup *sg)
+socketgroup_watch(vproc_t j, struct socketgroup *sg)
 {
 	char buf[10000];
 	unsigned int i, buf_off = 0;
@@ -2105,13 +2105,13 @@ socketgroup_watch(struct jobcb *j, struct socketgroup *sg)
 }
 
 void
-socketgroup_callback(struct jobcb *j, struct kevent *kev)
+socketgroup_callback(vproc_t j, struct kevent *kev)
 {
 	job_dispatch(j, true);
 }
 
 bool
-envitem_new(struct jobcb *j, const char *k, const char *v, bool global)
+envitem_new(vproc_t j, const char *k, const char *v, bool global)
 {
 	struct envitem *ei = calloc(1, sizeof(struct envitem) + strlen(k) + 1 + strlen(v) + 1);
 
@@ -2132,7 +2132,7 @@ envitem_new(struct jobcb *j, const char *k, const char *v, bool global)
 }
 
 void
-envitem_delete(struct jobcb *j, struct envitem *ei, bool global)
+envitem_delete(vproc_t j, struct envitem *ei, bool global)
 {
 	if (global) {
 		SLIST_REMOVE(&j->global_env, ei, envitem, sle);
@@ -2146,7 +2146,7 @@ envitem_delete(struct jobcb *j, struct envitem *ei, bool global)
 void
 envitem_setup(launch_data_t obj, const char *key, void *context)
 {
-	struct jobcb *j = context;
+	vproc_t j = context;
 
 	if (launch_data_get_type(obj) != LAUNCH_DATA_STRING)
 		return;
@@ -2155,7 +2155,7 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 bool
-limititem_update(struct jobcb *j, int w, rlim_t r)
+limititem_update(vproc_t j, int w, rlim_t r)
 {
 	struct limititem *li;
 
@@ -2185,7 +2185,7 @@ limititem_update(struct jobcb *j, int w, rlim_t r)
 }
 
 void
-limititem_delete(struct jobcb *j, struct limititem *li)
+limititem_delete(vproc_t j, struct limititem *li)
 {
 	SLIST_REMOVE(&j->limits, li, limititem, sle);
 
@@ -2195,7 +2195,7 @@ limititem_delete(struct jobcb *j, struct limititem *li)
 void
 limititem_setup(launch_data_t obj, const char *key, void *context)
 {
-	struct jobcb *j = context;
+	vproc_t j = context;
 	int i, limits_cnt = (sizeof(launchd_keys2limits) / sizeof(launchd_keys2limits[0]));
 	rlim_t rl;
 
@@ -2216,7 +2216,7 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 bool
-job_useless(struct jobcb *j)
+job_useless(vproc_t j)
 {
 	if (j->unload_at_exit && j->start_time != 0) {
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
@@ -2236,7 +2236,7 @@ job_useless(struct jobcb *j)
 }
 
 bool
-job_keepalive(struct jobcb *j)
+job_keepalive(vproc_t j)
 {
 	mach_msg_type_number_t statusCnt;
 	mach_port_status_t status;
@@ -2311,7 +2311,7 @@ job_keepalive(struct jobcb *j)
 }
 
 const char *
-job_prog(struct jobcb *j)
+job_prog(vproc_t j)
 {
 	if (j->prog) {
 		return j->prog;
@@ -2323,7 +2323,7 @@ job_prog(struct jobcb *j)
 }
 
 bool
-job_active(struct jobcb *j)
+job_active(vproc_t j)
 {
 	struct machservice *ms;
 
@@ -2360,7 +2360,7 @@ launchd_fork(void)
 }
 
 pid_t
-job_fork(struct jobcb *j)
+job_fork(vproc_t j)
 {
 	mach_port_t p = j->bs_port;
 	pid_t r = -1;
@@ -2390,7 +2390,7 @@ job_fork(struct jobcb *j)
 }
 
 void
-machservice_resetport(struct jobcb *j, struct machservice *ms)
+machservice_resetport(vproc_t j, struct machservice *ms)
 {
 	job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
@@ -2399,7 +2399,7 @@ machservice_resetport(struct jobcb *j, struct machservice *ms)
 }
 
 struct machservice *
-machservice_new(struct jobcb *j, const char *name, mach_port_t *serviceport)
+machservice_new(vproc_t j, const char *name, mach_port_t *serviceport)
 {
 	struct machservice *ms;
 
@@ -2522,7 +2522,7 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 void
 machservice_setup(launch_data_t obj, const char *key, void *context)
 {
-	struct jobcb *j = context;
+	vproc_t j = context;
 	struct machservice *ms;
 	mach_port_t p = MACH_PORT_NULL;
 
@@ -2543,14 +2543,14 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	}
 }
 
-struct jobcb *
-job_parent(struct jobcb *j)
+vproc_t 
+job_parent(vproc_t j)
 {
 	return j->parent;
 }
 
 void
-job_uncork_fork(struct jobcb *j)
+job_uncork_fork(vproc_t j)
 {
 	pid_t c = j->p;
 
@@ -2566,10 +2566,10 @@ job_uncork_fork(struct jobcb *j)
 }
 
 void
-job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs)
+job_foreach_service(vproc_t j, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs)
 {
 	struct machservice *ms;
-	struct jobcb *ji;
+	vproc_t ji;
 
 	j = job_get_bs(j);
 
@@ -2587,11 +2587,11 @@ job_foreach_service(struct jobcb *j, void (*bs_iter)(struct machservice *, void 
 		bs_iter(ms, context);
 }
 
-struct jobcb *
-job_new_bootstrap(struct jobcb *p, mach_port_t requestorport, mach_port_t checkin_port)
+vproc_t 
+job_new_bootstrap(vproc_t p, mach_port_t requestorport, mach_port_t checkin_port)
 {
 	char bslabel[1024] = "100000";
-	struct jobcb *j;
+	vproc_t j;
 
 	if (requestorport == MACH_PORT_NULL) {
 		if (p) {
@@ -2629,10 +2629,10 @@ out_bad:
 }
 
 void
-job_delete_anything_with_port(struct jobcb *j, mach_port_t port)
+job_delete_anything_with_port(vproc_t j, mach_port_t port)
 {
 	struct machservice *ms, *next_ms;
-	struct jobcb *ji, *jn;
+	vproc_t ji, jn;
 
 	/* Mach ports, unlike Unix descriptors, are reference counted. In other
 	 * words, when some program hands us a second or subsequent send right
@@ -2664,10 +2664,10 @@ job_delete_anything_with_port(struct jobcb *j, mach_port_t port)
 }
 
 struct machservice *
-job_lookup_service(struct jobcb *j, const char *name, bool check_parent)
+job_lookup_service(vproc_t j, const char *name, bool check_parent)
 {
 	struct machservice *ms;
-	struct jobcb *ji;
+	vproc_t ji;
 
 	j = job_get_bs(j);
 
@@ -2701,7 +2701,7 @@ machservice_port(struct machservice *ms)
 	return ms->port;
 }
 
-struct jobcb *
+vproc_t 
 machservice_job(struct machservice *ms)
 {
 	return ms->job;
@@ -2810,15 +2810,15 @@ mach_cmd2argv(const char *string)
 }
 
 void
-job_checkin(struct jobcb *j)
+job_checkin(vproc_t j)
 {
 	j->checkedin = true;
 }
 
 bool
-job_ack_port_destruction(struct jobcb *j, mach_port_t p)
+job_ack_port_destruction(vproc_t j, mach_port_t p)
 {
-	struct jobcb *ji;
+	vproc_t ji;
 	struct machservice *ms;
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
@@ -2847,7 +2847,7 @@ job_ack_port_destruction(struct jobcb *j, mach_port_t p)
 }
 
 void
-job_ack_no_senders(struct jobcb *j)
+job_ack_no_senders(vproc_t j)
 {
 	j->priv_port_has_senders = false;
 
@@ -2857,7 +2857,7 @@ job_ack_no_senders(struct jobcb *j)
 }
 
 mach_port_t
-job_get_reqport(struct jobcb *j)
+job_get_reqport(vproc_t j)
 {
 	j->transfer_bstrap = true;
 	gc_this_job = j;
@@ -2866,13 +2866,13 @@ job_get_reqport(struct jobcb *j)
 }
 
 mach_port_t
-job_get_bsport(struct jobcb *j)
+job_get_bsport(vproc_t j)
 {
 	return j->bs_port;
 }
 
-struct jobcb *
-job_get_bs(struct jobcb *j)
+vproc_t 
+job_get_bs(vproc_t j)
 {
 	if (j->req_port)
 		return j;
@@ -2884,13 +2884,13 @@ job_get_bs(struct jobcb *j)
 }
 
 pid_t
-job_get_pid(struct jobcb *j)
+job_get_pid(vproc_t j)
 {
 	return j->p;
 }
 
 bool
-semaphoreitem_new(struct jobcb *j, semaphore_reason_t why, const char *what)
+semaphoreitem_new(vproc_t j, semaphore_reason_t why, const char *what)
 {
 	struct semaphoreitem *si;
 	size_t alloc_sz = sizeof(struct semaphoreitem);
@@ -2912,7 +2912,7 @@ semaphoreitem_new(struct jobcb *j, semaphore_reason_t why, const char *what)
 }
 
 void
-semaphoreitem_delete(struct jobcb *j, struct semaphoreitem *ri)
+semaphoreitem_delete(vproc_t j, struct semaphoreitem *ri)
 {
 	SLIST_REMOVE(&j->semaphores, ri, semaphoreitem, sle);
 
@@ -2922,7 +2922,7 @@ semaphoreitem_delete(struct jobcb *j, struct semaphoreitem *ri)
 void
 semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context)
 {
-	struct jobcb *j = context;
+	vproc_t j = context;
 	semaphore_reason_t why;
 
 	why = launch_data_get_bool(obj) ? PATH_EXISTS : PATH_MISSING;
@@ -2933,7 +2933,7 @@ semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context)
 void
 semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 {
-	struct jobcb *j = context;
+	vproc_t j = context;
 	semaphore_reason_t why;
 
 	if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_NETWORKSTATE) == 0) {
@@ -2950,9 +2950,9 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 void
-job_dispatch_all_other_semaphores(struct jobcb *j, struct jobcb *nj)
+job_dispatch_all_other_semaphores(vproc_t j, vproc_t nj)
 {
-	struct jobcb *ji, *jn;
+	vproc_t ji, jn;
 
 	if (j == nj)
 		return;

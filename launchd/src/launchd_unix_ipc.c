@@ -181,7 +181,7 @@ out_bad:
 }
 
 void
-ipc_open(int fd, struct jobcb *j)
+ipc_open(int fd, vproc_t j)
 {
 	struct conncb *c = calloc(1, sizeof(struct conncb));
 
@@ -324,7 +324,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 {
 	struct readmsg_context *rmc = context;
 	launch_data_t resp = NULL;
-	struct jobcb *j;
+	vproc_t j;
 
 	if (rmc->resp)
 		return;

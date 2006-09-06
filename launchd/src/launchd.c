@@ -121,7 +121,7 @@ static int asynckq = 0;
 static bool re_exec_in_single_user_mode = false;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
-static struct jobcb *rlcj = NULL;
+static vproc_t rlcj = NULL;
 static jmp_buf doom_doom_doom;
 
 sigset_t blocked_signals = 0;
@@ -148,7 +148,7 @@ main(int argc, char *const *argv)
 	const char *session_type = NULL;
 	const char *optargs = NULL;
 	launch_data_t ldresp, ldmsg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
-	struct jobcb *fbj = NULL;
+	vproc_t fbj = NULL;
 	struct stat sb;
 	size_t i, checkin_fdcnt = 0;
 	int *checkin_fds = NULL;

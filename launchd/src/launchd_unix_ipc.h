@@ -24,13 +24,13 @@ struct conncb {
 	kq_callback kqconn_callback;
 	SLIST_ENTRY(conncb) sle;
 	launch_t conn;
-	struct jobcb *j;
+	vproc_t j;
 	int disabled_batch:1, futureflags:31;
 };
 
 extern char *sockpath;
 
-void ipc_open(int fd, struct jobcb *j);
+void ipc_open(int fd, vproc_t j);
 void ipc_close(struct conncb *c);
 void ipc_callback(void *, struct kevent *);
 void ipc_readmsg(launch_data_t msg, void *context);
