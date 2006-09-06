@@ -57,7 +57,7 @@ extern mach_port_t ipc_port_set;
 bool init_check_pid(pid_t);
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
-void batch_job_enable(bool e, struct conncb *c);
+void batch_vproc_enable(bool e, struct conncb *c);
 
 launch_data_t launchd_setstdio(int d, launch_data_t o);
 void launchd_SessionCreate(void);

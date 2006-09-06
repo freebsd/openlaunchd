@@ -173,7 +173,7 @@ static void semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *
 
 
 struct vproc_s {
-	kq_callback kqjob_callback;
+	kq_callback kqvproc_callback;
 	SLIST_ENTRY(vproc_s) sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, watchpath) vnodes;
@@ -215,29 +215,29 @@ struct vproc_s {
 	char label[0];
 };
 
-static vproc_t job_import2(launch_data_t pload);
-static void job_import_keys(launch_data_t obj, const char *key, void *context);
-static void job_import_bool(vproc_t j, const char *key, bool value);
-static void job_import_string(vproc_t j, const char *key, const char *value);
-static void job_import_integer(vproc_t j, const char *key, long long value);
-static void job_import_dictionary(vproc_t j, const char *key, launch_data_t value);
-static void job_import_array(vproc_t j, const char *key, launch_data_t value);
-static void job_watch(vproc_t j);
-static void job_ignore(vproc_t j);
-static void job_reap(vproc_t j);
-static bool job_useless(vproc_t j);
-static bool job_keepalive(vproc_t j);
-static void job_start(vproc_t j);
-static void job_start_child(vproc_t j, int execfd) __attribute__((noreturn));
-static void job_setup_attributes(vproc_t j);
-static bool job_setup_machport(vproc_t j);
-static void job_postfork_become_user(vproc_t j);
-static void job_callback(void *obj, struct kevent *kev);
-static pid_t job_fork(vproc_t j);
-static size_t job_prep_log_preface(vproc_t j, char *buf);
-static void job_setup_env_from_other_jobs(vproc_t j);
-static void job_export_all2(vproc_t j, launch_data_t where);
-static launch_data_t job_export2(vproc_t j, bool subjobs);
+static vproc_t vproc_import2(launch_data_t pload);
+static void vproc_import_keys(launch_data_t obj, const char *key, void *context);
+static void vproc_import_bool(vproc_t j, const char *key, bool value);
+static void vproc_import_string(vproc_t j, const char *key, const char *value);
+static void vproc_import_integer(vproc_t j, const char *key, long long value);
+static void vproc_import_dictionary(vproc_t j, const char *key, launch_data_t value);
+static void vproc_import_array(vproc_t j, const char *key, launch_data_t value);
+static void vproc_watch(vproc_t j);
+static void vproc_ignore(vproc_t j);
+static void vproc_reap(vproc_t j);
+static bool vproc_useless(vproc_t j);
+static bool vproc_keepalive(vproc_t j);
+static void vproc_start(vproc_t j);
+static void vproc_start_child(vproc_t j, int execfd) __attribute__((noreturn));
+static void vproc_setup_attributes(vproc_t j);
+static bool vproc_setup_machport(vproc_t j);
+static void vproc_postfork_become_user(vproc_t j);
+static void vproc_callback(void *obj, struct kevent *kev);
+static pid_t vproc_fork(vproc_t j);
+static size_t vproc_prep_log_preface(vproc_t j, char *buf);
+static void vproc_setup_env_from_other_jobs(vproc_t j);
+static void vproc_export_all2(vproc_t j, launch_data_t where);
+static launch_data_t vproc_export2(vproc_t j, bool subjobs);
 
 
 static const struct {
@@ -279,7 +279,7 @@ simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
 }
 
 void
-job_ignore(vproc_t j)
+vproc_ignore(vproc_t j)
 {
 	struct socketgroup *sg;
 	struct machservice *ms;
@@ -292,11 +292,11 @@ job_ignore(vproc_t j)
 		watchpath_ignore(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		job_assumes(j, launchd_mport_request_callback(ms->port, NULL, false) == KERN_SUCCESS);
+		vproc_assumes(j, launchd_mport_request_callback(ms->port, NULL, false) == KERN_SUCCESS);
 }
 
 void
-job_watch(vproc_t j)
+vproc_watch(vproc_t j)
 {
 	struct socketgroup *sg;
 	struct machservice *ms;
@@ -309,24 +309,24 @@ job_watch(vproc_t j)
 		watchpath_watch(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		job_assumes(j, launchd_mport_request_callback(ms->port, j, false) == KERN_SUCCESS);
+		vproc_assumes(j, launchd_mport_request_callback(ms->port, j, false) == KERN_SUCCESS);
 }
 
 void
-job_stop(vproc_t j)
+vproc_stop(vproc_t j)
 {
 	if (j->p)
 		kill(j->p, SIGTERM);
 }
 
 launch_data_t
-job_export(vproc_t j)
+vproc_export(vproc_t j)
 {
-	return job_export2(j, true);
+	return vproc_export2(j, true);
 }
 
 launch_data_t
-job_export2(vproc_t j, bool subjobs)
+vproc_export2(vproc_t j, bool subjobs)
 {
 	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
@@ -407,7 +407,7 @@ job_export2(vproc_t j, bool subjobs)
 		size_t i = 0;
 
 		SLIST_FOREACH(ji, &j->jobs, sle) {
-			tmp2 = job_export2(ji, true);
+			tmp2 = vproc_export2(ji, true);
 			launch_data_array_set_index(tmp, tmp2, i);
 			i++;
 		}
@@ -419,23 +419,23 @@ job_export2(vproc_t j, bool subjobs)
 }
 
 void
-job_remove_all_inactive(vproc_t j)
+vproc_remove_all_inactive(vproc_t j)
 {
 	vproc_t ji, jn;
 
 	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
-		job_remove_all_inactive(ji);
+		vproc_remove_all_inactive(ji);
 	}
 
-	if (!job_active(j)) {
-		job_remove(j);
+	if (!vproc_active(j)) {
+		vproc_remove(j);
 	} else if (getpid() != 1) {
-		job_stop(j);
+		vproc_stop(j);
 	}
 }
 
 void
-job_remove(vproc_t j)
+vproc_remove(vproc_t j)
 {
 	vproc_t ji;
 	struct calendarinterval *ci;
@@ -446,15 +446,15 @@ job_remove(vproc_t j)
 	struct machservice *ms;
 	struct semaphoreitem *si;
 
-	job_log(j, LOG_DEBUG, "Removed");
+	vproc_log(j, LOG_DEBUG, "Removed");
 
 	if (j->p) {
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
-			job_reap(j);
+			vproc_reap(j);
 		} else {
 			/* we've attached the simple zombie reaper, we're going to delete the job before it is dead */
 			total_children--;
-			job_stop(j);
+			vproc_stop(j);
 		}
 	}
 
@@ -462,18 +462,18 @@ job_remove(vproc_t j)
 		SLIST_REMOVE(&j->parent->jobs, j, vproc_s, sle);
 
 	if (j->execfd)
-		job_assumes(j, close(j->execfd) == 0);
+		vproc_assumes(j, close(j->execfd) == 0);
 
 	if (j->bs_port) {
 		if (j->transfer_bstrap) {
-			job_assumes(j, launchd_mport_deallocate(j->bs_port) == KERN_SUCCESS);
+			vproc_assumes(j, launchd_mport_deallocate(j->bs_port) == KERN_SUCCESS);
 		} else {
-			job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+			vproc_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 		}
 	}
 
 	if (j->req_port)
-		job_assumes(j, launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
+		vproc_assumes(j, launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
 
 #if 0
 	if (j->wait_reply_port) {
@@ -481,7 +481,7 @@ job_remove(vproc_t j)
 #endif
 
 	while ((ji = SLIST_FIRST(&j->jobs)))
-		job_remove(ji);
+		vproc_remove(ji);
 
 	while ((sg = SLIST_FIRST(&j->sockets)))
 		socketgroup_delete(j, sg);
@@ -569,39 +569,39 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 }
 
 bool
-job_setup_machport(vproc_t j)
+vproc_setup_machport(vproc_t j)
 {
-	if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
+	if (!vproc_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
 		goto out_bad;
 
-	if (!job_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
+	if (!vproc_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
 		goto out_bad2;
 
 	return true;
 out_bad2:
-	job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 out_bad:
 	return false;
 }
 
 vproc_t 
-job_new_via_mach_init(vproc_t jbs, const char *cmd, uid_t uid, bool ond)
+vproc_new_via_mach_init(vproc_t jbs, const char *cmd, uid_t uid, bool ond)
 {
 	const char **argv = (const char **)mach_cmd2argv(cmd);
 	vproc_t j = NULL;
 	char buf[1000];
 
-	if (!job_assumes(jbs, argv != NULL))
+	if (!vproc_assumes(jbs, argv != NULL))
 		goto out_bad;
 
 	/* preflight the string so we know how big it is */
 	sprintf(buf, "100000.%s", basename((char *)argv[0]));
 
-	j = job_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
+	j = vproc_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
 
 	free(argv);
 
-	if (!job_assumes(jbs, j != NULL))
+	if (!vproc_assumes(jbs, j != NULL))
 		goto out_bad;
 
 	j->mach_uid = uid;
@@ -609,28 +609,28 @@ job_new_via_mach_init(vproc_t jbs, const char *cmd, uid_t uid, bool ond)
 	j->legacy_mach_job = true;
 	j->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
 
-	if (!job_setup_machport(j))
+	if (!vproc_setup_machport(j))
 		goto out_bad;
 
-	if (!job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
-		job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	if (!vproc_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
+		vproc_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 		goto out_bad;
 	}
 
 	sprintf(j->label, "%d.%s", MACH_PORT_INDEX(j->bs_port), basename(j->argv[0]));
 
-	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
+	vproc_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
 
 	return j;
 
 out_bad:
 	if (j)
-		job_remove(j);
+		vproc_remove(j);
 	return NULL;
 }
 
 kern_return_t
-job_handle_mpm_wait(vproc_t j, mach_port_t srp, int *waitstatus)
+vproc_handle_mpm_wait(vproc_t j, mach_port_t srp, int *waitstatus)
 {
 	if (j->p) {
 		j->wait_reply_port = srp;
@@ -643,16 +643,16 @@ job_handle_mpm_wait(vproc_t j, mach_port_t srp, int *waitstatus)
 }
 
 vproc_t 
-job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
+vproc_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
 {
 	vproc_t jr;
 
-	if ((jr = job_find(root_job, label)) != NULL) {
+	if ((jr = vproc_find(root_job, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	}
 
-	jr = job_new(root_job, label, path, argv, NULL, MACH_PORT_NULL);
+	jr = vproc_new(root_job, label, path, argv, NULL, MACH_PORT_NULL);
 
 	if (!jr)
 		return NULL;
@@ -661,8 +661,8 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 	jr->stall_before_exec = w4d;
 	jr->force_ppc = fppc;
 
-	if (!job_setup_machport(jr)) {
-		job_remove(jr);
+	if (!vproc_setup_machport(jr)) {
+		vproc_remove(jr);
 		return NULL;
 	}
 
@@ -677,7 +677,7 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 	if (env) for (; *env; env++) {
 		char newkey[strlen(*env) + 1], *eqoff = strchr(*env, '=');
 		if (!eqoff) {
-			job_log(jr, LOG_WARNING, "Environmental variable missing '=' separator: %s", *env);
+			vproc_log(jr, LOG_WARNING, "Environmental variable missing '=' separator: %s", *env);
 			continue;
 		}
 		strcpy(newkey, *env);
@@ -685,13 +685,13 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 		envitem_new(jr, newkey, eqoff + 1, false);
 	}
 
-	job_dispatch(jr, true);
+	vproc_dispatch(jr, true);
 
 	return jr;
 }
 
 vproc_t 
-job_new(vproc_t p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t reqport)
+vproc_new(vproc_t p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t reqport)
 {
 	const char *const *argv_tmp = argv;
 	char *co;
@@ -705,31 +705,31 @@ job_new(vproc_t p, const char *label, const char *prog, const char *const *argv,
 
 	j = calloc(1, sizeof(struct vproc_s) + strlen(label) + 1);
 
-	if (!job_assumes(p, j != NULL))
+	if (!vproc_assumes(p, j != NULL))
 		goto out_bad;
 
 	strcpy(j->label, label);
-	j->kqjob_callback = job_callback;
-	j->parent = p ? job_get_bs(p) : NULL;
+	j->kqvproc_callback = vproc_callback;
+	j->parent = p ? vproc_get_bs(p) : NULL;
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
 
 	if (reqport != MACH_PORT_NULL) {
 		j->req_port = reqport;
-		if (!job_assumes(j, launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
+		if (!vproc_assumes(j, launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
 			goto out_bad;
 	}
 
 	if (prog) {
 		j->prog = strdup(prog);
-		if (!job_assumes(j, j->prog != NULL))
+		if (!vproc_assumes(j, j->prog != NULL))
 			goto out_bad;
 	}
 
 	if (stdinpath) {
 		j->stdinpath = strdup(stdinpath);
-		if (!job_assumes(j, j->stdinpath != NULL))
+		if (!vproc_assumes(j, j->stdinpath != NULL))
 			goto out_bad;
 	}
 
@@ -742,7 +742,7 @@ job_new(vproc_t p, const char *label, const char *prog, const char *const *argv,
 
 		j->argv = malloc((j->argc + 1) * sizeof(char *) + cc);
 
-		if (!job_assumes(j, j->argv != NULL))
+		if (!vproc_assumes(j, j->argv != NULL))
 			goto out_bad;
 
 		co = ((char *)j->argv) + ((j->argc + 1) * sizeof(char *));
@@ -757,7 +757,7 @@ job_new(vproc_t p, const char *label, const char *prog, const char *const *argv,
 
 	if (j->parent) {
 		SLIST_INSERT_HEAD(&j->parent->jobs, j, sle);
-		job_log(j->parent, LOG_DEBUG, "Conceived");
+		vproc_log(j->parent, LOG_DEBUG, "Conceived");
 	}
 
 	return j;
@@ -774,20 +774,20 @@ out_bad:
 }
 
 vproc_t 
-job_import(launch_data_t pload)
+vproc_import(launch_data_t pload)
 {
-	vproc_t j = job_import2(pload);
+	vproc_t j = vproc_import2(pload);
 
 	if (j == NULL)
 		return NULL;
 
-	job_dispatch(j, false);
+	vproc_dispatch(j, false);
 
 	return j;
 }
 
 launch_data_t
-job_import_bulk(launch_data_t pload)
+vproc_import_bulk(launch_data_t pload)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
 	vproc_t *ja;
@@ -796,7 +796,7 @@ job_import_bulk(launch_data_t pload)
 	ja = alloca(c * sizeof(vproc_t ));
 
 	for (i = 0; i < c; i++) {
-		if ((ja[i] = job_import2(launch_data_array_get_index(pload, i))))
+		if ((ja[i] = vproc_import2(launch_data_array_get_index(pload, i))))
 			errno = 0;
 		launch_data_array_set_index(resp, launch_data_new_errno(errno), i);
 	}
@@ -804,14 +804,14 @@ job_import_bulk(launch_data_t pload)
 	for (i = 0; i < c; i++) {
 		if (ja[i] == NULL)
 			continue;
-		job_dispatch(ja[i], false);
+		vproc_dispatch(ja[i], false);
 	}
 
 	return resp;
 }
 
 void
-job_import_bool(vproc_t j, const char *key, bool value)
+vproc_import_bool(vproc_t j, const char *key, bool value)
 {
 	switch (key[0]) {
 	case 'f':
@@ -848,7 +848,7 @@ job_import_bool(vproc_t j, const char *key, bool value)
 	case 'I':
 		if (strcasecmp(key, LAUNCH_JOBKEY_INITGROUPS) == 0) {
 			if (getuid() == 0) {
-				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				vproc_log(j, LOG_WARNING, "Ignored this key: %s", key);
 				return;
 			}
 			j->no_init_groups = !value;
@@ -875,7 +875,7 @@ job_import_bool(vproc_t j, const char *key, bool value)
 }
 
 void
-job_import_string(vproc_t j, const char *key, const char *value)
+vproc_import_string(vproc_t j, const char *key, const char *value)
 {
 	char **where2put = NULL;
 
@@ -894,7 +894,7 @@ job_import_string(vproc_t j, const char *key, const char *value)
 	case 'R':
 		if (strcasecmp(key, LAUNCH_JOBKEY_ROOTDIRECTORY) == 0) {
 			if (getuid() != 0) {
-				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				vproc_log(j, LOG_WARNING, "Ignored this key: %s", key);
 				return;
 			}
 			where2put = &j->rootdir;
@@ -909,7 +909,7 @@ job_import_string(vproc_t j, const char *key, const char *value)
 	case 'U':
 		if (strcasecmp(key, LAUNCH_JOBKEY_USERNAME) == 0) {
 			if (getuid() != 0 || strcmp(value, "root") == 0) {
-				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				vproc_log(j, LOG_WARNING, "Ignored this key: %s", key);
 				return;
 			}
 			where2put = &j->username;
@@ -919,7 +919,7 @@ job_import_string(vproc_t j, const char *key, const char *value)
 	case 'G':
 		if (strcasecmp(key, LAUNCH_JOBKEY_GROUPNAME) == 0) {
 			if (getuid() != 0 || strcmp(value, "wheel") == 0) {
-				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				vproc_log(j, LOG_WARNING, "Ignored this key: %s", key);
 				return;
 			}
 			where2put = &j->groupname;
@@ -938,14 +938,14 @@ job_import_string(vproc_t j, const char *key, const char *value)
 	}
 
 	if (where2put) {
-		job_assumes(j, (*where2put = strdup(value)) != NULL);
+		vproc_assumes(j, (*where2put = strdup(value)) != NULL);
 	} else {
-		job_log(j, LOG_WARNING, "Unknown key: %s", key);
+		vproc_log(j, LOG_WARNING, "Unknown key: %s", key);
 	}
 }
 
 void
-job_import_integer(vproc_t j, const char *key, long long value)
+vproc_import_integer(vproc_t j, const char *key, long long value)
 {
 	switch (key[0]) {
 	case 'n':
@@ -957,7 +957,7 @@ job_import_integer(vproc_t j, const char *key, long long value)
 	case 'T':
 		if (strcasecmp(key, LAUNCH_JOBKEY_TIMEOUT) == 0) {
 			if (value <= 0)
-				job_log(j, LOG_WARNING, "Timeout less than or equal to zero. Ignoring.");
+				vproc_log(j, LOG_WARNING, "Timeout less than or equal to zero. Ignoring.");
 			else
 				j->timeout = value;
 		}
@@ -973,11 +973,11 @@ job_import_integer(vproc_t j, const char *key, long long value)
 	case 'S':
 		if (strcasecmp(key, LAUNCH_JOBKEY_STARTINTERVAL) == 0) {
 			if (value <= 0)
-				job_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
+				vproc_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
 			else
 				j->start_interval = value;
 			if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j))
-				job_log_error(j, LOG_ERR, "adding kevent timer");
+				vproc_log_error(j, LOG_ERR, "adding kevent timer");
 		}
 		break;
 	default:
@@ -986,7 +986,7 @@ job_import_integer(vproc_t j, const char *key, long long value)
 }
 
 void
-job_import_dictionary(vproc_t j, const char *key, launch_data_t value)
+vproc_import_dictionary(vproc_t j, const char *key, launch_data_t value)
 {
 	launch_data_t tmp;
 
@@ -1040,7 +1040,7 @@ job_import_dictionary(vproc_t j, const char *key, launch_data_t value)
 		if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICES) == 0) {
 			launch_data_dict_iterate(value, machservice_setup, j);
 			if (!SLIST_EMPTY(&j->machservices))
-				job_setup_machport(j);
+				vproc_setup_machport(j);
 		}
 		break;
 	default:
@@ -1049,7 +1049,7 @@ job_import_dictionary(vproc_t j, const char *key, launch_data_t value)
 }
 
 void
-job_import_array(vproc_t j, const char *key, launch_data_t value)
+vproc_import_array(vproc_t j, const char *key, launch_data_t value)
 {
 	bool is_q_dir = false;
 	bool is_wp = false;
@@ -1095,7 +1095,7 @@ job_import_array(vproc_t j, const char *key, launch_data_t value)
 }
 
 void
-job_import_keys(launch_data_t obj, const char *key, void *context)
+vproc_import_keys(launch_data_t obj, const char *key, void *context)
 {
 	vproc_t j = context;
 	launch_data_type_t kind;
@@ -1107,28 +1107,28 @@ job_import_keys(launch_data_t obj, const char *key, void *context)
 
 	switch (kind) {
 	case LAUNCH_DATA_BOOL:
-		job_import_bool(j, key, launch_data_get_bool(obj));
+		vproc_import_bool(j, key, launch_data_get_bool(obj));
 		break;
 	case LAUNCH_DATA_STRING:
-		job_import_string(j, key, launch_data_get_string(obj));
+		vproc_import_string(j, key, launch_data_get_string(obj));
 		break;
 	case LAUNCH_DATA_INTEGER:
-		job_import_integer(j, key, launch_data_get_integer(obj));
+		vproc_import_integer(j, key, launch_data_get_integer(obj));
 		break;
 	case LAUNCH_DATA_DICTIONARY:
-		job_import_dictionary(j, key, obj);
+		vproc_import_dictionary(j, key, obj);
 		break;
 	case LAUNCH_DATA_ARRAY:
-		job_import_array(j, key, obj);
+		vproc_import_array(j, key, obj);
 		break;
 	default:
-		job_log(j, LOG_WARNING, "Unknown value type '%d' for key: %s", kind, key);
+		vproc_log(j, LOG_WARNING, "Unknown value type '%d' for key: %s", kind, key);
 		break;
 	}
 }
 
 vproc_t 
-job_import2(launch_data_t pload)
+vproc_import2(launch_data_t pload)
 {
 	launch_data_t tmp, ldpa;
 	const char *label = NULL, *prog = NULL;
@@ -1154,7 +1154,7 @@ job_import2(launch_data_t pload)
 	if (label == NULL) {
 		errno = EINVAL;
 		return NULL;
-	} else if ((j = job_find(root_job, label)) != NULL) {
+	} else if ((j = vproc_find(root_job, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
@@ -1175,14 +1175,14 @@ job_import2(launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	if ((j = job_new(root_job, label, prog, argv, NULL, MACH_PORT_NULL)))
-		launch_data_dict_iterate(pload, job_import_keys, j);
+	if ((j = vproc_new(root_job, label, prog, argv, NULL, MACH_PORT_NULL)))
+		launch_data_dict_iterate(pload, vproc_import_keys, j);
 
 	return j;
 }
 
 vproc_t 
-job_find(vproc_t j, const char *label)
+vproc_find(vproc_t j, const char *label)
 {
 	vproc_t jr, ji;
 
@@ -1193,7 +1193,7 @@ job_find(vproc_t j, const char *label)
 		return j;
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find(ji, label)))
+		if ((jr = vproc_find(ji, label)))
 			return jr;
 	}
 
@@ -1202,7 +1202,7 @@ job_find(vproc_t j, const char *label)
 }
 
 vproc_t 
-job_find_by_pid(vproc_t j, pid_t p)
+vproc_find_by_pid(vproc_t j, pid_t p)
 {
 	vproc_t jr, ji;
 
@@ -1210,7 +1210,7 @@ job_find_by_pid(vproc_t j, pid_t p)
 		return j;
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find_by_pid(ji, p)))
+		if ((jr = vproc_find_by_pid(ji, p)))
 			return jr;
 	}
 
@@ -1219,48 +1219,48 @@ job_find_by_pid(vproc_t j, pid_t p)
 }
 
 void
-job_export_all2(vproc_t j, launch_data_t where)
+vproc_export_all2(vproc_t j, launch_data_t where)
 {
 	launch_data_t tmp;
 	vproc_t ji;
 
-	if (job_assumes(j, (tmp = job_export2(j, false)) != NULL))
+	if (vproc_assumes(j, (tmp = vproc_export2(j, false)) != NULL))
 		launch_data_dict_insert(where, tmp, j->label);
 
 	SLIST_FOREACH(ji, &j->jobs, sle)
-		job_export_all2(ji, where);
+		vproc_export_all2(ji, where);
 }
 
 launch_data_t
-job_export_all(void)
+vproc_export_all(void)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	job_export_all2(root_job, resp);
+	vproc_export_all2(root_job, resp);
 
 	return resp;
 }
 
 void
-job_reap(vproc_t j)
+vproc_reap(vproc_t j)
 {
 	struct rusage ru;
 	int status;
 
-	job_log(j, LOG_DEBUG, "Reaping");
+	vproc_log(j, LOG_DEBUG, "Reaping");
 
 	if (j->execfd) {
-		job_assumes(j, close(j->execfd) == 0);
+		vproc_assumes(j, close(j->execfd) == 0);
 		j->execfd = 0;
 	}
 
-	if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
+	if (!vproc_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
 		return;
 	}
 
 	if (j->wait_reply_port) {
-		job_log(j, LOG_DEBUG, "MPM wait reply being sent");
-		job_assumes(j, mpm_wait_reply(j->wait_reply_port, 0, status) == 0);
+		vproc_log(j, LOG_DEBUG, "MPM wait reply being sent");
+		vproc_assumes(j, mpm_wait_reply(j->wait_reply_port, 0, status) == 0);
 		j->wait_reply_port = MACH_PORT_NULL;
 	}
 
@@ -1282,15 +1282,15 @@ job_reap(vproc_t j)
 	j->ru.ru_nivcsw += ru.ru_nivcsw;
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-		job_log(j, LOG_WARNING, "exited with exit code: %d", WEXITSTATUS(status));
+		vproc_log(j, LOG_WARNING, "exited with exit code: %d", WEXITSTATUS(status));
 	}
 
 	if (WIFSIGNALED(status)) {
 		int s = WTERMSIG(status);
 		if (SIGKILL == s || SIGTERM == s) {
-			job_log(j, LOG_NOTICE, "Exited: %s", strsignal(s));
+			vproc_log(j, LOG_NOTICE, "Exited: %s", strsignal(s));
 		} else {
-			job_log(j, LOG_WARNING, "Exited abnormally: %s", strsignal(s));
+			vproc_log(j, LOG_WARNING, "Exited abnormally: %s", strsignal(s));
 		}
 	}
 
@@ -1300,7 +1300,7 @@ job_reap(vproc_t j)
 }
 
 void
-job_dispatch(vproc_t j, bool kickstart)
+vproc_dispatch(vproc_t j, bool kickstart)
 {
 	/*
 	 * The whole job removal logic needs to be consolidated. The fact that
@@ -1310,19 +1310,19 @@ job_dispatch(vproc_t j, bool kickstart)
 	 *
 	 * This is a classic example. The act of dispatching a job may delete it.
 	 */
-	if (job_active(j)) {
+	if (vproc_active(j)) {
 		return;
-	} else if (job_useless(j)) {
-		job_remove(j);
-	} else if (kickstart || job_keepalive(j)) {
-		job_start(j);
+	} else if (vproc_useless(j)) {
+		vproc_remove(j);
+	} else if (kickstart || vproc_keepalive(j)) {
+		vproc_start(j);
 	} else {
-		job_watch(j);
+		vproc_watch(j);
 	}
 }
 
 void
-job_callback(void *obj, struct kevent *kev)
+vproc_callback(void *obj, struct kevent *kev)
 {
 	vproc_t j = obj;
 	bool d = j->debug;
@@ -1334,18 +1334,18 @@ job_callback(void *obj, struct kevent *kev)
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
-		job_reap(j);
+		vproc_reap(j);
 
 		if (j->firstborn) {
-			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
+			vproc_log(j, LOG_DEBUG, "first born died, begin shutdown");
 			launchd_shutdown();
 		} else {
-			job_dispatch(j, false);
+			vproc_dispatch(j, false);
 		}
 		break;
 	case EVFILT_TIMER:
 		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
-			job_dispatch(j, true);
+			vproc_dispatch(j, true);
 		} else {
 			calendarinterval_callback(j, kev);
 		}
@@ -1360,38 +1360,38 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		if (j->wait4debugger) {
 			/* Allow somebody else to attach */
-			job_assumes(j, kill(j->p, SIGSTOP) != -1);
-			job_assumes(j, ptrace(PT_DETACH, j->p, NULL, 0) != -1);
+			vproc_assumes(j, kill(j->p, SIGSTOP) != -1);
+			vproc_assumes(j, ptrace(PT_DETACH, j->p, NULL, 0) != -1);
 		}
 		if (kev->data > 0) {
 			int e;
 
 			read(j->execfd, &e, sizeof(e));
 			errno = e;
-			job_log_error(j, LOG_ERR, "execve()");
-			job_remove(j);
+			vproc_log_error(j, LOG_ERR, "execve()");
+			vproc_remove(j);
 			j = NULL;
 		} else {
-			job_assumes(j, close(j->execfd) == 0);
+			vproc_assumes(j, close(j->execfd) == 0);
 			j->execfd = 0;
 		}
 		break;
 	case EVFILT_MACHPORT:
-		job_dispatch(j, true);
+		vproc_dispatch(j, true);
 		break;
 	default:
-		job_assumes(j, false);
+		vproc_assumes(j, false);
 		break;
 	}
 
 	if (d) {
-		/* the job might have been removed, must not call job_log() */
+		/* the job might have been removed, must not call vproc_log() */
 		setlogmask(oldmask);
 	}
 }
 
 void
-job_start(vproc_t j)
+vproc_start(vproc_t j)
 {
 	int spair[2];
 	int execspair[2];
@@ -1400,14 +1400,14 @@ job_start(vproc_t j)
 	bool sipc = false;
 	time_t td;
 
-	if (!job_assumes(j, j->req_port == MACH_PORT_NULL))
+	if (!vproc_assumes(j, j->req_port == MACH_PORT_NULL))
 		return;
 
-	if (!job_assumes(j, j->parent != NULL))
+	if (!vproc_assumes(j, j->parent != NULL))
 		return;
 
-	if (job_active(j)) {
-		job_log(j, LOG_DEBUG, "Already started");
+	if (vproc_active(j)) {
+		vproc_log(j, LOG_DEBUG, "Already started");
 		return;
 	}
 
@@ -1416,12 +1416,12 @@ job_start(vproc_t j)
 	if (td < LAUNCHD_MIN_JOB_RUN_TIME) {
 		time_t respawn_delta = LAUNCHD_MIN_JOB_RUN_TIME - td;
 
-		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
-		job_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
+		vproc_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
+		vproc_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
 		return;
 	}
 
-	job_log(j, LOG_DEBUG, "Starting");
+	vproc_log(j, LOG_DEBUG, "Starting");
 
 	if (!j->legacy_mach_job)
 		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
@@ -1440,57 +1440,57 @@ job_start(vproc_t j)
 	time(&j->start_time);
 
 	if (j->bs_port) {
-		job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
+		vproc_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
 	}
 
-	switch (c = job_fork(j->bs_port ? j : j->parent)) {
+	switch (c = vproc_fork(j->bs_port ? j : j->parent)) {
 	case -1:
-		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
-		job_assumes(j, close(execspair[0]) == 0);
-		job_assumes(j, close(execspair[1]) == 0);
+		vproc_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
+		vproc_assumes(j, close(execspair[0]) == 0);
+		vproc_assumes(j, close(execspair[1]) == 0);
 		if (sipc) {
-			job_assumes(j, close(spair[0]) == 0);
-			job_assumes(j, close(spair[1]) == 0);
+			vproc_assumes(j, close(spair[0]) == 0);
+			vproc_assumes(j, close(spair[1]) == 0);
 		}
 		break;
 	case 0:
-		job_assumes(j, close(execspair[0]) == 0);
+		vproc_assumes(j, close(execspair[0]) == 0);
 		/* wait for our parent to say they've attached a kevent to us */
 		read(_fd(execspair[1]), &c, sizeof(c));
 		if (j->firstborn) {
 			setpgid(getpid(), getpid());
 			if (isatty(STDIN_FILENO)) {
 				if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
-					job_log_error(j, LOG_WARNING, "tcsetpgrp()");
+					vproc_log_error(j, LOG_WARNING, "tcsetpgrp()");
 			}
 		}
 
 		if (sipc) {
-			job_assumes(j, close(spair[0]) == 0);
+			vproc_assumes(j, close(spair[0]) == 0);
 			sprintf(nbuf, "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
-		job_start_child(j, execspair[1]);
+		vproc_start_child(j, execspair[1]);
 		break;
 	default:
 		if (!SLIST_EMPTY(&j->machservices))
 			j->priv_port_has_senders = true;
 		j->p = c;
 		total_children++;
-		job_assumes(j, close(execspair[1]) == 0);
+		vproc_assumes(j, close(execspair[1]) == 0);
 		j->execfd = _fd(execspair[0]);
 		if (sipc) {
-			job_assumes(j, close(spair[1]) == 0);
+			vproc_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
-		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1)
-			job_log_error(j, LOG_ERR, "kevent_mod(j->execfd): %m");
-		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
-			job_log_error(j, LOG_ERR, "kevent()");
-			job_reap(j);
+		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqvproc_callback) == -1)
+			vproc_log_error(j, LOG_ERR, "kevent_mod(j->execfd): %m");
+		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqvproc_callback) == -1) {
+			vproc_log_error(j, LOG_ERR, "kevent()");
+			vproc_reap(j);
 		} else {
 		       	if (j->ondemand)
-				job_ignore(j);
+				vproc_ignore(j);
 		}
 
 		if (!j->stall_before_exec) {
@@ -1503,7 +1503,7 @@ job_start(vproc_t j)
 }
 
 void
-job_start_child(vproc_t j, int execfd)
+vproc_start_child(vproc_t j, int execfd)
 {
 	const char *file2exec = "/usr/libexec/launchproxy";
 	const char **argv;
@@ -1511,7 +1511,7 @@ job_start_child(vproc_t j, int execfd)
 	glob_t g;
 	int i;
 
-	job_setup_attributes(j);
+	vproc_setup_attributes(j);
 
 	if (j->argv && j->globargv) {
 		g.gl_offs = 1;
@@ -1519,7 +1519,7 @@ job_start_child(vproc_t j, int execfd)
 			if (i > 0)
 				gflags |= GLOB_APPEND;
 			if (glob(j->argv[i], gflags, NULL, &g) != 0) {
-				job_log_error(j, LOG_ERR, "glob(\"%s\")", j->argv[i]);
+				vproc_log_error(j, LOG_ERR, "glob(\"%s\")", j->argv[i]);
 				exit(EXIT_FAILURE);
 			}
 		}
@@ -1542,42 +1542,42 @@ job_start_child(vproc_t j, int execfd)
 		argv++;
 
 	if (j->wait4debugger && ptrace(PT_TRACE_ME, getpid(), NULL, 0) == -1)
-		job_log_error(j, LOG_ERR, "ptrace(PT_TRACE_ME, ...)");
+		vproc_log_error(j, LOG_ERR, "ptrace(PT_TRACE_ME, ...)");
 
 	if (j->force_ppc) {
 		int affinmib[] = { CTL_KERN, KERN_AFFINITY, 1, 1 };
 		size_t mibsz = sizeof(affinmib) / sizeof(affinmib[0]);
 
 		if (sysctl(affinmib, mibsz, NULL, NULL,  NULL, 0) == -1)
-			job_log_error(j, LOG_WARNING, "Failed to force PowerPC execution");
+			vproc_log_error(j, LOG_WARNING, "Failed to force PowerPC execution");
 	}
 
 	if (j->prog) {
 		execv(j->inetcompat ? file2exec : j->prog, (char *const*)argv);
-		job_log_error(j, LOG_ERR, "execv(\"%s\", ...)", j->prog);
+		vproc_log_error(j, LOG_ERR, "execv(\"%s\", ...)", j->prog);
 	} else {
 		execvp(j->inetcompat ? file2exec : argv[0], (char *const*)argv);
-		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", argv[0]);
+		vproc_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", argv[0]);
 	}
 
 	write(execfd, &errno, sizeof(errno));
 	exit(EXIT_FAILURE);
 }
 
-void job_setup_env_from_other_jobs(vproc_t j)
+void vproc_setup_env_from_other_jobs(vproc_t j)
 {
 	struct envitem *ei;
 	vproc_t ji;
 
 	SLIST_FOREACH(ji, &j->jobs, sle)
-		job_setup_env_from_other_jobs(ji);
+		vproc_setup_env_from_other_jobs(ji);
 
 	SLIST_FOREACH(ei, &j->global_env, sle)
 		setenv(ei->key, ei->value, 1);
 }
 
 void
-job_postfork_become_user(vproc_t j)
+vproc_postfork_become_user(vproc_t j)
 {
 	char loginname[2000];
 	struct passwd *pwe;
@@ -1589,12 +1589,12 @@ job_postfork_become_user(vproc_t j)
 
 	if (j->username) {
 		if ((pwe = getpwnam(j->username)) == NULL) {
-			job_log(j, LOG_ERR, "getpwnam(\"%s\") failed", j->username);
+			vproc_log(j, LOG_ERR, "getpwnam(\"%s\") failed", j->username);
 			_exit(EXIT_FAILURE);
 		}
 	} else if (j->mach_uid) {
 		if ((pwe = getpwuid(j->mach_uid)) == NULL) {
-			job_log(j, LOG_ERR, "getpwuid(\"%u\") failed", j->mach_uid);
+			vproc_log(j, LOG_ERR, "getpwuid(\"%u\") failed", j->mach_uid);
 			_exit(EXIT_FAILURE);
 		}
 	} else {
@@ -1604,7 +1604,7 @@ job_postfork_become_user(vproc_t j)
 	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
 
 	if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
-		job_log(j, LOG_ERR, "Expired account");
+		vproc_log(j, LOG_ERR, "Expired account");
 		_exit(EXIT_FAILURE);
 	}
 
@@ -1615,7 +1615,7 @@ job_postfork_become_user(vproc_t j)
 		struct group *gre;
 
 		if ((gre = getgrnam(j->groupname)) == NULL) {
-			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", j->groupname);
+			vproc_log(j, LOG_ERR, "getgrnam(\"%s\") failed", j->groupname);
 			_exit(EXIT_FAILURE);
 		}
 
@@ -1623,7 +1623,7 @@ job_postfork_become_user(vproc_t j)
 	}
 
 	if (-1 == setgid(desired_gid)) {
-		job_log_error(j, LOG_ERR, "setgid(%u)", desired_gid);
+		vproc_log_error(j, LOG_ERR, "setgid(%u)", desired_gid);
 		_exit(EXIT_FAILURE);
 	}
 
@@ -1633,19 +1633,19 @@ job_postfork_become_user(vproc_t j)
 
 	if (!j->no_init_groups) {
 		if (initgroups(loginname, desired_gid) == -1) {
-			job_log_error(j, LOG_ERR, "initgroups()");
+			vproc_log_error(j, LOG_ERR, "initgroups()");
 			_exit(EXIT_FAILURE);
 		}
 	}
 
 	if (-1 == setuid(desired_uid)) {
-		job_log_error(j, LOG_ERR, "setuid(%u)", desired_uid);
+		vproc_log_error(j, LOG_ERR, "setuid(%u)", desired_uid);
 		_exit(EXIT_FAILURE);
 	}
 }
 
 void
-job_setup_attributes(vproc_t j)
+vproc_setup_attributes(vproc_t j)
 {
 	struct limititem *li;
 	struct envitem *ei;
@@ -1656,7 +1656,7 @@ job_setup_attributes(vproc_t j)
 		struct rlimit rl;
 
 		if (getrlimit(li->which, &rl) == -1) {
-			job_log_error(j, LOG_WARNING, "getrlimit()");
+			vproc_log_error(j, LOG_WARNING, "getrlimit()");
 			continue;
 		}
 
@@ -1666,7 +1666,7 @@ job_setup_attributes(vproc_t j)
 			rl.rlim_cur = li->lim.rlim_cur;
 
 		if (setrlimit(li->which, &rl) == -1)
-			job_log_error(j, LOG_WARNING, "setrlimit()");
+			vproc_log_error(j, LOG_WARNING, "setrlimit()");
 	}
 
 	if (!j->inetcompat && j->session_create)
@@ -1674,7 +1674,7 @@ job_setup_attributes(vproc_t j)
 
 	if (j->low_pri_io) {
 		if (setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE) == -1) {
-			job_log_error(j, LOG_WARNING, "setiopolicy_np()");
+			vproc_log_error(j, LOG_WARNING, "setiopolicy_np()");
 		}
 	}
 	if (j->rootdir) {
@@ -1682,7 +1682,7 @@ job_setup_attributes(vproc_t j)
 		chdir(".");
 	}
 
-	job_postfork_become_user(j);
+	vproc_postfork_become_user(j);
 
 	if (j->workingdir) {
 		chdir(j->workingdir);
@@ -1695,32 +1695,32 @@ job_setup_attributes(vproc_t j)
 	if (j->stdinpath) {
 		int sifd = open(j->stdinpath, O_RDONLY|O_NOCTTY);
 		if (sifd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdinpath);
+			vproc_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdinpath);
 		} else {
-			job_assumes(j, dup2(sifd, STDIN_FILENO) != -1);
-			job_assumes(j, close(sifd) == 0);
+			vproc_assumes(j, dup2(sifd, STDIN_FILENO) != -1);
+			vproc_assumes(j, close(sifd) == 0);
 		}
 	}
 	if (j->stdoutpath) {
 		int sofd = open(j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT|O_NOCTTY, DEFFILEMODE);
 		if (sofd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdoutpath);
+			vproc_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdoutpath);
 		} else {
-			job_assumes(j, dup2(sofd, STDOUT_FILENO) != -1);
-			job_assumes(j, close(sofd) == 0);
+			vproc_assumes(j, dup2(sofd, STDOUT_FILENO) != -1);
+			vproc_assumes(j, close(sofd) == 0);
 		}
 	}
 	if (j->stderrpath) {
 		int sefd = open(j->stderrpath, O_WRONLY|O_APPEND|O_CREAT|O_NOCTTY, DEFFILEMODE);
 		if (sefd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stderrpath);
+			vproc_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stderrpath);
 		} else {
-			job_assumes(j, dup2(sefd, STDERR_FILENO) != -1);
-			job_assumes(j, close(sefd) == 0);
+			vproc_assumes(j, dup2(sefd, STDERR_FILENO) != -1);
+			vproc_assumes(j, close(sefd) == 0);
 		}
 	}
 
-	job_setup_env_from_other_jobs(root_job);
+	vproc_setup_env_from_other_jobs(root_job);
 
 	SLIST_FOREACH(ei, &j->env, sle)
 		setenv(ei->key, ei->value, 1);
@@ -1745,7 +1745,7 @@ dir_has_files(vproc_t j, const char *path)
 		}
 	}
 
-	job_assumes(j, closedir(dd) == 0);
+	vproc_assumes(j, closedir(dd) == 0);
 	return r;
 }
 
@@ -1767,14 +1767,14 @@ calendarinterval_setalarm(vproc_t j, struct calendarinterval *ci)
 	}
 
 	if (-1 == kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, j)) {
-		job_log_error(j, LOG_ERR, "adding kevent alarm");
+		vproc_log_error(j, LOG_ERR, "adding kevent alarm");
 	} else {
-		job_log(j, LOG_INFO, "scheduled to run again at %s", ctime(&later));
+		vproc_log(j, LOG_INFO, "scheduled to run again at %s", ctime(&later));
 	}
 }
 
 size_t
-job_prep_log_preface(vproc_t j, char *buf)
+vproc_prep_log_preface(vproc_t j, char *buf)
 {
 	size_t lsz = strlen(j->label);
 	char newlabel[lsz * 2 + 1];
@@ -1792,13 +1792,13 @@ job_prep_log_preface(vproc_t j, char *buf)
 	newlabel[o] = '\0';
 
 	if (j->parent)
-		r = job_prep_log_preface(j->parent, buf);
+		r = vproc_prep_log_preface(j->parent, buf);
 
 	return r + sprintf(buf + r, "%s%s", j->parent ? "/" : "", newlabel);
 }
 
 void
-job_log_bug(vproc_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
+vproc_log_bug(vproc_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
 {
 	int saved_errno = errno;
 	char buf[100];
@@ -1820,17 +1820,17 @@ job_log_bug(vproc_t j, const char *rcs_rev, const char *path, unsigned int line,
 			*rcs_rev_tmp = '\0';
 	}
 
-	job_log(j, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
+	vproc_log(j, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
 }
 
 void
-job_log_error(vproc_t j, int pri, const char *msg, ...)
+vproc_log_error(vproc_t j, int pri, const char *msg, ...)
 {
 	char newmsg[10000];
 	va_list ap;
 	size_t o;
 
-	o = job_prep_log_preface(j, newmsg);
+	o = vproc_prep_log_preface(j, newmsg);
 
 	sprintf(newmsg + o, ": %s: %s", msg, strerror(errno));
 
@@ -1840,13 +1840,13 @@ job_log_error(vproc_t j, int pri, const char *msg, ...)
 }
 
 void
-job_log(vproc_t j, int pri, const char *msg, ...)
+vproc_log(vproc_t j, int pri, const char *msg, ...)
 {
 	char newmsg[10000];
 	va_list ap;
 	size_t o;
 
-	o = job_prep_log_preface(j, newmsg);
+	o = vproc_prep_log_preface(j, newmsg);
 
 	sprintf(newmsg + o, ": %s", msg);
 
@@ -1860,7 +1860,7 @@ watchpath_new(vproc_t j, const char *name, bool qdir)
 {
 	struct watchpath *wp = calloc(1, sizeof(struct watchpath) + strlen(name) + 1);
 
-	if (!job_assumes(j, wp != NULL))
+	if (!vproc_assumes(j, wp != NULL))
 		return false;
 
 	wp->is_qdir = qdir;
@@ -1878,7 +1878,7 @@ void
 watchpath_delete(vproc_t j, struct watchpath *wp) 
 {
 	if (wp->fd != -1)
-		job_assumes(j, close(wp->fd) != -1);
+		vproc_assumes(j, close(wp->fd) != -1);
 
 	SLIST_REMOVE(&j->vnodes, wp, watchpath, sle);
 
@@ -1889,8 +1889,8 @@ void
 watchpath_ignore(vproc_t j, struct watchpath *wp)
 {       
 	if (wp->fd != -1) {
-		job_log(j, LOG_DEBUG, "Ignoring Vnode: %d", wp->fd);
-		job_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
+		vproc_log(j, LOG_DEBUG, "Ignoring Vnode: %d", wp->fd);
+		vproc_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
 	}
 }
 
@@ -1907,18 +1907,18 @@ watchpath_watch(vproc_t j, struct watchpath *wp)
 		wp->fd = _fd(open(wp->name, O_EVTONLY|O_NOCTTY|O_NOFOLLOW));
 
 	if (wp->fd == -1)
-		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", wp->name);
+		return vproc_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", wp->name);
 
-	job_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
-	job_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
+	vproc_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
+	vproc_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
 
 	if (!wp->is_qdir)
 		return;
 
 	if (-1 == (qdir_file_cnt = dir_has_files(j, wp->name))) {
-		job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
+		vproc_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
 	} else if (qdir_file_cnt > 0) {
-		job_dispatch(j, true);
+		vproc_dispatch(j, true);
 	}
 }
 
@@ -1933,26 +1933,26 @@ watchpath_callback(vproc_t j, struct kevent *kev)
 			break;
 	}
 
-	job_assumes(j, wp != NULL);
+	vproc_assumes(j, wp != NULL);
 
 	if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
-		job_log(j, LOG_DEBUG, "Path invalidated: %s", wp->name);
-		job_assumes(j, close(wp->fd) == 0);
+		vproc_log(j, LOG_DEBUG, "Path invalidated: %s", wp->name);
+		vproc_assumes(j, close(wp->fd) == 0);
 		wp->fd = -1; /* this will get fixed in watchpath_watch() */
 	} else if (!wp->is_qdir) {
-		job_log(j, LOG_DEBUG, "Watch path modified: %s", wp->name);
+		vproc_log(j, LOG_DEBUG, "Watch path modified: %s", wp->name);
 	} else {
-		job_log(j, LOG_DEBUG, "Queue directory modified: %s", wp->name);
+		vproc_log(j, LOG_DEBUG, "Queue directory modified: %s", wp->name);
 
 		if (-1 == (dir_file_cnt = dir_has_files(j, wp->name))) {
-			job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
+			vproc_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
 		} else if (0 == dir_file_cnt) {
-			job_log(j, LOG_DEBUG, "Spurious wake up, directory is empty again: %s", wp->name);
+			vproc_log(j, LOG_DEBUG, "Spurious wake up, directory is empty again: %s", wp->name);
 			return;
 		}
 	}
 
-	job_dispatch(j, true);
+	vproc_dispatch(j, true);
 }
 
 bool
@@ -1991,7 +1991,7 @@ calendarinterval_new(vproc_t j, struct tm *w)
 {
 	struct calendarinterval *ci = calloc(1, sizeof(struct calendarinterval));
 
-	if (!job_assumes(j, ci != NULL))
+	if (!vproc_assumes(j, ci != NULL))
 		return false;
 
 	ci->when = *w;
@@ -2006,7 +2006,7 @@ calendarinterval_new(vproc_t j, struct tm *w)
 void
 calendarinterval_delete(vproc_t j, struct calendarinterval *ci)
 {
-	job_assumes(j, kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+	vproc_assumes(j, kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 
 	SLIST_REMOVE(&j->cal_intervals, ci, calendarinterval, sle);
 
@@ -2023,9 +2023,9 @@ calendarinterval_callback(vproc_t j, struct kevent *kev)
 			break;
 	}
 
-	if (job_assumes(j, ci != NULL)) {
+	if (vproc_assumes(j, ci != NULL)) {
 		calendarinterval_setalarm(j, ci);
-		job_dispatch(j, true);
+		vproc_dispatch(j, true);
 	}
 }
 
@@ -2034,14 +2034,14 @@ socketgroup_new(vproc_t j, const char *name, int *fds, unsigned int fd_cnt, bool
 {
 	struct socketgroup *sg = calloc(1, sizeof(struct socketgroup) + strlen(name) + 1);
 
-	if (!job_assumes(j, sg != NULL))
+	if (!vproc_assumes(j, sg != NULL))
 		return false;
 
 	sg->fds = calloc(1, fd_cnt * sizeof(int));
 	sg->fd_cnt = fd_cnt;
 	sg->junkfds = junkfds;
 
-	if (!job_assumes(j, sg->fds != NULL)) {
+	if (!vproc_assumes(j, sg->fds != NULL)) {
 		free(sg);
 		return false;
 	}
@@ -2060,7 +2060,7 @@ socketgroup_delete(vproc_t j, struct socketgroup *sg)
 	unsigned int i;
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		job_assumes(j, close(sg->fds[i]) != -1);
+		vproc_assumes(j, close(sg->fds[i]) != -1);
 
 	SLIST_REMOVE(&j->sockets, sg, socketgroup, sle);
 
@@ -2080,10 +2080,10 @@ socketgroup_ignore(vproc_t j, struct socketgroup *sg)
 	for (i = 0; i < sg->fd_cnt; i++)
 		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
 
-	job_log(j, LOG_DEBUG, "Ignoring Sockets:%s", buf);
+	vproc_log(j, LOG_DEBUG, "Ignoring Sockets:%s", buf);
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
+		vproc_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
 }
 
 void
@@ -2098,16 +2098,16 @@ socketgroup_watch(vproc_t j, struct socketgroup *sg)
 	for (i = 0; i < sg->fd_cnt; i++)
 		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
 
-	job_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
+	vproc_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
+		vproc_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
 }
 
 void
 socketgroup_callback(vproc_t j, struct kevent *kev)
 {
-	job_dispatch(j, true);
+	vproc_dispatch(j, true);
 }
 
 bool
@@ -2115,7 +2115,7 @@ envitem_new(vproc_t j, const char *k, const char *v, bool global)
 {
 	struct envitem *ei = calloc(1, sizeof(struct envitem) + strlen(k) + 1 + strlen(v) + 1);
 
-	if (!job_assumes(j, ei != NULL))
+	if (!vproc_assumes(j, ei != NULL))
 		return false;
 
 	strcpy(ei->key, k);
@@ -2167,7 +2167,7 @@ limititem_update(vproc_t j, int w, rlim_t r)
 	if (li == NULL) {
 		li = calloc(1, sizeof(struct limititem));
 
-		if (!job_assumes(j, li != NULL))
+		if (!vproc_assumes(j, li != NULL))
 			return false;
 
 		li->which = w;
@@ -2216,19 +2216,19 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 bool
-job_useless(vproc_t j)
+vproc_useless(vproc_t j)
 {
 	if (j->unload_at_exit && j->start_time != 0) {
-		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
+		vproc_log(j, LOG_INFO, "Exited. Was only configured to run once.");
 		return true;
 	} else if (shutdown_in_progress) {
-		job_log(j, LOG_INFO, "Exited while shutdown in progress.");
+		vproc_log(j, LOG_INFO, "Exited while shutdown in progress.");
 		return true;
 	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
-		job_log(j, LOG_WARNING, "Failed to check-in!");
+		vproc_log(j, LOG_WARNING, "Failed to check-in!");
 		return true;
 	} else if (j->legacy_mach_job && SLIST_EMPTY(&j->machservices)) {
-		job_log(j, LOG_INFO, "Garbage collecting");
+		vproc_log(j, LOG_INFO, "Garbage collecting");
 		return true;
 	}
 
@@ -2236,7 +2236,7 @@ job_useless(vproc_t j)
 }
 
 bool
-job_keepalive(vproc_t j)
+vproc_keepalive(vproc_t j)
 {
 	mach_msg_type_number_t statusCnt;
 	mach_port_status_t status;
@@ -2247,12 +2247,12 @@ job_keepalive(vproc_t j)
 	bool dispatch_others = false;
 
 	if (j->runatload && j->start_time == 0) {
-		job_log(j, LOG_DEBUG, "KeepAlive check: job needs to run at least once.");
+		vproc_log(j, LOG_DEBUG, "KeepAlive check: job needs to run at least once.");
 		return true;
 	}
 
 	if (!j->ondemand) {
-		job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run continuously.");
+		vproc_log(j, LOG_DEBUG, "KeepAlive check: job configured to run continuously.");
 		return true;
 	}
 
@@ -2262,7 +2262,7 @@ job_keepalive(vproc_t j)
 					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
 			continue;
 		if (status.mps_msgcount) {
-			job_log(j, LOG_DEBUG, "KeepAlive check: job restarted due to %d queued Mach messages on service: %s",
+			vproc_log(j, LOG_DEBUG, "KeepAlive check: job restarted due to %d queued Mach messages on service: %s",
 					status.mps_msgcount, ms->name);
 			return true;
 		}
@@ -2276,7 +2276,7 @@ job_keepalive(vproc_t j)
 			wanted_state = true;
 		case NETWORK_DOWN:
 			if (network_up == wanted_state) {
-				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the network is %s.",
+				vproc_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the network is %s.",
 						wanted_state ? "up" : "down");
 				return true;
 			}
@@ -2285,7 +2285,7 @@ job_keepalive(vproc_t j)
 			wanted_state = true;
 		case FAILED_EXIT:
 			if (good_exit == wanted_state) {
-				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the exit state was %s.",
+				vproc_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the exit state was %s.",
 						wanted_state ? "successful" : "failure");
 				return true;
 			}
@@ -2294,7 +2294,7 @@ job_keepalive(vproc_t j)
 			wanted_state = true;
 		case PATH_MISSING:
 			if ((bool)(stat(si->what, &sb) == 0) == wanted_state) {
-				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the following path %s: %s",
+				vproc_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the following path %s: %s",
 						wanted_state ? "exists" : "is missing", si->what);
 				return true;
 			}
@@ -2305,13 +2305,13 @@ job_keepalive(vproc_t j)
 
 	/* Maybe another job has the inverse path based semaphore as this job */
 	if (dispatch_others)
-		job_dispatch_all_other_semaphores(root_job, j);
+		vproc_dispatch_all_other_semaphores(root_job, j);
 
 	return false;
 }
 
 const char *
-job_prog(vproc_t j)
+vproc_prog(vproc_t j)
 {
 	if (j->prog) {
 		return j->prog;
@@ -2323,7 +2323,7 @@ job_prog(vproc_t j)
 }
 
 bool
-job_active(vproc_t j)
+vproc_active(vproc_t j)
 {
 	struct machservice *ms;
 
@@ -2336,9 +2336,9 @@ job_active(vproc_t j)
 	if (j->priv_port_has_senders) {
 		if (j->start_time && !j->checkedin) {
 			if (j->legacy_mach_job) {
-				job_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
+				vproc_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
 			} else if (!j->unload_at_exit) {
-				job_log(j, LOG_ERR, "Daemonization is not supported under launchd.");
+				vproc_log(j, LOG_ERR, "Daemonization is not supported under launchd.");
 				return false;
 			}
 		}
@@ -2356,25 +2356,25 @@ job_active(vproc_t j)
 pid_t
 launchd_fork(void)
 {
-	return job_fork(root_job);
+	return vproc_fork(root_job);
 }
 
 pid_t
-job_fork(vproc_t j)
+vproc_fork(vproc_t j)
 {
 	mach_port_t p = j->bs_port;
 	pid_t r = -1;
 
 	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
-	job_assumes(j, launchd_mport_make_send(p) == KERN_SUCCESS);
-	job_assumes(j, launchd_set_bport(p) == KERN_SUCCESS);
-	job_assumes(j, launchd_mport_deallocate(p) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_make_send(p) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_set_bport(p) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_deallocate(p) == KERN_SUCCESS);
 
 	r = fork();
 
 	if (r != 0) {
-		job_assumes(j, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
+		vproc_assumes(j, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
 	} else if (r == 0) {
 		size_t i;
 
@@ -2392,10 +2392,10 @@ job_fork(vproc_t j)
 void
 machservice_resetport(vproc_t j, struct machservice *ms)
 {
-	job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
-	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
-	job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS);
-	job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS);
 }
 
 struct machservice *
@@ -2410,10 +2410,10 @@ machservice_new(vproc_t j, const char *name, mach_port_t *serviceport)
 	ms->job = j;
 
 	if (*serviceport == MACH_PORT_NULL) {
-		if (!job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS))
+		if (!vproc_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS))
 			goto out_bad;
 
-		if (!job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS))
+		if (!vproc_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS))
 			goto out_bad2;
 		*serviceport = ms->port;
 		ms->isActive = false;
@@ -2425,11 +2425,11 @@ machservice_new(vproc_t j, const char *name, mach_port_t *serviceport)
 
 	SLIST_INSERT_HEAD(&j->machservices, ms, sle);
 
-	job_log(j, LOG_INFO, "Mach service added: %s", name);
+	vproc_log(j, LOG_INFO, "Mach service added: %s", name);
 
 	return ms;
 out_bad2:
-	job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+	vproc_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 out_bad:
 	free(ms);
 	return NULL;
@@ -2470,7 +2470,7 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 	em = EXC_MASK_RPC_ALERT;
 #endif
 
-	if (!job_assumes(ms->job, mhp != MACH_PORT_NULL)) {
+	if (!vproc_assumes(ms->job, mhp != MACH_PORT_NULL)) {
 		return;
 	}
 
@@ -2485,17 +2485,17 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 			case TASK_BOOTSTRAP_PORT:
 			/* I find it a little odd that zero isn't reserved in the header */
 			case 0:
-				job_log(ms->job, LOG_WARNING, "Tried to set a reserved task special port: %d", which_port);
+				vproc_log(ms->job, LOG_WARNING, "Tried to set a reserved task special port: %d", which_port);
 				break;
 			default:
-				job_assumes(ms->job, (errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
+				vproc_assumes(ms->job, (errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
 				break;
 			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
 			if (which_port > HOST_MAX_SPECIAL_KERNEL_PORT) {
-				job_assumes(ms->job, (errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
+				vproc_assumes(ms->job, (errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
 			} else {
-				job_log(ms->job, LOG_WARNING, "Tried to set a reserved host special port: %d", which_port);
+				vproc_log(ms->job, LOG_WARNING, "Tried to set a reserved host special port: %d", which_port);
 			}
 		}
 	case LAUNCH_DATA_BOOL:
@@ -2505,18 +2505,18 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
 			ms->hide = b;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
-			job_assumes(ms->job, task_set_exception_ports(mts, em, ms->port,
+			vproc_assumes(ms->job, task_set_exception_ports(mts, em, ms->port,
 						EXCEPTION_STATE_IDENTITY, f) == KERN_SUCCESS);
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 			ms->kUNCServer = b;
-			job_assumes(ms->job, host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
+			vproc_assumes(ms->job, host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
 		}
 		break;
 	default:
 		break;
 	}
 
-	job_assumes(ms->job, launchd_mport_deallocate(mhp) == KERN_SUCCESS);
+	vproc_assumes(ms->job, launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 }
 
 void
@@ -2526,13 +2526,13 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	struct machservice *ms;
 	mach_port_t p = MACH_PORT_NULL;
 
-	if ((ms = job_lookup_service(j->parent, key, false))) {
-		job_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
+	if ((ms = vproc_lookup_service(j->parent, key, false))) {
+		vproc_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
 		return;
 	}
 
 	if ((ms = machservice_new(j, key, &p)) == NULL) {
-		job_log_error(j, LOG_WARNING, "Cannot add service: %s", key);
+		vproc_log_error(j, LOG_WARNING, "Cannot add service: %s", key);
 		return;
 	}
 
@@ -2544,34 +2544,34 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 }
 
 vproc_t 
-job_parent(vproc_t j)
+vproc_parent(vproc_t j)
 {
 	return j->parent;
 }
 
 void
-job_uncork_fork(vproc_t j)
+vproc_uncork_fork(vproc_t j)
 {
 	pid_t c = j->p;
 
 	if (j->stall_before_exec) {
-		job_log(j, LOG_DEBUG, "Uncorking the fork().");
+		vproc_log(j, LOG_DEBUG, "Uncorking the fork().");
 		/* this unblocks the child and avoids a race
 		 * between the above fork() and the kevent_mod() */
 		write(j->execfd, &c, sizeof(c));
 		j->stall_before_exec = false;
 	} else {
-		job_log(j, LOG_WARNING, "Attempt to uncork a job that isn't in the middle of a fork().");
+		vproc_log(j, LOG_WARNING, "Attempt to uncork a job that isn't in the middle of a fork().");
 	}
 }
 
 void
-job_foreach_service(vproc_t j, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs)
+vproc_foreach_service(vproc_t j, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs)
 {
 	struct machservice *ms;
 	vproc_t ji;
 
-	j = job_get_bs(j);
+	j = vproc_get_bs(j);
 
 	if (include_subjobs) {
 		SLIST_FOREACH(ji, &j->jobs, sle) {
@@ -2588,48 +2588,48 @@ job_foreach_service(vproc_t j, void (*bs_iter)(struct machservice *, void *), vo
 }
 
 vproc_t 
-job_new_bootstrap(vproc_t p, mach_port_t requestorport, mach_port_t checkin_port)
+vproc_new_bootstrap(vproc_t p, mach_port_t requestorport, mach_port_t checkin_port)
 {
 	char bslabel[1024] = "100000";
 	vproc_t j;
 
 	if (requestorport == MACH_PORT_NULL) {
 		if (p) {
-			job_log(p, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
+			vproc_log(p, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
 		}
 		return NULL;
 	}
 
-	j = job_new(p, bslabel, NULL, NULL, NULL, requestorport);
+	j = vproc_new(p, bslabel, NULL, NULL, NULL, requestorport);
 	
 	if (j == NULL)
 		return NULL;
 
 	if (checkin_port != MACH_PORT_NULL) {
 		j->bs_port = checkin_port;
-	} else if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
+	} else if (!vproc_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
 	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
-	if (!job_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
+	if (!vproc_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
 		goto out_bad;
 
 	if (p) {
-		job_log(p, LOG_DEBUG, "Mach sub-bootstrap created: %s", j->label);
+		vproc_log(p, LOG_DEBUG, "Mach sub-bootstrap created: %s", j->label);
 	}
 
 	return j;
 
 out_bad:
 	if (j)
-		job_remove(j);
+		vproc_remove(j);
 	return NULL;
 }
 
 void
-job_delete_anything_with_port(vproc_t j, mach_port_t port)
+vproc_delete_anything_with_port(vproc_t j, mach_port_t port)
 {
 	struct machservice *ms, *next_ms;
 	vproc_t ji, jn;
@@ -2645,7 +2645,7 @@ job_delete_anything_with_port(vproc_t j, mach_port_t port)
 	 */
 
 	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
-		job_delete_anything_with_port(ji, port);
+		vproc_delete_anything_with_port(ji, port);
 	}
 
 	SLIST_FOREACH_SAFE(ms, &j->machservices, sle, next_ms) {
@@ -2657,19 +2657,19 @@ job_delete_anything_with_port(vproc_t j, mach_port_t port)
 		if (j == root_job) {
 			launchd_shutdown();
 		} else {
-			job_remove(j);
+			vproc_remove(j);
 		}
 	}
 
 }
 
 struct machservice *
-job_lookup_service(vproc_t j, const char *name, bool check_parent)
+vproc_lookup_service(vproc_t j, const char *name, bool check_parent)
 {
 	struct machservice *ms;
 	vproc_t ji;
 
-	j = job_get_bs(j);
+	j = vproc_get_bs(j);
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
 		if (ji->req_port)
@@ -2692,7 +2692,7 @@ job_lookup_service(vproc_t j, const char *name, bool check_parent)
 	if (!check_parent)
 		return NULL;
 
-	return job_lookup_service(j->parent, name, true);
+	return vproc_lookup_service(j->parent, name, true);
 }
 
 mach_port_t
@@ -2731,15 +2731,15 @@ machservice_delete(struct machservice *ms)
 	if (ms->recv) {
 		if (ms->isActive) {
 			/* FIXME we should cancel the notification */
-			job_log(ms->job, LOG_ERR, "Mach service deleted while we didn't own the receive right: %s", ms->name);
+			vproc_log(ms->job, LOG_ERR, "Mach service deleted while we didn't own the receive right: %s", ms->name);
 		} else {
-			job_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+			vproc_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 		}
 	}
 
-	job_assumes(ms->job, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+	vproc_assumes(ms->job, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 
-	job_log(ms->job, LOG_INFO, "Mach service deleted: %s", ms->name);
+	vproc_log(ms->job, LOG_INFO, "Mach service deleted: %s", ms->name);
 
 	SLIST_REMOVE(&ms->job->machservices, ms, machservice, sle);
 
@@ -2755,10 +2755,10 @@ machservice_watch(struct machservice *ms)
 
 	if (ms->job->req_port == MACH_PORT_NULL) {
 		which = MACH_NOTIFY_PORT_DESTROYED;
-		job_checkin(ms->job);
+		vproc_checkin(ms->job);
 	}
 
-	job_assumes(ms->job, launchd_mport_notify_req(ms->port, which) == KERN_SUCCESS);
+	vproc_assumes(ms->job, launchd_mport_notify_req(ms->port, which) == KERN_SUCCESS);
 }
 
 #define NELEM(x)                (sizeof(x)/sizeof(x[0]))
@@ -2810,19 +2810,19 @@ mach_cmd2argv(const char *string)
 }
 
 void
-job_checkin(vproc_t j)
+vproc_checkin(vproc_t j)
 {
 	j->checkedin = true;
 }
 
 bool
-job_ack_port_destruction(vproc_t j, mach_port_t p)
+vproc_ack_port_destruction(vproc_t j, mach_port_t p)
 {
 	vproc_t ji;
 	struct machservice *ms;
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (job_ack_port_destruction(ji, p))
+		if (vproc_ack_port_destruction(ji, p))
 			return true;
 	}
 
@@ -2839,25 +2839,25 @@ job_ack_port_destruction(vproc_t j, mach_port_t p)
 	if (ms->reset)
 		machservice_resetport(j, ms);
 
-	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
+	vproc_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
 
-	job_dispatch(j, false);
+	vproc_dispatch(j, false);
 
 	return true;
 }
 
 void
-job_ack_no_senders(vproc_t j)
+vproc_ack_no_senders(vproc_t j)
 {
 	j->priv_port_has_senders = false;
 
-	job_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
+	vproc_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
 
-	job_dispatch(j, false);
+	vproc_dispatch(j, false);
 }
 
 mach_port_t
-job_get_reqport(vproc_t j)
+vproc_get_reqport(vproc_t j)
 {
 	j->transfer_bstrap = true;
 	gc_this_job = j;
@@ -2866,25 +2866,25 @@ job_get_reqport(vproc_t j)
 }
 
 mach_port_t
-job_get_bsport(vproc_t j)
+vproc_get_bsport(vproc_t j)
 {
 	return j->bs_port;
 }
 
 vproc_t 
-job_get_bs(vproc_t j)
+vproc_get_bs(vproc_t j)
 {
 	if (j->req_port)
 		return j;
 
-	if (job_assumes(j, j->parent != NULL))
+	if (vproc_assumes(j, j->parent != NULL))
 		return j->parent;
 
 	return NULL;
 }
 
 pid_t
-job_get_pid(vproc_t j)
+vproc_get_pid(vproc_t j)
 {
 	return j->p;
 }
@@ -2898,7 +2898,7 @@ semaphoreitem_new(vproc_t j, semaphore_reason_t why, const char *what)
 	if (what)
 		alloc_sz += strlen(what) + 1;
 
-	if (!job_assumes(j, si = calloc(1, alloc_sz)))
+	if (!vproc_assumes(j, si = calloc(1, alloc_sz)))
 		return false;
 
 	si->why = why;
@@ -2950,7 +2950,7 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 void
-job_dispatch_all_other_semaphores(vproc_t j, vproc_t nj)
+vproc_dispatch_all_other_semaphores(vproc_t j, vproc_t nj)
 {
 	vproc_t ji, jn;
 
@@ -2958,11 +2958,11 @@ job_dispatch_all_other_semaphores(vproc_t j, vproc_t nj)
 		return;
 
 	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
-		job_dispatch_all_other_semaphores(ji, nj);
+		vproc_dispatch_all_other_semaphores(ji, nj);
 	}
 
 	if (!SLIST_EMPTY(&j->semaphores)) {
-		job_dispatch(j, false);
+		vproc_dispatch(j, false);
 	}
 }
 

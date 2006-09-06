@@ -282,11 +282,11 @@ main(int argc, char *const *argv)
 	if (h)
 		sprintf(ldconf, "%s/%s", h, LAUNCHD_CONF);
 
-	rlcj = job_new(root_job, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf, MACH_PORT_NULL);
+	rlcj = vproc_new(root_job, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf, MACH_PORT_NULL);
 	launchd_assert(rlcj != NULL);
 
 	if (argv[0])
-		fbj = job_new(root_job, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL, MACH_PORT_NULL);
+		fbj = vproc_new(root_job, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL, MACH_PORT_NULL);
 
 	if (NULL == getenv("PATH"))
 		setenv("PATH", _PATH_STDPATH, 1);
@@ -322,10 +322,10 @@ main(int argc, char *const *argv)
 	}
 
 	if (stat(ldconf, &sb) == 0)
-		job_dispatch(rlcj, true);
+		vproc_dispatch(rlcj, true);
 
 	if (fbj)
-		job_dispatch(fbj, true);
+		vproc_dispatch(fbj, true);
 
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
@@ -337,7 +337,7 @@ main(int argc, char *const *argv)
 	mach_msg_return_t msgr;
 	mach_msg_size_t mxmsgsz = sizeof(union MaxRequestSize) + MAX_TRAILER_SIZE;
 
-	if (getpid() == 1 && !job_active(rlcj))
+	if (getpid() == 1 && !vproc_active(rlcj))
 		init_pre_kevent();
 
 	launchd_assert(setjmp(doom_doom_doom) == 0);
@@ -401,7 +401,7 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 	}
 
 	if (getpid() == 1) {
-		if (rlcj && job_active(rlcj))
+		if (rlcj && vproc_active(rlcj))
 			goto out;
 		init_pre_kevent();
 	}
@@ -493,7 +493,7 @@ launchd_shutdown(void)
 	
 	rlcj = NULL;
 
-	job_remove_all_inactive(root_job);
+	vproc_remove_all_inactive(root_job);
 
 	if (getpid() == 1)
 		catatonia();
@@ -528,7 +528,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	switch (kev->ident) {
 	case SIGHUP:
 		if (rlcj)
-			job_dispatch(rlcj, true);
+			vproc_dispatch(rlcj, true);
 		break;
 	case SIGTERM:
 		launchd_shutdown();
@@ -626,7 +626,7 @@ launchd_setstdio(int d, launch_data_t o)
 }
 
 void
-batch_job_enable(bool e, struct conncb *c)
+batch_vproc_enable(bool e, struct conncb *c)
 {
 	if (e && c->disabled_batch) {
 		batch_disabler_count--;
@@ -701,7 +701,7 @@ pfsystem_callback(void *obj, struct kevent *kev)
 
 	if (new_networking_state != network_up) {
 		network_up = new_networking_state;
-		job_dispatch_all_other_semaphores(root_job, NULL);
+		vproc_dispatch_all_other_semaphores(root_job, NULL);
 	}
 }
 
@@ -760,7 +760,7 @@ boolean_t
 launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 {
 	if (gc_this_job) {
-		job_remove(gc_this_job);
+		vproc_remove(gc_this_job);
 		gc_this_job = NULL;
 	}
 
