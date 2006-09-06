@@ -847,7 +847,7 @@ job_import_bool(job_t j, const char *key, bool value)
 	case 'i':
 	case 'I':
 		if (strcasecmp(key, LAUNCH_JOBKEY_INITGROUPS) == 0) {
-			if (getuid() == 0) {
+			if (getuid() != 0) {
 				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
 				return;
 			}
@@ -908,8 +908,10 @@ job_import_string(job_t j, const char *key, const char *value)
 	case 'u':
 	case 'U':
 		if (strcasecmp(key, LAUNCH_JOBKEY_USERNAME) == 0) {
-			if (getuid() != 0 || strcmp(value, "root") == 0) {
+			if (getuid() != 0) {
 				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				return;
+			} else if (strcmp(value, "root") == 0) {
 				return;
 			}
 			where2put = &j->username;
@@ -918,8 +920,10 @@ job_import_string(job_t j, const char *key, const char *value)
 	case 'g':
 	case 'G':
 		if (strcasecmp(key, LAUNCH_JOBKEY_GROUPNAME) == 0) {
-			if (getuid() != 0 || strcmp(value, "wheel") == 0) {
+			if (getuid() != 0) {
 				job_log(j, LOG_WARNING, "Ignored this key: %s", key);
+				return;
+			} else if (strcmp(value, "wheel") == 0) {
 				return;
 			}
 			where2put = &j->groupname;
