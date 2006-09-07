@@ -887,8 +887,15 @@ job_import_string(job_t j, const char *key, const char *value)
 		break;
 	case 'l':
 	case 'L':
-		if (strcasecmp(key, LAUNCH_JOBKEY_LABEL) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_LABEL) == 0) {
 			return;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOHOSTS) == 0) {
+			return;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS) == 0) {
+			return;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE) == 0) {
+			return;
+		}
 		break;
 	case 'r':
 	case 'R':
