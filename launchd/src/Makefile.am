@@ -14,7 +14,7 @@ liblaunch_a_SOURCES = liblaunch.c bootstrap_public.c
 liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
 liblaunch_profile_a_SOURCES = liblaunch.c bootstrap_public.c
 
-bootstrap_public.c:: bootstrap.h
+$(srcdir)/bootstrap_public.c:: bootstrap.h
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/local/lib/system

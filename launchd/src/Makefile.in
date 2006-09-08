@@ -1013,7 +1013,7 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
 	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
 
-@LIBS_ONLY_TRUE@bootstrap_public.c:: bootstrap.h
+@LIBS_ONLY_TRUE@$(srcdir)/bootstrap_public.c:: bootstrap.h
 
 @LIBS_ONLY_TRUE@install-data-hook:
 @LIBS_ONLY_TRUE@	mkdir -p $(DESTDIR)/usr/local/lib/system
