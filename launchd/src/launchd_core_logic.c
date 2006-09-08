@@ -1429,6 +1429,7 @@ job_start(job_t j)
 
 		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
 		job_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
+		job_ignore(j);
 		return;
 	}
 
