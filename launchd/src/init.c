@@ -87,6 +87,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <termios.h>
 
 #include "launchd.h"
+#include "launchd_runtime.h"
 
 #define _PATH_RUNCOM            "/etc/rc"
 

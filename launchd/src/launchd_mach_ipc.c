@@ -45,7 +45,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/socket.h>
 #include <bsm/libbsm.h>
 #include <unistd.h>
-#include <pthread.h>
 #include <errno.h>
 #include <string.h>
 #include <ctype.h>
@@ -58,10 +57,9 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "bootstrap_private.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
-#include "notifyServer.h"
 #include "launchd_internal.h"
-#include "launchd_internalServer.h"
 #include "launchd.h"
+#include "launchd_runtime.h"
 #include "launchd_core_logic.h"
 #include "launch_priv.h"
 #include "launchd_unix_ipc.h"
@@ -78,56 +76,11 @@ struct ldcred {
 static au_asid_t inherited_asid = 0;
 
 static bool canReceive(mach_port_t);
-static void init_ports(void);
-static void *mport_demand_loop(void *arg);
 static void audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc);
 
-static mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
-static mach_port_t demand_port_set = MACH_PORT_NULL;
-static size_t port_to_obj_size = 0;
-static void **port_to_obj = NULL;
-static pthread_t demand_thread;
+mach_port_t inherited_bootstrap_port = MACH_PORT_NULL;
 
 static bool trusted_client_check(job_t j, struct ldcred *ldc);
-
-job_t 
-job_find_by_port(mach_port_t mp)
-{
-	return port_to_obj[MACH_PORT_INDEX(mp)];
-}
-
-kern_return_t
-x_handle_mport(mach_port_t junk __attribute__((unused)))
-{
-	mach_port_name_array_t members;
-	mach_msg_type_number_t membersCnt;
-	mach_port_status_t status;
-	mach_msg_type_number_t statusCnt;
-	struct kevent kev;
-	unsigned int i;
-
-	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
-		return 1; 
-
-	for (i = 0; i < membersCnt; i++) {
-		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
-		if (mach_port_get_attributes(mach_task_self(), members[i], MACH_PORT_RECEIVE_STATUS,
-					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
-			continue;
-
-		if (status.mps_msgcount) {
-			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, job_find_by_port(members[i]));
-			(*((kq_callback *)kev.udata))(kev.udata, &kev);
-			/* the callback may have tainted our ability to continue this for loop */
-			break;
-		}
-	}
-
-	launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
-				(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
-
-	return 0;
-}
 
 void
 mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
@@ -135,12 +88,9 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 {
 	mach_msg_type_number_t l2l_i;
 	auditinfo_t inherited_audit;
-	pthread_attr_t attr;
 
 	getaudit(&inherited_audit);
 	inherited_asid = inherited_audit.ai_asid;
-
-	init_ports();
 
 	launchd_assert((root_job = job_new_bootstrap(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
 
@@ -151,14 +101,6 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 
 	/* We set this explicitly as we start each child */
 	launchd_assumes(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
-
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
-
-	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
-
-	pthread_attr_destroy(&attr);
 
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
@@ -174,50 +116,6 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 	}
 }
 
-void mach_init_reap(void)
-{
-	void *status;
-
-	launchd_assumes(mach_port_destroy(mach_task_self(), demand_port_set) == KERN_SUCCESS);
-
-	launchd_assumes(pthread_join(demand_thread, &status) == 0);
-}
-
-void
-init_ports(void)
-{
-	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET,
-					&demand_port_set)) == KERN_SUCCESS);
-}
-
-void *
-mport_demand_loop(void *arg __attribute__((unused)))
-{
-	mach_msg_empty_rcv_t dummy;
-	kern_return_t kr;
-
-	for (;;) {
-		kr = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
-		if (kr == MACH_RCV_PORT_CHANGED) {
-			break;
-		} else if (!launchd_assumes(kr == MACH_RCV_TOO_LARGE)) {
-			continue;
-		}
-		launchd_assumes(handle_mport(launchd_internal_port) == 0);
-	}
-
-	return NULL;
-}
-								
-boolean_t
-launchd_mach_ipc_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
-{
-	if (bootstrap_server_routine(Request))
-		return bootstrap_server(Request, Reply);
-
-	return notify_server(Request, Reply);
-}
-
 bool
 canReceive(mach_port_t port)
 {
@@ -227,94 +125,6 @@ canReceive(mach_port_t port)
 		return false;
 
 	return ((p_type & MACH_PORT_TYPE_RECEIVE) != 0);
-}
-
-kern_return_t
-launchd_set_bport(mach_port_t name)
-{
-	return errno = task_set_bootstrap_port(mach_task_self(), name);
-}
-
-kern_return_t
-launchd_get_bport(mach_port_t *name)
-{
-	return errno = task_get_bootstrap_port(mach_task_self(), name);
-}
-
-kern_return_t
-launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
-{
-	mach_port_mscount_t msgc = (which == MACH_NOTIFY_NO_SENDERS) ? 1 : 0;
-	mach_port_t previous, where = (which == MACH_NOTIFY_NO_SENDERS) ? name : launchd_internal_port;
-
-	if (which == MACH_NOTIFY_NO_SENDERS) {
-		/* Always make sure the send count is zero, in case a receive right is reused */
-		errno = mach_port_set_mscount(mach_task_self(), name, 0);
-		if (errno != KERN_SUCCESS)
-			return errno;
-	}
-
-	errno = mach_port_request_notification(mach_task_self(), name, which, msgc, where,
-			MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
-
-	if (errno == 0 && previous != MACH_PORT_NULL)
-		launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
-
-	return errno;
-}
-
-kern_return_t
-launchd_mport_request_callback(mach_port_t name, void *obj, bool readmsg)
-{
-	size_t needed_size;
-
-	if (!obj)
-		return errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
-
-	needed_size = (MACH_PORT_INDEX(name) + 1) * sizeof(void *);
-
-	if (needed_size > port_to_obj_size) {
-		if (port_to_obj == NULL) {
-			launchd_assumes((port_to_obj = calloc(1, needed_size * 2)) != NULL);
-		} else {
-			launchd_assumes((port_to_obj = reallocf(port_to_obj, needed_size * 2)) != NULL);
-			memset((uint8_t *)port_to_obj + port_to_obj_size, 0, needed_size * 2 - port_to_obj_size);
-		}
-		port_to_obj_size = needed_size * 2;
-	}
-
-	port_to_obj[MACH_PORT_INDEX(name)] = obj;
-
-	return errno = mach_port_move_member(mach_task_self(), name, readmsg ? ipc_port_set : demand_port_set);
-}
-
-kern_return_t
-launchd_mport_make_send(mach_port_t name)
-{
-	return errno = mach_port_insert_right(mach_task_self(), name, name, MACH_MSG_TYPE_MAKE_SEND);
-}
-
-kern_return_t
-launchd_mport_close_recv(mach_port_t name)
-{
-	if (launchd_assumes(port_to_obj != NULL)) {
-		port_to_obj[MACH_PORT_INDEX(name)] = NULL;
-		return errno = mach_port_mod_refs(mach_task_self(), name, MACH_PORT_RIGHT_RECEIVE, -1);
-	} else {
-		return errno = KERN_FAILURE;
-	}
-}
-
-kern_return_t
-launchd_mport_create_recv(mach_port_t *name)
-{
-	return errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, name);
-}
-
-kern_return_t
-launchd_mport_deallocate(mach_port_t name)
-{
-	return errno = mach_port_deallocate(mach_task_self(), name);
 }
 
 void
@@ -808,81 +618,6 @@ x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
 	*obsvr_port = job_get_bsport(jr);
 
 	return BOOTSTRAP_SUCCESS;
-}
-
-kern_return_t
-do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
-{
-	/* This message is sent to us when a receive right is returned to us. */
-
-	if (!job_ack_port_destruction(root_job, rights)) {
-		launchd_assumes(launchd_mport_close_recv(rights) == KERN_SUCCESS);
-	}
-
-	return KERN_SUCCESS;
-}
-
-kern_return_t
-do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
-{
-	/* If we deallocate/destroy/mod_ref away a port with a pending notification,
-	 * the original notification message is replaced with this message.
-	 *
-	 * To quote a Mach kernel expert, "the kernel has a send-once right that has
-	 * to be used somehow."
-	 */
-	return KERN_SUCCESS;
-}
-
-kern_return_t
-do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
-{
-	job_t j = job_find_by_port(notify);
-
-	/* This message is sent to us when the last customer of one of our objects
-	 * goes away.
-	 */
-
-	if (!launchd_assumes(j != NULL))
-		return KERN_FAILURE;
-
-	job_ack_no_senders(j);
-
-	return KERN_SUCCESS;
-}
-
-kern_return_t
-do_mach_notify_send_once(mach_port_t notify)
-{
-	/*
-	 * This message is sent to us every time we close a port that we have
-	 * outstanding Mach notification requests on. We can safely ignore
-	 * this message.
-	 */
-	return KERN_SUCCESS;
-}
-
-kern_return_t
-do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
-{
-	/* This message is sent to us when one of our send rights no longer has
-	 * a receiver somewhere else on the system.
-	 */
-
-	if (name == inherited_bootstrap_port) {
-		launchd_assumes(launchd_mport_deallocate(name) == KERN_SUCCESS);
-		inherited_bootstrap_port = MACH_PORT_NULL;
-	}
-		
-	job_delete_anything_with_port(root_job, name);
-
-	/* A dead-name notification about a port appears to increment the
-	 * rights on said port. Let's deallocate it so that we don't leak
-	 * dead-name ports.
-	 */
-	launchd_assumes(launchd_mport_deallocate(name) == KERN_SUCCESS);
-
-	return KERN_SUCCESS;
 }
 
 bool

@@ -72,6 +72,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launch.h"
 #include "launch_priv.h"
 #include "launchd.h"
+#include "launchd_runtime.h"
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
 #include "bootstrap_private.h"
@@ -1066,6 +1067,14 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 	bool is_wp = false;
 
 	switch (key[0]) {
+	case 'l':
+	case 'L':
+		if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOHOSTS) == 0) {
+			return;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS) == 0) {
+			return;
+		}
+		break;
 	case 'q':
 	case 'Q':
 		if (strcasecmp(key, LAUNCH_JOBKEY_QUEUEDIRECTORIES) == 0) {
@@ -1227,6 +1236,35 @@ job_find_by_pid(job_t j, pid_t p)
 
 	errno = ESRCH;
 	return NULL;
+}
+
+static job_t 
+job_find_by_port2(job_t j, mach_port_t p)
+{
+	struct machservice *ms;
+	job_t jr, ji;
+
+	if (j->bs_port == p)
+		return j;
+
+	SLIST_FOREACH(ms, &j->machservices, sle) {
+		if (ms->port == p)
+			return j;
+	}
+
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if ((jr = job_find_by_port2(ji, p)))
+			return jr;
+	}
+
+	errno = ESRCH;
+	return NULL;
+}
+
+job_t 
+job_find_by_port(mach_port_t p)
+{
+	return job_find_by_port2(root_job, p);
 }
 
 void

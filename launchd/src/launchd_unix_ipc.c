@@ -48,6 +48,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launch.h"
 #include "launch_priv.h"
 #include "launchd.h"
+#include "launchd_runtime.h"
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
 

@@ -59,7 +59,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <dlfcn.h>
 #include <dirent.h>
 #include <string.h>
-#include <pthread.h>
 #include <setjmp.h>
 
 #include "bootstrap_public.h"
@@ -67,24 +66,9 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launch.h"
 #include "launch_priv.h"
 #include "launchd.h"
+#include "launchd_runtime.h"
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
-
-#include "launchd_internalServer.h"
-#include "launchd_internal.h"
-#include "notifyServer.h"
-#include "bootstrapServer.h"
-
-union MaxRequestSize {
-	union __RequestUnion__do_notify_subsystem req;
-	union __ReplyUnion__do_notify_subsystem rep;
-	union __RequestUnion__x_launchd_internal_subsystem req2;
-	union __ReplyUnion__x_launchd_internal_subsystem rep2;
-	union __RequestUnion__x_bootstrap_subsystem req3;
-	union __ReplyUnion__x_bootstrap_subsystem rep3;
-};
-
-static boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
 #define PID1LAUNCHD_CONF "/etc/launchd.conf"
 #define LAUNCHD_CONF ".launchd.conf"
@@ -93,13 +77,11 @@ static boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_hea
 
 extern char **environ;
 
-static void async_callback(void);
 static void signal_callback(void *, struct kevent *);
 static void fs_callback(void);
 static void ppidexit_callback(void);
 static void pfsystem_callback(void *, struct kevent *);
 
-static kq_callback kqasync_callback = (kq_callback)async_callback;
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqppidexit_callback = (kq_callback)ppidexit_callback;
@@ -112,12 +94,8 @@ static void usage(FILE *where);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
-static void *kqueue_demand_loop(void *arg);
 static void fatal_signal_handler(int sig);
 
-static pthread_t kqueue_demand_thread;
-static int mainkq = 0;
-static int asynckq = 0;
 static bool re_exec_in_single_user_mode = false;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
@@ -128,8 +106,6 @@ sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
 bool network_up = false;
 int batch_disabler_count = 0;
-mach_port_t launchd_internal_port = MACH_PORT_NULL;
-mach_port_t ipc_port_set = MACH_PORT_NULL;
 
 int
 main(int argc, char *const *argv)
@@ -147,7 +123,6 @@ main(int argc, char *const *argv)
 	const char *h = getenv("HOME");
 	const char *session_type = NULL;
 	const char *optargs = NULL;
-	launch_data_t ldresp, ldmsg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
 	job_t fbj = NULL;
 	struct stat sb;
 	size_t i, checkin_fdcnt = 0;
@@ -156,54 +131,67 @@ main(int argc, char *const *argv)
 	mach_port_t checkin_mport = MACH_PORT_NULL;
 	int ch, ker, logopts;
 
+	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
+	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
+	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
+
 	/* main() phase one: sanitize the process */
 
-	if (getpid() != 1 && (ldresp = launch_msg(ldmsg)) && launch_data_get_type(ldresp) == LAUNCH_DATA_DICTIONARY) {
-		const char *ldlabel = launch_data_get_string(launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_LABEL));
-		launch_data_t tmp;
+	if (getpid() != 1) {
+		launch_data_t ldresp, ldmsg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
 
-		if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_SOCKETS))) {
-			if ((tmp = launch_data_dict_lookup(tmp, "LaunchIPC"))) {
-				checkin_fdcnt = launch_data_array_get_count(tmp);
-				checkin_fds = alloca(sizeof(int) * checkin_fdcnt);
-				for (i = 0; i < checkin_fdcnt; i++) {
-					checkin_fds[i] = _fd(launch_data_get_fd(launch_data_array_get_index(tmp, i)));
+		if ((ldresp = launch_msg(ldmsg))) {
+			if (launch_data_get_type(ldresp) == LAUNCH_DATA_DICTIONARY) {
+				const char *ldlabel = launch_data_get_string(launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_LABEL));
+				launch_data_t tmp;
+
+				if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_SOCKETS))) {
+					if ((tmp = launch_data_dict_lookup(tmp, "LaunchIPC"))) {
+						checkin_fdcnt = launch_data_array_get_count(tmp);
+						checkin_fds = alloca(sizeof(int) * checkin_fdcnt);
+						for (i = 0; i < checkin_fdcnt; i++) {
+							checkin_fds[i] = _fd(launch_data_get_fd(launch_data_array_get_index(tmp, i)));
+						}
+					}
+				}
+				if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_MACHSERVICES))) {
+					if ((tmp = launch_data_dict_lookup(tmp, ldlabel))) {
+						checkin_mport = launch_data_get_machport(tmp);
+					}
 				}
 			}
-		}
-		if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_MACHSERVICES))) {
-			if ((tmp = launch_data_dict_lookup(tmp, ldlabel))) {
-				checkin_mport = launch_data_get_machport(tmp);
-			}
-		}
-		launch_data_free(ldresp);
-	} else {
-		int sigi, fdi, dts = getdtablesize();
-		sigset_t emptyset;
+			launch_data_free(ldresp);
+		} else {
+			int sigi, fdi, dts = getdtablesize();
+			sigset_t emptyset;
 
-		for (fdi = STDERR_FILENO + 1; fdi < dts; fdi++)
-			close(fdi);
-		for (sigi = 1; sigi < NSIG; sigi++) {
-			switch (sigi) {
-			case SIGKILL:
-			case SIGSTOP:
-				break;
-			default:
-				launchd_assumes(signal(sigi, SIG_DFL) != SIG_ERR);
-				break;
+			/* We couldn't check-in.
+			 *
+			 * Assume the worst and clean up whatever mess our parent process left us with...
+			 */
+
+			for (fdi = STDERR_FILENO + 1; fdi < dts; fdi++)
+				close(fdi);
+			for (sigi = 1; sigi < NSIG; sigi++) {
+				switch (sigi) {
+				case SIGKILL:
+				case SIGSTOP:
+					break;
+				default:
+					launchd_assumes(signal(sigi, SIG_DFL) != SIG_ERR);
+					break;
+				}
 			}
+			sigemptyset(&emptyset);
+			launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) == 0);
 		}
-		sigemptyset(&emptyset);
-		launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) == 0);
+
+		launch_data_free(ldmsg);
 	}
 
-	launch_data_free(ldmsg);
+	launchd_runtime_init();
 
-	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY|O_NOCTTY);
-	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY|O_NOCTTY);
-	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY|O_NOCTTY);
-
-	/* main phase two: parse arguments */
+	/* main() phase two: parse arguments */
 
 	if (getpid() == 1) {
 		optargs = "s";
@@ -233,23 +221,12 @@ main(int argc, char *const *argv)
 	if (dflag)
 		launchd_assumes(daemon(0, 0) == 0);
 
-	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &ipc_port_set)) == KERN_SUCCESS);
-	launchd_assert(launchd_mport_create_recv(&launchd_internal_port) == KERN_SUCCESS);
-	launchd_assert(launchd_mport_make_send(launchd_internal_port) == KERN_SUCCESS);
-	launchd_assert((errno = mach_port_move_member(mach_task_self(), launchd_internal_port, ipc_port_set)) == KERN_SUCCESS);
-
 	logopts = LOG_PID|LOG_CONS;
 	if (Dflag)
 		logopts |= LOG_PERROR;
 
 	openlog(getprogname(), logopts, LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(Dflag ? LOG_DEBUG : LOG_NOTICE));
-
-	launchd_assert((mainkq = kqueue()) != -1);
-
-	launchd_assert((asynckq = kqueue()) != -1);
-	
-	launchd_assert(kevent_mod(asynckq, EVFILT_READ, EV_ADD, 0, 0, &kqasync_callback) != -1);
 
 	sigemptyset(&blocked_signals);
 
@@ -327,16 +304,6 @@ main(int argc, char *const *argv)
 	if (fbj)
 		job_dispatch(fbj, true);
 
-	pthread_attr_t attr;
-	pthread_attr_init(&attr);
-	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
-	launchd_assert(pthread_create(&kqueue_demand_thread, &attr, kqueue_demand_loop, NULL) == 0);
-	pthread_attr_destroy(&attr); 
-
-	mach_msg_return_t msgr;
-	mach_msg_size_t mxmsgsz = sizeof(union MaxRequestSize) + MAX_TRAILER_SIZE;
-
 	if (getpid() == 1 && !job_active(rlcj))
 		init_pre_kevent();
 
@@ -346,68 +313,13 @@ main(int argc, char *const *argv)
 	launchd_assumes(signal(SIGBUS, fatal_signal_handler) != SIG_ERR);
 	launchd_assumes(signal(SIGSEGV, fatal_signal_handler) != SIG_ERR);
 
-	for (;;) {
-		msgr = mach_msg_server(launchd_internal_demux, mxmsgsz, ipc_port_set,
-				MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT) |
-				MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
-		launchd_assumes(msgr == MACH_MSG_SUCCESS);
-	}
+	launchd_runtime();
 }
 
 void
 fatal_signal_handler(int sig)
 {
 	longjmp(doom_doom_doom, sig);
-}
-
-void *
-kqueue_demand_loop(void *arg __attribute__((unused)))
-{
-	fd_set rfds;
-
-	for (;;) {
-		FD_ZERO(&rfds);
-		FD_SET(mainkq, &rfds);
-		if (launchd_assumes(select(mainkq + 1, &rfds, NULL, NULL, NULL) == 1))
-			launchd_assumes(handle_kqueue(launchd_internal_port, mainkq) == 0);
-	}
-
-	return NULL;
-}
-
-kern_return_t
-x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
-{
-	struct timespec ts = { 0, 0 };
-	struct kevent kev;
-	int kevr;
-
-	launchd_assumes((kevr = kevent(fd, NULL, 0, &kev, 1, &ts)) != -1);
-
-	if (kevr == 1)
-		(*((kq_callback *)kev.udata))(kev.udata, &kev);
-
-	if (shutdown_in_progress && total_children == 0) {
-		mach_init_reap();
-
-		shutdown_in_progress = false;
-
-		if (getpid() != 1) {
-			exit(EXIT_SUCCESS);
-		} else if (re_exec_in_single_user_mode) {
-			re_exec_in_single_user_mode = false;
-			launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
-		}
-	}
-
-	if (getpid() == 1) {
-		if (rlcj && job_active(rlcj))
-			goto out;
-		init_pre_kevent();
-	}
-
-out:
-	return 0;
 }
 
 void
@@ -445,24 +357,6 @@ usage(FILE *where)
 }
 
 int
-kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
-{
-	struct kevent kev;
-	int q = mainkq;
-
-	if (EVFILT_TIMER == filter || EVFILT_VNODE == filter)
-		q = asynckq;
-
-	if (flags & EV_ADD && !launchd_assumes(udata != NULL)) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	EV_SET(&kev, ident, filter, flags, fflags, data, udata);
-	return kevent(q, &kev, 1, NULL, 0, NULL);
-}
-
-int
 _fd(int fd)
 {
 	if (fd >= 0)
@@ -489,7 +383,7 @@ launchd_shutdown(void)
 
 	shutdown_in_progress = true;
 
-	launchd_assumes(close(asynckq) != -1);
+	runtime_force_on_demand(true);
 	
 	rlcj = NULL;
 
@@ -577,16 +471,6 @@ launchd_SessionCreate(void)
 }
 
 void
-async_callback(void)
-{
-	struct timespec timeout = { 0, 0 };
-	struct kevent kev;
-
-	if (launchd_assumes(kevent(asynckq, NULL, 0, &kev, 1, &timeout) == 1))
-		(*((kq_callback *)kev.udata))(kev.udata, &kev);
-}
-
-void
 testfd_or_openfd(int fd, const char *path, int flags)
 {
 	int tmpfd;
@@ -594,7 +478,7 @@ testfd_or_openfd(int fd, const char *path, int flags)
 	if (-1 != (tmpfd = dup(fd))) {
 		launchd_assumes(close(tmpfd) == 0);
 	} else {
-		if (-1 == (tmpfd = open(path, flags))) {
+		if (-1 == (tmpfd = open(path, flags | O_NOCTTY, DEFFILEMODE))) {
 			syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
 		} else if (tmpfd != fd) {
 			launchd_assumes(dup2(tmpfd, fd) != -1);
@@ -632,10 +516,10 @@ batch_job_enable(bool e, struct conncb *c)
 		batch_disabler_count--;
 		c->disabled_batch = 0;
 		if (batch_disabler_count == 0)
-			kevent_mod(asynckq, EVFILT_READ, EV_ENABLE, 0, 0, &kqasync_callback);
+			runtime_force_on_demand(false);
 	} else if (!e && !c->disabled_batch) {
 		if (batch_disabler_count == 0)
-			kevent_mod(asynckq, EVFILT_READ, EV_DISABLE, 0, 0, &kqasync_callback);
+			runtime_force_on_demand(true);
 		batch_disabler_count++;
 		c->disabled_batch = 1;
 	}
@@ -756,21 +640,22 @@ progeny_check(pid_t p)
 	return false;
 }
 
-boolean_t
-launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
+void
+launchd_post_kevent(void)
 {
-	if (gc_this_job) {
-		job_remove(gc_this_job);
-		gc_this_job = NULL;
-	}
+	if (shutdown_in_progress && total_children == 0) {
+		shutdown_in_progress = false;
 
-	if (Request->msgh_local_port == launchd_internal_port) {
-		if (launchd_internal_server_routine(Request))
-			return launchd_internal_server(Request, Reply);
-	} else {
-		if (bootstrap_server_routine(Request))
-			return bootstrap_server(Request, Reply);
+		if (getpid() != 1) {
+			exit(EXIT_SUCCESS);
+		} else if (re_exec_in_single_user_mode) {
+			re_exec_in_single_user_mode = false;
+			launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
+		}
 	}
-
-	return notify_server(Request, Reply);
+	if (getpid() == 1) {
+		if (rlcj && job_active(rlcj))
+			return;
+		init_pre_kevent();
+	}
 }
