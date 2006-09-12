@@ -57,7 +57,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launch.h"
 #include "launchd.h"
 #include "launchd_core_logic.h"
-#include "bootstrapServer.h"
 
 static mach_port_t ipc_port_set = MACH_PORT_NULL;
 static mach_port_t demand_port_set = MACH_PORT_NULL;
@@ -66,7 +65,7 @@ static int mainkq = -1;
 static int asynckq = -1;
 
 static pthread_t kqueue_demand_thread;
-static pthread_t demand_thread;;
+static pthread_t demand_thread;
 
 static void *mport_demand_loop(void *arg);
 static void *kqueue_demand_loop(void *arg);
@@ -74,9 +73,17 @@ static void *kqueue_demand_loop(void *arg);
 static void async_callback(void);
 static kq_callback kqasync_callback = (kq_callback)async_callback;
 
+static void launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_reply_error_t *bufReply);
+static mach_msg_size_t max_msg_size;
+static mig_callback *mig_cb_table;
+static size_t mig_cb_table_sz;
+static timeout_callback runtime_idle_callback;
+static mach_msg_timeout_t runtime_idle_timeout;
+
 void
 launchd_runtime_init(void)
 {
+	mach_msg_size_t mxmsgsz;
 	pthread_attr_t attr;
 
 	launchd_assert((mainkq = kqueue()) != -1);
@@ -89,7 +96,13 @@ launchd_runtime_init(void)
 
 	launchd_assert(launchd_mport_create_recv(&launchd_internal_port) == KERN_SUCCESS);
 	launchd_assert(launchd_mport_make_send(launchd_internal_port) == KERN_SUCCESS);
-	launchd_assert((errno = mach_port_move_member(mach_task_self(), launchd_internal_port, ipc_port_set)) == KERN_SUCCESS);
+
+	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
+	mxmsgsz = sizeof(union __RequestUnion__x_launchd_internal_subsystem);
+	if (x_launchd_internal_subsystem.maxsize > mxmsgsz)
+		mxmsgsz = x_launchd_internal_subsystem.maxsize;
+
+	launchd_assert(runtime_add_mport(launchd_internal_port, launchd_internal_demux, mxmsgsz) == KERN_SUCCESS);
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
@@ -193,14 +206,33 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 void
 launchd_runtime(void)
 {
-	mach_msg_return_t msgr;
+	mig_reply_error_t *req = NULL, *rep = NULL;
+	mach_msg_size_t mz = max_msg_size;
+	kern_return_t kr;
 
 	for (;;) {
-		msgr = mach_msg_server(launchd_internal_demux, 10*1024, ipc_port_set,
-				MACH_RCV_LARGE |
-				MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT) |
-				MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0));
-		launchd_assumes(msgr == MACH_MSG_SUCCESS);
+		kr = vm_allocate(mach_task_self(), (vm_address_t *)&req, mz, VM_MAKE_TAG(VM_MEMORY_MACH_MSG)|TRUE);
+		if (!launchd_assumes(kr == KERN_SUCCESS)) {
+			goto free_path;
+		}
+
+		kr = vm_allocate(mach_task_self(), (vm_address_t *)&rep, mz, VM_MAKE_TAG(VM_MEMORY_MACH_MSG)|TRUE);
+		if (!launchd_assumes(kr == KERN_SUCCESS)) {
+			goto free_path;
+		}
+
+		/* max_msg_size might change, thus phase two... */
+		launchd_runtime2(mz, req, rep);
+
+free_path:
+		if (req) {
+			launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)req, mz) == KERN_SUCCESS);
+			req = NULL;
+		}
+		if (rep) {
+			launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)rep, mz) == KERN_SUCCESS);
+			rep = NULL;
+		}
 	}
 }
 
@@ -238,16 +270,52 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 	return errno;
 }
 
-kern_return_t
-launchd_mport_request_callback(mach_port_t name, void *obj, bool readmsg)
+void
+runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to)
 {
-	mach_port_t target_set = MACH_PORT_NULL;
+	if (to == 0 || to_cb == NULL) {
+		runtime_idle_callback = NULL;
+		runtime_idle_timeout = 0;
+	}
 
-	if (obj) {
-		target_set = readmsg ? ipc_port_set : demand_port_set;
+	runtime_idle_callback = to_cb;
+	runtime_idle_timeout = to;
+}
+
+kern_return_t
+runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size)
+{
+	size_t needed_table_sz = MACH_PORT_INDEX(name) * 2 * sizeof(mig_callback);
+	mach_port_t target_set = demux ? ipc_port_set : demand_port_set;
+
+	msg_size = round_page(msg_size + MAX_TRAILER_SIZE);
+
+	if (needed_table_sz > mig_cb_table_sz) {
+		mig_callback *new_table = malloc(needed_table_sz);
+
+		if (!launchd_assumes(new_table != NULL))
+			return KERN_RESOURCE_SHORTAGE;
+
+		memcpy(new_table, mig_cb_table, mig_cb_table_sz);
+		memset(new_table + mig_cb_table_sz, 0, needed_table_sz - mig_cb_table_sz);
+
+		mig_cb_table_sz = needed_table_sz;
+		mig_cb_table = new_table;
+	}
+
+	mig_cb_table[MACH_PORT_INDEX(name)] = demux;
+
+	if (msg_size > max_msg_size) {
+		max_msg_size = msg_size;
 	}
 
 	return errno = mach_port_move_member(mach_task_self(), name, target_set);
+}
+
+kern_return_t
+runtime_remove_mport(mach_port_t name)
+{
+	return errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
 }
 
 kern_return_t
@@ -313,17 +381,8 @@ runtime_force_on_demand(bool b)
 boolean_t
 launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 {
-	if (gc_this_job) {
-		job_remove(gc_this_job);
-		gc_this_job = NULL;
-	}
-
-	if (Request->msgh_local_port == launchd_internal_port) {
-		if (launchd_internal_server_routine(Request))
-			return launchd_internal_server(Request, Reply);
-	} else {
-		if (bootstrap_server_routine(Request))
-			return bootstrap_server(Request, Reply);
+	if (launchd_internal_server_routine(Request)) {
+		return launchd_internal_server(Request, Reply);
 	}
 
 	return notify_server(Request, Reply);
@@ -401,4 +460,106 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 	launchd_assumes(launchd_mport_deallocate(name) == KERN_SUCCESS);
 
 	return KERN_SUCCESS;
+}
+
+void
+launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_reply_error_t *bufReply)
+{
+	mach_msg_options_t options, tmp_options;
+	mig_reply_error_t *bufTemp;
+	mig_callback the_demux;
+	mach_msg_timeout_t to;
+	mach_msg_return_t mr;
+
+	options = MACH_RCV_MSG|MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT) |
+		MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0);
+
+	tmp_options = options;
+
+	for (;;) {
+		to = MACH_MSG_TIMEOUT_NONE;
+
+		if (msg_size != max_msg_size) {
+			/* The buffer isn't big enougth to receive messages anymore... */
+			tmp_options &= ~MACH_RCV_MSG;
+			options &= ~MACH_RCV_MSG;
+			if (!(tmp_options & MACH_SEND_MSG)) {
+				return;
+			}
+		}
+
+		if ((tmp_options & MACH_RCV_MSG) && runtime_idle_callback) {
+			tmp_options |= MACH_RCV_TIMEOUT;
+
+			if (!(tmp_options & MACH_SEND_TIMEOUT)) {
+				to = runtime_idle_timeout;
+			}
+		}
+
+		mr = mach_msg(&bufReply->Head, tmp_options, bufReply->Head.msgh_size,
+				msg_size, ipc_port_set, to, MACH_PORT_NULL);
+
+		tmp_options = options;
+
+		if (mr == MACH_SEND_INVALID_DEST || mr == MACH_SEND_TIMED_OUT) {
+			/* We need to clean up and start over. */
+			if (bufReply->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX) {
+				mach_msg_destroy(&bufReply->Head);
+			}
+			continue;
+		} else if (mr == MACH_RCV_TIMED_OUT) {
+			if (to == MACH_MSG_TIMEOUT_NONE) {
+				continue;
+			}
+			runtime_idle_callback();
+		} else if (!launchd_assumes(mr == MACH_MSG_SUCCESS)) {
+			continue;
+		}
+
+		bufTemp = bufRequest;
+		bufRequest = bufReply;
+		bufReply = bufTemp;
+
+		/* XXX - So very gross */
+		if (gc_this_job) {
+			job_remove(gc_this_job);
+			gc_this_job = NULL;
+		}
+
+		if (!(tmp_options & MACH_RCV_MSG)) {
+			continue;
+		}
+
+		/* we have another request message */
+		the_demux = mig_cb_table[MACH_PORT_INDEX(bufRequest->Head.msgh_local_port)];
+
+		if (!launchd_assumes(the_demux != NULL)) {
+			break;
+		}
+
+		if (the_demux(&bufRequest->Head, &bufReply->Head) == FALSE) {
+			/* XXX - also gross */
+			if (bufRequest->Head.msgh_id == MACH_NOTIFY_NO_SENDERS) {
+				notify_server(&bufRequest->Head, &bufReply->Head);
+			}
+		}
+
+		if (!(bufReply->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX)) {
+			if (bufReply->RetCode == MIG_NO_REPLY) {
+				bufReply->Head.msgh_remote_port = MACH_PORT_NULL;
+			} else if ((bufReply->RetCode != KERN_SUCCESS) && (bufRequest->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX)) {
+				/* destroy the request - but not the reply port */
+				bufRequest->Head.msgh_remote_port = MACH_PORT_NULL;
+				mach_msg_destroy(&bufRequest->Head);
+			}
+		}
+
+		if (bufReply->Head.msgh_remote_port != MACH_PORT_NULL) {
+			tmp_options |= MACH_SEND_MSG;
+
+			if (MACH_MSGH_BITS_REMOTE(bufReply->Head.msgh_bits) != MACH_MSG_TYPE_MOVE_SEND_ONCE) {
+				tmp_options |= MACH_SEND_TIMEOUT;
+			}
+		}
+	}
 }

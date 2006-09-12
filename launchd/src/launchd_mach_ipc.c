@@ -57,7 +57,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "bootstrap_private.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
-#include "launchd_internal.h"
 #include "launchd.h"
 #include "launchd_runtime.h"
 #include "launchd_core_logic.h"
@@ -448,7 +447,7 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	*reqport = job_get_reqport(j);
 	*rcvright = job_get_bsport(j);
 
-	launchd_assumes(launchd_mport_request_callback(*rcvright, NULL, true) == KERN_SUCCESS);
+	launchd_assumes(runtime_remove_mport(*rcvright) == KERN_SUCCESS);
 
 	launchd_assumes(launchd_mport_make_send(*rcvright) == KERN_SUCCESS);
 

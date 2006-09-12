@@ -38,6 +38,8 @@
 void _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
 typedef void (*kq_callback)(void *, struct kevent *);
+typedef boolean_t (*mig_callback)(mach_msg_header_t *, mach_msg_header_t *);
+typedef void (*timeout_callback)(void);
 
 boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
@@ -45,6 +47,9 @@ void launchd_runtime_init(void);
 void launchd_runtime(void) __attribute__((noreturn));
 
 void runtime_force_on_demand(bool);
+void runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to);
+kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size);
+kern_return_t runtime_remove_mport(mach_port_t name);
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 
@@ -52,7 +57,6 @@ kern_return_t launchd_set_bport(mach_port_t name);
 kern_return_t launchd_get_bport(mach_port_t *name);
 kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
 kern_return_t launchd_mport_notify_cancel(mach_port_t name, mach_msg_id_t which);
-kern_return_t launchd_mport_request_callback(mach_port_t name, void *obj, bool readmsg);
 kern_return_t launchd_mport_create_recv(mach_port_t *name);
 kern_return_t launchd_mport_deallocate(mach_port_t name);
 kern_return_t launchd_mport_make_send(mach_port_t name);

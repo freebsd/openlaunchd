@@ -293,7 +293,7 @@ job_ignore(job_t j)
 		watchpath_ignore(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		job_assumes(j, launchd_mport_request_callback(ms->port, NULL, false) == KERN_SUCCESS);
+		job_assumes(j, runtime_remove_mport(ms->port) == KERN_SUCCESS);
 }
 
 void
@@ -310,7 +310,7 @@ job_watch(job_t j)
 		watchpath_watch(j, wp);
 
 	SLIST_FOREACH(ms, &j->machservices, sle)
-		job_assumes(j, launchd_mport_request_callback(ms->port, j, false) == KERN_SUCCESS);
+		job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
 }
 
 void
@@ -572,10 +572,17 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_setup_machport(job_t j)
 {
+	mach_msg_size_t mxmsgsz;
+
 	if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
 		goto out_bad;
 
-	if (!job_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
+	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
+	mxmsgsz = sizeof(union __RequestUnion__x_bootstrap_subsystem);
+	if (x_bootstrap_subsystem.maxsize > mxmsgsz)
+		mxmsgsz = x_bootstrap_subsystem.maxsize;
+
+	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS))
 		goto out_bad2;
 
 	return true;
@@ -2641,6 +2648,7 @@ job_t
 job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 {
 	char bslabel[1024] = "100000";
+	mach_msg_size_t mxmsgsz;
 	job_t j;
 
 	if (requestorport == MACH_PORT_NULL) {
@@ -2663,7 +2671,12 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 
 	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
-	if (!job_assumes(j, launchd_mport_request_callback(j->bs_port, j, true) == KERN_SUCCESS))
+	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
+	mxmsgsz = sizeof(union __RequestUnion__x_bootstrap_subsystem);
+	if (x_bootstrap_subsystem.maxsize > mxmsgsz)
+		mxmsgsz = x_bootstrap_subsystem.maxsize;
+
+	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS))
 		goto out_bad;
 
 	if (p) {
