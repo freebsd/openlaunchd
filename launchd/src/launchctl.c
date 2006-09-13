@@ -863,6 +863,13 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 					fprintf(stderr, "bind(): %s\n", strerror(errno));
 					return;
 				}
+				/* The kernel may have dynamically assigned some part of the
+				 * address. (The port being a common example.)
+				 */
+				if (getsockname(sfd, res->ai_addr, &res->ai_addrlen) == -1) {
+					fprintf(stderr, "getsockname(): %s\n", strerror(errno));
+					return;
+				}
 
 				if (mgroup) {
 					do_mgroup_join(sfd, res->ai_family, res->ai_socktype, res->ai_protocol, mgroup);
