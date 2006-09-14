@@ -86,6 +86,8 @@ launchd_runtime_init(void)
 	mach_msg_size_t mxmsgsz;
 	pthread_attr_t attr;
 
+	launchd_assert((mig_cb_table = malloc(0)) != NULL);
+
 	launchd_assert((mainkq = kqueue()) != -1);
 	launchd_assert((asynckq = kqueue()) != -1);
 
@@ -298,6 +300,8 @@ runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size
 
 		memcpy(new_table, mig_cb_table, mig_cb_table_sz);
 		memset(new_table + mig_cb_table_sz, 0, needed_table_sz - mig_cb_table_sz);
+
+		free(mig_cb_table);
 
 		mig_cb_table_sz = needed_table_sz;
 		mig_cb_table = new_table;
