@@ -512,10 +512,10 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			}
 			continue;
 		} else if (mr == MACH_RCV_TIMED_OUT) {
-			if (to == MACH_MSG_TIMEOUT_NONE) {
-				continue;
+			if (to != MACH_MSG_TIMEOUT_NONE) {
+				runtime_idle_callback();
 			}
-			runtime_idle_callback();
+			continue;
 		} else if (!launchd_assumes(mr == MACH_MSG_SUCCESS)) {
 			continue;
 		}
