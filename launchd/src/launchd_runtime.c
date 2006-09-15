@@ -208,33 +208,32 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 void
 launchd_runtime(void)
 {
-	mig_reply_error_t *req = NULL, *rep = NULL;
+	mig_reply_error_t *req = NULL, *resp = NULL;
 	mach_msg_size_t mz = max_msg_size;
-	kern_return_t kr;
+	int flags = VM_MAKE_TAG(VM_MEMORY_MACH_MSG)|TRUE;
 
 	for (;;) {
-		kr = vm_allocate(mach_task_self(), (vm_address_t *)&req, mz, VM_MAKE_TAG(VM_MEMORY_MACH_MSG)|TRUE);
-		if (!launchd_assumes(kr == KERN_SUCCESS)) {
-			goto free_path;
-		}
-
-		kr = vm_allocate(mach_task_self(), (vm_address_t *)&rep, mz, VM_MAKE_TAG(VM_MEMORY_MACH_MSG)|TRUE);
-		if (!launchd_assumes(kr == KERN_SUCCESS)) {
-			goto free_path;
-		}
-
-		/* max_msg_size might change, thus phase two... */
-		launchd_runtime2(mz, req, rep);
-
-free_path:
 		if (req) {
 			launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)req, mz) == KERN_SUCCESS);
 			req = NULL;
 		}
-		if (rep) {
-			launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)rep, mz) == KERN_SUCCESS);
-			rep = NULL;
+		if (resp) {
+			launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)resp, mz) == KERN_SUCCESS);
+			resp = NULL;
 		}
+
+		mz = max_msg_size;
+
+		if (!launchd_assumes(vm_allocate(mach_task_self(), (vm_address_t *)&req, mz, flags) == KERN_SUCCESS)) {
+			continue;
+		}
+		if (!launchd_assumes(vm_allocate(mach_task_self(), (vm_address_t *)&resp, mz, flags) == KERN_SUCCESS)) {
+			continue;
+		}
+
+		launchd_runtime2(mz, req, resp);
+
+		/* If we get here, max_msg_size probably changed... */
 	}
 }
 
