@@ -58,11 +58,11 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launchd.h"
 #include "launchd_core_logic.h"
 
-static mach_port_t ipc_port_set = MACH_PORT_NULL;
-static mach_port_t demand_port_set = MACH_PORT_NULL;
-static mach_port_t launchd_internal_port = MACH_PORT_NULL;
-static int mainkq = -1;
-static int asynckq = -1;
+static mach_port_t ipc_port_set;
+static mach_port_t demand_port_set;
+static mach_port_t launchd_internal_port;
+static int mainkq;
+static int asynckq;
 
 static pthread_t kqueue_demand_thread;
 static pthread_t demand_thread;
@@ -85,8 +85,6 @@ launchd_runtime_init(void)
 {
 	mach_msg_size_t mxmsgsz;
 	pthread_attr_t attr;
-
-	launchd_assert((mig_cb_table = malloc(0)) != NULL);
 
 	launchd_assert((mainkq = kqueue()) != -1);
 	launchd_assert((asynckq = kqueue()) != -1);
@@ -286,21 +284,22 @@ runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to)
 kern_return_t
 runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size)
 {
-	size_t needed_table_sz = MACH_PORT_INDEX(name) * 2 * sizeof(mig_callback);
+	size_t needed_table_sz = (MACH_PORT_INDEX(name) + 1) * sizeof(mig_callback);
 	mach_port_t target_set = demux ? ipc_port_set : demand_port_set;
 
 	msg_size = round_page(msg_size + MAX_TRAILER_SIZE);
 
 	if (needed_table_sz > mig_cb_table_sz) {
+		needed_table_sz *= 2; /* Let's try and avoid realloc'ing for a while */
 		mig_callback *new_table = malloc(needed_table_sz);
 
 		if (!launchd_assumes(new_table != NULL))
 			return KERN_RESOURCE_SHORTAGE;
 
-		memcpy(new_table, mig_cb_table, mig_cb_table_sz);
-		memset(new_table + mig_cb_table_sz, 0, needed_table_sz - mig_cb_table_sz);
-
-		free(mig_cb_table);
+		if (mig_cb_table) {
+			memcpy(new_table, mig_cb_table, mig_cb_table_sz);
+			free(mig_cb_table);
+		}
 
 		mig_cb_table_sz = needed_table_sz;
 		mig_cb_table = new_table;
@@ -318,6 +317,8 @@ runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size
 kern_return_t
 runtime_remove_mport(mach_port_t name)
 {
+	mig_cb_table[MACH_PORT_INDEX(name)] = NULL;
+
 	return errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
 }
 
@@ -534,6 +535,11 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		}
 
 		/* we have another request message */
+
+		if (!launchd_assumes(mig_cb_table != NULL)) {
+			break;
+		}
+
 		the_demux = mig_cb_table[MACH_PORT_INDEX(bufRequest->Head.msgh_local_port)];
 
 		if (!launchd_assumes(the_demux != NULL)) {
