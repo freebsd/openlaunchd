@@ -1159,12 +1159,7 @@ _fd(int fd)
 int
 bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
 {
-	int memmib[] = { CTL_HW, HW_MEMSIZE };
-	int mvnmib[] = { CTL_KERN, KERN_MAXVNODES };
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
-	uint64_t mem = 0;
-	uint32_t mvn;
-	size_t memsz = sizeof(mem);
 	struct group *tfp_gr;
 
 	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
@@ -1179,10 +1174,6 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 		assumes(sysctl(tfp_rw_mib, 3, NULL, NULL, &tfp_rw_gid, sizeof(tfp_rw_gid)) != -1);
 	}
 
-        if (assumes(sysctl(memmib, 2, &mem, &memsz, NULL, 0) != -1)) {
-		mvn = mem / (64 * 1024) + 1024;
-		assumes(sysctl(mvnmib, 2, NULL, NULL, &mvn, sizeof(mvn)) != -1);
-	}
 	assumes(sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) != -1);
 
 	loopback_setup_ipv4();
