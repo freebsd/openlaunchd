@@ -1469,7 +1469,7 @@ job_start(job_t j)
 
 	td = time(NULL) - j->start_time;
 
-	if (td < LAUNCHD_MIN_JOB_RUN_TIME) {
+	if (td < LAUNCHD_MIN_JOB_RUN_TIME && !j->legacy_mach_job) {
 		time_t respawn_delta = LAUNCHD_MIN_JOB_RUN_TIME - td;
 
 		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
