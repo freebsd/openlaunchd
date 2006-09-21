@@ -213,8 +213,6 @@ x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, m
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
-	trusted_client_check(j, &ldc);
-
 	ms = job_lookup_service(j, servicename, true);
 
 	if (ms == NULL) {
@@ -252,7 +250,7 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
-	trusted_client_check(j, &ldc);
+	job_log(j, LOG_NOTICE, "bootstrap_register() is deprecated. PID: %u Service: %s", ldc.pid, servicename);
 
 	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
 	
@@ -289,8 +287,6 @@ x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, ma
 	struct ldcred ldc;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
-
-	trusted_client_check(j, &ldc);
 
 	ms = job_lookup_service(j, servicename, true);
 
