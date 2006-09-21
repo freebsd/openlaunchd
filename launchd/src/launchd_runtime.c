@@ -572,3 +572,87 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		}
 	}
 }
+
+#if 0
+
+/* For ugly debug scenarios where syslogd is long gone (for example, during system shutdown). */
+
+void
+closelog(void)
+{
+}
+
+void
+openlog(const char *ident, int logopt, int facility)
+{
+	ident = 0;
+	logopt = 0;
+	facility = 0;
+}
+
+int
+setlogmask(int maskpri)
+{
+	return maskpri;
+}
+
+void
+syslog(int priority, const char *message, ...)
+{
+	va_list ap;
+
+	va_start(ap, message);
+
+	vsyslog(priority, message, ap);
+
+	va_end(ap);
+}
+
+void
+vsyslog(int priority, const char *message, va_list args)
+{
+	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
+	static FILE *ourlogfile = NULL;
+	int saved_errno = errno;
+	char newmsg[10000];
+	size_t i, j;
+
+	pthread_mutex_lock(&ourlock);
+
+	if (ourlogfile == NULL) {
+		ourlogfile = fopen("/var/log/launchd_raw.log", "a");
+	}
+
+	pthread_mutex_unlock(&ourlock);
+
+	if (ourlogfile == NULL) {
+		return;
+	}
+
+	if (message == NULL) {
+		return;
+	}
+
+	sprintf(newmsg, "p%u pp%u\t", getpid(), getppid());
+
+	for (i = 0, j = strlen(newmsg); message[i];) {
+		if (message[i] == '%' && message[i + 1] == 'm') {
+			char *errs = strerror(saved_errno);
+			strcpy(newmsg + j, errs ? errs : "unknown error");
+			j += strlen(newmsg + j);
+			i += 2;
+		} else {
+			newmsg[j] = message[i];
+			j++;
+			i++;
+		}
+	}
+
+	strcpy(newmsg + j, "\n");
+
+	vfprintf(ourlogfile, newmsg, args);
+
+	fflush(ourlogfile);
+}
+
+#endif
