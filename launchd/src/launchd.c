@@ -104,6 +104,7 @@ static jmp_buf doom_doom_doom;
 
 sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
+bool debug_shutdown_hangs = false;
 bool network_up = false;
 int batch_disabler_count = 0;
 
@@ -378,19 +379,24 @@ ppidexit_callback(void)
 void
 launchd_shutdown(void)
 {
+	struct stat sb;
+
 	if (shutdown_in_progress)
 		return;
 
 	shutdown_in_progress = true;
 
-	runtime_force_on_demand(true);
-	
+	if (stat("/var/db/debugShutdownHangs", &sb) != -1) {
+		debug_shutdown_hangs = true;
+	}
+
 	rlcj = NULL;
 
 	job_remove_all_inactive(root_job);
 
-	if (getpid() == 1)
+	if (getpid() == 1) {
 		catatonia();
+	}
 }
 
 void

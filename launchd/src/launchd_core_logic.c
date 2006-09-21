@@ -236,6 +236,7 @@ static void job_start_child(job_t j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
 static void job_postfork_become_user(job_t j);
+static void job_force_sampletool(job_t j);
 static void job_callback(void *obj, struct kevent *kev);
 static pid_t job_fork(job_t j);
 static size_t job_prep_log_preface(job_t j, char *buf);
@@ -433,8 +434,13 @@ job_remove_all_inactive(job_t j)
 
 	if (!job_active(j)) {
 		job_remove(j);
-	} else if (getpid() != 1) {
-		job_stop(j);
+	} else {
+		if (debug_shutdown_hangs) {
+			job_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 8, j) != -1);
+		}
+		if (getpid() != 1) {
+			job_stop(j);
+		}
 	}
 }
 
@@ -539,7 +545,7 @@ job_remove(job_t j)
 		free(j->stderrpath);
 
 	if (j->start_interval)
-		kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	free(j);
@@ -979,10 +985,11 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 't':
 	case 'T':
 		if (strcasecmp(key, LAUNCH_JOBKEY_TIMEOUT) == 0) {
-			if (value <= 0)
+			if (value <= 0) {
 				job_log(j, LOG_WARNING, "Timeout less than or equal to zero. Ignoring.");
-			else
+			} else {
 				j->timeout = value;
+			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_THROTTLEINTERVAL) == 0) {
 			if (value < 0) {
 				job_log(j, LOG_WARNING, "%s less than zero. Ignoring.", LAUNCH_JOBKEY_THROTTLEINTERVAL);
@@ -1001,12 +1008,14 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 's':
 	case 'S':
 		if (strcasecmp(key, LAUNCH_JOBKEY_STARTINTERVAL) == 0) {
-			if (value <= 0)
+			if (value <= 0) {
 				job_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
-			else
+			} else {
 				j->start_interval = value;
-			if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j))
+			}
+			if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j)) {
 				job_log_error(j, LOG_ERR, "adding kevent timer");
+			}
 		}
 		break;
 	default:
@@ -1410,7 +1419,13 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_TIMER:
-		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
+		if ((uintptr_t)j == kev->ident) {
+			if (j->p && job_assumes(j, debug_shutdown_hangs)) {
+				job_force_sampletool(j);
+			} else {
+				job_dispatch(j, true);
+			}
+		} else if ((uintptr_t)&j->start_interval == kev->ident) {
 			job_dispatch(j, true);
 		} else {
 			calendarinterval_callback(j, kev);
@@ -2960,6 +2975,27 @@ pid_t
 job_get_pid(job_t j)
 {
 	return j->p;
+}
+
+void
+job_force_sampletool(job_t j)
+{
+	char pidstr[100];
+	pid_t sp;
+	
+	sprintf(pidstr, "%u", j->p);
+
+	switch ((sp = fork())) {
+	case -1:
+		job_log_error(j, LOG_DEBUG, "Failed to spawn sample tool");
+		break;
+	case 0:
+		job_assumes(j, execlp("sample", "sample", pidstr, "1", "-mayDie", NULL) != -1);
+		_exit(EXIT_FAILURE);
+	default:
+		job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) != -1);
+		break;
+	}
 }
 
 bool

@@ -35,6 +35,7 @@ struct conncb;
 extern kq_callback kqsimple_zombie_reaper;
 extern sigset_t blocked_signals;
 extern bool shutdown_in_progress;
+extern bool debug_shutdown_hangs;
 extern bool network_up;
 extern int batch_disabler_count;
 extern mach_port_t inherited_bootstrap_port;
