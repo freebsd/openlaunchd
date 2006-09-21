@@ -20,8 +20,6 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-#define LAUNCHD_MIN_JOB_RUN_TIME 10
-
 #include "bootstrap_public.h"
 
 #define job_assumes(j, e)      \

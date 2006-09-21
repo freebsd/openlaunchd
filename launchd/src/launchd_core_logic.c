@@ -80,6 +80,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "bootstrapServer.h"
 #include "mpm_reply.h"
 
+#define LAUNCHD_MIN_JOB_RUN_TIME 10
+
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
 	job_t			job;
@@ -207,6 +209,7 @@ struct job_s {
 	int nice;
 	int timeout;
 	time_t start_time;
+	time_t min_run_time;
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
@@ -719,6 +722,7 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 	strcpy(j->label, label);
 	j->kqjob_callback = job_callback;
 	j->parent = p ? job_get_bs(p) : NULL;
+	j->min_run_time = LAUNCHD_MIN_JOB_RUN_TIME;
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
@@ -979,7 +983,14 @@ job_import_integer(job_t j, const char *key, long long value)
 				job_log(j, LOG_WARNING, "Timeout less than or equal to zero. Ignoring.");
 			else
 				j->timeout = value;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_THROTTLEINTERVAL) == 0) {
+			if (value < 0) {
+				job_log(j, LOG_WARNING, "%s less than zero. Ignoring.", LAUNCH_JOBKEY_THROTTLEINTERVAL);
+			} else {
+				j->min_run_time = value;
+			}
 		}
+		break;
 		break;
 	case 'u':
 	case 'U':
@@ -1469,8 +1480,8 @@ job_start(job_t j)
 
 	td = time(NULL) - j->start_time;
 
-	if (td < LAUNCHD_MIN_JOB_RUN_TIME && !j->legacy_mach_job) {
-		time_t respawn_delta = LAUNCHD_MIN_JOB_RUN_TIME - td;
+	if (td < j->min_run_time && !j->legacy_mach_job) {
+		time_t respawn_delta = j->min_run_time - td;
 
 		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
 		job_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
