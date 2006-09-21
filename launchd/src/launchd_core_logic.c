@@ -81,6 +81,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "mpm_reply.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
+#define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
 
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
@@ -729,6 +730,7 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 	j->kqjob_callback = job_callback;
 	j->parent = p ? job_get_bs(p) : NULL;
 	j->min_run_time = LAUNCHD_MIN_JOB_RUN_TIME;
+	j->timeout = LAUNCHD_ADVISABLE_IDLE_TIMEOUT;
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
