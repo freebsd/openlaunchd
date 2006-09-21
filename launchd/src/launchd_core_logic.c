@@ -991,7 +991,6 @@ job_import_integer(job_t j, const char *key, long long value)
 			}
 		}
 		break;
-		break;
 	case 'u':
 	case 'U':
 		if (strcasecmp(key, LAUNCH_JOBKEY_UMASK) == 0) {
