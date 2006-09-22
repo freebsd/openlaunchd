@@ -1217,7 +1217,6 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 
 	// XXX --> RMRF_ITEMS="/var/tmp/folders.*
 
-	// 775 www:www /var/run/davlocks 4489695
 	// 775 root:daemon /var/run/StartupItems
 
 	assumes(touch_file(_PATH_UTMP, DEFFILEMODE) != -1);
