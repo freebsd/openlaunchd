@@ -627,9 +627,6 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 	j->legacy_mach_job = true;
 	j->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
 
-	if (!job_setup_machport(j))
-		goto out_bad;
-
 	if (!job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
 		job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 		goto out_bad;
@@ -679,11 +676,6 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 	jr->stall_before_exec = w4d;
 	jr->force_ppc = fppc;
 
-	if (!job_setup_machport(jr)) {
-		job_remove(jr);
-		return NULL;
-	}
-
 	if (workingdir)
 		jr->workingdir = strdup(workingdir);
 
@@ -723,8 +715,9 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 
 	j = calloc(1, sizeof(struct job_s) + strlen(label) + 1);
 
-	if (!job_assumes(p, j != NULL))
-		goto out_bad;
+	if (!job_assumes(p, j != NULL)) {
+		return NULL;
+	}
 
 	strcpy(j->label, label);
 	j->kqjob_callback = job_callback;
@@ -734,6 +727,10 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
+
+	if (!job_setup_machport(j)) {
+		goto out_bad;
+	}
 
 	if (reqport != MACH_PORT_NULL) {
 		j->req_port = reqport;
@@ -783,13 +780,12 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 	return j;
 
 out_bad:
-	if (j) {
-		if (j->prog)
-			free(j->prog);
-		if (j->stdinpath)
-			free(j->stdinpath);
-		free(j);
-	}
+	if (j->prog)
+		free(j->prog);
+	if (j->stdinpath)
+		free(j->stdinpath);
+	free(j);
+
 	return NULL;
 }
 
@@ -1079,8 +1075,6 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 	case 'M':
 		if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICES) == 0) {
 			launch_data_dict_iterate(value, machservice_setup, j);
-			if (!SLIST_EMPTY(&j->machservices))
-				job_setup_machport(j);
 		}
 		break;
 	default:
