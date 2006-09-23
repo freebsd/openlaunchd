@@ -50,9 +50,7 @@ routine bootstrap_create_server(
 	ServerAuditToken	__token	: audit_token_t;
 	out	__server_port	: mach_port_make_send_t);
 
-routine bootstrap_unprivileged(
-		__bs_port	: mach_port_t;
-	out	__unpriv_port	: mach_port_make_send_t);
+skip; /* Last used in 10.4. Was bootstrap_unprivileged() */
 
 routine bootstrap_check_in(
 			__bs_port	: mach_port_t;
@@ -126,3 +124,9 @@ routine mpm_wait(
 routine mpm_uncork_fork(
 		__bs_port	: mach_port_t;
 	ServerAuditToken	__token	: audit_token_t);
+
+/* Essentially the inverse of bootstrap_unprivileged() */
+routine bootstrap_get_self(
+		__bs_port	: mach_port_t;
+	ServerAuditToken        __token : audit_token_t;
+	out	__job_port	: mach_port_make_send_t);

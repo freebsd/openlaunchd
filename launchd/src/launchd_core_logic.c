@@ -1244,16 +1244,20 @@ job_find(job_t j, const char *label)
 }
 
 job_t 
-job_find_by_pid(job_t j, pid_t p)
+job_find_by_pid(job_t j, pid_t p, bool recurse)
 {
 	job_t jr, ji;
 
-	if (j->p == p)
+	if (j->p == p) {
 		return j;
+	}
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find_by_pid(ji, p)))
+		if (ji->p == p) {
+			return ji;
+		} else if (recurse && (jr = job_find_by_pid(ji, p, recurse))) {
 			return jr;
+		}
 	}
 
 	errno = ESRCH;
@@ -1521,7 +1525,7 @@ job_start(job_t j)
 		job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
 	}
 
-	switch (c = job_fork(j->bs_port ? j : j->parent)) {
+	switch (c = job_fork(j->legacy_mach_job ? j : j->parent)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		job_assumes(j, close(execspair[0]) == 0);

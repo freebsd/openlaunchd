@@ -34,6 +34,10 @@
 #include <stdlib.h>
 #include <errno.h>
 
+static mach_port_t vproc_self;
+
+static void vproc_get_self(void);
+
 kern_return_t
 _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
@@ -160,7 +164,17 @@ bootstrap_subset(mach_port_t bp, mach_port_t requestor_port, mach_port_t *subset
 kern_return_t
 bootstrap_unprivileged(mach_port_t bp, mach_port_t *unpriv_port)
 {
-	return raw_bootstrap_unprivileged(bp, unpriv_port);
+	kern_return_t kr;
+
+	*unpriv_port = MACH_PORT_NULL;
+
+	kr = mach_port_mod_refs(mach_task_self(), bp, MACH_PORT_RIGHT_SEND, 1);
+
+	if (kr == KERN_SUCCESS) {
+		*unpriv_port = bp;
+	}
+
+	return kr;
 }
 
 kern_return_t
@@ -190,7 +204,13 @@ bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp)
 kern_return_t
 bootstrap_check_in(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
-	return raw_bootstrap_check_in(bp, service_name, sp);
+	if(bp != bootstrap_port) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	vproc_get_self();
+
+	return raw_bootstrap_check_in(vproc_self, service_name, sp);
 }
 
 kern_return_t
@@ -238,11 +258,6 @@ bootstrap_status(mach_port_t bp, name_t service_name, bootstrap_status_t *servic
 	if (bootstrap_check_in(bp, service_name, &p) == BOOTSTRAP_SUCCESS) {
 		mach_port_mod_refs(mach_task_self(), p, MACH_PORT_RIGHT_RECEIVE, -1);
 		*service_active = BOOTSTRAP_STATUS_ON_DEMAND;
-		if (raw_bootstrap_unprivileged(bp, &p) == BOOTSTRAP_SUCCESS) {
-			if (bp == p)
-				*service_active = BOOTSTRAP_STATUS_INACTIVE;
-			mach_port_deallocate(mach_task_self(), p);
-		}
 		return BOOTSTRAP_SUCCESS;
 	} else if (bootstrap_look_up(bp, service_name, &p) == BOOTSTRAP_SUCCESS) {
 		mach_port_deallocate(mach_task_self(), p);
@@ -260,6 +275,23 @@ bootstrap_info(mach_port_t bp,
 {
 	return raw_bootstrap_info(bp, service_names, service_namesCnt,
 			service_active, service_activeCnt);
+}
+
+
+void
+vproc_get_self(void)
+{
+	mach_port_t bp_self;
+
+	if (vproc_self != MACH_PORT_NULL) {
+		return;
+	}
+
+	if (raw_bootstrap_get_self(bootstrap_port, &bp_self) != 0) {
+		return;
+	}
+
+	vproc_self = bp_self;
 }
 
 const char *

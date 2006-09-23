@@ -189,15 +189,23 @@ x_bootstrap_getsocket(mach_port_t bp, name_t spr)
 }
 
 kern_return_t
-x_bootstrap_unprivileged(mach_port_t bp, mach_port_t *unprivportp)
+x_bootstrap_get_self(mach_port_t bp, audit_token_t au_tok, mach_port_t *unprivportp)
 {
-	job_t j = job_find_by_port(bp);
+	job_t j2, j = job_find_by_port(bp);
+	struct ldcred ldc;
+
+	audit_token_to_launchd_cred(au_tok, &ldc);
 
 	job_log(j, LOG_DEBUG, "Requested unprivileged bootstrap port");
 
-	j = job_get_bs(j);
+	j2 = job_find_by_pid(j, ldc.pid, false);
 
-	*unprivportp = job_get_bsport(j);
+	if (!j2) {
+		job_log(j, LOG_NOTICE, "PID %u not managed by launchd", ldc.pid);
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	*unprivportp = job_get_bsport(j2);
 
 	return BOOTSTRAP_SUCCESS;
 }
@@ -250,7 +258,7 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
-	j2 = job_find_by_pid(root_job, ldc.pid);
+	j2 = job_find_by_pid(root_job, ldc.pid, true);
 
 	if (j2 && job_get_bs(j2) == j) {
 		j = j2;

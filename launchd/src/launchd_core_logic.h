@@ -42,7 +42,7 @@ bootstrap_status_t machservice_status(struct machservice *);
 
 
 job_t job_find(job_t j, const char *label);
-job_t job_find_by_pid(job_t j, pid_t p);
+job_t job_find_by_pid(job_t j, pid_t p, bool recurse);
 job_t job_find_by_port(mach_port_t mp);
 job_t job_import(launch_data_t pload);
 launch_data_t job_import_bulk(launch_data_t pload);
