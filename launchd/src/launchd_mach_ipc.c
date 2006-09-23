@@ -269,7 +269,7 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 	}
 
 	if (serviceport != MACH_PORT_NULL) {
-		if ((ms = machservice_new(job_get_bs(j), servicename, &serviceport))) {
+		if ((ms = machservice_new(j, servicename, &serviceport))) {
 			machservice_watch(ms);
 		} else {
 			return BOOTSTRAP_NO_MEMORY;

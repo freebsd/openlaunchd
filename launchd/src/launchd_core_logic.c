@@ -2843,7 +2843,7 @@ machservice_watch(struct machservice *ms)
 
 	ms->isActive = true;
 
-	if (ms->job->req_port == MACH_PORT_NULL) {
+	if (ms->recv) {
 		which = MACH_NOTIFY_PORT_DESTROYED;
 		job_checkin(ms->job);
 	}
