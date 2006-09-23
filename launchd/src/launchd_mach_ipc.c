@@ -244,11 +244,17 @@ x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, m
 kern_return_t
 x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
 {
-	job_t j = job_find_by_port(bp);
+	job_t j2, j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
+
+	j2 = job_find_by_pid(root_job, ldc.pid);
+
+	if (j2 && job_get_bs(j2) == j) {
+		j = j2;
+	}
 
 	job_log(j, LOG_NOTICE, "bootstrap_register() is deprecated. PID: %u Service: %s", ldc.pid, servicename);
 
