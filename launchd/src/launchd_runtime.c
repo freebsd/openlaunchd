@@ -99,8 +99,9 @@ launchd_runtime_init(void)
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
 	mxmsgsz = sizeof(union __RequestUnion__x_launchd_internal_subsystem);
-	if (x_launchd_internal_subsystem.maxsize > mxmsgsz)
+	if (x_launchd_internal_subsystem.maxsize > mxmsgsz) {
 		mxmsgsz = x_launchd_internal_subsystem.maxsize;
+	}
 
 	launchd_assert(runtime_add_mport(launchd_internal_port, launchd_internal_demux, mxmsgsz) == KERN_SUCCESS);
 
@@ -146,8 +147,9 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 	struct kevent kev;
 	unsigned int i;
 
-	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS))
+	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS)) {
 		return 1;
+	}
 
 	for (i = 0; i < membersCnt; i++) {
 		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
@@ -177,8 +179,9 @@ kqueue_demand_loop(void *arg __attribute__((unused)))
 	for (;;) {
 		FD_ZERO(&rfds);
 		FD_SET(mainkq, &rfds);
-		if (launchd_assumes(select(mainkq + 1, &rfds, NULL, NULL, NULL) == 1))
+		if (launchd_assumes(select(mainkq + 1, &rfds, NULL, NULL, NULL) == 1)) {
 			launchd_assumes(handle_kqueue(launchd_internal_port, mainkq) == 0);
+		}
 	}
 
 	return NULL;
@@ -193,8 +196,9 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 
 	launchd_assumes((kevr = kevent(fd, NULL, 0, &kev, 1, &ts)) != -1);
 
-	if (kevr == 1)
+	if (kevr == 1) {
 		(*((kq_callback *)kev.udata))(kev.udata, &kev);
+	}
 
 	launchd_post_kevent();
 
@@ -256,15 +260,17 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 	if (which == MACH_NOTIFY_NO_SENDERS) {
 		/* Always make sure the send count is zero, in case a receive right is reused */
 		errno = mach_port_set_mscount(mach_task_self(), name, 0);
-		if (errno != KERN_SUCCESS)
+		if (errno != KERN_SUCCESS) {
 			return errno;
+		}
 	}
 
 	errno = mach_port_request_notification(mach_task_self(), name, which, msgc, where,
 			MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
 
-	if (errno == 0 && previous != MACH_PORT_NULL)
+	if (errno == 0 && previous != MACH_PORT_NULL) {
 		launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
+	}
 
 	return errno;
 }
@@ -293,8 +299,9 @@ runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size
 		needed_table_sz *= 2; /* Let's try and avoid realloc'ing for a while */
 		mig_callback *new_table = malloc(needed_table_sz);
 
-		if (!launchd_assumes(new_table != NULL))
+		if (!launchd_assumes(new_table != NULL)) {
 			return KERN_RESOURCE_SHORTAGE;
+		}
 
 		if (mig_cb_table) {
 			memcpy(new_table, mig_cb_table, mig_cb_table_sz);
@@ -352,8 +359,9 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 	struct kevent kev;
 	int q = mainkq;
 
-	if (EVFILT_TIMER == filter || EVFILT_VNODE == filter)
+	if (EVFILT_TIMER == filter || EVFILT_VNODE == filter) {
 		q = asynckq;
+	}
 
 	if (flags & EV_ADD && !launchd_assumes(udata != NULL)) {
 		errno = EINVAL;
@@ -424,8 +432,9 @@ do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 	 * objects goes away.
 	 */
 
-	if (!launchd_assumes(j != NULL))
+	if (!launchd_assumes(j != NULL)) {
 		return KERN_FAILURE;
+	}
 
 	job_ack_no_senders(j);
 

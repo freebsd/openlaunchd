@@ -220,12 +220,14 @@ main(int argc, char *const *argv)
 
 	/* main phase three: get the party started */
 
-	if (dflag)
+	if (dflag) {
 		launchd_assumes(daemon(0, 0) == 0);
+	}
 
 	logopts = LOG_PID|LOG_CONS;
-	if (Dflag)
+	if (Dflag) {
 		logopts |= LOG_PERROR;
+	}
 
 	openlog(getprogname(), logopts, LOG_LAUNCHD);
 	setlogmask(LOG_UPTO(Dflag ? LOG_DEBUG : LOG_NOTICE));
@@ -276,11 +278,13 @@ main(int argc, char *const *argv)
 	rlcj = job_new(root_job, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf, MACH_PORT_NULL);
 	launchd_assert(rlcj != NULL);
 
-	if (argv[0])
+	if (argv[0]) {
 		fbj = job_new(root_job, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL, MACH_PORT_NULL);
+	}
 
-	if (NULL == getenv("PATH"))
+	if (NULL == getenv("PATH")) {
 		setenv("PATH", _PATH_STDPATH, 1);
+	}
 
 	if (getpid() == 1) {
 		pid1_magic_init(sflag);
@@ -303,23 +307,28 @@ main(int argc, char *const *argv)
 		 * configuration files. "Weee."
 		 */
 
-		if (pp == 1)
+		if (pp == 1) {
 			exit(EXIT_SUCCESS);
+		}
 
 		ker = kevent_mod(pp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqppidexit_callback);
 
-		if (ker == -1)
+		if (ker == -1) {
 			exit(launchd_assumes(errno == ESRCH) ? EXIT_SUCCESS : EXIT_FAILURE);
+		}
 	}
 
-	if (stat(ldconf, &sb) == 0)
+	if (stat(ldconf, &sb) == 0) {
 		job_dispatch(rlcj, true);
+	}
 
-	if (fbj)
+	if (fbj) {
 		job_dispatch(fbj, true);
+	}
 
-	if (getpid() == 1 && !job_active(rlcj))
+	if (getpid() == 1 && !job_active(rlcj)) {
 		init_pre_kevent();
+	}
 
 	launchd_assert(setjmp(doom_doom_doom) == 0);
 	launchd_assumes(signal(SIGILL, fatal_signal_handler) != SIG_ERR);
@@ -353,8 +362,9 @@ usage(FILE *where)
 {
 	const char *opts = "[-d]";
 
-	if (getuid() == 0)
+	if (getuid() == 0) {
 		opts = "[-d] [-S <type> -U <user>]";
+	}
 
 	fprintf(where, "%s: %s [-- command [args ...]]\n", getprogname(), opts);
 
@@ -366,15 +376,17 @@ usage(FILE *where)
 		fprintf(where, "\t-U <user>   Which user to create the session as.\n");
 	}
 
-	if (where == stdout)
+	if (where == stdout) {
 		exit(EXIT_SUCCESS);
+	}
 }
 
 int
 _fd(int fd)
 {
-	if (fd >= 0)
+	if (fd >= 0) {
 		launchd_assumes(fcntl(fd, F_SETFD, 1) != -1);
+	}
 	return fd;
 }
 
@@ -394,8 +406,9 @@ launchd_shutdown(void)
 {
 	struct stat sb;
 
-	if (shutdown_in_progress)
+	if (shutdown_in_progress) {
 		return;
+	}
 
 	shutdown_in_progress = true;
 
@@ -423,8 +436,9 @@ launchd_single_user(void)
 
 	for (tries = 0; tries < 10; tries++) {
 		sleep(1);
-		if (kill(-1, 0) == -1 && errno == ESRCH)
+		if (kill(-1, 0) == -1 && errno == ESRCH) {
 			goto out;
+		}
 	}
 
 	syslog(LOG_WARNING, "Gave up waiting for processes to exit while going to single user mode, sending SIGKILL");
@@ -440,8 +454,9 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 
 	switch (kev->ident) {
 	case SIGHUP:
-		if (rlcj)
+		if (rlcj) {
 			job_dispatch(rlcj, true);
+		}
 		break;
 	case SIGTERM:
 		launchd_shutdown();
@@ -483,8 +498,9 @@ launchd_SessionCreate(void)
 	void *seclib;
 
 	if (launchd_assumes((seclib = dlopen(SECURITY_LIB, RTLD_LAZY)) != NULL)) {
-		if (launchd_assumes((sescr = dlsym(seclib, "SessionCreate")) != NULL))
+		if (launchd_assumes((sescr = dlsym(seclib, "SessionCreate")) != NULL)) {
 			launchd_assumes(sescr(0, 0) == noErr);
+		}
 		launchd_assumes(dlclose(seclib) != -1);
 	}
 }
@@ -514,10 +530,12 @@ launchd_setstdio(int d, launch_data_t o)
 	if (launch_data_get_type(o) == LAUNCH_DATA_STRING) {
 		char **where = &pending_stderr;
 
-		if (d == STDOUT_FILENO)
+		if (d == STDOUT_FILENO) {
 			where = &pending_stdout;
-		if (*where)
+		}
+		if (*where) {
 			free(*where);
+		}
 		*where = strdup(launch_data_get_string(o));
 	} else if (launch_data_get_type(o) == LAUNCH_DATA_FD) {
 		launchd_assumes(dup2(launch_data_get_fd(o), d) != -1);
@@ -534,11 +552,13 @@ batch_job_enable(bool e, struct conncb *c)
 	if (e && c->disabled_batch) {
 		batch_disabler_count--;
 		c->disabled_batch = 0;
-		if (batch_disabler_count == 0)
+		if (batch_disabler_count == 0) {
 			runtime_force_on_demand(false);
+		}
 	} else if (!e && !c->disabled_batch) {
-		if (batch_disabler_count == 0)
+		if (batch_disabler_count == 0) {
 			runtime_force_on_demand(true);
+		}
 		batch_disabler_count++;
 		c->disabled_batch = 1;
 	}
@@ -550,16 +570,20 @@ get_network_state(void)
 	struct ifaddrs *ifa, *ifai;
 	bool up = false;
 
-	if (!launchd_assumes(getifaddrs(&ifa) != -1))
+	if (!launchd_assumes(getifaddrs(&ifa) != -1)) {
 		return network_up;
+	}
 
 	for (ifai = ifa; ifai; ifai = ifai->ifa_next) {
-		if (!(ifai->ifa_flags & IFF_UP))
+		if (!(ifai->ifa_flags & IFF_UP)) {
 			continue;
-		if (ifai->ifa_flags & IFF_LOOPBACK)
+		}
+		if (ifai->ifa_flags & IFF_LOOPBACK) {
 			continue;
-		if (ifai->ifa_addr->sa_family != AF_INET && ifai->ifa_addr->sa_family != AF_INET6)
+		}
+		if (ifai->ifa_addr->sa_family != AF_INET && ifai->ifa_addr->sa_family != AF_INET6) {
 			continue;
+		}
 		up = true;
 		break;
 	}
@@ -577,8 +601,9 @@ monitor_networking_state(void)
 
 	network_up = get_network_state();
 
-	if (!launchd_assumes(pfs != -1))
+	if (!launchd_assumes(pfs != -1)) {
 		return;
+	}
 
 	memset(&kev_req, 0, sizeof(kev_req));
 	kev_req.vendor_code = KEV_VENDOR_APPLE;
@@ -627,8 +652,9 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 	} else {
 		strlcpy(buf, rcs_rev_tmp + 1, sizeof(buf));
 		rcs_rev_tmp = strchr(buf, ' ');
-		if (rcs_rev_tmp)
+		if (rcs_rev_tmp) {
 			*rcs_rev_tmp = '\0';
+		}
 	}
 
 	syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
@@ -645,16 +671,16 @@ progeny_check(pid_t p)
 		struct kinfo_proc kp;
 		size_t kplen = sizeof(kp);
 
-		if (launchd_assumes(sysctl(mib, miblen, &kp, &kplen, NULL, 0) != -1)
-				&& launchd_assumes(kplen == sizeof(kp))) {
+		if (launchd_assumes(sysctl(mib, miblen, &kp, &kplen, NULL, 0) != -1) && launchd_assumes(kplen == sizeof(kp))) {
 			p = kp.kp_eproc.e_ppid;
 		} else {
 			return false;
 		}
 	}
 
-	if (p == selfpid)
+	if (p == selfpid) {
 		return true;
+	}
 
 	return false;
 }
@@ -673,8 +699,9 @@ launchd_post_kevent(void)
 		}
 	}
 	if (getpid() == 1) {
-		if (rlcj && job_active(rlcj))
+		if (rlcj && job_active(rlcj)) {
 			return;
+		}
 		init_pre_kevent();
 	}
 }

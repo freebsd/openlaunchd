@@ -96,8 +96,9 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 
 	launchd_assumes(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
 
-	if (getpid() != 1)
+	if (getpid() != 1) {
 		launchd_assumes(inherited_bootstrap_port != MACH_PORT_NULL);
+	}
 
 	/* We set this explicitly as we start each child */
 	launchd_assumes(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
@@ -127,8 +128,9 @@ canReceive(mach_port_t port)
 {
 	mach_port_type_t p_type;
 	
-	if (!launchd_assumes(mach_port_type(mach_task_self(), port, &p_type) == KERN_SUCCESS))
+	if (!launchd_assumes(mach_port_type(mach_task_self(), port, &p_type) == KERN_SUCCESS)) {
 		return false;
+	}
 
 	return ((p_type & MACH_PORT_TYPE_RECEIVE) != 0);
 }
@@ -174,8 +176,9 @@ x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, bo
 
 	js = job_new_via_mach_init(j, server_cmd, server_uid, on_demand);
 
-	if (js == NULL)
+	if (js == NULL) {
 		return BOOTSTRAP_NO_MEMORY;
+	}
 
 	*server_portp = job_get_bsport(js);
 	return BOOTSTRAP_SUCCESS;
@@ -289,8 +292,9 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 	ms = job_lookup_service(j, servicename, false);
 
 	if (ms) {
-		if (machservice_job(ms) != j)
+		if (machservice_job(ms) != j) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
+		}
 		if (machservice_active(ms)) {
 			job_log(j, LOG_DEBUG, "Mach service registration failed. Already active: %s", servicename);
 			launchd_assumes(!canReceive(machservice_port(ms)));
@@ -410,12 +414,14 @@ x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *serv
 		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt, false);
 
 	mig_allocate((vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
-	if (!launchd_assumes(info_resp.service_names != NULL))
+	if (!launchd_assumes(info_resp.service_names != NULL)) {
 		goto out_bad;
+	}
 
 	mig_allocate((vm_address_t *)&info_resp.service_actives, cnt * sizeof(info_resp.service_actives[0]));
-	if (!launchd_assumes(info_resp.service_actives != NULL))
+	if (!launchd_assumes(info_resp.service_actives != NULL)) {
 		goto out_bad;
+	}
 
 	for (ji = j; ji; ji = job_parent(ji))
 		job_foreach_service(ji, x_bootstrap_info_copyservices, &info_resp, false);
@@ -462,16 +468,19 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	job_foreach_service(j, x_bootstrap_info_countservices, &cnt, true);
 
 	mig_allocate((vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
-	if (!launchd_assumes(info_resp.service_names != NULL))
+	if (!launchd_assumes(info_resp.service_names != NULL)) {
 		goto out_bad;
+	}
 
 	mig_allocate((vm_address_t *)&info_resp.ports, cnt * sizeof(info_resp.ports[0]));
-	if (!launchd_assumes(info_resp.ports != NULL))
+	if (!launchd_assumes(info_resp.ports != NULL)) {
 		goto out_bad;
+	}
 
 	mig_allocate((vm_address_t *)&info_resp.pids, cnt * sizeof(pid_t));
-	if (!launchd_assumes(info_resp.pids != NULL))
+	if (!launchd_assumes(info_resp.pids != NULL)) {
 		goto out_bad;
+	}
 
 	job_foreach_service(j, x_bootstrap_info_copyservices, &info_resp, true);
 
@@ -524,8 +533,9 @@ x_bootstrap_subset(mach_port_t bp, mach_port_t requestorport, mach_port_t *subse
 	}
 
 	if ((js = job_new_bootstrap(j, requestorport, MACH_PORT_NULL)) == NULL) {
-		if (requestorport == MACH_PORT_NULL)
+		if (requestorport == MACH_PORT_NULL) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
+		}
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
@@ -555,8 +565,9 @@ x_bootstrap_create_service(mach_port_t bp, name_t servicename, mach_port_t *serv
 	*serviceportp = MACH_PORT_NULL;
 	ms = machservice_new(j, servicename, serviceportp);
 
-	if (!launchd_assumes(ms != NULL))
+	if (!launchd_assumes(ms != NULL)) {
 		goto out_bad;
+	}
 
 	return BOOTSTRAP_SUCCESS;
 
@@ -581,8 +592,9 @@ x_mpm_uncork_fork(mach_port_t bp, audit_token_t au_tok)
 {
 	job_t j = job_find_by_port(bp);
 
-	if (!j)
+	if (!j) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
 
 	job_uncork_fork(j);
 
@@ -677,16 +689,21 @@ trusted_client_check(job_t j, struct ldcred *ldc)
 	 * warning level here.
 	 */
 
-	if (inherited_asid == ldc->asid)
+	if (inherited_asid == ldc->asid) {
 		return true;
-	if (progeny_check(ldc->pid))
+	}
+	if (progeny_check(ldc->pid)) {
 		return true;
-	if (ldc->euid == geteuid())
+	}
+	if (ldc->euid == geteuid()) {
 		return true;
-	if (ldc->euid == 0 && ldc->uid == 0)
+	}
+	if (ldc->euid == 0 && ldc->uid == 0) {
 		return true;
-	if (last_warned_pid == ldc->pid)
+	}
+	if (last_warned_pid == ldc->pid) {
 		return false;
+	}
 
 	job_log(j, LOG_NOTICE, "Security: PID %d (ASID %d) was leaked into this session (ASID %d). This will be denied in the future.", ldc->pid, ldc->asid, inherited_asid);
 

@@ -321,8 +321,9 @@ job_watch(job_t j)
 void
 job_stop(job_t j)
 {
-	if (j->p)
+	if (j->p) {
 		kill(j->p, SIGTERM);
+	}
 }
 
 launch_data_t
@@ -336,47 +337,50 @@ job_export2(job_t j, bool subjobs)
 {
 	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	if (r == NULL)
+	if (r == NULL) {
 		return NULL;
+	}
 
-	if ((tmp = launch_data_new_string(j->label)))
+	if ((tmp = launch_data_new_string(j->label))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LABEL);
-
-	if ((tmp = launch_data_new_bool(j->ondemand)))
+	}
+	if ((tmp = launch_data_new_bool(j->ondemand))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_ONDEMAND);
-
-	if ((tmp = launch_data_new_integer(j->last_exit_status)))
+	}
+	if ((tmp = launch_data_new_integer(j->last_exit_status))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LASTEXITSTATUS);
-
-	if (j->p && (tmp = launch_data_new_integer(j->p)))
+	} 
+	if (j->p && (tmp = launch_data_new_integer(j->p))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PID);
-
-	if ((tmp = launch_data_new_integer(j->timeout)))
+	}
+	if ((tmp = launch_data_new_integer(j->timeout))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_TIMEOUT);
-
-	if (j->prog && (tmp = launch_data_new_string(j->prog)))
+	}
+	if (j->prog && (tmp = launch_data_new_string(j->prog))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PROGRAM);
-
-	if (j->stdoutpath && (tmp = launch_data_new_string(j->stdoutpath)))
+	}
+	if (j->stdoutpath && (tmp = launch_data_new_string(j->stdoutpath))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDOUTPATH);
-
-	if (j->stderrpath && (tmp = launch_data_new_string(j->stderrpath)))
+	}
+	if (j->stderrpath && (tmp = launch_data_new_string(j->stderrpath))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDERRORPATH);
-
+	}
 	if (j->argv && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
 		int i;
 
 		for (i = 0; i < j->argc; i++) {
-			if ((tmp2 = launch_data_new_string(j->argv[i])))
+			if ((tmp2 = launch_data_new_string(j->argv[i]))) {
 				launch_data_array_set_index(tmp, tmp2, i);
+			}
 		}
 
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	}
 
 	if (j->inetcompat && (tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY))) {
-		if ((tmp2 = launch_data_new_bool(j->inetcompat_wait)))
+		if ((tmp2 = launch_data_new_bool(j->inetcompat_wait))) {
 			launch_data_dict_insert(tmp, tmp2, LAUNCH_JOBINETDCOMPATIBILITY_WAIT);
+		}
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_INETDCOMPATIBILITY);
 	}
 
@@ -387,8 +391,9 @@ job_export2(job_t j, bool subjobs)
 		SLIST_FOREACH(sg, &j->sockets, sle) {
 			if ((tmp2 = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
 				for (i = 0; i < sg->fd_cnt; i++) {
-					if ((tmp3 = launch_data_new_fd(sg->fds[i])))
+					if ((tmp3 = launch_data_new_fd(sg->fds[i]))) {
 						launch_data_array_set_index(tmp2, tmp3, i);
+					}
 				}
 				launch_data_dict_insert(tmp, tmp2, sg->name);
 			}
@@ -469,11 +474,13 @@ job_remove(job_t j)
 		}
 	}
 
-	if (j->parent)
+	if (j->parent) {
 		SLIST_REMOVE(&j->parent->jobs, j, job_s, sle);
+	}
 
-	if (j->execfd)
+	if (j->execfd) {
 		job_assumes(j, close(j->execfd) == 0);
+	}
 
 	if (j->bs_port) {
 		if (j->transfer_bstrap) {
@@ -483,70 +490,73 @@ job_remove(job_t j)
 		}
 	}
 
-	if (j->req_port)
+	if (j->req_port) {
 		job_assumes(j, launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
+	}
 
 #if 0
 	if (j->wait_reply_port) {
 	}
 #endif
 
-	while ((ji = SLIST_FIRST(&j->jobs)))
+	while ((ji = SLIST_FIRST(&j->jobs))) {
 		job_remove(ji);
-
-	while ((sg = SLIST_FIRST(&j->sockets)))
+	}
+	while ((sg = SLIST_FIRST(&j->sockets))) {
 		socketgroup_delete(j, sg);
-
-	while ((wp = SLIST_FIRST(&j->vnodes)))
+	}
+	while ((wp = SLIST_FIRST(&j->vnodes))) {
 		watchpath_delete(j, wp);
-
-	while ((ci = SLIST_FIRST(&j->cal_intervals)))
+	}
+	while ((ci = SLIST_FIRST(&j->cal_intervals))) {
 		calendarinterval_delete(j, ci);
-
-	while ((ei = SLIST_FIRST(&j->env)))
+	}
+	while ((ei = SLIST_FIRST(&j->env))) {
 		envitem_delete(j, ei, false);
-
-	while ((ei = SLIST_FIRST(&j->global_env)))
+	}
+	while ((ei = SLIST_FIRST(&j->global_env))) {
 		envitem_delete(j, ei, true);
-
-	while ((li = SLIST_FIRST(&j->limits)))
+	}
+	while ((li = SLIST_FIRST(&j->limits))) {
 		limititem_delete(j, li);
-
-	while ((ms = SLIST_FIRST(&j->machservices)))
+	}
+	while ((ms = SLIST_FIRST(&j->machservices))) {
 		machservice_delete(ms);
-
-	while ((si = SLIST_FIRST(&j->semaphores)))
+	}
+	while ((si = SLIST_FIRST(&j->semaphores))) {
 		semaphoreitem_delete(j, si);
+	}
 
-	if (j->prog)
+	if (j->prog) {
 		free(j->prog);
-
-	if (j->argv)
+	}
+	if (j->argv) {
 		free(j->argv);
-
-	if (j->rootdir)
+	}
+	if (j->rootdir) {
 		free(j->rootdir);
-
-	if (j->workingdir)
+	}
+	if (j->workingdir) {
 		free(j->workingdir);
-
-	if (j->username)
+	}
+	if (j->username) {
 		free(j->username);
-
-	if (j->groupname)
+	}
+	if (j->groupname) {
 		free(j->groupname);
-
-	if (j->stdinpath)
+	}
+	if (j->stdinpath) {
 		free(j->stdinpath);
-
-	if (j->stdoutpath)
+	}
+	if (j->stdoutpath) {
 		free(j->stdoutpath);
-
-	if (j->stderrpath)
+	}
+	if (j->stderrpath) {
 		free(j->stderrpath);
-
-	if (j->start_interval)
+	}
+	if (j->start_interval) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+	}
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	free(j);
@@ -560,16 +570,18 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 	unsigned int i, fd_cnt = 1;
 	int *fds;
 
-	if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY)
+	if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY) {
 		fd_cnt = launch_data_array_get_count(obj);
+	}
 
 	fds = alloca(fd_cnt * sizeof(int));
 
 	for (i = 0; i < fd_cnt; i++) {
-		if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY)
+		if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY) {
 			tmp_oai = launch_data_array_get_index(obj, i);
-		else
+		} else {
 			tmp_oai = obj;
+		}
 
 		fds[i] = launch_data_get_fd(tmp_oai);
 	}
@@ -584,16 +596,19 @@ job_setup_machport(job_t j)
 {
 	mach_msg_size_t mxmsgsz;
 
-	if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS))
+	if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
 		goto out_bad;
+	}
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
 	mxmsgsz = sizeof(union __RequestUnion__x_bootstrap_subsystem);
-	if (x_bootstrap_subsystem.maxsize > mxmsgsz)
+	if (x_bootstrap_subsystem.maxsize > mxmsgsz) {
 		mxmsgsz = x_bootstrap_subsystem.maxsize;
+	}
 
-	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS))
+	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS)) {
 		goto out_bad2;
+	}
 
 	return true;
 out_bad2:
@@ -609,8 +624,9 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 	job_t j = NULL;
 	char buf[1000];
 
-	if (!job_assumes(jbs, argv != NULL))
+	if (!job_assumes(jbs, argv != NULL)) {
 		goto out_bad;
+	}
 
 	/* preflight the string so we know how big it is */
 	sprintf(buf, "100000.%s", basename((char *)argv[0]));
@@ -619,8 +635,9 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 
 	free(argv);
 
-	if (!job_assumes(jbs, j != NULL))
+	if (!job_assumes(jbs, j != NULL)) {
 		goto out_bad;
+	}
 
 	j->mach_uid = uid;
 	j->ondemand = ond;
@@ -639,8 +656,9 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 	return j;
 
 out_bad:
-	if (j)
+	if (j) {
 		job_remove(j);
+	}
 	return NULL;
 }
 
@@ -669,15 +687,17 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 
 	jr = job_new(root_job, label, path, argv, NULL, MACH_PORT_NULL);
 
-	if (!jr)
+	if (!jr) {
 		return NULL;
+	}
 
 	jr->unload_at_exit = true;
 	jr->stall_before_exec = w4d;
 	jr->force_ppc = fppc;
 
-	if (workingdir)
+	if (workingdir) {
 		jr->workingdir = strdup(workingdir);
+	}
 
 	if (u_mask) {
 		jr->mask = *u_mask;
@@ -764,20 +784,23 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 
 	if (reqport != MACH_PORT_NULL) {
 		j->req_port = reqport;
-		if (!job_assumes(j, launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS))
+		if (!job_assumes(j, launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS)) {
 			goto out_bad;
+		}
 	}
 
 	if (prog) {
 		j->prog = strdup(prog);
-		if (!job_assumes(j, j->prog != NULL))
+		if (!job_assumes(j, j->prog != NULL)) {
 			goto out_bad;
+		}
 	}
 
 	if (stdinpath) {
 		j->stdinpath = strdup(stdinpath);
-		if (!job_assumes(j, j->stdinpath != NULL))
+		if (!job_assumes(j, j->stdinpath != NULL)) {
 			goto out_bad;
+		}
 	}
 
 	if (argv) {
@@ -789,8 +812,9 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 
 		j->argv = malloc((j->argc + 1) * sizeof(char *) + cc);
 
-		if (!job_assumes(j, j->argv != NULL))
+		if (!job_assumes(j, j->argv != NULL)) {
 			goto out_bad;
+		}
 
 		co = ((char *)j->argv) + ((j->argc + 1) * sizeof(char *));
 
@@ -810,10 +834,12 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 	return j;
 
 out_bad:
-	if (j->prog)
+	if (j->prog) {
 		free(j->prog);
-	if (j->stdinpath)
+	}
+	if (j->stdinpath) {
 		free(j->stdinpath);
+	}
 	free(j);
 
 	return NULL;
@@ -824,8 +850,9 @@ job_import(launch_data_t pload)
 {
 	job_t j = job_import2(pload);
 
-	if (j == NULL)
+	if (j == NULL) {
 		return NULL;
+	}
 
 	job_dispatch(j, false);
 
@@ -842,14 +869,16 @@ job_import_bulk(launch_data_t pload)
 	ja = alloca(c * sizeof(job_t ));
 
 	for (i = 0; i < c; i++) {
-		if ((ja[i] = job_import2(launch_data_array_get_index(pload, i))))
+		if ((ja[i] = job_import2(launch_data_array_get_index(pload, i)))) {
 			errno = 0;
+		}
 		launch_data_array_set_index(resp, launch_data_new_errno(errno), i);
 	}
 
 	for (i = 0; i < c; i++) {
-		if (ja[i] == NULL)
+		if (ja[i] == NULL) {
 			continue;
+		}
 		job_dispatch(ja[i], false);
 	}
 
@@ -862,33 +891,39 @@ job_import_bool(job_t j, const char *key, bool value)
 	switch (key[0]) {
 	case 'f':
 	case 'F':
-		if (strcasecmp(key, LAUNCH_JOBKEY_FORCEPOWERPC) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_FORCEPOWERPC) == 0) {
 			j->force_ppc = value;
+		}
 		break;
 	case 'k':
 	case 'K':
-		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
 			j->ondemand = !value;
+		}
 		break;
 	case 'o':
 	case 'O':
-		if (strcasecmp(key, LAUNCH_JOBKEY_ONDEMAND) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_ONDEMAND) == 0) {
 			j->ondemand = value;
+		}
 		break;
 	case 'd':
 	case 'D':
-		if (strcasecmp(key, LAUNCH_JOBKEY_DEBUG) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_DEBUG) == 0) {
 			j->debug = value;
+		}
 		break;
 	case 's':
 	case 'S':
-		if (strcasecmp(key, LAUNCH_JOBKEY_SESSIONCREATE) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_SESSIONCREATE) == 0) {
 			j->session_create = value;
+		}
 		break;
 	case 'l':
 	case 'L':
-		if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYIO) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYIO) == 0) {
 			j->low_pri_io = value;
+		}
 		break;
 	case 'i':
 	case 'I':
@@ -902,18 +937,21 @@ job_import_bool(job_t j, const char *key, bool value)
 		break;
 	case 'r':
 	case 'R':
-		if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0) {
 			j->runatload = value;
+		}
 		break;
 	case 'e':
 	case 'E':
-		if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0) {
 			j->globargv = value;
+		}
 		break;
 	case 'w':
 	case 'W':
-		if (strcasecmp(key, LAUNCH_JOBKEY_WAITFORDEBUGGER) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_WAITFORDEBUGGER) == 0) {
 			j->wait4debugger = value;
+		}
 		break;
 	default:
 		break;
@@ -928,8 +966,9 @@ job_import_string(job_t j, const char *key, const char *value)
 	switch (key[0]) {
 	case 'p':
 	case 'P':
-		if (strcasecmp(key, LAUNCH_JOBKEY_PROGRAM) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_PROGRAM) == 0) {
 			return;
+		}
 		break;
 	case 'l':
 	case 'L':
@@ -955,8 +994,9 @@ job_import_string(job_t j, const char *key, const char *value)
 		break;
 	case 'w':
 	case 'W':
-		if (strcasecmp(key, LAUNCH_JOBKEY_WORKINGDIRECTORY) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_WORKINGDIRECTORY) == 0) {
 			where2put = &j->workingdir;
+		}
 		break;
 	case 'u':
 	case 'U':
@@ -1007,8 +1047,9 @@ job_import_integer(job_t j, const char *key, long long value)
 	switch (key[0]) {
 	case 'n':
 	case 'N':
-		if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0) {
 			j->nice = value;
+		}
 		break;
 	case 't':
 	case 'T':
@@ -1059,21 +1100,24 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 	switch (key[0]) {
 	case 'k':
 	case 'K':
-		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
 			launch_data_dict_iterate(value, semaphoreitem_setup, j);
+		}
 		break;
 	case 'i':
 	case 'I':
 		if (strcasecmp(key, LAUNCH_JOBKEY_INETDCOMPATIBILITY) == 0) {
 			j->inetcompat = true;
-			if ((tmp = launch_data_dict_lookup(value, LAUNCH_JOBINETDCOMPATIBILITY_WAIT)))
+			if ((tmp = launch_data_dict_lookup(value, LAUNCH_JOBINETDCOMPATIBILITY_WAIT))) {
 				j->inetcompat_wait = launch_data_get_bool(tmp);
+			}
 		}
 		break;
 	case 'e':
 	case 'E':
-		if (strcasecmp(key, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES) == 0) {
 			launch_data_dict_iterate(value, envitem_setup, j);
+		}
 		break;
 	case 'u':
 	case 'U':
@@ -1136,13 +1180,15 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 		break;
 	case 'w':
 	case 'W':
-		if (strcasecmp(key, LAUNCH_JOBKEY_WATCHPATHS) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_WATCHPATHS) == 0) {
 			is_wp = true;
+		}
 		break;
 	case 'b':
 	case 'B':
-		if (strcasecmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0)
+		if (strcasecmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0) {
 			socketgroup_setup(value, LAUNCH_JOBKEY_BONJOURFDS, j);
+		}
 		break;
 	case 's':
 	case 'S':
@@ -1172,8 +1218,9 @@ job_import_keys(launch_data_t obj, const char *key, void *context)
 	job_t j = context;
 	launch_data_type_t kind;
 
-	if (obj == NULL)
+	if (obj == NULL) {
 		return;
+	}
 
 	kind = launch_data_get_type(obj);
 
@@ -1207,11 +1254,12 @@ job_import2(launch_data_t pload)
 	const char **argv = NULL;
 	job_t j;
 
-	if (pload == NULL)
+	if (pload == NULL) {
 		return NULL;
-
-	if (launch_data_get_type(pload) != LAUNCH_DATA_DICTIONARY)
+	}
+	if (launch_data_get_type(pload) != LAUNCH_DATA_DICTIONARY) {
 		return NULL;
+	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)) &&
 			(launch_data_get_type(tmp) == LAUNCH_DATA_STRING)) {
@@ -1247,8 +1295,9 @@ job_import2(launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	if ((j = job_new(root_job, label, prog, argv, NULL, MACH_PORT_NULL)))
+	if ((j = job_new(root_job, label, prog, argv, NULL, MACH_PORT_NULL))) {
 		launch_data_dict_iterate(pload, job_import_keys, j);
+	}
 
 	return j;
 }
@@ -1258,15 +1307,18 @@ job_find(job_t j, const char *label)
 {
 	job_t jr, ji;
 
-	if (label[0] == '\0')
+	if (label[0] == '\0') {
 		return root_job;
+	}
 
-	if (strcmp(j->label, label) == 0)
+	if (strcmp(j->label, label) == 0) {
 		return j;
+	}
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find(ji, label)))
+		if ((jr = job_find(ji, label))) {
 			return jr;
+		}
 	}
 
 	errno = ESRCH;
@@ -1300,17 +1352,20 @@ job_find_by_port2(job_t j, mach_port_t p)
 	struct machservice *ms;
 	job_t jr, ji;
 
-	if (j->bs_port == p)
+	if (j->bs_port == p) {
 		return j;
+	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (ms->port == p)
+		if (ms->port == p) {
 			return j;
+		}
 	}
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find_by_port2(ji, p)))
+		if ((jr = job_find_by_port2(ji, p))) {
 			return jr;
+		}
 	}
 
 	errno = ESRCH;
@@ -1329,8 +1384,9 @@ job_export_all2(job_t j, launch_data_t where)
 	launch_data_t tmp;
 	job_t ji;
 
-	if (job_assumes(j, (tmp = job_export2(j, false)) != NULL))
+	if (job_assumes(j, (tmp = job_export2(j, false)) != NULL)) {
 		launch_data_dict_insert(where, tmp, j->label);
+	}
 
 	SLIST_FOREACH(ji, &j->jobs, sle)
 		job_export_all2(ji, where);
@@ -1511,11 +1567,13 @@ job_start(job_t j)
 	bool sipc = false;
 	time_t td;
 
-	if (!job_assumes(j, j->req_port == MACH_PORT_NULL))
+	if (!job_assumes(j, j->req_port == MACH_PORT_NULL)) {
 		return;
+	}
 
-	if (!job_assumes(j, j->parent != NULL))
+	if (!job_assumes(j, j->parent != NULL)) {
 		return;
+	}
 
 	if (job_active(j)) {
 		job_log(j, LOG_DEBUG, "Already started");
@@ -1535,17 +1593,19 @@ job_start(job_t j)
 
 	job_log(j, LOG_DEBUG, "Starting");
 
-	if (!j->legacy_mach_job)
-		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
-
 	/* FIXME, using stdinpath is a hack for re-reading the conf file */
-	if (j->stdinpath)
+	if (j->stdinpath) {
 	       sipc = true;
+	} else if (!j->legacy_mach_job) {
+		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
+	}
+
 
 	j->checkedin = false;
 
-	if (sipc)
+	if (sipc) {
 		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
+	}
 
 	socketpair(AF_UNIX, SOCK_STREAM, 0, execspair);
 
@@ -1572,8 +1632,9 @@ job_start(job_t j)
 		if (j->firstborn) {
 			setpgid(getpid(), getpid());
 			if (isatty(STDIN_FILENO)) {
-				if (tcsetpgrp(STDIN_FILENO, getpid()) == -1)
+				if (tcsetpgrp(STDIN_FILENO, getpid()) == -1) {
 					job_log_error(j, LOG_WARNING, "tcsetpgrp()");
+				}
 			}
 		}
 
@@ -1585,8 +1646,9 @@ job_start(job_t j)
 		job_start_child(j, execspair[1]);
 		break;
 	default:
-		if (!SLIST_EMPTY(&j->machservices))
+		if (!SLIST_EMPTY(&j->machservices)) {
 			j->priv_port_has_senders = true;
+		}
 		j->p = c;
 		total_children++;
 		job_assumes(j, close(execspair[1]) == 0);
@@ -1595,14 +1657,16 @@ job_start(job_t j)
 			job_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
-		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1)
+		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1) {
 			job_log_error(j, LOG_ERR, "kevent_mod(j->execfd): %m");
+		}
 		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
-		       	if (j->ondemand)
+		       	if (j->ondemand) {
 				job_ignore(j);
+			}
 		}
 
 		if (!j->stall_before_exec) {
@@ -1628,8 +1692,9 @@ job_start_child(job_t j, int execfd)
 	if (j->argv && j->globargv) {
 		g.gl_offs = 1;
 		for (i = 0; i < j->argc; i++) {
-			if (i > 0)
+			if (i > 0) {
 				gflags |= GLOB_APPEND;
+			}
 			if (glob(j->argv[i], gflags, NULL, &g) != 0) {
 				job_log_error(j, LOG_ERR, "glob(\"%s\")", j->argv[i]);
 				exit(EXIT_FAILURE);
@@ -1650,18 +1715,21 @@ job_start_child(job_t j, int execfd)
 		argv[2] = NULL;
 	}
 
-	if (!j->inetcompat)
+	if (!j->inetcompat) {
 		argv++;
+	}
 
-	if (j->wait4debugger && ptrace(PT_TRACE_ME, getpid(), NULL, 0) == -1)
+	if (j->wait4debugger && ptrace(PT_TRACE_ME, getpid(), NULL, 0) == -1) {
 		job_log_error(j, LOG_ERR, "ptrace(PT_TRACE_ME, ...)");
+	}
 
 	if (j->force_ppc) {
 		int affinmib[] = { CTL_KERN, KERN_AFFINITY, 1, 1 };
 		size_t mibsz = sizeof(affinmib) / sizeof(affinmib[0]);
 
-		if (sysctl(affinmib, mibsz, NULL, NULL,  NULL, 0) == -1)
+		if (sysctl(affinmib, mibsz, NULL, NULL,  NULL, 0) == -1) {
 			job_log_error(j, LOG_WARNING, "Failed to force PowerPC execution");
+		}
 	}
 
 	if (j->prog) {
@@ -1696,8 +1764,9 @@ job_postfork_become_user(job_t j)
 	gid_t desired_gid = -1;
 	uid_t desired_uid = -1;
 
-	if (getuid() != 0)
+	if (getuid() != 0) {
 		return;
+	}
 
 	if (j->username) {
 		if ((pwe = getpwnam(j->username)) == NULL) {
@@ -1772,17 +1841,21 @@ job_setup_attributes(job_t j)
 			continue;
 		}
 
-		if (li->sethard)
+		if (li->sethard) {
 			rl.rlim_max = li->lim.rlim_max;
-		if (li->setsoft)
+		}
+		if (li->setsoft) {
 			rl.rlim_cur = li->lim.rlim_cur;
+		}
 
-		if (setrlimit(li->which, &rl) == -1)
+		if (setrlimit(li->which, &rl) == -1) {
 			job_log_error(j, LOG_WARNING, "setrlimit()");
+		}
 	}
 
-	if (!j->inetcompat && j->session_create)
+	if (!j->inetcompat && j->session_create) {
 		launchd_SessionCreate();
+	}
 
 	if (j->low_pri_io) {
 		if (setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE) == -1) {
@@ -1847,8 +1920,9 @@ dir_has_files(job_t j, const char *path)
 	struct dirent *de;
 	bool r = 0;
 
-	if (!dd)
+	if (!dd) {
 		return -1;
+	}
 
 	while ((de = readdir(dd))) {
 		if (strcmp(de->d_name, ".") && strcmp(de->d_name, "..")) {
@@ -1903,8 +1977,9 @@ job_prep_log_preface(job_t j, char *buf)
 	}
 	newlabel[o] = '\0';
 
-	if (j->parent)
+	if (j->parent) {
 		r = job_prep_log_preface(j->parent, buf);
+	}
 
 	return r + sprintf(buf + r, "%s%s", j->parent ? "/" : "", newlabel);
 }
@@ -1928,8 +2003,9 @@ job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, c
 	} else {
 		strlcpy(buf, rcs_rev_tmp + 1, sizeof(buf));
 		rcs_rev_tmp = strchr(buf, ' ');
-		if (rcs_rev_tmp)
+		if (rcs_rev_tmp) {
 			*rcs_rev_tmp = '\0';
+		}
 	}
 
 	job_log(j, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
@@ -1972,8 +2048,9 @@ watchpath_new(job_t j, const char *name, bool qdir)
 {
 	struct watchpath *wp = calloc(1, sizeof(struct watchpath) + strlen(name) + 1);
 
-	if (!job_assumes(j, wp != NULL))
+	if (!job_assumes(j, wp != NULL)) {
 		return false;
+	}
 
 	wp->is_qdir = qdir;
 
@@ -1989,8 +2066,9 @@ watchpath_new(job_t j, const char *name, bool qdir)
 void
 watchpath_delete(job_t j, struct watchpath *wp) 
 {
-	if (wp->fd != -1)
+	if (wp->fd != -1) {
 		job_assumes(j, close(wp->fd) != -1);
+	}
 
 	SLIST_REMOVE(&j->vnodes, wp, watchpath, sle);
 
@@ -2012,20 +2090,24 @@ watchpath_watch(job_t j, struct watchpath *wp)
 	int fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK;
 	int qdir_file_cnt;
 
-	if (!wp->is_qdir)
+	if (!wp->is_qdir) {
 		fflags |= NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE;
+	}
 
-	if (wp->fd == -1)
+	if (wp->fd == -1) {
 		wp->fd = _fd(open(wp->name, O_EVTONLY|O_NOCTTY|O_NOFOLLOW));
+	}
 
-	if (wp->fd == -1)
+	if (wp->fd == -1) {
 		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", wp->name);
+	}
 
 	job_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
 	job_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
 
-	if (!wp->is_qdir)
+	if (!wp->is_qdir) {
 		return;
+	}
 
 	if (-1 == (qdir_file_cnt = dir_has_files(j, wp->name))) {
 		job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
@@ -2041,8 +2123,9 @@ watchpath_callback(job_t j, struct kevent *kev)
 	int dir_file_cnt;
 
 	SLIST_FOREACH(wp, &j->vnodes, sle) {
-		if (wp->fd == (int)kev->ident)
+		if (wp->fd == (int)kev->ident) {
 			break;
+		}
 	}
 
 	job_assumes(j, wp != NULL);
@@ -2081,19 +2164,25 @@ calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 	tmptm.tm_wday = -1;
 	tmptm.tm_mon = -1;
 
-	if (LAUNCH_DATA_DICTIONARY != launch_data_get_type(obj))
+	if (LAUNCH_DATA_DICTIONARY != launch_data_get_type(obj)) {
 		return false;
+	}
 
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MINUTE)))
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MINUTE))) {
 		tmptm.tm_min = launch_data_get_integer(tmp_k);
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_HOUR)))
+	}
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_HOUR))) {
 		tmptm.tm_hour = launch_data_get_integer(tmp_k);
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_DAY)))
+	}
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_DAY))) {
 		tmptm.tm_mday = launch_data_get_integer(tmp_k);
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_WEEKDAY)))
+	}
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_WEEKDAY))) {
 		tmptm.tm_wday = launch_data_get_integer(tmp_k);
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MONTH)))
+	}
+	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MONTH))) {
 		tmptm.tm_mon = launch_data_get_integer(tmp_k);
+	}
 
 	return calendarinterval_new(j, &tmptm);
 }
@@ -2103,8 +2192,9 @@ calendarinterval_new(job_t j, struct tm *w)
 {
 	struct calendarinterval *ci = calloc(1, sizeof(struct calendarinterval));
 
-	if (!job_assumes(j, ci != NULL))
+	if (!job_assumes(j, ci != NULL)) {
 		return false;
+	}
 
 	ci->when = *w;
 
@@ -2131,8 +2221,9 @@ calendarinterval_callback(job_t j, struct kevent *kev)
 	struct calendarinterval *ci;
 
 	SLIST_FOREACH(ci, &j->cal_intervals, sle) {
-		if ((uintptr_t)ci == kev->ident)
+		if ((uintptr_t)ci == kev->ident) {
 			break;
+		}
 	}
 
 	if (job_assumes(j, ci != NULL)) {
@@ -2146,8 +2237,9 @@ socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd_cnt, bool j
 {
 	struct socketgroup *sg = calloc(1, sizeof(struct socketgroup) + strlen(name) + 1);
 
-	if (!job_assumes(j, sg != NULL))
+	if (!job_assumes(j, sg != NULL)) {
 		return false;
+	}
 
 	sg->fds = calloc(1, fd_cnt * sizeof(int));
 	sg->fd_cnt = fd_cnt;
@@ -2186,8 +2278,9 @@ socketgroup_ignore(job_t j, struct socketgroup *sg)
 	char buf[10000];
 	unsigned int i, buf_off = 0;
 
-	if (sg->junkfds)
+	if (sg->junkfds) {
 		return;
+	}
 
 	for (i = 0; i < sg->fd_cnt; i++)
 		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
@@ -2204,8 +2297,9 @@ socketgroup_watch(job_t j, struct socketgroup *sg)
 	char buf[10000];
 	unsigned int i, buf_off = 0;
 
-	if (sg->junkfds)
+	if (sg->junkfds) {
 		return;
+	}
 
 	for (i = 0; i < sg->fd_cnt; i++)
 		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
@@ -2227,8 +2321,9 @@ envitem_new(job_t j, const char *k, const char *v, bool global)
 {
 	struct envitem *ei = calloc(1, sizeof(struct envitem) + strlen(k) + 1 + strlen(v) + 1);
 
-	if (!job_assumes(j, ei != NULL))
+	if (!job_assumes(j, ei != NULL)) {
 		return false;
+	}
 
 	strcpy(ei->key, k);
 	ei->value = ei->key + strlen(k) + 1;
@@ -2260,8 +2355,9 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 {
 	job_t j = context;
 
-	if (launch_data_get_type(obj) != LAUNCH_DATA_STRING)
+	if (launch_data_get_type(obj) != LAUNCH_DATA_STRING) {
 		return;
+	}
 
 	envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
 }
@@ -2272,15 +2368,17 @@ limititem_update(job_t j, int w, rlim_t r)
 	struct limititem *li;
 
 	SLIST_FOREACH(li, &j->limits, sle) {
-		if (li->which == w)
+		if (li->which == w) {
 			break;
+		}
 	}
 
 	if (li == NULL) {
 		li = calloc(1, sizeof(struct limititem));
 
-		if (!job_assumes(j, li != NULL))
+		if (!job_assumes(j, li != NULL)) {
 			return false;
+		}
 
 		li->which = w;
 	}
@@ -2311,18 +2409,21 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 	int i, limits_cnt = (sizeof(launchd_keys2limits) / sizeof(launchd_keys2limits[0]));
 	rlim_t rl;
 
-	if (launch_data_get_type(obj) != LAUNCH_DATA_INTEGER)
+	if (launch_data_get_type(obj) != LAUNCH_DATA_INTEGER) {
 		return;
+	}
 
 	rl = launch_data_get_integer(obj);
 
 	for (i = 0; i < limits_cnt; i++) {
-		if (strcasecmp(launchd_keys2limits[i].key, key) == 0)
+		if (strcasecmp(launchd_keys2limits[i].key, key) == 0) {
 			break;
+		}
 	}
 
-	if (i == limits_cnt)
+	if (i == limits_cnt) {
 		return;
+	}
 
 	limititem_update(j, launchd_keys2limits[i].val, rl);
 }
@@ -2416,8 +2517,9 @@ job_keepalive(job_t j)
 	}
 
 	/* Maybe another job has the inverse path based semaphore as this job */
-	if (dispatch_others)
+	if (dispatch_others) {
 		job_dispatch_all_other_semaphores(root_job, j);
+	}
 
 	return false;
 }
@@ -2439,11 +2541,13 @@ job_active(job_t j)
 {
 	struct machservice *ms;
 
-	if (j->req_port)
+	if (j->req_port) {
 		return true;
+	}
 
-	if (j->p)
+	if (j->p) {
 		return true;
+	}
 
 	if (j->priv_port_has_senders) {
 		if (j->start_time && !j->checkedin) {
@@ -2458,8 +2562,9 @@ job_active(job_t j)
 	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (ms->isActive)
+		if (ms->isActive) {
 			return true;
+		}
 	}
 
 	return false;
@@ -2491,8 +2596,9 @@ job_fork(job_t j)
 		size_t i;
 
 		for (i = 0; i < NSIG; i++) {
-			if (sigismember(&blocked_signals, i))
+			if (sigismember(&blocked_signals, i)) {
 				signal(i, SIG_DFL);
+			}
 		}
 	}
 
@@ -2515,18 +2621,21 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport)
 {
 	struct machservice *ms;
 
-	if ((ms = calloc(1, sizeof(struct machservice) + strlen(name) + 1)) == NULL)
+	if ((ms = calloc(1, sizeof(struct machservice) + strlen(name) + 1)) == NULL) {
 		return NULL;
+	}
 
 	strcpy(ms->name, name);
 	ms->job = j;
 
 	if (*serviceport == MACH_PORT_NULL) {
-		if (!job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS))
+		if (!job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS)) {
 			goto out_bad;
+		}
 
-		if (!job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS))
+		if (!job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS)) {
 			goto out_bad2;
+		}
 		*serviceport = ms->port;
 		ms->isActive = false;
 		ms->recv = true;
@@ -2720,8 +2829,9 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 
 	j = job_new(p, bslabel, NULL, NULL, NULL, requestorport);
 	
-	if (j == NULL)
+	if (j == NULL) {
 		return NULL;
+	}
 
 	if (checkin_port != MACH_PORT_NULL) {
 		j->bs_port = checkin_port;
@@ -2733,11 +2843,13 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
 	mxmsgsz = sizeof(union __RequestUnion__x_bootstrap_subsystem);
-	if (x_bootstrap_subsystem.maxsize > mxmsgsz)
+	if (x_bootstrap_subsystem.maxsize > mxmsgsz) {
 		mxmsgsz = x_bootstrap_subsystem.maxsize;
+	}
 
-	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS))
+	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS)) {
 		goto out_bad;
+	}
 
 	if (p) {
 		job_log(p, LOG_DEBUG, "Mach sub-bootstrap created: %s", j->label);
@@ -2746,8 +2858,9 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 	return j;
 
 out_bad:
-	if (j)
+	if (j) {
 		job_remove(j);
+	}
 	return NULL;
 }
 
@@ -2799,25 +2912,30 @@ job_lookup_service(job_t j, const char *name, bool check_parent)
 	j = job_get_bs(j);
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (ji->req_port)
+		if (ji->req_port) {
 			continue;
+		}
 
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			if (strcmp(name, ms->name) == 0)
+			if (strcmp(name, ms->name) == 0) {
 				return ms;
+			}
 		}
 	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (strcmp(name, ms->name) == 0)
+		if (strcmp(name, ms->name) == 0) {
 			return ms;
+		}
 	}
 
-	if (j->parent == NULL)
+	if (j->parent == NULL) {
 		return NULL;
+	}
 
-	if (!check_parent)
+	if (!check_parent) {
 		return NULL;
+	}
 
 	return job_lookup_service(j->parent, name, true);
 }
@@ -2903,26 +3021,31 @@ mach_cmd2argv(const char *string)
 		while (isspace(*cp))
 			cp++;
 		term = (*cp == '"') ? *cp++ : '\0';
-		if (nargs < NELEM(argv))
+		if (nargs < NELEM(argv)) {
 			argv[nargs++] = argp;
+		}
 		while (*cp && (term ? *cp != term : !isspace(*cp)) && argp < END_OF(args)) {
-			if (*cp == '\\')
+			if (*cp == '\\') {
 				cp++;
+			}
 			*argp++ = *cp;
-			if (*cp)
+			if (*cp) {
 				cp++;
+			}
 		}
 		*argp++ = '\0';
 	}
 	argv[nargs] = NULL;
 
-	if (nargs == 0)
+	if (nargs == 0) {
 		return NULL;
+	}
 
 	argv_ret = malloc((nargs + 1) * sizeof(char *) + strlen(string) + 1);
 
-	if (!launchd_assumes(argv_ret != NULL))
+	if (!launchd_assumes(argv_ret != NULL)) {
 		return NULL;
+	}
 
 	co = (char *)argv_ret + (nargs + 1) * sizeof(char *);
 
@@ -2949,22 +3072,26 @@ job_ack_port_destruction(job_t j, mach_port_t p)
 	struct machservice *ms;
 
 	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (job_ack_port_destruction(ji, p))
+		if (job_ack_port_destruction(ji, p)) {
 			return true;
+		}
 	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (ms->port == p)
+		if (ms->port == p) {
 			break;
+		}
 	}
 
-	if (ms == NULL)
+	if (ms == NULL) {
 		return false;
+	}
 
 	ms->isActive = false;
 
-	if (ms->reset)
+	if (ms->reset) {
 		machservice_resetport(j, ms);
+	}
 
 	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
 
@@ -3001,11 +3128,13 @@ job_get_bsport(job_t j)
 job_t 
 job_get_bs(job_t j)
 {
-	if (j->req_port)
+	if (j->req_port) {
 		return j;
+	}
 
-	if (job_assumes(j, j->parent != NULL))
+	if (job_assumes(j, j->parent != NULL)) {
 		return j->parent;
+	}
 
 	return NULL;
 }
@@ -3043,16 +3172,19 @@ semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 	struct semaphoreitem *si;
 	size_t alloc_sz = sizeof(struct semaphoreitem);
 
-	if (what)
+	if (what) {
 		alloc_sz += strlen(what) + 1;
+	}
 
-	if (!job_assumes(j, si = calloc(1, alloc_sz)))
+	if (!job_assumes(j, si = calloc(1, alloc_sz))) {
 		return false;
+	}
 
 	si->why = why;
 
-	if (what)
+	if (what) {
 		strcpy(si->what, what);
+	}
 
 	SLIST_INSERT_HEAD(&j->semaphores, si, sle);
 
@@ -3102,8 +3234,9 @@ job_dispatch_all_other_semaphores(job_t j, job_t nj)
 {
 	job_t ji, jn;
 
-	if (j == nj)
+	if (j == nj) {
 		return;
+	}
 
 	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
 		job_dispatch_all_other_semaphores(ji, nj);
@@ -3152,8 +3285,9 @@ cronemu_wday(int wday, int hour, int min)
 	workingtm.tm_sec = 0;
 	workingtm.tm_min++;
 
-	if (wday == 7)
+	if (wday == 7) {
 		wday = 0;
+	}
 
 	while (!(workingtm.tm_wday == wday && cronemu_hour(&workingtm, hour, min))) {
 		workingtm.tm_mday++;
@@ -3179,15 +3313,17 @@ cronemu_mon(struct tm *wtm, int mon, int mday, int hour, int min)
 			workingtm.tm_min = 0;
 			carrytest = workingtm.tm_mon;
 			mktime(&workingtm);
-			if (carrytest != workingtm.tm_mon)
+			if (carrytest != workingtm.tm_mon) {
 				return false;
+			}
 		}
 		*wtm = workingtm;
 		return true;
 	}
 
-        if (mon < wtm->tm_mon)
+        if (mon < wtm->tm_mon) {
 		return false;
+	}
 
         if (mon > wtm->tm_mon) {
 		wtm->tm_mon = mon;
@@ -3212,15 +3348,17 @@ cronemu_mday(struct tm *wtm, int mday, int hour, int min)
 			workingtm.tm_min = 0;
 			carrytest = workingtm.tm_mday;
 			mktime(&workingtm);
-			if (carrytest != workingtm.tm_mday)
+			if (carrytest != workingtm.tm_mday) {
 				return false;
+			}
 		}
 		*wtm = workingtm;
 		return true;
 	}
 
-        if (mday < wtm->tm_mday)
+        if (mday < wtm->tm_mday) {
 		return false;
+	}
 
         if (mday > wtm->tm_mday) {
 		wtm->tm_mday = mday;
@@ -3243,15 +3381,17 @@ cronemu_hour(struct tm *wtm, int hour, int min)
 			workingtm.tm_min = 0;
 			carrytest = workingtm.tm_hour;
 			mktime(&workingtm);
-			if (carrytest != workingtm.tm_hour)
+			if (carrytest != workingtm.tm_hour) {
 				return false;
+			}
 		}
 		*wtm = workingtm;
 		return true;
 	}
 
-	if (hour < wtm->tm_hour)
+	if (hour < wtm->tm_hour) {
 		return false;
+	}
 
 	if (hour > wtm->tm_hour) {
 		wtm->tm_hour = hour;
@@ -3264,11 +3404,13 @@ cronemu_hour(struct tm *wtm, int hour, int min)
 bool
 cronemu_min(struct tm *wtm, int min)
 {
-	if (min == -1)
+	if (min == -1) {
 		return true;
+	}
 
-	if (min < wtm->tm_min)
+	if (min < wtm->tm_min) {
 		return false;
+	}
 
 	if (min > wtm->tm_min) {
 		wtm->tm_min = min;

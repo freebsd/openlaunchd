@@ -74,13 +74,15 @@ static bool ipc_inited = false;
 void
 ipc_clean_up(void)
 {
-	if (ipc_self != getpid())
+	if (ipc_self != getpid()) {
 		return;
+	}
 
-	if (-1 == unlink(sockpath))
+	if (-1 == unlink(sockpath)) {
 		syslog(LOG_WARNING, "unlink(\"%s\"): %m", sockpath);
-	else if (-1 == rmdir(sockdir))
+	} else if (-1 == rmdir(sockdir)) {
 		syslog(LOG_WARNING, "rmdir(\"%s\"): %m", sockdir);
+	}
 }
 
 void
@@ -92,11 +94,13 @@ ipc_server_init(int *fds, size_t fd_cnt)
 	char ourdir[1024];
 	size_t i;
 
-	if (ipc_inited)
+	if (ipc_inited) {
 		return;
+	}
 
-	if (fds)
+	if (fds) {
 		goto add_fds;
+	}
 
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
@@ -124,28 +128,32 @@ ipc_server_init(int *fds, size_t fd_cnt)
 		}
 	} else {
 		snprintf(ourdir, sizeof(ourdir), "/tmp/launchd-%u.XXXXXX", getpid());
-		if (!launchd_assumes(mkdtemp(ourdir) != NULL))
+		if (!launchd_assumes(mkdtemp(ourdir) != NULL)) {
 			goto out_bad;
+		}
 		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/sock", ourdir);
 		setenv(LAUNCHD_SOCKET_ENV, sun.sun_path, 1);
 	}
 
 	if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
-		if (errno != EROFS)
+		if (errno != EROFS) {
 			syslog(LOG_ERR, "unlink(\"thesocket\"): %m");
+		}
 		goto out_bad;
 	}
 
-	if (!launchd_assumes((fd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) != -1))
+	if (!launchd_assumes((fd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) != -1)) {
 		goto out_bad;
+	}
 
 	oldmask = umask(S_IRWXG|S_IRWXO);
 	r = bind(fd, (struct sockaddr *)&sun, sizeof(sun));
 	umask(oldmask);
 
 	if (r == -1) {
-		if (errno != EROFS)
+		if (errno != EROFS) {
 			syslog(LOG_ERR, "bind(\"thesocket\"): %m");
+		}
 		goto out_bad;
 	}
 
@@ -177,8 +185,9 @@ add_fds:
 	}
 
 out_bad:
-	if (!ipc_inited && fd != -1)
+	if (!ipc_inited && fd != -1) {
 		launchd_assumes(close(fd) == 0);
+	}
 }
 
 void
@@ -217,8 +226,9 @@ ipc_callback(void *obj, struct kevent *kev)
 	
 	if (kev->filter == EVFILT_READ) {
 		if (launchd_msg_recv(c->conn, ipc_readmsg, c) == -1 && errno != EAGAIN) {
-			if (errno != ECONNRESET)
+			if (errno != ECONNRESET) {
 				syslog(LOG_DEBUG, "%s(): recv: %m", __func__);
+			}
 			ipc_close(c);
 		}
 	} else if (kev->filter == EVFILT_WRITE) {
@@ -256,8 +266,9 @@ ipc_close_fds(launch_data_t o)
 			ipc_close_fds(launch_data_array_get_index(o, i));
 		break;
 	case LAUNCH_DATA_FD:
-		if (launch_data_get_fd(o) != -1)
+		if (launch_data_get_fd(o) != -1) {
 			launchd_assumes(close(launch_data_get_fd(o)) == 0);
+		}
 		break;
 	default:
 		break;
@@ -303,8 +314,9 @@ ipc_readmsg(launch_data_t msg, void *context)
 		rmc.resp = launch_data_new_errno(EINVAL);
 	}
 
-	if (NULL == rmc.resp)
+	if (NULL == rmc.resp) {
 		rmc.resp = launch_data_new_errno(ENOSYS);
+	}
 
 	ipc_close_fds(msg);
 
@@ -327,8 +339,9 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	launch_data_t resp = NULL;
 	job_t j;
 
-	if (rmc->resp)
+	if (rmc->resp) {
 		return;
+	}
 
 	if (data == NULL) {
 		if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
@@ -405,8 +418,9 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		if (launch_data_get_type(data) == LAUNCH_DATA_ARRAY) {
 			resp = job_import_bulk(data);
 		} else {
-			if (job_import(data))
+			if (job_import(data)) {
 				errno = 0;
+			}
 			resp = launch_data_new_errno(errno);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_UNSETUSERENVIRONMENT)) {
@@ -477,8 +491,9 @@ adjust_rlimits(launch_data_t in)
 		}
 		
 		for (i = 0; i < (ltmpsz / sizeof(struct rlimit)); i++) {
-			if (ltmp[i].rlim_cur == l[i].rlim_cur && ltmp[i].rlim_max == l[i].rlim_max)
+			if (ltmp[i].rlim_cur == l[i].rlim_cur && ltmp[i].rlim_max == l[i].rlim_max) {
 				continue;
+			}
 
 			if (/* XXX readcfg_pid && */ getpid() == 1 && (i == RLIMIT_NOFILE || i == RLIMIT_NPROC)) {
 				int gmib[] = { CTL_KERN, KERN_MAXPROC };
@@ -496,8 +511,9 @@ adjust_rlimits(launch_data_t in)
 					break;
 				case RLIMIT_NPROC:
 					/* kernel will not clamp to this value, we must */
-					if (gval > (2048 + 20))
+					if (gval > (2048 + 20)) {
 						gval = 2048 + 20;
+					}
 					break;
 				default:
 					break;
