@@ -601,9 +601,9 @@ job_setup_machport(job_t j)
 	}
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
-	mxmsgsz = sizeof(union __RequestUnion__x_bootstrap_subsystem);
-	if (x_bootstrap_subsystem.maxsize > mxmsgsz) {
-		mxmsgsz = x_bootstrap_subsystem.maxsize;
+	mxmsgsz = sizeof(union __RequestUnion__job_mig_bootstrap_subsystem);
+	if (job_mig_bootstrap_subsystem.maxsize > mxmsgsz) {
+		mxmsgsz = job_mig_bootstrap_subsystem.maxsize;
 	}
 
 	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS)) {
@@ -2847,9 +2847,9 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
-	mxmsgsz = sizeof(union __RequestUnion__x_bootstrap_subsystem);
-	if (x_bootstrap_subsystem.maxsize > mxmsgsz) {
-		mxmsgsz = x_bootstrap_subsystem.maxsize;
+	mxmsgsz = sizeof(union __RequestUnion__job_mig_bootstrap_subsystem);
+	if (job_mig_bootstrap_subsystem.maxsize > mxmsgsz) {
+		mxmsgsz = job_mig_bootstrap_subsystem.maxsize;
 	}
 
 	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS)) {

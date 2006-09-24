@@ -44,7 +44,7 @@ _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		vm_offset_t *service_pids, mach_msg_type_number_t *service_pidsCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt)
 {
-	return raw_bootstrap_transfer_subset(bp, reqport, rcvright, service_names, service_namesCnt, service_pids, service_pidsCnt, ports, portCnt);
+	return vproc_mig_transfer_subset(bp, reqport, rcvright, service_names, service_namesCnt, service_pids, service_pidsCnt, ports, portCnt);
 }
 
 pid_t
@@ -114,7 +114,7 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 		break;
 	}
 
-	kr = raw_mpm_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, &p, &obsvr_port);
+	kr = vproc_mig_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, &p, &obsvr_port);
 
 	free(buf);
 
@@ -141,25 +141,25 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 kern_return_t
 mpm_wait(mach_port_t ajob, int *wstatus)
 {
-	return raw_mpm_wait(ajob, wstatus);
+	return vproc_mig_wait(ajob, wstatus);
 }
 
 kern_return_t
 mpm_uncork_fork(mach_port_t ajob)
 {
-	return raw_mpm_uncork_fork(ajob);
+	return vproc_mig_uncork_fork(ajob);
 }
 
 kern_return_t
 bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_port)
 {
-	return raw_bootstrap_create_server(bp, server_cmd, server_uid, on_demand, server_port);
+	return vproc_mig_create_server(bp, server_cmd, server_uid, on_demand, server_port);
 }
 
 kern_return_t
 bootstrap_subset(mach_port_t bp, mach_port_t requestor_port, mach_port_t *subset_port)
 {
-	return raw_bootstrap_subset(bp, requestor_port, subset_port);
+	return vproc_mig_subset(bp, requestor_port, subset_port);
 }
 
 kern_return_t
@@ -181,25 +181,25 @@ bootstrap_unprivileged(mach_port_t bp, mach_port_t *unpriv_port)
 kern_return_t
 bootstrap_getsocket(mach_port_t bp, name_t sockpath)
 {
-	return raw_bootstrap_getsocket(bp, sockpath);
+	return vproc_mig_getsocket(bp, sockpath);
 }
 
 kern_return_t
 bootstrap_parent(mach_port_t bp, mach_port_t *parent_port)
 {
-	return raw_bootstrap_parent(bp, parent_port);
+	return vproc_mig_parent(bp, parent_port);
 }
 
 kern_return_t
 bootstrap_register(mach_port_t bp, name_t service_name, mach_port_t sp)
 {
-	return raw_bootstrap_register(bp, service_name, sp);
+	return vproc_mig_register(bp, service_name, sp);
 }
 
 kern_return_t
 bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
-	return raw_bootstrap_create_service(bp, service_name, sp);
+	return vproc_mig_create_service(bp, service_name, sp);
 }
 
 kern_return_t
@@ -211,13 +211,13 @@ bootstrap_check_in(mach_port_t bp, name_t service_name, mach_port_t *sp)
 
 	vproc_get_self();
 
-	return raw_bootstrap_check_in(vproc_self, service_name, sp);
+	return vproc_mig_check_in(vproc_self, service_name, sp);
 }
 
 kern_return_t
 bootstrap_look_up(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
-	return raw_bootstrap_look_up(bp, service_name, sp);
+	return vproc_mig_look_up(bp, service_name, sp);
 }
 
 kern_return_t
@@ -274,7 +274,7 @@ bootstrap_info(mach_port_t bp,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
 		bootstrap_status_array_t *service_active, mach_msg_type_number_t *service_activeCnt)
 {
-	return raw_bootstrap_info(bp, service_names, service_namesCnt,
+	return vproc_mig_info(bp, service_names, service_namesCnt,
 			service_active, service_activeCnt);
 }
 
@@ -288,7 +288,7 @@ vproc_get_self(void)
 		return;
 	}
 
-	if (raw_bootstrap_get_self(bootstrap_port, &bp_self) != 0) {
+	if (vproc_mig_get_self(bootstrap_port, &bp_self) != 0) {
 		return;
 	}
 
