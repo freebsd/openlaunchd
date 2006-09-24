@@ -86,13 +86,12 @@ launchctl_SOURCES = launchctl.c
 launchctl_OBJECTS = launchctl-launchctl.$(OBJEXT)
 launchctl_LDADD = $(LDADD)
 am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
-	launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c \
-	notifyServer.c launchd_internalUser.c launchd_internalServer.c \
+	launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c \
+	launchd_internalUser.c launchd_internalServer.c \
 	mpm_replyUser.c launchd_runtime.c
 @LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_core_logic.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_unix_ipc.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-launchd_mach_ipc.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-init.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-bootstrapServer.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-notifyServer.$(OBJEXT) \
@@ -240,7 +239,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h				
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c launchd_mach_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c mpm_replyUser.c launchd_runtime.c
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c mpm_replyUser.c launchd_runtime.c
 #launchd.c:: bootstrap.h launchd_internalServer.h launchd_internal.h notifyServer.h bootstrapServer.h
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
@@ -430,7 +429,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_core_logic.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalUser.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_mach_ipc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_unix_ipc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-mpm_replyUser.Po@am__quote@
@@ -580,20 +578,6 @@ launchd-launchd_unix_ipc.obj: launchd_unix_ipc.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_unix_ipc.c' object='launchd-launchd_unix_ipc.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_unix_ipc.obj `if test -f 'launchd_unix_ipc.c'; then $(CYGPATH_W) 'launchd_unix_ipc.c'; else $(CYGPATH_W) '$(srcdir)/launchd_unix_ipc.c'; fi`
-
-launchd-launchd_mach_ipc.o: launchd_mach_ipc.c
-@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-launchd_mach_ipc.o -MD -MP -MF "$(DEPDIR)/launchd-launchd_mach_ipc.Tpo" -c -o launchd-launchd_mach_ipc.o `test -f 'launchd_mach_ipc.c' || echo '$(srcdir)/'`launchd_mach_ipc.c; \
-@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/launchd-launchd_mach_ipc.Tpo" "$(DEPDIR)/launchd-launchd_mach_ipc.Po"; else rm -f "$(DEPDIR)/launchd-launchd_mach_ipc.Tpo"; exit 1; fi
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_mach_ipc.c' object='launchd-launchd_mach_ipc.o' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_mach_ipc.o `test -f 'launchd_mach_ipc.c' || echo '$(srcdir)/'`launchd_mach_ipc.c
-
-launchd-launchd_mach_ipc.obj: launchd_mach_ipc.c
-@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-launchd_mach_ipc.obj -MD -MP -MF "$(DEPDIR)/launchd-launchd_mach_ipc.Tpo" -c -o launchd-launchd_mach_ipc.obj `if test -f 'launchd_mach_ipc.c'; then $(CYGPATH_W) 'launchd_mach_ipc.c'; else $(CYGPATH_W) '$(srcdir)/launchd_mach_ipc.c'; fi`; \
-@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/launchd-launchd_mach_ipc.Tpo" "$(DEPDIR)/launchd-launchd_mach_ipc.Po"; else rm -f "$(DEPDIR)/launchd-launchd_mach_ipc.Tpo"; exit 1; fi
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_mach_ipc.c' object='launchd-launchd_mach_ipc.obj' libtool=no @AMDEPBACKSLASH@
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_mach_ipc.obj `if test -f 'launchd_mach_ipc.c'; then $(CYGPATH_W) 'launchd_mach_ipc.c'; else $(CYGPATH_W) '$(srcdir)/launchd_mach_ipc.c'; fi`
 
 launchd-init.o: init.c
 @am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-init.o -MD -MP -MF "$(DEPDIR)/launchd-init.Tpo" -c -o launchd-init.o `test -f 'init.c' || echo '$(srcdir)/'`init.c; \
@@ -1042,8 +1026,7 @@ bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/boots
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
 @LIBS_ONLY_FALSE@launchd_runtime.c:: notifyServer.h launchd_internal.h
-@LIBS_ONLY_FALSE@launchd_mach_ipc.c:: bootstrap.h bootstrapServer.h
-@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h mpm_reply.h
+@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h mpm_reply.h bootstrap.h bootstrapServer.h
 
 @LIBS_ONLY_FALSE@notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
