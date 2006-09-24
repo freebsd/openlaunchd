@@ -112,7 +112,15 @@ struct machservice {
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
 static void machservice_setup_options(launch_data_t obj, const char *key, void *context);
 static void machservice_resetport(job_t j, struct machservice *ms);
-
+static struct machservice *machservice_new(job_t j, const char *name, mach_port_t *serviceport);
+static void machservice_delete(struct machservice *);
+static void machservice_watch(struct machservice *);
+static mach_port_t machservice_port(struct machservice *);
+static job_t machservice_job(struct machservice *);
+static bool machservice_hidden(struct machservice *);
+static bool machservice_active(struct machservice *);
+static const char *machservice_name(struct machservice *);
+static bootstrap_status_t machservice_status(struct machservice *);
 
 struct socketgroup {
 	SLIST_ENTRY(socketgroup) sle;
@@ -238,6 +246,9 @@ struct job_s {
 	char label[0];
 };
 
+#define job_assumes(j, e)      \
+	                (__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+
 static job_t job_import2(launch_data_t pload);
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
 static void job_import_bool(job_t j, const char *key, bool value);
@@ -262,6 +273,25 @@ static size_t job_prep_log_preface(job_t j, char *buf);
 static void job_setup_env_from_other_jobs(job_t j);
 static void job_export_all2(job_t j, launch_data_t where);
 static launch_data_t job_export2(job_t j, bool subjobs);
+static job_t job_find_by_pid(job_t j, pid_t p, bool recurse);
+static job_t job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
+static job_t job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond);
+static job_t job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port);
+static job_t job_new_anonymous(job_t p, pid_t who);
+static const char *job_prog(job_t j);
+static pid_t job_get_pid(job_t j);
+static mach_port_t job_get_bsport(job_t j);
+static mach_port_t job_get_reqport(job_t j);
+static job_t job_get_bs(job_t j);
+static job_t job_parent(job_t j);
+static void job_uncork_fork(job_t j);
+static struct machservice *job_lookup_service(job_t jbs, const char *name, bool check_parent);
+static void job_foreach_service(job_t jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool only_anonymous);
+static void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+static void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
+static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
+
 
 
 static const struct {
