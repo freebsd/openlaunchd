@@ -214,7 +214,7 @@ struct job_s {
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
-		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1, __pad0:1;
+		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1, anonymous:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1, stall_before_exec:1, __pad:26;
 	char label[0];
@@ -459,7 +459,7 @@ job_remove(job_t j)
 
 	job_log(j, LOG_DEBUG, "Removed");
 
-	if (j->p) {
+	if (j->p && !j->anonymous) {
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
 			job_reap(j);
 		} else {
@@ -696,6 +696,36 @@ job_new_spawn(const char *label, const char *path, const char *workingdir, const
 	}
 
 	job_dispatch(jr, true);
+
+	return jr;
+}
+
+job_t
+job_new_anonymous(job_t p, pid_t who)
+{
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, who };
+	char newlabel[1000], *procname = "unknown";
+	struct kinfo_proc kp;
+	size_t kplen = sizeof(kp);
+	job_t jr;
+
+	if (who) {
+		if (sysctl(mib, 4, &kp, &kplen, NULL, 0) == -1) {
+			return NULL;
+		}
+		procname = kp.kp_proc.p_comm;
+	}
+
+	sprintf(newlabel, "anonymous-%u.%s", who, procname);
+
+	jr = job_new(p, newlabel, procname, NULL, NULL, MACH_PORT_NULL);
+
+	if (!jr) {
+		return NULL;
+	}
+
+	jr->anonymous = true;
+	jr->p = who;
 
 	return jr;
 }
@@ -2648,25 +2678,30 @@ job_uncork_fork(job_t j)
 }
 
 void
-job_foreach_service(job_t j, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs)
+job_foreach_service(job_t j, void (*bs_iter)(struct machservice *, void *), void *context, bool only_anonymous)
 {
 	struct machservice *ms;
 	job_t ji;
 
 	j = job_get_bs(j);
 
-	if (include_subjobs) {
-		SLIST_FOREACH(ji, &j->jobs, sle) {
-			if (ji->req_port)
-				continue;
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		if (ji->req_port) {
+			continue;
+		} else if (only_anonymous && !ji->anonymous) {
+			continue;
+		}
 
-			SLIST_FOREACH(ms, &ji->machservices, sle)
-				bs_iter(ms, context);
+		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			bs_iter(ms, context);
 		}
 	}
 
-	SLIST_FOREACH(ms, &j->machservices, sle)
-		bs_iter(ms, context);
+	if (!job_assumes(j, SLIST_EMPTY(&j->machservices))) {
+		SLIST_FOREACH(ms, &j->machservices, sle) {
+			bs_iter(ms, context);
+		}
+	}
 }
 
 job_t 
@@ -2737,18 +2772,22 @@ job_delete_anything_with_port(job_t j, mach_port_t port)
 	}
 
 	SLIST_FOREACH_SAFE(ms, &j->machservices, sle, next_ms) {
-		if (ms->port == port)
+		if (ms->port == port) {
 			machservice_delete(ms);
+		}
 	}
 
 	if (j->req_port == port) {
 		if (j == root_job) {
 			launchd_shutdown();
 		} else {
-			job_remove(j);
+			return job_remove(j);
 		}
 	}
 
+	if (j->anonymous && SLIST_EMPTY(&j->machservices)) {
+		job_remove(j);
+	}
 }
 
 struct machservice *

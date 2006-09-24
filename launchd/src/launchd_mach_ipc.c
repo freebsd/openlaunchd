@@ -87,6 +87,7 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 {
 	mach_msg_type_number_t l2l_i;
 	auditinfo_t inherited_audit;
+	job_t root_anon_job;
 
 	getaudit(&inherited_audit);
 	inherited_asid = inherited_audit.ai_asid;
@@ -104,14 +105,18 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
 
-	if (l2l_names == NULL)
+	if (l2l_names == NULL) {
 		return;
+	}
+
+	launchd_assert(root_anon_job = job_new_anonymous(root_job, 0));
 
 	for (l2l_i = 0; l2l_i < l2l_cnt; l2l_i++) {
 		struct machservice *ms;
 
-		if ((ms = machservice_new(root_job, l2l_names[l2l_i], l2l_ports + l2l_i)))
+		if ((ms = machservice_new(root_anon_job, l2l_names[l2l_i], l2l_ports + l2l_i))) {
 			machservice_watch(ms);
+		}
 	}
 }
 
@@ -201,8 +206,15 @@ x_bootstrap_get_self(mach_port_t bp, audit_token_t au_tok, mach_port_t *unprivpo
 	j2 = job_find_by_pid(j, ldc.pid, false);
 
 	if (!j2) {
-		job_log(j, LOG_NOTICE, "PID %u not managed by launchd", ldc.pid);
-		return BOOTSTRAP_NOT_PRIVILEGED;
+		if (ldc.uid == getuid() && ldc.euid == geteuid()) {
+			j2 = job_new_anonymous(j, ldc.pid);
+			if (!j2) {
+				return BOOTSTRAP_NO_MEMORY;
+			}
+		} else {
+			job_log(j, LOG_NOTICE, "PID %u not managed by launchd", ldc.pid);
+			return BOOTSTRAP_NOT_PRIVILEGED;
+		}
 	}
 
 	*unprivportp = job_get_bsport(j2);
@@ -258,10 +270,14 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
-	j2 = job_find_by_pid(root_job, ldc.pid, true);
-
-	if (j2 && job_get_bs(j2) == j) {
-		j = j2;
+	if (j == job_get_bs(j)) {
+		j2 = job_find_by_pid(j, ldc.pid, false);
+		if (!j2) {
+			j2 = job_new_anonymous(j, ldc.pid);
+		}
+		if (j2) {
+			j = j2;
+		}
 	}
 
 	job_log(j, LOG_NOTICE, "bootstrap_register() is deprecated. PID: %u Service: %s", ldc.pid, servicename);
@@ -388,7 +404,7 @@ x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *serv
 	unsigned int cnt = 0;
 
 	for (ji = j; ji; ji = job_parent(ji))
-		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt, true);
+		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt, false);
 
 	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
 	if (!launchd_assumes(result == KERN_SUCCESS))
@@ -399,7 +415,7 @@ x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *serv
 		goto out_bad;
 
 	for (ji = j; ji; ji = job_parent(ji))
-		job_foreach_service(ji, x_bootstrap_info_copyservices, &info_resp, true);
+		job_foreach_service(ji, x_bootstrap_info_copyservices, &info_resp, false);
 
 	launchd_assumes(info_resp.i == cnt);
 
@@ -436,7 +452,7 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 
 	job_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
 
-	job_foreach_service(j, x_bootstrap_info_countservices, &cnt, false);
+	job_foreach_service(j, x_bootstrap_info_countservices, &cnt, true);
 
 	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
 	if (!launchd_assumes(result == KERN_SUCCESS))
@@ -446,7 +462,7 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	if (!launchd_assumes(result == KERN_SUCCESS))
 		goto out_bad;
 
-	job_foreach_service(j, x_bootstrap_info_copyservices, &info_resp, false);
+	job_foreach_service(j, x_bootstrap_info_copyservices, &info_resp, true);
 
 	launchd_assumes(info_resp.i == cnt);
 

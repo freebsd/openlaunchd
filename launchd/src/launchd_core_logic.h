@@ -50,6 +50,7 @@ job_t job_new(job_t p, const char *label, const char *prog, const char *const *a
 job_t job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
 job_t job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond);
 job_t job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port);
+job_t job_new_anonymous(job_t p, pid_t who);
 launch_data_t job_export(job_t j);
 launch_data_t job_export_all(void);
 void job_dispatch(job_t j, bool kickstart);
@@ -70,7 +71,7 @@ void job_delete_anything_with_port(job_t jbs, mach_port_t port);
 job_t job_parent(job_t j);
 void job_uncork_fork(job_t j);
 struct machservice *job_lookup_service(job_t jbs, const char *name, bool check_parent);
-void job_foreach_service(job_t jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool include_subjobs);
+void job_foreach_service(job_t jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool only_anonymous);
 void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
