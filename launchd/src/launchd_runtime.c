@@ -158,7 +158,7 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 			continue;
 		}
 		if (status.mps_msgcount) {
-			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, job_find_by_port(members[i]));
+			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, job_mig_intran(members[i]));
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			/* the callback may have tainted our ability to continue this for loop */
 			break;
@@ -426,7 +426,7 @@ do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
 kern_return_t
 do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 {
-	job_t j = job_find_by_port(notify);
+	job_t j = job_mig_intran(notify);
 
 	/* This message is sent to us when the last customer of one of our
 	 * objects goes away.

@@ -39,11 +39,18 @@ type _internal_string_t		= ^array [] of char;
 type bootstrap_status_t		= integer_t;
 type bootstrap_status_array_t	= ^array [] of bootstrap_status_t;
 
+type job_t = mach_port_t
+        intran: job_t job_mig_intran(mach_port_t) 
+        outtran: mach_port_t job_mig_outtran(job_t)
+        destructor: job_mig_destructor(job_t)
+        cusertype: vproc_mig_t;
+
+
 userprefix raw_;
 serverprefix x_;
 
 routine bootstrap_create_server(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 		__server_cmd	: cmd_t;
 		__server_uid	: natural_t;
 		__on_demand	: boolean_t;
@@ -53,19 +60,19 @@ routine bootstrap_create_server(
 skip; /* Last used in 10.4. Was bootstrap_unprivileged() */
 
 routine bootstrap_check_in(
-			__bs_port	: mach_port_t;
+			__bs_port	: job_t;
 			__service_name	: name_t;
 	ServerAuditToken	__token	: audit_token_t;
 		out	__service_port	: mach_port_move_receive_t);
 
 routine bootstrap_register(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 		__service_port	: mach_port_t);
 
 routine bootstrap_look_up(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 	out	__service_port	: mach_port_send_t);
@@ -73,28 +80,28 @@ routine bootstrap_look_up(
 skip; /* last used in 10.4 */
 
 routine bootstrap_parent(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	out	__parent_port	: mach_port_send_t);
 
 skip; /* last used in 10.4 */
 
 routine bootstrap_info(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	out	__service_names	: name_array_t, dealloc;
 	out __service_active	: bootstrap_status_array_t, dealloc);
 
 routine bootstrap_subset(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 		__requestor_port: mach_port_t;
 	out	__subset_port	: mach_port_make_send_t);
 
 routine bootstrap_create_service(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 		__service_name	: name_t;
 	out	__service_port	: mach_port_t);
 
 routine bootstrap_transfer_subset(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	out	__bs_reqport	: mach_port_t;
 	out	__bs_rcvright	: mach_port_move_receive_t;
 	out	__service_names	: name_array_t, dealloc;
@@ -102,11 +109,11 @@ routine bootstrap_transfer_subset(
 	out	__service_ports	: mach_port_array_t, dealloc);
 
 routine bootstrap_getsocket(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	out	__sockpath	: name_t);
 
 routine mpm_spawn(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	ServerAuditToken	__token	: audit_token_t;
 		__chars		: _internal_string_t;
 		__argc		: uint32_t;
@@ -117,17 +124,17 @@ routine mpm_spawn(
 	out	__obsvr_port	: mach_port_make_send_t);
 
 routine mpm_wait(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	sreplyport		__rport	: mach_port_make_send_once_t;
 	ServerAuditToken	__token	: audit_token_t;
 	out	__waitval	: integer_t);
 
 routine mpm_uncork_fork(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	ServerAuditToken	__token	: audit_token_t);
 
 /* Essentially the inverse of bootstrap_unprivileged() */
 routine bootstrap_get_self(
-		__bs_port	: mach_port_t;
+		__bs_port	: job_t;
 	ServerAuditToken        __token : audit_token_t;
 	out	__job_port	: mach_port_make_send_t);

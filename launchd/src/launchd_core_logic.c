@@ -1373,9 +1373,14 @@ job_find_by_port2(job_t j, mach_port_t p)
 }
 
 job_t 
-job_find_by_port(mach_port_t p)
+job_mig_intran(mach_port_t p)
 {
 	return job_find_by_port2(root_job, p);
+}
+
+void
+job_mig_destructor(job_t j __attribute__((unused)))
+{
 }
 
 void

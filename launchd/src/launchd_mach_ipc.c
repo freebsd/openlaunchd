@@ -53,13 +53,13 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <stdbool.h>
 #include <syslog.h>
 
+#include "launchd_core_logic.h"
 #include "bootstrap_public.h"
 #include "bootstrap_private.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
 #include "launchd.h"
 #include "launchd_runtime.h"
-#include "launchd_core_logic.h"
 #include "launch_priv.h"
 #include "launchd_unix_ipc.h"
 
@@ -145,11 +145,11 @@ audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc)
 }
 
 kern_return_t
-x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
+x_bootstrap_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
 		audit_token_t au_tok, mach_port_t *server_portp)
 {
-	job_t js, j = job_find_by_port(bp);
 	struct ldcred ldc;
+	job_t js;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
@@ -185,7 +185,7 @@ x_bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, bo
 }
 
 kern_return_t
-x_bootstrap_getsocket(mach_port_t bp, name_t spr)
+x_bootstrap_getsocket(job_t j, name_t spr)
 {
 	if (!sockpath) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -199,10 +199,10 @@ x_bootstrap_getsocket(mach_port_t bp, name_t spr)
 }
 
 kern_return_t
-x_bootstrap_get_self(mach_port_t bp, audit_token_t au_tok, mach_port_t *unprivportp)
+x_bootstrap_get_self(job_t j, audit_token_t au_tok, mach_port_t *unprivportp)
 {
-	job_t j2, j = job_find_by_port(bp);
 	struct ldcred ldc;
+	job_t j2;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
@@ -229,10 +229,9 @@ x_bootstrap_get_self(mach_port_t bp, audit_token_t au_tok, mach_port_t *unprivpo
 
   
 kern_return_t
-x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
+x_bootstrap_check_in(job_t j, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;
-	job_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -267,11 +266,11 @@ x_bootstrap_check_in(mach_port_t bp, name_t servicename, audit_token_t au_tok, m
 }
 
 kern_return_t
-x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
+x_bootstrap_register(job_t j, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
 {
-	job_t j2, j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
+	job_t j2;
 
 	audit_token_to_launchd_cred(au_tok, &ldc);
 
@@ -316,9 +315,8 @@ x_bootstrap_register(mach_port_t bp, audit_token_t au_tok, name_t servicename, m
 }
 
 kern_return_t
-x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
+x_bootstrap_look_up(job_t j, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
-	job_t j = job_find_by_port(bp);
 	struct machservice *ms;
 	struct ldcred ldc;
 
@@ -347,10 +345,8 @@ x_bootstrap_look_up(mach_port_t bp, audit_token_t au_tok, name_t servicename, ma
 }
 
 kern_return_t
-x_bootstrap_parent(mach_port_t bp, mach_port_t *parentport, mach_msg_type_name_t *pptype)
+x_bootstrap_parent(job_t j, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
-	job_t j = job_find_by_port(bp);
-
 	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
 
 	j = job_get_bs(j);
@@ -403,12 +399,12 @@ x_bootstrap_info_copyservices(struct machservice *ms, void *context)
 }
 
 kern_return_t
-x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
+x_bootstrap_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, NULL, 0 };
-	job_t ji, j = job_find_by_port(bp);
 	unsigned int cnt = 0;
+	job_t ji;
 
 	for (ji = j; ji; ji = job_parent(ji))
 		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt, false);
@@ -446,13 +442,12 @@ out_bad:
 }
 
 kern_return_t
-x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
+x_bootstrap_transfer_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 		vm_offset_t *service_pids, mach_msg_type_number_t *service_pidsCnt,
 		mach_port_array_t *ports, unsigned int *ports_cnt)
 {
 	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, NULL, 0 };
-	job_t j = job_find_by_port(bp);
 	unsigned int cnt = 0;
 
 	if (getpid() != 1) {
@@ -516,15 +511,14 @@ out_bad:
 }
 
 kern_return_t
-x_bootstrap_subset(mach_port_t bp, mach_port_t requestorport, mach_port_t *subsetportp)
+x_bootstrap_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 {
-	job_t js, j = job_find_by_port(bp);
 	int bsdepth = 0;
+	job_t js = j;
 
-	while ((j = job_parent(j)) != NULL)
+	while ((js = job_parent(js)) != NULL) {
 		bsdepth++;
-
-	j = job_find_by_port(bp);
+	}
 
 	/* Since we use recursion, we need an artificial depth for subsets */
 	if (bsdepth > 100) {
@@ -544,9 +538,8 @@ x_bootstrap_subset(mach_port_t bp, mach_port_t requestorport, mach_port_t *subse
 }
 
 kern_return_t
-x_bootstrap_create_service(mach_port_t bp, name_t servicename, mach_port_t *serviceportp)
+x_bootstrap_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
-	job_t j = job_find_by_port(bp);
 	struct machservice *ms;
 
 	if (job_prog(j)[0] == '\0') {
@@ -577,9 +570,8 @@ out_bad:
 }
 
 kern_return_t
-x_mpm_wait(mach_port_t bp, mach_port_t srp, audit_token_t au_tok, integer_t *waitstatus)
+x_mpm_wait(job_t j, mach_port_t srp, audit_token_t au_tok, integer_t *waitstatus)
 {
-	job_t j = job_find_by_port(bp);
 #if 0
 	struct ldcred ldc;
 	audit_token_to_launchd_cred(au_tok, &ldc);
@@ -588,10 +580,8 @@ x_mpm_wait(mach_port_t bp, mach_port_t srp, audit_token_t au_tok, integer_t *wai
 }
 
 kern_return_t
-x_mpm_uncork_fork(mach_port_t bp, audit_token_t au_tok)
+x_mpm_uncork_fork(job_t j, audit_token_t au_tok)
 {
-	job_t j = job_find_by_port(bp);
-
 	if (!j) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -602,12 +592,12 @@ x_mpm_uncork_fork(mach_port_t bp, audit_token_t au_tok)
 }
 
 kern_return_t
-x_mpm_spawn(mach_port_t bp, audit_token_t au_tok,
+x_mpm_spawn(job_t j, audit_token_t au_tok,
 		_internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
 		pid_t *child_pid, mach_port_t *obsvr_port)
 {
-	job_t jr, j = job_find_by_port(bp);
+	job_t jr;
 	struct ldcred ldc;
 	size_t offset = 0;
 	char *tmpp;

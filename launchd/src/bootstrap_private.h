@@ -20,7 +20,14 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-typedef char *_internal_string_t;
+typedef char * _internal_string_t;
+typedef mach_port_t vproc_mig_t;
+
+#ifdef bootstrap_MSG_COUNT
+/* HACK */
+#include "launchd_core_logic.h"
+#endif
+
 #define SPAWN_HAS_PATH			0x0001
 #define SPAWN_HAS_WDIR			0x0002
 #define SPAWN_HAS_UMASK			0x0004
