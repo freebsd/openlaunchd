@@ -30,6 +30,7 @@ typedef char *_internal_string_t;
 kern_return_t
 _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
+		vm_offset_t *service_pids, mach_msg_type_number_t *service_pidsCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
 kern_return_t bootstrap_getsocket(mach_port_t bp, name_t);

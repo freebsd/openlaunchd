@@ -41,9 +41,10 @@ static void vproc_get_self(void);
 kern_return_t
 _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
+		vm_offset_t *service_pids, mach_msg_type_number_t *service_pidsCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt)
 {
-	return raw_bootstrap_transfer_subset(bp, reqport, rcvright, service_names, service_namesCnt, ports, portCnt);
+	return raw_bootstrap_transfer_subset(bp, reqport, rcvright, service_names, service_namesCnt, service_pids, service_pidsCnt, ports, portCnt);
 }
 
 pid_t

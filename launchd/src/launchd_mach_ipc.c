@@ -83,11 +83,11 @@ static bool trusted_client_check(job_t j, struct ldcred *ldc);
 
 void
 mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
-		name_array_t l2l_names, mach_port_array_t l2l_ports, mach_msg_type_number_t l2l_cnt)
+		name_array_t l2l_names, mach_port_array_t l2l_ports, pid_t *l2l_pids, mach_msg_type_number_t l2l_cnt)
 {
 	mach_msg_type_number_t l2l_i;
 	auditinfo_t inherited_audit;
-	job_t root_anon_job;
+	job_t anon_job;
 
 	getaudit(&inherited_audit);
 	inherited_asid = inherited_audit.ai_asid;
@@ -109,12 +109,14 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 		return;
 	}
 
-	launchd_assert(root_anon_job = job_new_anonymous(root_job, 0));
-
 	for (l2l_i = 0; l2l_i < l2l_cnt; l2l_i++) {
 		struct machservice *ms;
 
-		if ((ms = machservice_new(root_anon_job, l2l_names[l2l_i], l2l_ports + l2l_i))) {
+		if (!(anon_job = job_find_by_pid(root_job, l2l_pids[l2l_i], false))) {
+			launchd_assert(anon_job = job_new_anonymous(root_job, l2l_pids[l2l_i]));
+		}
+
+		if ((ms = machservice_new(anon_job, l2l_names[l2l_i], &l2l_ports[l2l_i]))) {
 			machservice_watch(ms);
 		}
 	}
@@ -374,6 +376,7 @@ struct x_bootstrap_info_copyservices_cb {
 	name_array_t service_names;
 	bootstrap_status_array_t service_actives;
 	mach_port_array_t ports;
+	pid_t *pids;
 	unsigned int i;
 };
 
@@ -390,6 +393,7 @@ x_bootstrap_info_copyservices(struct machservice *ms, void *context)
 		info_resp->service_actives[info_resp->i] = machservice_status(ms);
 	} else {
 		info_resp->ports[info_resp->i] = machservice_port(ms);
+		info_resp->pids[info_resp->i] = job_get_pid(machservice_job(ms));
 	}
 	info_resp->i++;
 }
@@ -398,20 +402,19 @@ kern_return_t
 x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
-	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
+	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, NULL, 0 };
 	job_t ji, j = job_find_by_port(bp);
-	kern_return_t result;
 	unsigned int cnt = 0;
 
 	for (ji = j; ji; ji = job_parent(ji))
 		job_foreach_service(ji, x_bootstrap_info_countservices, &cnt, false);
 
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
-	if (!launchd_assumes(result == KERN_SUCCESS))
+	mig_allocate((vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	if (!launchd_assumes(info_resp.service_names != NULL))
 		goto out_bad;
 
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_actives, cnt * sizeof(info_resp.service_actives[0]), true);
-	if (!launchd_assumes(result == KERN_SUCCESS))
+	mig_allocate((vm_address_t *)&info_resp.service_actives, cnt * sizeof(info_resp.service_actives[0]));
+	if (!launchd_assumes(info_resp.service_actives != NULL))
 		goto out_bad;
 
 	for (ji = j; ji; ji = job_parent(ji))
@@ -426,21 +429,25 @@ x_bootstrap_info(mach_port_t bp, name_array_t *servicenamesp, unsigned int *serv
 	return BOOTSTRAP_SUCCESS;
 
 out_bad:
-	if (info_resp.service_names)
-		vm_deallocate(mach_task_self(), (vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	if (info_resp.service_names) {
+		mig_deallocate((vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	}
+	if (info_resp.service_actives) {
+		mig_deallocate((vm_address_t)info_resp.service_actives, cnt * sizeof(info_resp.service_actives[0]));
+	}
 
 	return BOOTSTRAP_NO_MEMORY;
 }
 
 kern_return_t
 x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
-	name_array_t *servicenamesp, unsigned int *servicenames_cnt,
-	mach_port_array_t *ports, unsigned int *ports_cnt)
+		name_array_t *servicenamesp, unsigned int *servicenames_cnt,
+		vm_offset_t *service_pids, mach_msg_type_number_t *service_pidsCnt,
+		mach_port_array_t *ports, unsigned int *ports_cnt)
 {
-	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
+	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, NULL, 0 };
 	job_t j = job_find_by_port(bp);
 	unsigned int cnt = 0;
-	kern_return_t result;
 
 	if (getpid() != 1) {
 		job_log(j, LOG_ERR, "Only the system launchd will transfer Mach sub-bootstraps.");
@@ -454,12 +461,16 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 
 	job_foreach_service(j, x_bootstrap_info_countservices, &cnt, true);
 
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]), true);
-	if (!launchd_assumes(result == KERN_SUCCESS))
+	mig_allocate((vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	if (!launchd_assumes(info_resp.service_names != NULL))
 		goto out_bad;
 
-	result = vm_allocate(mach_task_self(), (vm_address_t *)&info_resp.ports, cnt * sizeof(info_resp.ports[0]), true);
-	if (!launchd_assumes(result == KERN_SUCCESS))
+	mig_allocate((vm_address_t *)&info_resp.ports, cnt * sizeof(info_resp.ports[0]));
+	if (!launchd_assumes(info_resp.ports != NULL))
+		goto out_bad;
+
+	mig_allocate((vm_address_t *)&info_resp.pids, cnt * sizeof(pid_t));
+	if (!launchd_assumes(info_resp.pids != NULL))
 		goto out_bad;
 
 	job_foreach_service(j, x_bootstrap_info_copyservices, &info_resp, true);
@@ -469,6 +480,8 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	*servicenamesp = info_resp.service_names;
 	*ports = info_resp.ports;
 	*servicenames_cnt = *ports_cnt = cnt;
+	*service_pids = (vm_offset_t)info_resp.pids;
+	*service_pidsCnt = cnt * sizeof(pid_t);
 
 	*reqport = job_get_reqport(j);
 	*rcvright = job_get_bsport(j);
@@ -480,8 +493,15 @@ x_bootstrap_transfer_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *r
 	return BOOTSTRAP_SUCCESS;
 
 out_bad:
-	if (info_resp.service_names)
-		vm_deallocate(mach_task_self(), (vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	if (info_resp.service_names) {
+		mig_deallocate((vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	}
+	if (info_resp.ports) {
+		mig_deallocate((vm_address_t)info_resp.ports, cnt * sizeof(info_resp.ports[0]));
+	}
+	if (info_resp.pids) {
+		mig_deallocate((vm_address_t)info_resp.pids, cnt * sizeof(pid_t));
+	}
 
 	return BOOTSTRAP_NO_MEMORY;
 }

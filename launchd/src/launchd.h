@@ -59,7 +59,7 @@ void update_ttys(void);
 void catatonia(void);
 
 void mach_start_shutdown(void);
-void mach_init_init(mach_port_t, mach_port_t, name_array_t, mach_port_array_t, mach_msg_type_number_t);
+void mach_init_init(mach_port_t, mach_port_t, name_array_t, mach_port_array_t, pid_t *, mach_msg_type_number_t);
 
 int _fd(int fd);
 

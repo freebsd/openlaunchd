@@ -98,6 +98,7 @@ routine bootstrap_transfer_subset(
 	out	__bs_reqport	: mach_port_t;
 	out	__bs_rcvright	: mach_port_move_receive_t;
 	out	__service_names	: name_array_t, dealloc;
+	out	__service_pids	: pointer_t, dealloc;
 	out	__service_ports	: mach_port_array_t, dealloc);
 
 routine bootstrap_getsocket(

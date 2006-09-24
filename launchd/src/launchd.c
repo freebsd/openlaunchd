@@ -117,7 +117,8 @@ main(int argc, char *const *argv)
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
 	bool sflag = false, dflag = false, Dflag = false;
-	mach_msg_type_number_t l2l_name_cnt = 0, l2l_port_cnt = 0;
+	mach_msg_type_number_t l2l_name_cnt = 0, l2l_port_cnt = 0, l2l_pid_cnt = 0;
+	pid_t *l2l_pids = NULL;
 	name_array_t l2l_names = NULL;
 	mach_port_array_t l2l_ports = NULL;
 	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
@@ -246,19 +247,31 @@ main(int argc, char *const *argv)
 		launchd_assert(bootstrap_parent(bootstrap_port, &newparent) == BOOTSTRAP_SUCCESS);
 
 		launchd_assert(_launchd_to_launchd(bootstrap_port, &req_mport, &checkin_mport,
-					&l2l_names, &l2l_name_cnt, &l2l_ports, &l2l_port_cnt) == BOOTSTRAP_SUCCESS);
+					&l2l_names, &l2l_name_cnt, (vm_offset_t *)&l2l_pids, &l2l_pid_cnt,
+					&l2l_ports, &l2l_port_cnt) == BOOTSTRAP_SUCCESS);
 
-		launchd_assert(l2l_name_cnt == l2l_port_cnt);
+		launchd_assert(l2l_name_cnt == l2l_port_cnt && l2l_name_cnt == (l2l_pid_cnt / sizeof(pid_t)));
 
 		task_set_bootstrap_port(mach_task_self(), newparent);
 		launchd_assumes(mach_port_deallocate(mach_task_self(), bootstrap_port) == KERN_SUCCESS);
 		bootstrap_port = newparent;
 	}
 
-	mach_init_init(req_mport, checkin_mport, l2l_names, l2l_ports, l2l_name_cnt);
+	mach_init_init(req_mport, checkin_mport, l2l_names, l2l_ports, l2l_pids, l2l_name_cnt);
 
-	if (h)
+	if (l2l_names) {
+		mig_deallocate((vm_address_t)l2l_names, l2l_name_cnt * sizeof(l2l_names[0]));
+	}
+	if (l2l_ports) {
+		mig_deallocate((vm_address_t)l2l_ports, l2l_port_cnt * sizeof(l2l_ports[0]));
+	}
+	if (l2l_pids) {
+		mig_deallocate((vm_address_t)l2l_pids, l2l_pid_cnt);
+	}
+
+	if (h) {
 		sprintf(ldconf, "%s/%s", h, LAUNCHD_CONF);
+	}
 
 	rlcj = job_new(root_job, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf, MACH_PORT_NULL);
 	launchd_assert(rlcj != NULL);
