@@ -2,10 +2,10 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -W
 
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h					\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.h launchd_internalUser.c	\
-	     notifyServer.c notifyServer.h mpm_replyUser.c mpm_reply.h 
+	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h 
 
-bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
-	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/protocol_legacy.defs
+	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/protocol_legacy.defs
 
 if LIBS_ONLY
 
@@ -43,19 +43,18 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c mpm_replyUser.c launchd_runtime.c
+launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c
 
 launchd_runtime.c:: notifyServer.h launchd_internal.h
-launchd_core_logic.c:: bootstrap.h mpm_reply.h bootstrap.h bootstrapServer.h
-#launchd.c:: bootstrap.h launchd_internalServer.h launchd_internal.h notifyServer.h bootstrapServer.h
+launchd_core_logic.c:: bootstrap.h job_reply.h bootstrap.h bootstrapServer.h
 
 launchproxy_LDFLAGS = -weak_framework Security
 
 notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
 	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
 
-mpm_replyUser.c mpm_reply.h: $(srcdir)/mpm_reply.defs
-	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/mpm_reply.defs
+job_replyUser.c job_reply.h: $(srcdir)/protocol_job_reply.defs
+	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/protocol_job_reply.defs
 
 launchd_internal.h launchd_internalServer.c launchd_internalUser.c launchd_internalServer.h: $(srcdir)/launchd_internal.defs
 	mig $(MIGFLAGS) -sheader launchd_internalServer.h $(srcdir)/launchd_internal.defs

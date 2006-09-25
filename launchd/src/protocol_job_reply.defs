@@ -18,14 +18,13 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-subsystem mpm_reply 500;
+subsystem job_reply 500;
 
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
+#include "launchd_mig_types.defs"
 import "bootstrap_public.h";
 import "bootstrap_private.h";
-
-type pid_t			= integer_t;
 
 skip; /* create_server */
 
@@ -55,7 +54,7 @@ skip; /* getsocket */
 
 skip; /* spawn */
 
-simpleroutine mpm_wait_reply(
+simpleroutine job_mig_wait_reply(
 		__r_port	: mach_port_move_send_once_t;
 		__result	: kern_return_t, RetCode;
 		__wait		: integer_t);

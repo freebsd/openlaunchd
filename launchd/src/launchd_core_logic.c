@@ -80,7 +80,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "bootstrap_private.h"
 #include "bootstrap.h"
 #include "bootstrapServer.h"
-#include "mpm_reply.h"
+#include "job_reply.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
@@ -1474,7 +1474,7 @@ job_reap(job_t j)
 
 	if (j->wait_reply_port) {
 		job_log(j, LOG_DEBUG, "MPM wait reply being sent");
-		job_assumes(j, mpm_wait_reply(j->wait_reply_port, 0, status) == 0);
+		job_assumes(j, job_mig_wait_reply(j->wait_reply_port, 0, status) == 0);
 		j->wait_reply_port = MACH_PORT_NULL;
 	}
 

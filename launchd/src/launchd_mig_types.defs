@@ -1,0 +1,39 @@
+/*
+ * Copyright (c) 1999-2006 Apple Computer, Inc. All rights reserved.
+ *
+ * @APPLE_APACHE_LICENSE_HEADER_START@
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * 
+ * @APPLE_APACHE_LICENSE_HEADER_END@
+ */
+/*
+ * bootstrap -- fundamental service initiator and port server
+ * Mike DeMoney, NeXT, Inc.
+ * Copyright, 1990.  All rights reserved.
+ */
+
+type pid_t			= integer_t;
+type cmd_t			= c_string[512];
+type cmd_array_t		= ^array [] of cmd_t;
+type name_t			= c_string[128];
+type name_array_t		= ^array [] of name_t;
+type _internal_string_t		= ^array [] of char;
+type bootstrap_status_t		= integer_t;
+type bootstrap_status_array_t	= ^array [] of bootstrap_status_t;
+
+type job_t = mach_port_t
+        intran: job_t job_mig_intran(mach_port_t) 
+        outtran: mach_port_t job_mig_outtran(job_t)
+        destructor: job_mig_destructor(job_t)
+        cusertype: vproc_mig_t;

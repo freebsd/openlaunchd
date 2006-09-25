@@ -88,7 +88,7 @@ launchctl_LDADD = $(LDADD)
 am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 	launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c \
 	launchd_internalUser.c launchd_internalServer.c \
-	mpm_replyUser.c launchd_runtime.c
+	job_replyUser.c launchd_runtime.c
 @LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_core_logic.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_unix_ipc.$(OBJEXT) \
@@ -97,7 +97,7 @@ am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 @LIBS_ONLY_FALSE@	launchd-notifyServer.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_internalUser.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_internalServer.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-mpm_replyUser.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-job_replyUser.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_runtime.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
@@ -224,7 +224,7 @@ target_alias = @target_alias@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1
 CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h					\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.h launchd_internalUser.c	\
-	     notifyServer.c notifyServer.h mpm_replyUser.c mpm_reply.h 
+	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h 
 
 @LIBS_ONLY_TRUE@noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 @LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c bootstrap_public.c
@@ -239,8 +239,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h				
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c mpm_replyUser.c launchd_runtime.c
-#launchd.c:: bootstrap.h launchd_internalServer.h launchd_internal.h notifyServer.h bootstrapServer.h
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
@@ -425,13 +424,13 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl-launchctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-bootstrapServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-init.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-job_replyUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_core_logic.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_unix_ipc.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-mpm_replyUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-notifyServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
@@ -649,19 +648,19 @@ launchd-launchd_internalServer.obj: launchd_internalServer.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_internalServer.obj `if test -f 'launchd_internalServer.c'; then $(CYGPATH_W) 'launchd_internalServer.c'; else $(CYGPATH_W) '$(srcdir)/launchd_internalServer.c'; fi`
 
-launchd-mpm_replyUser.o: mpm_replyUser.c
-@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-mpm_replyUser.o -MD -MP -MF "$(DEPDIR)/launchd-mpm_replyUser.Tpo" -c -o launchd-mpm_replyUser.o `test -f 'mpm_replyUser.c' || echo '$(srcdir)/'`mpm_replyUser.c; \
-@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/launchd-mpm_replyUser.Tpo" "$(DEPDIR)/launchd-mpm_replyUser.Po"; else rm -f "$(DEPDIR)/launchd-mpm_replyUser.Tpo"; exit 1; fi
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='mpm_replyUser.c' object='launchd-mpm_replyUser.o' libtool=no @AMDEPBACKSLASH@
+launchd-job_replyUser.o: job_replyUser.c
+@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-job_replyUser.o -MD -MP -MF "$(DEPDIR)/launchd-job_replyUser.Tpo" -c -o launchd-job_replyUser.o `test -f 'job_replyUser.c' || echo '$(srcdir)/'`job_replyUser.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/launchd-job_replyUser.Tpo" "$(DEPDIR)/launchd-job_replyUser.Po"; else rm -f "$(DEPDIR)/launchd-job_replyUser.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='job_replyUser.c' object='launchd-job_replyUser.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-mpm_replyUser.o `test -f 'mpm_replyUser.c' || echo '$(srcdir)/'`mpm_replyUser.c
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-job_replyUser.o `test -f 'job_replyUser.c' || echo '$(srcdir)/'`job_replyUser.c
 
-launchd-mpm_replyUser.obj: mpm_replyUser.c
-@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-mpm_replyUser.obj -MD -MP -MF "$(DEPDIR)/launchd-mpm_replyUser.Tpo" -c -o launchd-mpm_replyUser.obj `if test -f 'mpm_replyUser.c'; then $(CYGPATH_W) 'mpm_replyUser.c'; else $(CYGPATH_W) '$(srcdir)/mpm_replyUser.c'; fi`; \
-@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/launchd-mpm_replyUser.Tpo" "$(DEPDIR)/launchd-mpm_replyUser.Po"; else rm -f "$(DEPDIR)/launchd-mpm_replyUser.Tpo"; exit 1; fi
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='mpm_replyUser.c' object='launchd-mpm_replyUser.obj' libtool=no @AMDEPBACKSLASH@
+launchd-job_replyUser.obj: job_replyUser.c
+@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-job_replyUser.obj -MD -MP -MF "$(DEPDIR)/launchd-job_replyUser.Tpo" -c -o launchd-job_replyUser.obj `if test -f 'job_replyUser.c'; then $(CYGPATH_W) 'job_replyUser.c'; else $(CYGPATH_W) '$(srcdir)/job_replyUser.c'; fi`; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/launchd-job_replyUser.Tpo" "$(DEPDIR)/launchd-job_replyUser.Po"; else rm -f "$(DEPDIR)/launchd-job_replyUser.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='job_replyUser.c' object='launchd-job_replyUser.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-mpm_replyUser.obj `if test -f 'mpm_replyUser.c'; then $(CYGPATH_W) 'mpm_replyUser.c'; else $(CYGPATH_W) '$(srcdir)/mpm_replyUser.c'; fi`
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-job_replyUser.obj `if test -f 'job_replyUser.c'; then $(CYGPATH_W) 'job_replyUser.c'; else $(CYGPATH_W) '$(srcdir)/job_replyUser.c'; fi`
 
 launchd-launchd_runtime.o: launchd_runtime.c
 @am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-launchd_runtime.o -MD -MP -MF "$(DEPDIR)/launchd-launchd_runtime.Tpo" -c -o launchd-launchd_runtime.o `test -f 'launchd_runtime.c' || echo '$(srcdir)/'`launchd_runtime.c; \
@@ -1014,8 +1013,8 @@ uninstall-man: uninstall-man1 uninstall-man5 uninstall-man8
 	uninstall-sbinSCRIPTS uninstall-sysconfDATA
 
 
-bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/bootstrap.defs
-	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/bootstrap.defs
+bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/protocol_legacy.defs
+	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/protocol_legacy.defs
 
 @LIBS_ONLY_TRUE@$(srcdir)/bootstrap_public.c:: bootstrap.h
 
@@ -1026,13 +1025,13 @@ bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/boots
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
 @LIBS_ONLY_FALSE@launchd_runtime.c:: notifyServer.h launchd_internal.h
-@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h mpm_reply.h bootstrap.h bootstrapServer.h
+@LIBS_ONLY_FALSE@launchd_core_logic.c:: bootstrap.h job_reply.h bootstrap.h bootstrapServer.h
 
 @LIBS_ONLY_FALSE@notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
 
-@LIBS_ONLY_FALSE@mpm_replyUser.c mpm_reply.h: $(srcdir)/mpm_reply.defs
-@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/mpm_reply.defs
+@LIBS_ONLY_FALSE@job_replyUser.c job_reply.h: $(srcdir)/protocol_job_reply.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/protocol_job_reply.defs
 
 @LIBS_ONLY_FALSE@launchd_internal.h launchd_internalServer.c launchd_internalUser.c launchd_internalServer.h: $(srcdir)/launchd_internal.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader launchd_internalServer.h $(srcdir)/launchd_internal.defs
