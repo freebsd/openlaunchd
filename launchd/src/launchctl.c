@@ -1182,7 +1182,7 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	apply_sysctls_from_file("/etc/sysctl-macosxserver.conf");
 	apply_sysctls_from_file("/etc/sysctl.conf");
 
-	if (path_check("/System/Installation") && path_check("/etc/rc.cdrom")) {
+	if (path_check("/etc/rc.cdrom")) {
 		const char *rccdrom_tool[] = { _PATH_BSHELL, "/etc/rc.cdrom", "multiuser", NULL };
 		assumes(fwexec(rccdrom_tool, true) != -1);
 		assumes(reboot(RB_HALT) != -1);
