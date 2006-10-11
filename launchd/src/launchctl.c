@@ -2581,7 +2581,7 @@ out:
 void
 empty_dir(const char *path)
 {
-	assumes(chflags(path, 0) != -1);
+	assumes(lchflags(path, 0) != -1);
 	assumes(remove(path) != -1);
 }
 
