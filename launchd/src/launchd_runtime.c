@@ -79,6 +79,7 @@ static mig_callback *mig_cb_table;
 static size_t mig_cb_table_sz;
 static timeout_callback runtime_idle_callback;
 static mach_msg_timeout_t runtime_idle_timeout;
+static audit_token_t *au_tok;
 
 void
 launchd_runtime_init(void)
@@ -475,6 +476,38 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 	return KERN_SUCCESS;
 }
 
+static void
+record_caller_creds(mach_msg_header_t *mh)
+{
+	mach_msg_max_trailer_t *tp;
+	size_t trailer_size;
+
+	tp = (mach_msg_max_trailer_t *)((vm_offset_t)mh + round_msg(mh->msgh_size));
+
+	trailer_size = tp->msgh_trailer_size - (mach_msg_size_t)(sizeof(mach_msg_trailer_type_t) - sizeof(mach_msg_trailer_size_t));
+
+	if (trailer_size < (mach_msg_size_t)sizeof(audit_token_t)) {
+		au_tok = NULL;
+		return;
+	}
+
+	au_tok = &tp->msgh_audit;
+}
+
+bool
+runtime_get_caller_creds(struct ldcred *ldc)
+{
+	if (!au_tok) {
+		return false;
+	}
+
+	audit_token_to_au32(*au_tok, /* audit UID */ NULL, &ldc->euid,
+			&ldc->egid, &ldc->uid, &ldc->gid, &ldc->pid,
+			&ldc->asid, /* au_tid_t */ NULL);
+
+	return true;
+}
+
 void
 launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_reply_error_t *bufReply)
 {
@@ -554,6 +587,8 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		if (!launchd_assumes(the_demux != NULL)) {
 			break;
 		}
+
+		record_caller_creds(&bufRequest->Head);
 
 		if (the_demux(&bufRequest->Head, &bufReply->Head) == FALSE) {
 			/* XXX - also gross */

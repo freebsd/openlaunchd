@@ -88,16 +88,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 static au_asid_t inherited_asid;
 mach_port_t inherited_bootstrap_port;
 
-struct ldcred {
-	uid_t   euid;
-	uid_t   uid;
-	gid_t   egid;
-	gid_t   gid;
-	pid_t   pid;
-	au_asid_t asid;
-};
-
-static void audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc);
 static bool trusted_client_check(job_t j, struct ldcred *ldc);
 
 
@@ -3473,13 +3463,12 @@ cronemu_min(struct tm *wtm, int min)
 }
 
 kern_return_t
-job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand,
-		audit_token_t au_tok, mach_port_t *server_portp)
+job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_portp)
 {
 	struct ldcred ldc;
 	job_t js;
 
-	audit_token_to_launchd_cred(au_tok, &ldc);
+	runtime_get_caller_creds(&ldc);
 
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
 
@@ -3527,12 +3516,12 @@ job_mig_getsocket(job_t j, name_t spr)
 }
 
 kern_return_t
-job_mig_get_self(job_t j, audit_token_t au_tok, mach_port_t *unprivportp)
+job_mig_get_self(job_t j, mach_port_t *unprivportp)
 {
 	struct ldcred ldc;
 	job_t j2;
 
-	audit_token_to_launchd_cred(au_tok, &ldc);
+	runtime_get_caller_creds(&ldc);
 
 	job_log(j, LOG_DEBUG, "Requested unprivileged bootstrap port");
 
@@ -3557,13 +3546,13 @@ job_mig_get_self(job_t j, audit_token_t au_tok, mach_port_t *unprivportp)
 
   
 kern_return_t
-job_mig_check_in(job_t j, name_t servicename, audit_token_t au_tok, mach_port_t *serviceportp)
+job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;
 	struct machservice *ms;
 	struct ldcred ldc;
 
-	audit_token_to_launchd_cred(au_tok, &ldc);
+	runtime_get_caller_creds(&ldc);
 
 	ms = job_lookup_service(j, servicename, true);
 
@@ -3593,13 +3582,13 @@ job_mig_check_in(job_t j, name_t servicename, audit_token_t au_tok, mach_port_t 
 }
 
 kern_return_t
-job_mig_register(job_t j, audit_token_t au_tok, name_t servicename, mach_port_t serviceport)
+job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 {
 	struct machservice *ms;
 	struct ldcred ldc;
 	job_t j2;
 
-	audit_token_to_launchd_cred(au_tok, &ldc);
+	runtime_get_caller_creds(&ldc);
 
 	if (j == job_get_bs(j)) {
 		j2 = job_find_by_pid(j, ldc.pid, false);
@@ -3641,12 +3630,12 @@ job_mig_register(job_t j, audit_token_t au_tok, name_t servicename, mach_port_t 
 }
 
 kern_return_t
-job_mig_look_up(job_t j, audit_token_t au_tok, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
+job_mig_look_up(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
 {
 	struct machservice *ms;
 	struct ldcred ldc;
 
-	audit_token_to_launchd_cred(au_tok, &ldc);
+	runtime_get_caller_creds(&ldc);
 
 	ms = job_lookup_service(j, servicename, true);
 
@@ -3896,17 +3885,17 @@ out_bad:
 }
 
 kern_return_t
-job_mig_wait(job_t j, mach_port_t srp, audit_token_t au_tok, integer_t *waitstatus)
+job_mig_wait(job_t j, mach_port_t srp, integer_t *waitstatus)
 {
 #if 0
 	struct ldcred ldc;
-	audit_token_to_launchd_cred(au_tok, &ldc);
+	runtime_get_caller_creds(&ldc);
 #endif
 	return job_handle_mpm_wait(j, srp, waitstatus);
 }
 
 kern_return_t
-job_mig_uncork_fork(job_t j, audit_token_t au_tok)
+job_mig_uncork_fork(job_t j)
 {
 	if (!j) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
@@ -3918,8 +3907,7 @@ job_mig_uncork_fork(job_t j, audit_token_t au_tok)
 }
 
 kern_return_t
-job_mig_spawn(job_t j, audit_token_t au_tok,
-		_internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
+job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
 		pid_t *child_pid, mach_port_t *obsvr_port)
 {
@@ -3933,7 +3921,7 @@ job_mig_spawn(job_t j, audit_token_t au_tok,
 	const char *workingdir = NULL;
 	size_t argv_i = 0, env_i = 0;
 
-	audit_token_to_launchd_cred(au_tok, &ldc);
+	runtime_get_caller_creds(&ldc);
 
 #if 0
 	if (ldc.asid != inherited_asid) {
@@ -3991,14 +3979,6 @@ job_mig_spawn(job_t j, audit_token_t au_tok,
 	*obsvr_port = job_get_bsport(jr);
 
 	return BOOTSTRAP_SUCCESS;
-}
-
-void
-audit_token_to_launchd_cred(audit_token_t au_tok, struct ldcred *ldc)
-{
-	audit_token_to_au32(au_tok, /* audit UID */ NULL, &ldc->euid,
-			&ldc->egid, &ldc->uid, &ldc->gid, &ldc->pid,
-			&ldc->asid, /* au_tid_t */ NULL);
 }
 
 bool

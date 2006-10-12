@@ -22,6 +22,15 @@
 
 #include <mach/mach.h>
 
+struct ldcred {
+	uid_t   euid;
+	uid_t   uid;
+	gid_t   egid;
+	gid_t   gid;
+	pid_t   pid;
+	au_asid_t asid;
+};
+
 /*
  * Use launchd_assumes() when we can recover, even if it means we leak or limp along.
  *
@@ -50,6 +59,8 @@ void runtime_force_on_demand(bool);
 void runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to);
 kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size);
 kern_return_t runtime_remove_mport(mach_port_t name);
+bool runtime_get_caller_creds(struct ldcred *ldc);
+
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 

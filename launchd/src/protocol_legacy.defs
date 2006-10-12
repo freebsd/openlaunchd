@@ -39,7 +39,6 @@ routine create_server(
 		__server_cmd	: cmd_t;
 		__server_uid	: natural_t;
 		__on_demand	: boolean_t;
-	ServerAuditToken	__token	: audit_token_t;
 	out	__server_port	: mach_port_make_send_t);
 
 skip; /* Last used in 10.4. Was bootstrap_unprivileged() */
@@ -47,18 +46,15 @@ skip; /* Last used in 10.4. Was bootstrap_unprivileged() */
 routine check_in(
 			__bs_port	: job_t;
 			__service_name	: name_t;
-	ServerAuditToken	__token	: audit_token_t;
 		out	__service_port	: mach_port_move_receive_t);
 
 routine register(
 		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 		__service_port	: mach_port_t);
 
 routine look_up(
 		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 	out	__service_port	: mach_port_send_t);
 
@@ -99,7 +95,6 @@ routine getsocket(
 
 routine spawn(
 		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t;
 		__chars		: _internal_string_t;
 		__argc		: uint32_t;
 		__envc		: uint32_t;
@@ -111,15 +106,12 @@ routine spawn(
 routine wait(
 		__bs_port	: job_t;
 	sreplyport		__rport	: mach_port_make_send_once_t;
-	ServerAuditToken	__token	: audit_token_t;
 	out	__waitval	: integer_t);
 
 routine uncork_fork(
-		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t);
+		__bs_port	: job_t);
 
 /* Essentially the inverse of bootstrap_unprivileged() */
 routine get_self(
 		__bs_port	: job_t;
-	ServerAuditToken        __token : audit_token_t;
 	out	__job_port	: mach_port_make_send_t);
