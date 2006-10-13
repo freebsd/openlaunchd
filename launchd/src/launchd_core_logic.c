@@ -3533,26 +3533,6 @@ job_mig_getsocket(job_t j, name_t spr)
 }
 
 kern_return_t
-job_mig_get_self(job_t j, mach_port_t *unprivportp)
-{
-	struct ldcred ldc;
-
-	runtime_get_caller_creds(&ldc);
-
-	job_log(j, LOG_DEBUG, "Requested unprivileged bootstrap port");
-
-	if (j->anonymous) {
-		job_log(j, LOG_NOTICE, "PID %u not managed by %s", ldc.pid, getprogname());
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-
-	*unprivportp = job_get_bsport(j);
-
-	return BOOTSTRAP_SUCCESS;
-}
-
-  
-kern_return_t
 job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;

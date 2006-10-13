@@ -109,8 +109,3 @@ routine wait(
 
 routine uncork_fork(
 		__bs_port	: job_t);
-
-/* Essentially the inverse of bootstrap_unprivileged() */
-routine get_self(
-		__bs_port	: job_t;
-	out	__job_port	: mach_port_make_send_t);

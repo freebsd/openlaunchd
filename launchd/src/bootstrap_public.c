@@ -34,10 +34,6 @@
 #include <stdlib.h>
 #include <errno.h>
 
-static mach_port_t vproc_self;
-
-static void vproc_get_self(void);
-
 kern_return_t
 _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
@@ -204,13 +200,7 @@ bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp)
 kern_return_t
 bootstrap_check_in(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
-	if(bp != bootstrap_port) {
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-
-	vproc_get_self();
-
-	return vproc_mig_check_in(vproc_self, service_name, sp);
+	return vproc_mig_check_in(bp, service_name, sp);
 }
 
 kern_return_t
@@ -277,22 +267,6 @@ bootstrap_info(mach_port_t bp,
 			service_active, service_activeCnt);
 }
 
-
-void
-vproc_get_self(void)
-{
-	mach_port_t bp_self;
-
-	if (vproc_self != MACH_PORT_NULL) {
-		return;
-	}
-
-	if (vproc_mig_get_self(bootstrap_port, &bp_self) != 0) {
-		return;
-	}
-
-	vproc_self = bp_self;
-}
 
 const char *
 bootstrap_strerror(kern_return_t r)
