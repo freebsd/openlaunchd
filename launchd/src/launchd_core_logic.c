@@ -683,6 +683,10 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 	j->legacy_mach_job = true;
 	j->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
 
+	if (!job_setup_machport(j)) {
+		goto out_bad;
+	}
+
 	if (!job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
 		job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
 		goto out_bad;
@@ -815,10 +819,6 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
-
-	if (!job_setup_machport(j)) {
-		goto out_bad;
-	}
 
 	if (reqport != MACH_PORT_NULL) {
 		j->req_port = reqport;
@@ -1672,10 +1672,6 @@ job_start(job_t j)
 	socketpair(AF_UNIX, SOCK_STREAM, 0, execspair);
 
 	time(&j->start_time);
-
-	if (j->bs_port) {
-		job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS);
-	}
 
 	switch (c = job_fork(j->parent)) {
 	case -1:
