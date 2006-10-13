@@ -94,13 +94,14 @@ static void usage(FILE *where);
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
-static void fatal_signal_handler(int sig);
+static void fatal_signal_handler(int sig, siginfo_t *si, void *uap);
 
 static bool re_exec_in_single_user_mode = false;
 static char *pending_stdout = NULL;
 static char *pending_stderr = NULL;
 static job_t rlcj = NULL;
 static jmp_buf doom_doom_doom;
+static void *crash_addr;
 
 sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
@@ -116,6 +117,7 @@ main(int argc, char *const *argv)
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
+	struct sigaction fsa;
 	bool sflag = false, dflag = false, Dflag = false;
 	mach_msg_type_number_t l2l_name_cnt = 0, l2l_port_cnt = 0, l2l_pid_cnt = 0;
 	pid_t *l2l_pids = NULL;
@@ -330,18 +332,37 @@ main(int argc, char *const *argv)
 		init_pre_kevent();
 	}
 
-	launchd_assert(setjmp(doom_doom_doom) == 0);
-	launchd_assumes(signal(SIGILL, fatal_signal_handler) != SIG_ERR);
-	launchd_assumes(signal(SIGFPE, fatal_signal_handler) != SIG_ERR);
-	launchd_assumes(signal(SIGBUS, fatal_signal_handler) != SIG_ERR);
-	launchd_assumes(signal(SIGSEGV, fatal_signal_handler) != SIG_ERR);
+	switch (setjmp(doom_doom_doom)) {
+	case SIGILL:
+	case SIGFPE:
+		syslog(LOG_EMERG, "We crashed at instruction: %p", crash_addr);
+		abort();
+	case SIGBUS:
+	case SIGSEGV:
+		syslog(LOG_EMERG, "We crashed trying to read/write: %p", crash_addr);
+		abort();
+	default:
+		abort();
+	case 0:
+		break;
+	}
+
+	fsa.sa_sigaction = fatal_signal_handler;
+	fsa.sa_flags = SA_SIGINFO;
+	sigemptyset(&fsa.sa_mask);
+
+	launchd_assumes(sigaction(SIGILL, &fsa, NULL) != -1);
+	launchd_assumes(sigaction(SIGFPE, &fsa, NULL) != -1);
+	launchd_assumes(sigaction(SIGBUS, &fsa, NULL) != -1);
+	launchd_assumes(sigaction(SIGSEGV, &fsa, NULL) != -1);
 
 	launchd_runtime();
 }
 
 void
-fatal_signal_handler(int sig)
+fatal_signal_handler(int sig, siginfo_t *si, void *uap)
 {
+	crash_addr = si->si_addr;
 	longjmp(doom_doom_doom, sig);
 }
 
