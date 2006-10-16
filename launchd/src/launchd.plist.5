@@ -106,13 +106,17 @@ This configuration file only applies to hosts NOT listed with this key.
 This configuration file only applies to sessions of the type specified. This key is used
 in concert with the -S flag to
 .Nm launchctl .
-.It Sy ProgramArguments <array of strings>
-This required key maps to the second argument of
-.Xr execvp 3 .
 .It Sy Program <string>
-This optional key maps to the first argument of
+This key maps to the first argument of
 .Xr execvp 3 .
 If this key is missing, then the first element of the array of strings provided to the ProgramArguments will be used instead.
+This key is required in the absence of the ProgramArguments key.
+.It Sy ProgramArguments <array of strings>
+This key maps to the second argument of
+.Xr execvp 3 .
+This key is required in the absence of the Program key. Please note! Many people are confused by this key. Please read
+.Xr execvp 3
+very carefully!
 .It Sy EnableGlobbing <boolean>
 This flag causes
 .Nm launchd
