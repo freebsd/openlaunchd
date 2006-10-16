@@ -172,7 +172,7 @@ before running the job. Known bug: Property lists don't support octal, so please
 The recommended idle time out (in seconds) to pass to the job. If no value is specified, a default time out will be supplied by
 .Nm launchd
 for use by the job at check in time.
-.It Sy ThrottleInternval <integer>
+.It Sy ThrottleInterval <integer>
 This key lets one override the default throttling policy imposed on jobs by
 .Nm launchd .
 The value is in seconds, and by default, jobs will not be spawned more than once every 10 seconds.
@@ -265,19 +265,30 @@ This optional key specifies what
 value should be applied to the daemon.
 .It Sy LowPriorityIO <boolean>
 This optional key specifies whether the kernel should consider this daemon to be low priority when doing file system I/O.
-.It Sy MachServices <dictionary of booleans>
+.It Sy LaunchOnlyOnce <boolean>
+This optional key specifies whether the job can only be run once and only once.
+In other words, if the job cannot be safely respawned without a full machine
+reboot, then set this key to be true.
+.It Sy MachServices <dictionary of booleans or a dictionary of dictionaries>
 This optional key is used to specify Mach services to be registered with the
 Mach bootstrap sub-system.  Each key in this dictionary should be the name of
-service to be advertised.  The value of the key must be a boolean. If the
-boolean is true, the port is recycled, thus leaving clients to remain oblivious
-to the demand nature of job. If the value is set to false, clients receive port
+service to be advertised. The value of the key must be a boolean and set to true.
+Alternatively, a dictionary can be used instead of a simple true value.
+.Bl -ohang -offset indent
+.It Sy ResetAtClose <boolean>
+If this boolean is false, the port is recycled, thus leaving clients to remain oblivious
+to the demand nature of job. If the value is set to true, clients receive port
 death notifications when the job lets go of the receive right. The port will be
 recreated atomically with respect to bootstrap_look_up() calls, so that clients
 can trust that after receiving a port death notification, the new port will
-have already been recreated. Setting the value to false should be done with
-care. Not all clients may be able to handle this behavior. Finally, for the job
-itself, the values will be replaced with Mach ports at the time of check-in
-with
+have already been recreated. Setting the value to true should be done with
+care. Not all clients may be able to handle this behavior. The default value is false.
+.It Sy HideUntilCheckIn <boolean>
+Reserve the name in the namespace, but cause bootstrap_look_up() to fail until the job has checked in with
+.Nm launchd .
+.El
+.Pp
+Finally, for the job itself, the values will be replaced with Mach ports at the time of check-in with
 .Nm launchd .
 .It Sy Sockets <dictionary of dictionaries... OR dictionary of array of dictionaries...>
 This optional key is used to specify launch on demand sockets that can be used to let

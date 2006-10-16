@@ -229,10 +229,12 @@ struct job_s {
 	time_t min_run_time;
 	unsigned int start_interval;
 	unsigned int checkedin:1, firstborn:1, debug:1, inetcompat:1, inetcompat_wait:1,
-		ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
-		importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1, anonymous:1;
+		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
+		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1,
+		     anonymous:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1, stall_before_exec:1, __pad:26;
+	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1,
+		     stall_before_exec:1, only_once:1;
 	char label[0];
 };
 
@@ -967,6 +969,8 @@ job_import_bool(job_t j, const char *key, bool value)
 	case 'L':
 		if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYIO) == 0) {
 			j->low_pri_io = value;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_LAUNCHONLYONCE) == 0) {
+			j->only_once = value;
 		}
 		break;
 	case 'i':
@@ -2489,7 +2493,9 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_useless(job_t j)
 {
-	if (j->unload_at_exit && j->start_time != 0) {
+	/* Yes, j->unload_at_exit and j->j->only_once seem the same, but they'll differ someday... */
+
+	if ((j->unload_at_exit || j->only_once) && j->start_time != 0) {
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
 		return true;
 	} else if (shutdown_in_progress) {
@@ -2608,14 +2614,6 @@ job_active(job_t j)
 	}
 
 	if (j->priv_port_has_senders) {
-		if (j->start_time && !j->checkedin) {
-			if (j->legacy_mach_job) {
-				job_log(j, LOG_NOTICE, "Daemonized. Extremely expensive no-op.");
-			} else if (!j->unload_at_exit) {
-				job_log(j, LOG_ERR, "Daemonization is not supported under launchd.");
-				return false;
-			}
-		}
 		return true;
 	}
 
