@@ -330,14 +330,17 @@ job_ignore(job_t j)
 	struct machservice *ms;
 	struct watchpath *wp;
 
-	SLIST_FOREACH(sg, &j->sockets, sle)
+	SLIST_FOREACH(sg, &j->sockets, sle) {
 		socketgroup_ignore(j, sg);
+	}
 
-	SLIST_FOREACH(wp, &j->vnodes, sle)
+	SLIST_FOREACH(wp, &j->vnodes, sle) {
 		watchpath_ignore(j, wp);
+	}
 
-	SLIST_FOREACH(ms, &j->machservices, sle)
+	SLIST_FOREACH(ms, &j->machservices, sle) {
 		job_assumes(j, runtime_remove_mport(ms->port) == KERN_SUCCESS);
+	}
 }
 
 void
@@ -347,14 +350,17 @@ job_watch(job_t j)
 	struct machservice *ms;
 	struct watchpath *wp;
 
-	SLIST_FOREACH(sg, &j->sockets, sle)
+	SLIST_FOREACH(sg, &j->sockets, sle) {
 		socketgroup_watch(j, sg);
+	}
 
-	SLIST_FOREACH(wp, &j->vnodes, sle)
+	SLIST_FOREACH(wp, &j->vnodes, sle) {
 		watchpath_watch(j, wp);
+	}
 
-	SLIST_FOREACH(ms, &j->machservices, sle)
+	SLIST_FOREACH(ms, &j->machservices, sle) {
 		job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
+	}
 }
 
 void
