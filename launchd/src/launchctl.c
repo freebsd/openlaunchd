@@ -131,7 +131,7 @@ static void empty_dir(const char *path);
 static int touch_file(const char *path, mode_t m);
 static void do_sysversion_sysctl(void);
 static void workaround4465949(void);
-static void do_application_firewal_magic(int sfd, launch_data_t thejob);
+static void do_application_firewall_magic(int sfd, launch_data_t thejob);
 
 static int bootstrap_cmd(int argc, char *const argv[]);
 static int load_and_unload_cmd(int argc, char *const argv[]);
@@ -844,7 +844,7 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 				return;
 			}
 
-			do_application_firewal_magic(sfd, thejob);
+			do_application_firewall_magic(sfd, thejob);
 
 			if (hints.ai_flags & AI_PASSIVE) {
 				if (AF_INET6 == res->ai_family && -1 == setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY,
@@ -2667,7 +2667,7 @@ do_sysversion_sysctl(void)
 }
 
 void
-do_application_firewal_magic(int sfd, launch_data_t thejob)
+do_application_firewall_magic(int sfd, launch_data_t thejob)
 {
 	const char *prog = NULL, *partialprog = NULL;
 	char *path, *pathtmp, **pathstmp;
