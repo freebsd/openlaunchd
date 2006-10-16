@@ -232,7 +232,7 @@ CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h				
 @LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c bootstrap_public.c
 @LIBS_ONLY_FALSE@sbin_SCRIPTS = service
 @LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
-@LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
+@LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden -I/System/Library/Frameworks/System.framework/PrivateHeaders
 @LIBS_ONLY_FALSE@launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
 @LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -fvisibility=hidden
 @LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation

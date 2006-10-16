@@ -131,6 +131,7 @@ static void empty_dir(const char *path);
 static int touch_file(const char *path, mode_t m);
 static void do_sysversion_sysctl(void);
 static void workaround4465949(void);
+static void do_application_firewal_magic(int sfd, launch_data_t thejob);
 
 static int bootstrap_cmd(int argc, char *const argv[]);
 static int load_and_unload_cmd(int argc, char *const argv[]);
@@ -842,6 +843,9 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 				fprintf(stderr, "socket(): %s\n", strerror(errno));
 				return;
 			}
+
+			do_application_firewal_magic(sfd, thejob);
+
 			if (hints.ai_flags & AI_PASSIVE) {
 				if (AF_INET6 == res->ai_family && -1 == setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY,
 							(void *)&sock_opt, sizeof(sock_opt))) {
@@ -2660,4 +2664,63 @@ do_sysversion_sysctl(void)
 	}
 
 	CFRelease(versdict);
+}
+
+void
+do_application_firewal_magic(int sfd, launch_data_t thejob)
+{
+	const char *prog = NULL, *partialprog = NULL;
+	char *path, *pathtmp, **pathstmp;
+	char *paths[100];
+	launch_data_t tmp;
+
+	/*
+	 * Sigh...
+	 * <rdar://problem/4684434> setsockopt() with the executable path as the argument
+	 */
+
+	if ((tmp = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_PROGRAM))) {
+		prog = launch_data_get_string(tmp);
+	}
+
+	if (!prog) {
+		if ((tmp = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_PROGRAMARGUMENTS))) {
+			if ((tmp = launch_data_array_get_index(tmp, 0))) {
+				if (assumes((partialprog = launch_data_get_string(tmp)) != NULL)) {
+					if (partialprog[0] == '/') {
+						prog = partialprog;
+					}
+				}
+			}
+		}
+	}
+
+	if (!prog) {
+		pathtmp = path = strdup(getenv("PATH"));
+
+		pathstmp = paths;
+
+		while ((*pathstmp = strsep(&pathtmp, ":"))) {
+			if (**pathstmp != '\0') {
+				pathstmp++;
+			}
+		}
+
+		free(path);
+		pathtmp = alloca(MAXPATHLEN);
+
+		pathstmp = paths;
+
+		for (; *pathstmp; pathstmp++) {
+			snprintf(pathtmp, MAXPATHLEN, "%s/%s", *pathstmp, partialprog);
+			if (path_check(pathtmp)) {
+				prog = pathtmp;
+				break;
+			}
+		}
+	}
+
+	if (assumes(prog != NULL)) {
+		assumes(setsockopt(sfd, SOL_SOCKET, SO_EXECPATH, prog, strlen(prog) + 1) != -1);
+	}
 }

@@ -34,7 +34,7 @@ libexec_PROGRAMS = launchproxy
 
 sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
 
-launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
+launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden -I/System/Library/Frameworks/System.framework/PrivateHeaders
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
 
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -fvisibility=hidden
