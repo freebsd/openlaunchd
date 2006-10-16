@@ -1426,10 +1426,7 @@ job_mig_intran(mach_port_t p)
 		} else {
 			jr = jp;
 		}
-	}
-
-	if (!launchd_assumes(jr != NULL)) {
-		syslog(LOG_EMERG, "@@@@@ jp->label == %s", jp->label);
+		job_assumes(jp, jr != NULL);
 	}
 
 	return jr;
@@ -1704,9 +1701,6 @@ job_start(job_t j)
 		job_start_child(j, execspair[1]);
 		break;
 	default:
-		if (!SLIST_EMPTY(&j->machservices)) {
-			j->priv_port_has_senders = true;
-		}
 		j->p = c;
 		total_children++;
 		job_assumes(j, close(execspair[1]) == 0);
