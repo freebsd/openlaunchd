@@ -234,7 +234,7 @@ struct job_s {
 		     anonymous:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1,
-		     stall_before_exec:1, only_once:1;
+		     stall_before_exec:1, only_once:1, currently_ignored:1;
 	char label[0];
 };
 
@@ -332,6 +332,12 @@ job_ignore(job_t j)
 	struct machservice *ms;
 	struct watchpath *wp;
 
+	if (j->currently_ignored) {
+		return;
+	}
+	
+	j->currently_ignored = true;
+
 	SLIST_FOREACH(sg, &j->sockets, sle) {
 		socketgroup_ignore(j, sg);
 	}
@@ -351,6 +357,12 @@ job_watch(job_t j)
 	struct socketgroup *sg;
 	struct machservice *ms;
 	struct watchpath *wp;
+
+	if (!job_assumes(j, j->currently_ignored)) {
+		return;
+	}
+
+	j->currently_ignored = false;
 
 	SLIST_FOREACH(sg, &j->sockets, sle) {
 		socketgroup_watch(j, sg);
