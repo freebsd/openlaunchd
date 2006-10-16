@@ -81,6 +81,7 @@ install-data-hook: install-startupitems
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include/servers
 	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
+	cp $(srcdir)/vproc.h $(DESTDIR)/usr/include
 	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
 	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
 	mkdir -p $(DESTDIR)/usr/local/include

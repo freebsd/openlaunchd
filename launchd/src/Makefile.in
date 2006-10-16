@@ -1049,6 +1049,7 @@ bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/proto
 @LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/include/servers
 @LIBS_ONLY_FALSE@	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
+@LIBS_ONLY_FALSE@	cp $(srcdir)/vproc.h $(DESTDIR)/usr/include
 @LIBS_ONLY_FALSE@	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
 @LIBS_ONLY_FALSE@	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/local/include
