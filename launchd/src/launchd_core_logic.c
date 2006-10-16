@@ -280,6 +280,7 @@ static job_t job_parent(job_t j);
 static void job_uncork_fork(job_t j);
 static struct machservice *job_lookup_service(job_t jbs, const char *name, bool check_parent);
 static void job_foreach_service(job_t jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool only_anonymous);
+static void job_logv(job_t j, int pri, const char *msg, va_list ap);
 static void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
@@ -335,7 +336,7 @@ job_ignore(job_t j)
 	if (j->currently_ignored) {
 		return;
 	}
-	
+
 	j->currently_ignored = true;
 
 	SLIST_FOREACH(sg, &j->sockets, sle) {
@@ -836,6 +837,7 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 	j->parent = p ? job_get_bs(p) : NULL;
 	j->min_run_time = LAUNCHD_MIN_JOB_RUN_TIME;
 	j->timeout = LAUNCHD_ADVISABLE_IDLE_TIMEOUT;
+	j->currently_ignored = true;
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
@@ -1567,12 +1569,6 @@ void
 job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
-	bool d = j->debug;
-	int oldmask = 0;
-
-	if (d) {
-		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
-	}
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
@@ -1630,11 +1626,6 @@ job_callback(void *obj, struct kevent *kev)
 	default:
 		job_assumes(j, false);
 		break;
-	}
-
-	if (d) {
-		/* the job might have been removed, must not call job_log() */
-		setlogmask(oldmask);
 	}
 }
 
@@ -2086,34 +2077,47 @@ job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, c
 }
 
 void
-job_log_error(job_t j, int pri, const char *msg, ...)
+job_logv(job_t j, int pri, const char *msg, va_list ap)
 {
 	char newmsg[10000];
-	va_list ap;
-	size_t o;
-
-	o = job_prep_log_preface(j, newmsg);
-
-	sprintf(newmsg + o, ": %s: %s", msg, strerror(errno));
-
-	va_start(ap, msg);
-	vsyslog(pri, newmsg, ap);
-	va_end(ap);
-}
-
-void
-job_log(job_t j, int pri, const char *msg, ...)
-{
-	char newmsg[10000];
-	va_list ap;
+	int oldmask = 0;
 	size_t o;
 
 	o = job_prep_log_preface(j, newmsg);
 
 	sprintf(newmsg + o, ": %s", msg);
 
-	va_start(ap, msg);
+	if (j->debug) {
+		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
+	}
+
 	vsyslog(pri, newmsg, ap);
+
+	if (j->debug) {
+		setlogmask(oldmask);
+	}
+}
+
+void
+job_log_error(job_t j, int pri, const char *msg, ...)
+{
+	char newmsg[10000];
+	va_list ap;
+
+	sprintf(newmsg, "%s: %s", msg, strerror(errno));
+
+	va_start(ap, msg);
+	job_logv(j, pri, newmsg, ap);
+	va_end(ap);
+}
+
+void
+job_log(job_t j, int pri, const char *msg, ...)
+{
+	va_list ap;
+
+	va_start(ap, msg);
+	job_logv(j, pri, msg, ap);
 	va_end(ap);
 }
 
