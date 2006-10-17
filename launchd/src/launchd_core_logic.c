@@ -1654,7 +1654,7 @@ job_start(job_t j)
 
 	td = time(NULL) - j->start_time;
 
-	if (td < j->min_run_time && !j->legacy_mach_job) {
+	if (td < j->min_run_time && !j->legacy_mach_job && !j->inetcompat) {
 		time_t respawn_delta = j->min_run_time - td;
 
 		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
