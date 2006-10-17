@@ -689,9 +689,11 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 	}
 
 	/* preflight the string so we know how big it is */
-	sprintf(buf, "100000.%s", basename((char *)argv[0]));
+	sprintf(buf, "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", basename((char *)argv[0]));
 
 	j = job_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
+
+	sprintf(j->label, "%p.%s", j, basename(j->argv[0]));
 
 	free(argv);
 
@@ -713,9 +715,7 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 		goto out_bad;
 	}
 
-	sprintf(j->label, "%d.%s", MACH_PORT_INDEX(j->bs_port), basename(j->argv[0]));
-
-	job_log(j, LOG_INFO, "New%s server in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
+	job_log(j, LOG_INFO, "Legacy%s server created in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
 
 	return j;
 
@@ -3174,6 +3174,9 @@ void
 job_ack_no_senders(job_t j)
 {
 	j->priv_port_has_senders = false;
+
+	job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	j->bs_port = 0;
 
 	job_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
 
