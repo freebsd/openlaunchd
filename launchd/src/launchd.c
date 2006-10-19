@@ -429,6 +429,8 @@ launchd_shutdown(void)
 	shutdown_in_progress = true;
 
 	if (stat("/var/db/debugShutdownHangs", &sb) != -1) {
+		// When this changes to a more sustainable API, update this:
+		// http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
 		debug_shutdown_hangs = true;
 	}
 
