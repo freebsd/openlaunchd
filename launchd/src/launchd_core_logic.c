@@ -3951,6 +3951,11 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	if (!job_setup_machport(jr)) {
+		job_remove(jr);
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	job_log(j, LOG_INFO, "Spawned with flags:%s%s",
 			flags & SPAWN_WANTS_FORCE_PPC ? " ppc": "",
 			flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
