@@ -18,19 +18,13 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+#include "config.h"
+#include "bootstrap_public.h"
+
 #include <mach/mach.h>
 #include <mach/vm_map.h>
 
-#include "bootstrap_public.h"
-#include "vproc_priv.h"
-#include "launch.h"
-#include "launch_priv.h"
-
 #include "protocol_vproc.h"
-
-#include <sys/param.h>
-#include <stdlib.h>
-#include <errno.h>
 
 kern_return_t
 bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_port)

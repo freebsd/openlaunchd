@@ -18,11 +18,13 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+#include "config.h"
+#include "vproc.h"
+#include "vproc_priv.h"
+
 #include <mach/mach.h>
 #include <mach/vm_map.h>
 
-#include "bootstrap_public.h"
-#include "vproc_priv.h"
 #include "launch.h"
 #include "launch_priv.h"
 

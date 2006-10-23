@@ -20,6 +20,9 @@
 
 static const char *const __rcs_file_version__ = "$Revision$";
 
+#include "config.h"
+#include "launchd_runtime.h"
+
 #include <mach/mach.h>
 #include <mach/mach_error.h>
 #include <mach/boolean.h>
@@ -46,8 +49,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <stdlib.h>
 #include <stdbool.h>
 #include <syslog.h>
-
-#include "launchd_runtime.h"
 
 #include "launchd_internalServer.h"
 #include "launchd_internal.h"

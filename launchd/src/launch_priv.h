@@ -20,6 +20,7 @@
 #ifndef _LAUNCH_PRIV_H_
 #define _LAUNCH_PRIV_H_
 
+#include <sys/types.h>
 #include <launch.h>
 
 #pragma GCC visibility push(default)

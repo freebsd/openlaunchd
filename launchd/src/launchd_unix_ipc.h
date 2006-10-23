@@ -20,6 +20,12 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+#include <sys/queue.h>
+
+#include "launchd_runtime.h"
+#include "launchd_core_logic.h"
+#include "launch_priv.h"
+
 struct conncb {
 	kq_callback kqconn_callback;
 	SLIST_ENTRY(conncb) sle;

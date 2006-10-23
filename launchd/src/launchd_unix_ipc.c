@@ -20,6 +20,9 @@
 
 static const char *const __rcs_file_version__ = "$Revision$";
 
+#include "config.h"
+#include "launchd_unix_ipc.h"
+
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
@@ -50,7 +53,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launchd.h"
 #include "launchd_runtime.h"
 #include "launchd_core_logic.h"
-#include "launchd_unix_ipc.h"
 
 extern char **environ;
 

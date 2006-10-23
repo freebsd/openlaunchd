@@ -17,6 +17,11 @@
  * 
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
+
+#include "config.h"
+#include "launch.h"
+#include "launch_priv.h"
+
 #include <mach/mach.h>
 #include <libkern/OSByteOrder.h>
 #include <sys/types.h>
@@ -33,8 +38,6 @@
 #include <errno.h>
 #include <pwd.h>
 
-#include "launch.h"
-#include "launch_priv.h"
 #include "bootstrap_public.h"
 #include "vproc_priv.h"
 

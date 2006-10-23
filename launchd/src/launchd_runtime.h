@@ -21,6 +21,9 @@
 #define __LAUNCHD_RUNTIME_H__
 
 #include <mach/mach.h>
+#include <sys/types.h>
+#include <bsm/libbsm.h>
+#include <stdbool.h>
 
 struct ldcred {
 	uid_t   euid;

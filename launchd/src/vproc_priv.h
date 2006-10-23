@@ -1,5 +1,5 @@
-#ifndef _BOOTSTRAP_PRIVATE_H_
-#define _BOOTSTRAP_PRIVATE_H_
+#ifndef _VPROC_PRIVATE_H_
+#define _VPROC_PRIVATE_H_
 /*
  * Copyright (c) 2006 Apple Computer, Inc. All rights reserved.
  *
@@ -20,6 +20,8 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+#include <mach/mach.h>
+#include "bootstrap_public.h"
 
 typedef char * _internal_string_t;
 typedef mach_port_t vproc_mig_t;

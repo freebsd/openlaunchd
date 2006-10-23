@@ -20,6 +20,9 @@
 
 static const char *const __rcs_file_version__ = "$Revision$";
 
+#include "config.h"
+#include "launchd.h"
+
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
@@ -65,7 +68,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "vproc_priv.h"
 #include "launch.h"
 #include "launch_priv.h"
-#include "launchd.h"
 #include "launchd_runtime.h"
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
