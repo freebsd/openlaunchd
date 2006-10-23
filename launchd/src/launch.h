@@ -25,6 +25,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#pragma GCC visibility push(default)
+
 __BEGIN_DECLS
 
 #ifdef __GNUC__
@@ -213,5 +215,7 @@ int launch_get_fd(void) __ld_normal;
 launch_data_t launch_msg(const launch_data_t) __ld_normal;
 
 __END_DECLS
+
+#pragma GCC visibility pop
 
 #endif

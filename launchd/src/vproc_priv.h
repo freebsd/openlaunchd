@@ -20,6 +20,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+
 typedef char * _internal_string_t;
 typedef mach_port_t vproc_mig_t;
 
@@ -27,6 +28,8 @@ typedef mach_port_t vproc_mig_t;
 /* HACK */
 #include "launchd_core_logic.h"
 #endif
+
+#pragma GCC visibility push(default)
 
 #define SPAWN_HAS_PATH			0x0001
 #define SPAWN_HAS_WDIR			0x0002
@@ -58,5 +61,7 @@ bootstrap_info(
 		mach_msg_type_number_t *service_namesCnt,
 		bootstrap_status_array_t *service_active,
 		mach_msg_type_number_t *service_activeCnt);
+
+#pragma GCC visibility pop
 
 #endif

@@ -22,6 +22,8 @@
 
 #include <launch.h>
 
+#pragma GCC visibility push(default)
+
 __BEGIN_DECLS
 
 #define LAUNCH_KEY_GETUSERENVIRONMENT	"GetUserEnvironment"
@@ -114,5 +116,8 @@ kern_return_t mpm_uncork_fork(mach_port_t ajob);
 
 
 __END_DECLS
+
+#pragma GCC visibility pop
+
 
 #endif

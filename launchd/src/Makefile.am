@@ -1,4 +1,4 @@
-AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1
+AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -Dmig_external=__private_extern__
 
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.h launchd_internalUser.c	\
@@ -11,12 +11,14 @@ if LIBS_ONLY
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-liblaunch_a_SOURCES = liblaunch.c libvproc.c
+liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c
 
 liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c
+liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c
 
 $(srcdir)/libvproc.c:: protocol_vproc.h
+
+$(srcdir)/protocol_vprocUser.c:: protocol_vproc.h
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/local/lib/system
@@ -34,14 +36,14 @@ libexec_PROGRAMS = launchproxy
 
 sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
 
-launchctl_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden -I/System/Library/Frameworks/System.framework/PrivateHeaders
+launchctl_CFLAGS = $(AM_CFLAGS) -I/System/Library/Frameworks/System.framework/PrivateHeaders
 launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
 
-SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -fvisibility=hidden
+SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
+launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c
 
