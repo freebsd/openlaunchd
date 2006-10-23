@@ -144,7 +144,7 @@ mpm_uncork_fork(mach_port_t ajob)
 }
 
 kern_return_t
-bootstrap_getsocket(mach_port_t bp, name_t sockpath)
+vprocmgr_getsocket(mach_port_t bp, name_t sockpath)
 {
 	return vproc_mig_getsocket(bp, sockpath);
 }

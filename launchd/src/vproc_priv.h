@@ -42,7 +42,7 @@ _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
-kern_return_t bootstrap_getsocket(mach_port_t bp, name_t);
+kern_return_t vprocmgr_getsocket(mach_port_t bp, name_t);
 
 
 kern_return_t
