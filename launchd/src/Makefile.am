@@ -1,7 +1,7 @@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -Dmig_external=__private_extern__
 
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
-	     launchd_internal.h launchd_internalServer.h launchd_internalServer.h launchd_internalUser.c	\
+	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
 	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h 
 
 protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h: $(srcdir)/protocol_job.defs
