@@ -1087,12 +1087,12 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/include/servers
-@LIBS_ONLY_FALSE@	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
-@LIBS_ONLY_FALSE@	cp $(srcdir)/vproc.h $(DESTDIR)/usr/include
-@LIBS_ONLY_FALSE@	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
-@LIBS_ONLY_FALSE@	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
+@LIBS_ONLY_FALSE@	cp $(srcdir)/liblaunch_public.h $(DESTDIR)/usr/include/launch.h
+@LIBS_ONLY_FALSE@	cp $(srcdir)/libvproc_public.h $(DESTDIR)/usr/include/vproc.h
+@LIBS_ONLY_FALSE@	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
+@LIBS_ONLY_FALSE@	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/local/include
-@LIBS_ONLY_FALSE@	cp $(srcdir)/launch_priv.h $(DESTDIR)/usr/local/include
+@LIBS_ONLY_FALSE@	cp $(srcdir)/liblaunch_private.h $(DESTDIR)/usr/local/include/launch_priv.h
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/Library/LaunchDaemons

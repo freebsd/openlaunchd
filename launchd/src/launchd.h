@@ -22,9 +22,9 @@
 
 #include <mach/mach.h>
 #include <mach/port.h>
-#include "launch.h"
+#include "liblaunch_public.h"
+#include "libbootstrap_public.h"
 #include "launchd_runtime.h"
-#include "bootstrap_public.h"
 
 #define FIRSTBORN_LABEL "com.apple.launchd.firstborn"
 #define READCONF_LABEL "com.apple.launchd.readconfig"

@@ -19,19 +19,19 @@
  */
 
 #include "config.h"
-#include "vproc.h"
-#include "vproc_priv.h"
+#include "libvproc_public.h"
+#include "libvproc_internal.h"
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>
+#include <sys/param.h>
+#include <stdlib.h>
 
-#include "launch.h"
-#include "launch_priv.h"
+#include "liblaunch_public.h"
+#include "liblaunch_private.h"
 
 #include "protocol_vproc.h"
 
-#include <sys/param.h>
-#include <stdlib.h>
 #include <errno.h>
 
 kern_return_t

@@ -28,8 +28,8 @@ subsystem protocol_vproc 400;
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
 #include "launchd_mig_types.defs"
-import "vproc.h";
-import "vproc_priv.h";
+import "libvproc_public.h";
+import "libvproc_internal.h";
 
 userprefix vproc_mig_;
 serverprefix job_mig_;

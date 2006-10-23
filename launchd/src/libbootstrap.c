@@ -19,7 +19,7 @@
  */
 
 #include "config.h"
-#include "bootstrap_public.h"
+#include "libbootstrap_public.h"
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>

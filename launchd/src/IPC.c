@@ -30,7 +30,8 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <syslog.h>
 
-#include "bootstrap_public.h"
+#include "libbootstrap_public.h"
+
 #include "IPC.h"
 #include "StartupItems.h"
 #include "SystemStarter.h"

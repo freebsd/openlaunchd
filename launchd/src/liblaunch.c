@@ -38,8 +38,8 @@
 #include <errno.h>
 #include <pwd.h>
 
-#include "bootstrap_public.h"
-#include "vproc_priv.h"
+#include "libbootstrap_public.h"
+#include "libvproc_internal.h"
 
 /* __OSBogusByteSwap__() must not really exist in the symbol namespace
  * in order for the following to generate an error at build time.

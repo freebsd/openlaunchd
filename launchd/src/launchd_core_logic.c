@@ -73,13 +73,14 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <ctype.h>
 #include <glob.h>
 
-#include "launch.h"
-#include "launch_priv.h"
+#include "liblaunch_public.h"
+#include "liblaunch_private.h"
+#include "libbootstrap_public.h"
+#include "libvproc_internal.h"
+
 #include "launchd.h"
 #include "launchd_runtime.h"
 #include "launchd_unix_ipc.h"
-#include "bootstrap_public.h"
-#include "vproc_priv.h"
 #include "protocol_vproc.h"
 #include "protocol_vprocServer.h"
 #include "job_reply.h"

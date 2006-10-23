@@ -82,12 +82,12 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/usr/libexec
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include/servers
-	cp $(srcdir)/launch.h $(DESTDIR)/usr/include
-	cp $(srcdir)/vproc.h $(DESTDIR)/usr/include
-	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
-	cp $(srcdir)/bootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
+	cp $(srcdir)/liblaunch_public.h $(DESTDIR)/usr/include/launch.h
+	cp $(srcdir)/libvproc_public.h $(DESTDIR)/usr/include/vproc.h
+	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
+	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
 	mkdir -p $(DESTDIR)/usr/local/include
-	cp $(srcdir)/launch_priv.h $(DESTDIR)/usr/local/include
+	cp $(srcdir)/liblaunch_private.h $(DESTDIR)/usr/local/include/launch_priv.h
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 	mkdir -p $(DESTDIR)/Library/LaunchDaemons

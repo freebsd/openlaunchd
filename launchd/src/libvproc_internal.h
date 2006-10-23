@@ -21,7 +21,7 @@
  */
 
 #include <mach/mach.h>
-#include "bootstrap_public.h"
+#include "libbootstrap_public.h"
 
 typedef char * _internal_string_t;
 typedef mach_port_t vproc_mig_t;

@@ -59,10 +59,10 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <utmp.h>
 #include <utmpx.h>
 
-#include "bootstrap_public.h"
-#include "vproc_priv.h"
-#include "launch.h"
-#include "launch_priv.h"
+#include "libbootstrap_public.h"
+#include "libvproc_internal.h"
+#include "liblaunch_public.h"
+#include "liblaunch_private.h"
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
 
