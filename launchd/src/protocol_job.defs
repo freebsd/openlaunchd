@@ -23,13 +23,13 @@
  * Copyright, 1990.  All rights reserved.
  */
 
-subsystem bootstrap 400;
+subsystem protocol_vproc 400;
 
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
 #include "launchd_mig_types.defs"
-import "bootstrap_public.h";
-import "bootstrap_private.h";
+import "vproc.h";
+import "vproc_priv.h";
 
 userprefix vproc_mig_;
 serverprefix job_mig_;
@@ -39,7 +39,6 @@ routine create_server(
 		__server_cmd	: cmd_t;
 		__server_uid	: natural_t;
 		__on_demand	: boolean_t;
-	ServerAuditToken	__token	: audit_token_t;
 	out	__server_port	: mach_port_make_send_t);
 
 skip; /* Last used in 10.4. Was bootstrap_unprivileged() */
@@ -47,18 +46,15 @@ skip; /* Last used in 10.4. Was bootstrap_unprivileged() */
 routine check_in(
 			__bs_port	: job_t;
 			__service_name	: name_t;
-	ServerAuditToken	__token	: audit_token_t;
 		out	__service_port	: mach_port_move_receive_t);
 
 routine register(
 		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 		__service_port	: mach_port_t);
 
 routine look_up(
 		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t;
 		__service_name	: name_t;
 	out	__service_port	: mach_port_send_t);
 
@@ -90,7 +86,6 @@ routine transfer_subset(
 	out	__bs_reqport	: mach_port_t;
 	out	__bs_rcvright	: mach_port_move_receive_t;
 	out	__service_names	: name_array_t, dealloc;
-	out	__service_pids	: pointer_t, dealloc;
 	out	__service_ports	: mach_port_array_t, dealloc);
 
 routine getsocket(
@@ -99,7 +94,6 @@ routine getsocket(
 
 routine spawn(
 		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t;
 		__chars		: _internal_string_t;
 		__argc		: uint32_t;
 		__envc		: uint32_t;
@@ -111,15 +105,7 @@ routine spawn(
 routine wait(
 		__bs_port	: job_t;
 	sreplyport		__rport	: mach_port_make_send_once_t;
-	ServerAuditToken	__token	: audit_token_t;
 	out	__waitval	: integer_t);
 
 routine uncork_fork(
-		__bs_port	: job_t;
-	ServerAuditToken	__token	: audit_token_t);
-
-/* Essentially the inverse of bootstrap_unprivileged() */
-routine get_self(
-		__bs_port	: job_t;
-	ServerAuditToken        __token : audit_token_t;
-	out	__job_port	: mach_port_make_send_t);
+		__bs_port	: job_t);

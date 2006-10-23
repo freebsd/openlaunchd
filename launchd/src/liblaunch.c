@@ -36,7 +36,7 @@
 #include "launch.h"
 #include "launch_priv.h"
 #include "bootstrap_public.h"
-#include "bootstrap_private.h"
+#include "vproc_priv.h"
 
 /* __OSBogusByteSwap__() must not really exist in the symbol namespace
  * in order for the following to generate an error at build time.
@@ -133,8 +133,8 @@ struct _launch {
 	int	fd;
 };
 
-static void make_msg_and_cmsg(launch_data_t, void **, size_t *, int **, size_t *);
-static launch_data_t make_data(launch_t, size_t *, size_t *);
+static void launch_data_pack(launch_data_t, void **, size_t *, int **, size_t *);
+static launch_data_t launch_data_unpack(launch_t, size_t *, size_t *);
 static launch_data_t launch_data_array_pop_first(launch_data_t where);
 static int _fd(int fd);
 static void launch_client_init(void);
@@ -565,7 +565,7 @@ launchd_close(launch_t lh)
 }
 
 void
-make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **fd_where, size_t *fdcnt)
+launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, size_t *fdcnt)
 {
 	launch_data_t o_in_w;
 	size_t i;
@@ -619,14 +619,15 @@ make_msg_and_cmsg(launch_data_t d, void **where, size_t *len, int **fd_where, si
 		*len += d->_array_cnt * sizeof(launch_data_t);
 
 		for (i = 0; i < d->_array_cnt; i++)
-			make_msg_and_cmsg(d->_array[i], where, len, fd_where, fdcnt);
+			launch_data_pack(d->_array[i], where, len, fd_where, fdcnt);
 		break;
 	default:
 		break;
 	}
 }
 
-static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoffset)
+launch_data_t
+launch_data_unpack(launch_t conn, size_t *data_offset, size_t *fdoffset)
 {
 	launch_data_t r = conn->recvbuf + *data_offset;
 	size_t i, tmpcnt;
@@ -646,7 +647,7 @@ static launch_data_t make_data(launch_t conn, size_t *data_offset, size_t *fdoff
 		r->_array = conn->recvbuf + *data_offset;
 		*data_offset += tmpcnt * sizeof(launch_data_t);
 		for (i = 0; i < tmpcnt; i++) {
-			r->_array[i] = make_data(conn, data_offset, fdoffset);
+			r->_array[i] = launch_data_unpack(conn, data_offset, fdoffset);
 			if (r->_array[i] == NULL)
 				return NULL;
 		}
@@ -716,7 +717,7 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 	if (d) {
 		uint64_t msglen = lh->sendlen;
 
-		make_msg_and_cmsg(d, &lh->sendbuf, &lh->sendlen, &lh->sendfds, &lh->sendfdcnt);
+		launch_data_pack(d, &lh->sendbuf, &lh->sendlen, &lh->sendfds, &lh->sendfdcnt);
 
 		msglen = (lh->sendlen - msglen) + sizeof(struct launch_msg_header);
 		lmh.len = host2big(msglen);
@@ -953,7 +954,7 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
 			goto need_more_data;
 		}
 
-		if ((rmsg = make_data(lh, &data_offset, &fd_offset)) == NULL) {
+		if ((rmsg = launch_data_unpack(lh, &data_offset, &fd_offset)) == NULL) {
 			errno = EBADRPC;
 			goto out_bad;
 		}

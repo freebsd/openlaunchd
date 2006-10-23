@@ -77,9 +77,9 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
 #include "bootstrap_public.h"
-#include "bootstrap_private.h"
-#include "bootstrap.h"
-#include "bootstrapServer.h"
+#include "vproc_priv.h"
+#include "protocol_vproc.h"
+#include "protocol_vprocServer.h"
 #include "job_reply.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
@@ -661,12 +661,12 @@ job_setup_machport(job_t j)
 	}
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
-	mxmsgsz = sizeof(union __RequestUnion__job_mig_bootstrap_subsystem);
-	if (job_mig_bootstrap_subsystem.maxsize > mxmsgsz) {
-		mxmsgsz = job_mig_bootstrap_subsystem.maxsize;
+	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
+	if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
+		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
 
-	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS)) {
+	if (!job_assumes(j, runtime_add_mport(j->bs_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
 		goto out_bad2;
 	}
 
@@ -2914,12 +2914,12 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
-	mxmsgsz = sizeof(union __RequestUnion__job_mig_bootstrap_subsystem);
-	if (job_mig_bootstrap_subsystem.maxsize > mxmsgsz) {
-		mxmsgsz = job_mig_bootstrap_subsystem.maxsize;
+	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
+	if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
+		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
 
-	if (!job_assumes(j, runtime_add_mport(j->bs_port, bootstrap_server, mxmsgsz) == KERN_SUCCESS)) {
+	if (!job_assumes(j, runtime_add_mport(j->bs_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
@@ -3839,6 +3839,11 @@ job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 
 	if (job_prog(j)[0] == '\0') {
 		job_log(j, LOG_ERR, "Mach service creation requires a target server: %s", servicename);
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	if (!j->legacy_mach_job) {
+		job_log(j, LOG_ERR, "bootstrap_create_service() is only allowed against legacy Mach jobs: %s", servicename);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 

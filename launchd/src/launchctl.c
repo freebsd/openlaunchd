@@ -60,7 +60,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <utmpx.h>
 
 #include "bootstrap_public.h"
-#include "bootstrap_private.h"
+#include "vproc_priv.h"
 #include "launch.h"
 #include "launch_priv.h"
 

@@ -1,22 +1,22 @@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1
 
-CLEANFILES = bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h					\
+CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.h launchd_internalUser.c	\
 	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h 
 
-bootstrap.h bootstrapServer.c bootstrapUser.c bootstrapServer.h: $(srcdir)/protocol_legacy.defs
-	mig $(MIGFLAGS) -sheader bootstrapServer.h $(srcdir)/protocol_legacy.defs
+protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h: $(srcdir)/protocol_job.defs
+	mig $(MIGFLAGS) -sheader protocol_vprocServer.h $(srcdir)/protocol_job.defs
 
 if LIBS_ONLY
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-liblaunch_a_SOURCES = liblaunch.c bootstrap_public.c
+liblaunch_a_SOURCES = liblaunch.c libvproc.c
 
 liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c bootstrap_public.c
+liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c
 
-$(srcdir)/bootstrap_public.c:: bootstrap.h
+$(srcdir)/libvproc.c:: protocol_vproc.h
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/local/lib/system
@@ -43,10 +43,10 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter -fvisibility=hidden
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c bootstrapServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c
+launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c init.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c
 
 launchd_runtime.c:: notifyServer.h launchd_internal.h
-launchd_core_logic.c:: bootstrap.h job_reply.h bootstrap.h bootstrapServer.h
+launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h
 
 launchproxy_LDFLAGS = -weak_framework Security
 

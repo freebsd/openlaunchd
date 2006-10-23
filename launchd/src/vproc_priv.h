@@ -23,7 +23,7 @@
 typedef char * _internal_string_t;
 typedef mach_port_t vproc_mig_t;
 
-#ifdef bootstrap_MSG_COUNT
+#ifdef protocol_vproc_MSG_COUNT
 /* HACK */
 #include "launchd_core_logic.h"
 #endif

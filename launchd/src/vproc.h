@@ -20,7 +20,11 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+#include <sys/cdefs.h>
+
 __BEGIN_DECLS
+
+#if 0
 
 typedef void * vproc_t;
 typedef void * vprocmgr_t;
@@ -42,7 +46,7 @@ vproc_err_t vprocmgr_get_all_vprocs(vprocmgr_t vpm, vproc_t **vps, size_t *vp_cn
 
 vproc_err_t vprocmgr_lookup_vproc(vprocmgr_t vpm, const char *label, vproc_t *vp);
 
-vproc_err_t vprocmgr_lookup_vprocmgr_for_user(vprocmgr_t vpm, const char *user, vprocmgr_t *vpm);
+vproc_err_t vprocmgr_lookup_vprocmgr_for_user(vprocmgr_t vpm, const char *user, vprocmgr_t *vpm_out);
 
 vproc_err_t vprocmgr_lookup_mach_service(vprocmgr_t vpm, const char *service, mach_port_t *service_port);
 
@@ -72,6 +76,8 @@ vproc_err_t vproc_release(vproc_t vp);
 
 
 const char *vproc_strerror(vproc_err_t r);
+
+#endif
 
 __END_DECLS
 
