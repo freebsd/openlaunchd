@@ -16,6 +16,9 @@ else
 	cp $(OBJROOT)/src/launchd $(SYMROOT)
 	cp $(OBJROOT)/src/launchctl $(SYMROOT)
 	cp $(OBJROOT)/src/launchproxy $(SYMROOT)
+	dsymutil $(SYMROOT)/launchd
+	dsymutil $(SYMROOT)/launchctl
+	dsymutil $(SYMROOT)/launchproxy
 endif
 
 launchd_libs:: install
