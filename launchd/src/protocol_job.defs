@@ -109,3 +109,13 @@ routine wait(
 
 routine uncork_fork(
 		__bs_port	: job_t);
+
+routine get_integer(
+		__bs_port	: job_t;
+		__key		: get_set_int_key_t;
+	out	__val		: int64_t);
+
+routine set_integer(
+		__bs_port	: job_t;
+		__key		: get_set_int_key_t;
+		__val		: int64_t);

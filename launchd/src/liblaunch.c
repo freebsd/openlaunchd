@@ -19,8 +19,8 @@
  */
 
 #include "config.h"
-#include "launch.h"
-#include "launch_priv.h"
+#include "liblaunch_public.h"
+#include "liblaunch_private.h"
 
 #include <mach/mach.h>
 #include <libkern/OSByteOrder.h>
@@ -1203,7 +1203,7 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 	if ((ldp = fexecv_as_user(login, u, g, ldargv)) == -1)
 		return -1;
 
-	while (vprocmgr_getsocket(bootstrap_port, sp) != BOOTSTRAP_SUCCESS)
+	while (_vprocmgr_getsocket(bootstrap_port, sp) != BOOTSTRAP_SUCCESS)
 		usleep(20000);
 
 	setenv(LAUNCHD_SOCKET_ENV, sp, 1);

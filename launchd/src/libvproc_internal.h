@@ -1,5 +1,5 @@
-#ifndef _VPROC_PRIVATE_H_
-#define _VPROC_PRIVATE_H_
+#ifndef _VPROC_INTERNAL_H_
+#define _VPROC_INTERNAL_H_
 /*
  * Copyright (c) 2006 Apple Computer, Inc. All rights reserved.
  *
@@ -25,6 +25,10 @@
 
 typedef char * _internal_string_t;
 typedef mach_port_t vproc_mig_t;
+typedef enum {
+	LAST_EXIT_STATUS = 1,
+	GLOBAL_ON_DEMAND,
+} get_set_int_key_t;
 
 #ifdef protocol_vproc_MSG_COUNT
 /* HACK */
@@ -44,7 +48,7 @@ _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
-kern_return_t vprocmgr_getsocket(mach_port_t bp, name_t);
+kern_return_t _vprocmgr_getsocket(mach_port_t bp, name_t);
 
 
 kern_return_t

@@ -24,11 +24,12 @@
 
 __BEGIN_DECLS
 
+typedef void * vproc_err_t;
+
 #if 0
 
 typedef void * vproc_t;
 typedef void * vprocmgr_t;
-typedef void * vproc_err_t;
 
 /* By default, pass NULL for vprocmgr_t or vproc_t to get notions of self or "my manager" */
 

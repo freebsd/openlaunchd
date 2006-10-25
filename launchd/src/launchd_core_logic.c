@@ -1,6 +1,4 @@
 /*
- * Copyright (c) 2005 Apple Computer, Inc. All rights reserved.
- *
  * @APPLE_APACHE_LICENSE_HEADER_START@
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -237,7 +235,7 @@ struct job_s {
 		     anonymous:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1,
-		     stall_before_exec:1, only_once:1, currently_ignored:1;
+		     stall_before_exec:1, only_once:1, currently_ignored:1, forced_peers_to_demand_mode:1;
 	char label[0];
 };
 
@@ -251,6 +249,8 @@ static void job_import_string(job_t j, const char *key, const char *value);
 static void job_import_integer(job_t j, const char *key, long long value);
 static void job_import_dictionary(job_t j, const char *key, launch_data_t value);
 static void job_import_array(job_t j, const char *key, launch_data_t value);
+static void job_dispatch_all(job_t j);
+static bool job_set_global_on_demand(job_t j, bool val);
 static void job_watch(job_t j);
 static void job_ignore(job_t j);
 static void job_reap(job_t j);
@@ -319,9 +319,10 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
-job_t root_job = NULL;
-job_t gc_this_job = NULL;
-size_t total_children = 0;
+static size_t global_on_demand_cnt;
+job_t root_job;
+job_t gc_this_job;
+size_t total_children;
 
 void
 simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
@@ -652,6 +653,28 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 	socketgroup_new(j, key, fds, fd_cnt, strcmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0);
 
 	ipc_revoke_fds(obj);
+}
+
+bool
+job_set_global_on_demand(job_t j, bool val)
+{
+	if (j->forced_peers_to_demand_mode && val) {
+		return false;
+	} else if (!j->forced_peers_to_demand_mode && !val) {
+		return false;
+	}
+
+	if ((j->forced_peers_to_demand_mode = val)) {
+		global_on_demand_cnt++;
+	} else {
+		global_on_demand_cnt--;
+	}
+
+	if (global_on_demand_cnt == 0) {
+		job_dispatch_all(root_job);
+	}
+
+	return true;
 }
 
 bool
@@ -1547,6 +1570,18 @@ job_reap(job_t j)
 }
 
 void
+job_dispatch_all(job_t j)
+{
+	job_t ji;
+
+	SLIST_FOREACH(ji, &j->jobs, sle) {
+		job_dispatch_all(ji);
+	}
+
+	job_dispatch(j, false);
+}
+
+void
 job_dispatch(job_t j, bool kickstart)
 {
 	/*
@@ -1561,7 +1596,7 @@ job_dispatch(job_t j, bool kickstart)
 		return;
 	} else if (job_useless(j)) {
 		job_remove(j);
-	} else if (kickstart || job_keepalive(j)) {
+	} else if (global_on_demand_cnt == 0 && (kickstart || job_keepalive(j))) {
 		job_start(j);
 	} else {
 		job_watch(j);
@@ -2624,6 +2659,10 @@ job_active(job_t j)
 {
 	struct machservice *ms;
 
+	if (j->anonymous) {
+		return true;
+	}
+
 	if (j->req_port) {
 		return true;
 	}
@@ -3532,6 +3571,40 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 
 	*server_portp = job_get_bsport(js);
 	return BOOTSTRAP_SUCCESS;
+}
+
+kern_return_t
+job_mig_get_integer(job_t j, get_set_int_key_t key, int64_t *val)
+{
+	kern_return_t kr = 0;
+
+	switch (key) {
+	case LAST_EXIT_STATUS:
+		*val = j->last_exit_status;
+		break;
+	default:
+		kr = 1;
+		break;
+	}
+
+	return kr;
+}
+
+kern_return_t
+job_mig_set_integer(job_t j, get_set_int_key_t key, int64_t val)
+{
+	kern_return_t kr = 0;
+
+	switch (key) {
+	case GLOBAL_ON_DEMAND:
+		kr = job_set_global_on_demand(j, (bool)val) ? 0 : 1;
+		break;
+	default:
+		kr = 1;
+		break;
+	}
+
+	return kr;
 }
 
 kern_return_t

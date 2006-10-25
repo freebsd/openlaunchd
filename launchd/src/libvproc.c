@@ -20,19 +20,19 @@
 
 #include "config.h"
 #include "libvproc_public.h"
+#include "libvproc_private.h"
 #include "libvproc_internal.h"
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>
 #include <sys/param.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
 
 #include "protocol_vproc.h"
-
-#include <errno.h>
 
 kern_return_t
 _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
@@ -146,7 +146,32 @@ mpm_uncork_fork(mach_port_t ajob)
 }
 
 kern_return_t
-vprocmgr_getsocket(mach_port_t bp, name_t sockpath)
+_vprocmgr_getsocket(mach_port_t bp, name_t sockpath)
 {
 	return vproc_mig_getsocket(bp, sockpath);
+}
+
+vproc_err_t
+_vproc_get_last_exit_status(int *wstatus)
+{
+	int64_t val;
+
+	if (vproc_mig_get_integer(bootstrap_port, LAST_EXIT_STATUS, &val) == 0) {
+		*wstatus = (int)val;
+		return NULL;
+	}
+
+	return (vproc_err_t)_vproc_get_last_exit_status;
+}
+
+vproc_err_t
+_vproc_set_global_on_demand(bool state)
+{
+	int64_t val = state ? ~0 : 0;
+
+	if (vproc_mig_set_integer(bootstrap_port, GLOBAL_ON_DEMAND, val) == 0) {
+		return NULL;
+	}
+
+	return (vproc_err_t)_vproc_set_global_on_demand;
 }
