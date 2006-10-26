@@ -4054,6 +4054,8 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	jr->mach_uid = ldc.uid;
+
 	if (!job_setup_machport(jr)) {
 		job_remove(jr);
 		return BOOTSTRAP_NO_MEMORY;
