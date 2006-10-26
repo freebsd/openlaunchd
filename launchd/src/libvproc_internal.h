@@ -21,6 +21,7 @@
  */
 
 #include <mach/mach.h>
+#include <stdarg.h>
 #include "libbootstrap_public.h"
 
 typedef char * _internal_string_t;
@@ -50,6 +51,8 @@ _launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
 kern_return_t _vprocmgr_getsocket(mach_port_t bp, name_t);
+
+void _vproc_logv(int pri, int err, const char *msg, va_list ap);
 
 
 kern_return_t

@@ -177,7 +177,7 @@ _vproc_set_global_on_demand(bool state)
 	return (vproc_err_t)_vproc_set_global_on_demand;
 }
 
-static void
+void
 _vproc_logv(int pri, int err, const char *msg, va_list ap)
 {
 	char flat_msg[3000];
