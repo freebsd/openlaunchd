@@ -25,6 +25,7 @@
 
 type pid_t			= integer_t;
 type get_set_int_key_t		= integer_t;
+type logmsg_t			= c_string[*:2048];
 type cmd_t			= c_string[512];
 type cmd_array_t		= ^array [] of cmd_t;
 type name_t			= c_string[128];

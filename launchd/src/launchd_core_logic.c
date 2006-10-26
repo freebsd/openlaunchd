@@ -3622,6 +3622,18 @@ job_mig_getsocket(job_t j, name_t spr)
 }
 
 kern_return_t
+job_mig_log(job_t j, int pri, int err, logmsg_t msg)
+{
+	if ((errno = err)) {
+		job_log_error(j, pri, "%s", msg);
+	} else {
+		job_log(j, pri, "%s", msg);
+	}
+
+	return 0;
+}
+
+kern_return_t
 job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;

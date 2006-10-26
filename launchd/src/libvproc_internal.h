@@ -24,6 +24,7 @@
 #include "libbootstrap_public.h"
 
 typedef char * _internal_string_t;
+typedef char * logmsg_t;
 typedef mach_port_t vproc_mig_t;
 typedef enum {
 	LAST_EXIT_STATUS = 1,

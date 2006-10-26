@@ -27,6 +27,7 @@
 #include <mach/vm_map.h>
 #include <sys/param.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <errno.h>
 
 #include "liblaunch_public.h"
@@ -174,4 +175,35 @@ _vproc_set_global_on_demand(bool state)
 	}
 
 	return (vproc_err_t)_vproc_set_global_on_demand;
+}
+
+static void
+_vproc_logv(int pri, int err, const char *msg, va_list ap)
+{
+	char flat_msg[3000];
+
+	snprintf(flat_msg, sizeof(flat_msg) - 1, msg, ap);
+	flat_msg[sizeof(flat_msg) - 1] = '\0';
+
+	vproc_mig_log(bootstrap_port, pri, err, flat_msg);
+}
+
+void
+_vproc_log(int pri, const char *msg, ...)
+{
+	va_list ap;
+
+	va_start(ap, msg);
+	_vproc_logv(pri, 0, msg, ap);
+	va_end(ap);
+}
+
+void
+_vproc_log_error(int pri, const char *msg, ...)
+{
+	va_list ap;
+
+	va_start(ap, msg);
+	_vproc_logv(pri, errno, msg, ap);
+	va_end(ap);
 }

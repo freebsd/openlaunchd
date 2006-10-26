@@ -30,6 +30,9 @@ __BEGIN_DECLS
 vproc_err_t _vproc_get_last_exit_status(int *wstatus);
 vproc_err_t _vproc_set_global_on_demand(bool val);
 
+void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
+void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
+
 #pragma GCC visibility pop
 
 __END_DECLS
