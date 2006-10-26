@@ -134,11 +134,22 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	return -1;
 }
 
+#if 0
 kern_return_t
-mpm_wait(mach_port_t ajob, int *wstatus)
+mpm_wait(mach_port_t ajob __attribute__((unused)), int *wstatus)
 {
+	/* Stubbed out for now...
+	 * <rdar://problem/4802454> CAS: WindowServer hangs in CGXProcessHIDEvent/.../CGXPseudoActivateWindow/.../_LSDoSetFrontProcess
+	 */
 	return vproc_mig_wait(ajob, wstatus);
 }
+#else
+kern_return_t
+mpm_wait(mach_port_t ajob __attribute__((unused)), int *wstatus __attribute__((unused)))
+{
+	return MIG_BAD_ID;
+}
+#endif
 
 kern_return_t
 mpm_uncork_fork(mach_port_t ajob)
