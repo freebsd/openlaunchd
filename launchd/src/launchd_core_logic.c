@@ -3040,6 +3040,10 @@ job_lookup_service(job_t j, const char *name, bool check_parent)
 
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (strcmp(name, ms->name) == 0) {
+				if (ji->parent) {
+					SLIST_REMOVE(&ji->parent->jobs, ji, job_s, sle);
+					SLIST_INSERT_HEAD(&ji->parent->jobs, ji, sle);
+				}
 				return ms;
 			}
 		}
