@@ -132,6 +132,7 @@ static int touch_file(const char *path, mode_t m);
 static void do_sysversion_sysctl(void);
 static void workaround4465949(void);
 static void do_application_firewall_magic(int sfd, launch_data_t thejob);
+static void preheat_page_cache_hack(void);
 
 static int bootstrap_cmd(int argc, char *const argv[]);
 static int load_and_unload_cmd(int argc, char *const argv[]);
@@ -1239,6 +1240,8 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 
 	const char *bcc_tool[] = { "BootCacheControl", "start", NULL };
 	assumes(fwexec(bcc_tool, true) != -1);
+
+	preheat_page_cache_hack();
 
 	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL };
 	if (is_safeboot())
@@ -2723,4 +2726,44 @@ do_application_firewall_magic(int sfd, launch_data_t thejob)
 	if (assumes(prog != NULL)) {
 		assumes(setsockopt(sfd, SOL_SOCKET, SO_EXECPATH, prog, strlen(prog) + 1) != -1);
 	}
+}
+
+
+void
+preheat_page_cache_hack(void)
+{
+	struct dirent *de;
+	DIR *thedir;
+
+	/* Disable this hack for now */
+	return;
+
+	if ((thedir = opendir("/etc/preheat_at_boot")) == NULL) {
+		return;
+	}
+
+	while ((de = readdir(thedir))) {
+		struct stat sb;
+		void *junkbuf;
+		int fd;
+
+		if (de->d_name[0] == '.') {
+			continue;
+		}
+
+		if ((fd = open(de->d_name, O_RDONLY)) == -1) {
+			continue;
+		}
+
+		if (fstat(fd, &sb) != -1) { 
+			if ((junkbuf = malloc(sb.st_size)) != NULL) {
+				assumes(read(fd, junkbuf, sb.st_size) == sb.st_size);
+				free(junkbuf);
+			}
+		}
+
+		close(fd);
+	}
+
+	closedir(thedir);
 }
