@@ -1233,11 +1233,6 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 		assumes(fwexec(audit_tool, true) != -1);
 	}
 
-	if (path_check("/Library/Preferences/com.apple.sharing.firewall.plist")) {
-		const char *fw_tool[] = { "/usr/libexec/FirewallTool", NULL };
-		assumes(fwexec(fw_tool, true) != -1);
-	}
-
 	const char *bcc_tool[] = { "BootCacheControl", "start", NULL };
 	assumes(fwexec(bcc_tool, true) != -1);
 
