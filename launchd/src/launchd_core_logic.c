@@ -269,7 +269,7 @@ static void job_setup_env_from_other_jobs(job_t j);
 static void job_export_all2(job_t j, launch_data_t where);
 static launch_data_t job_export2(job_t j, bool subjobs);
 static job_t job_find_by_pid(job_t j, pid_t p, bool recurse);
-static job_t job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
+static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
 static job_t job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond);
 static job_t job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port);
 static bool job_new_anonymous(job_t p);
@@ -766,16 +766,16 @@ job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus)
 }
 
 job_t 
-job_new_spawn(const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
+job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
 {
 	job_t jr;
 
-	if ((jr = job_find(root_job, label)) != NULL) {
+	if ((jr = job_find(j, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	}
 
-	jr = job_new(root_job, label, path, argv, NULL, MACH_PORT_NULL);
+	jr = job_new(j, label, path, argv, NULL, MACH_PORT_NULL);
 
 	if (!jr) {
 		return NULL;
@@ -4048,7 +4048,7 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		}
 	}
 
-	jr = job_new_spawn(label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
+	jr = job_new_spawn(job_get_bs(j), label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
 			flags & SPAWN_WANTS_WAIT4DEBUGGER, flags & SPAWN_WANTS_FORCE_PPC);
 
 	if (jr == NULL) switch (errno) {
