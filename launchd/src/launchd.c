@@ -272,7 +272,7 @@ main(int argc, char *const *argv)
 	}
 
 	if (h) {
-		sprintf(ldconf, "%s/%s", h, LAUNCHD_CONF);
+		snprintf(ldconf, sizeof(ldconf), "%s/%s", h, LAUNCHD_CONF);
 	}
 
 	rlcj = job_new(root_job, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf, MACH_PORT_NULL);

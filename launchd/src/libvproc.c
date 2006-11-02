@@ -193,8 +193,7 @@ _vproc_logv(int pri, int err, const char *msg, va_list ap)
 {
 	char flat_msg[3000];
 
-	snprintf(flat_msg, sizeof(flat_msg) - 1, msg, ap);
-	flat_msg[sizeof(flat_msg) - 1] = '\0';
+	vsnprintf(flat_msg, sizeof(flat_msg), msg, ap);
 
 	vproc_mig_log(bootstrap_port, pri, err, flat_msg);
 }

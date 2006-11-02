@@ -715,11 +715,11 @@ job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
 	}
 
 	/* preflight the string so we know how big it is */
-	sprintf(buf, "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", basename((char *)argv[0]));
+	snprintf(buf, sizeof(buf), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", basename((char *)argv[0]));
 
 	j = job_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
 
-	sprintf(j->label, "%p.%s", j, basename(j->argv[0]));
+	snprintf(j->label, strlen(j->label) + 1, "%p.%s", j, basename(j->argv[0]));
 
 	free(argv);
 
@@ -830,7 +830,7 @@ job_new_anonymous(job_t p)
 	char newlabel[1000], *procname = "unknown";
 	job_t jr;
 
-	sprintf(newlabel, "%u.anonymous", MACH_PORT_INDEX(p->bs_port));
+	snprintf(newlabel, sizeof(newlabel), "%u.anonymous", MACH_PORT_INDEX(p->bs_port));
 
 	if ((jr = job_new(p, newlabel, procname, NULL, NULL, MACH_PORT_NULL))) {
 		jr->anonymous = true;
@@ -1746,7 +1746,7 @@ job_start(job_t j)
 
 		if (sipc) {
 			job_assumes(j, close(spair[0]) == 0);
-			sprintf(nbuf, "%d", spair[1]);
+			snprintf(nbuf, sizeof(nbuf), "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
 		job_start_child(j, execspair[1]);
@@ -2133,9 +2133,9 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 	o = job_prep_log_preface(j, newmsg);
 
 	if (err) {
-		sprintf(newmsg + o, ": %s: %s", msg, strerror(err));
+		snprintf(newmsg + o, sizeof(newmsg) - o, ": %s: %s", msg, strerror(err));
 	} else {
-		sprintf(newmsg + o, ": %s", msg);
+		snprintf(newmsg + o, sizeof(newmsg) - o, ": %s", msg);
 	}
 
 	if (j->debug) {
@@ -2409,7 +2409,7 @@ socketgroup_ignore(job_t j, struct socketgroup *sg)
 	}
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
+		buf_off += snprintf(buf + buf_off, sizeof(buf) - buf_off, " %d", sg->fds[i]);
 
 	job_log(j, LOG_DEBUG, "Ignoring Sockets:%s", buf);
 
@@ -2428,7 +2428,7 @@ socketgroup_watch(job_t j, struct socketgroup *sg)
 	}
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		buf_off += sprintf(buf + buf_off, " %d", sg->fds[i]);
+		buf_off += snprintf(buf + buf_off, sizeof(buf) - buf_off, " %d", sg->fds[i]);
 
 	job_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
 
@@ -2963,7 +2963,7 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 		goto out_bad;
 	}
 
-	sprintf(j->label, "%d", MACH_PORT_INDEX(j->bs_port));
+	snprintf(j->label, strlen(j->label) + 1, "%d", MACH_PORT_INDEX(j->bs_port));
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
 	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
@@ -3280,7 +3280,7 @@ job_force_sampletool(job_t j)
 	char pidstr[100];
 	pid_t sp;
 	
-	sprintf(pidstr, "%u", j->p);
+	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
 
 	switch ((sp = fork())) {
 	case -1:

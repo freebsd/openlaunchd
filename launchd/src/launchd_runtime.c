@@ -678,7 +678,7 @@ vsyslog(int priority, const char *message, va_list args)
 		return;
 	}
 
-	sprintf(newmsg, "p%u pp%u\t", getpid(), getppid());
+	snprintf(newmsg, sizeof(newmsg), "p%u pp%u\t", getpid(), getppid());
 
 	for (i = 0, j = strlen(newmsg); message[i];) {
 		if (message[i] == '%' && message[i + 1] == 'm') {
