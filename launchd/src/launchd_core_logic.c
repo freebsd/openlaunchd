@@ -96,7 +96,7 @@ struct machservice {
 	SLIST_ENTRY(machservice) sle;
 	job_t			job;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, __junk:27;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1;
 	char			name[0];
 };
 
@@ -2761,7 +2761,6 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport)
 			goto out_bad2;
 		}
 		*serviceport = ms->port;
-		ms->isActive = false;
 		ms->recv = true;
 	} else {
 		ms->port = *serviceport;
@@ -3648,6 +3647,71 @@ job_mig_log(job_t j, int pri, int err, logmsg_t msg)
 }
 
 kern_return_t
+job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
+{
+	struct ldcred ldc;
+	job_t ji, jbs = root_job;
+
+#if 0
+	jbs = job_get_bs(j);
+#endif
+
+	runtime_get_caller_creds(&ldc);
+
+	if (ldc.uid != 0) {
+		which_user = ldc.uid;
+	}
+
+	if (which_user == 0) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	*up_cont = MACH_PORT_NULL;
+
+	SLIST_FOREACH(ji, &jbs->jobs, sle) {
+		if (ji->mach_uid != which_user) {
+			continue;
+		}
+		if (SLIST_EMPTY(&ji->machservices)) {
+			continue;
+		}
+		if (!SLIST_FIRST(&ji->machservices)->must_match_uid) {
+			continue;
+		}
+		break;
+	}
+
+	if (ji == NULL) {
+		struct machservice *ms;
+		char lbuf[1024];
+
+		sprintf(lbuf, "com.apple.launchd.peruser.%u", which_user);
+
+		ji = job_new(jbs, lbuf, "/sbin/launchd", NULL, NULL, 0);
+
+		if (ji == NULL) {
+			return BOOTSTRAP_NO_MEMORY;
+		}
+
+		ji->mach_uid = which_user;
+
+		if ((ms = machservice_new(ji, lbuf, up_cont)) == NULL) {
+			job_remove(ji);
+			return BOOTSTRAP_NO_MEMORY;
+		}
+
+		ms->must_match_uid = true;
+		ms->hide = true;
+
+		job_dispatch(ji, false);
+	}
+
+	*up_cont = machservice_port(SLIST_FIRST(&ji->machservices));
+
+	return 0;
+}
+
+kern_return_t
 job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
 	static pid_t last_warned_pid = 0;
@@ -3691,9 +3755,19 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 
 	runtime_get_caller_creds(&ldc);
 
+#if 0
 	job_log(j, LOG_NOTICE, "bootstrap_register() is deprecated. PID: %u Service: %s", ldc.pid, servicename);
+#endif
 
 	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
+
+	if (j->anonymous && job_get_bs(j)->parent == NULL && ldc.uid != 0 && ldc.uid != getuid()) {
+		if (getpid() == 1) {
+			return VPROC_ERR_TRY_PER_USER;
+		} else {
+			return BOOTSTRAP_NOT_PRIVILEGED;
+		}
+	}
 	
 	ms = job_lookup_service(j, servicename, false);
 
@@ -3728,9 +3802,15 @@ job_mig_look_up(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg
 
 	runtime_get_caller_creds(&ldc);
 
+	if (getpid() == 1 && j->anonymous && job_get_bs(j)->parent == NULL && ldc.uid != 0 && ldc.euid != 0) {
+		return VPROC_ERR_TRY_PER_USER;
+	}
+
 	ms = job_lookup_service(j, servicename, true);
 
 	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
+		ms = NULL;
+	} else if (ms && ms->must_match_uid) {
 		ms = NULL;
 	}
 

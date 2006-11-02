@@ -21,6 +21,7 @@
  */
 
 #include <sys/cdefs.h>
+#include <sys/syslog.h>
 #include <stdbool.h>
 
 __BEGIN_DECLS

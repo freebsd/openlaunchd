@@ -37,6 +37,8 @@ typedef enum {
 #include "launchd_core_logic.h"
 #endif
 
+#define VPROC_ERR_TRY_PER_USER	1099
+
 #pragma GCC visibility push(default)
 
 #define SPAWN_HAS_PATH			0x0001

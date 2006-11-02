@@ -37,7 +37,7 @@ serverprefix job_mig_;
 routine create_server(
 		__bs_port	: job_t;
 		__server_cmd	: cmd_t;
-		__server_uid	: natural_t;
+		__server_uid	: uid_t;
 		__on_demand	: boolean_t;
 	out	__server_port	: mach_port_make_send_t);
 
@@ -125,3 +125,8 @@ simpleroutine log(
 		__pri		: integer_t;
 		__err		: integer_t;
 		__msg		: logmsg_t);
+
+routine lookup_per_user_context(
+		__bs_port	: job_t;
+		__wu		: uid_t;
+	out	__u_cont	: mach_port_t);
