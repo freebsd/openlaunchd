@@ -134,7 +134,6 @@ ipc_server_init(int *fds, size_t fd_cnt)
 			goto out_bad;
 		}
 		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/sock", ourdir);
-		setenv(LAUNCHD_SOCKET_ENV, sun.sun_path, 1);
 	}
 
 	if (unlink(sun.sun_path) == -1 && errno != ENOENT) {

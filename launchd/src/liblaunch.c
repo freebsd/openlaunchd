@@ -160,6 +160,7 @@ launch_client_init(void)
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
 	char *_launchd_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
 	int dfd, lfd = -1;
+	name_t spath;
 	
 	_lc = calloc(1, sizeof(struct _launch_client));
 
@@ -184,10 +185,14 @@ launch_client_init(void)
 		
 		if (where && where[0] != '\0') {
 			strncpy(sun.sun_path, where, sizeof(sun.sun_path));
-		} else if (getuid() == 0) {
-			strncpy(sun.sun_path, LAUNCHD_SOCK_PREFIX "/sock", sizeof(sun.sun_path));
+		} else if (!getenv("SUDO_COMMAND") && _vprocmgr_getsocket(spath) == 0) {
+			size_t min_len;
+
+			min_len = sizeof(sun.sun_path) < sizeof(spath) ? sizeof(sun.sun_path) : sizeof(spath);
+
+			strncpy(sun.sun_path, spath, min_len);
 		} else {
-			goto out_bad;
+			strncpy(sun.sun_path, LAUNCHD_SOCK_PREFIX "/sock", sizeof(sun.sun_path));
 		}
 
 		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
@@ -1207,8 +1212,6 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 	while (_vprocmgr_getsocket(sp) != BOOTSTRAP_SUCCESS) {
 		usleep(20000);
 	}
-
-	setenv(LAUNCHD_SOCKET_ENV, sp, 1);
 
 	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS) {
 		largv[5] = "system";
