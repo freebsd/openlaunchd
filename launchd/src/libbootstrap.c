@@ -113,37 +113,6 @@ bootstrap_look_up(mach_port_t bp, name_t service_name, mach_port_t *sp)
 }
 
 kern_return_t
-bootstrap_look_up_array(mach_port_t bp,
-		name_array_t names, mach_msg_type_number_t name_cnt,
-		mach_port_array_t *ports, mach_msg_type_number_t *port_cnt,
-		boolean_t *all)
-{
-	unsigned int i;
-	kern_return_t r;
-
-	if (name_cnt > BOOTSTRAP_MAX_LOOKUP_COUNT)
-		return BOOTSTRAP_BAD_COUNT;
-
-	*port_cnt = name_cnt;
-
-	r = vm_allocate(mach_task_self(), (vm_address_t *)&ports, name_cnt * sizeof(mach_port_t), true);
-
-	if (r != KERN_SUCCESS)
-		return r;
-
-	*all = true;
-
-	for (i = 0; i < name_cnt; i++) {
-		if (bootstrap_look_up(bp, names[i], &((*ports)[i])) == BOOTSTRAP_SUCCESS)
-			continue;
-		*all = false;
-		ports[i] = MACH_PORT_NULL;
-	}
-
-	return BOOTSTRAP_SUCCESS;
-}
-
-kern_return_t
 bootstrap_status(mach_port_t bp, name_t service_name, bootstrap_status_t *service_active)
 {
 	mach_port_t p;

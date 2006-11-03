@@ -56,16 +56,6 @@ kern_return_t _vprocmgr_getsocket(name_t);
 
 void _vproc_logv(int pri, int err, const char *msg, va_list ap);
 
-
-kern_return_t
-bootstrap_look_up_array(
-		mach_port_t bp,
-		name_array_t service_names,
-		mach_msg_type_number_t service_namesCnt,
-		mach_port_array_t *sps,
-		mach_msg_type_number_t *service_portsCnt,
-		boolean_t *all_services_known);
-
 kern_return_t
 bootstrap_info(
 		mach_port_t bp,
