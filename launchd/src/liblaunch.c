@@ -1200,25 +1200,31 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 	u = pwe->pw_uid;
 	g = pwe->pw_gid;
 
-	if ((ldp = fexecv_as_user(login, u, g, ldargv)) == -1)
+	if ((ldp = fexecv_as_user(login, u, g, ldargv)) == -1) {
 		return -1;
+	}
 
-	while (_vprocmgr_getsocket(bootstrap_port, sp) != BOOTSTRAP_SUCCESS)
+	while (_vprocmgr_getsocket(sp) != BOOTSTRAP_SUCCESS) {
 		usleep(20000);
+	}
 
 	setenv(LAUNCHD_SOCKET_ENV, sp, 1);
 
-	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS)
+	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS) {
 		largv[5] = "system";
+	}
 
-	if ((p = fexecv_as_user(login, u, g, largv)) == -1)
+	if ((p = fexecv_as_user(login, u, g, largv)) == -1) {
 		return -1;
+	}
 
-	if (waitpid(p, &wstatus, 0) != p)
+	if (waitpid(p, &wstatus, 0) != p) {
 		return -1;
+	}
 
-	if (!(WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0))
+	if (!(WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0)) {
 		return -1;
+	}
 
 #define BEZEL_UI_PATH "/System/Library/LoginPlugins/BezelServices.loginPlugin/Contents/Resources/BezelUI/BezelUIServer"
 #define BEZEL_UI_PLIST "/System/Library/LaunchAgents/com.apple.BezelUIServer.plist"

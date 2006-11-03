@@ -158,9 +158,9 @@ mpm_uncork_fork(mach_port_t ajob)
 }
 
 kern_return_t
-_vprocmgr_getsocket(mach_port_t bp, name_t sockpath)
+_vprocmgr_getsocket(name_t sockpath)
 {
-	return vproc_mig_getsocket(bp, sockpath);
+	return vproc_mig_getsocket(bootstrap_port, sockpath);
 }
 
 vproc_err_t
