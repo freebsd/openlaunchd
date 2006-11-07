@@ -3761,7 +3761,12 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 
 	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
 
-	if (j->anonymous && job_get_bs(j)->parent == NULL && ldc.uid != 0 && ldc.uid != getuid()) {
+	/*
+	 * From a per-user/session launchd's perspective, SecurityAgent (UID
+	 * 92) is a rogue application (not our UID, not root and not a child of
+	 * us). We'll have to reconcile this design friction at a later date.
+	 */
+	if (j->anonymous && job_get_bs(j)->parent == NULL && ldc.uid != 0 && ldc.uid != getuid() && ldc.uid != 92) {
 		if (getpid() == 1) {
 			return VPROC_ERR_TRY_PER_USER;
 		} else {
