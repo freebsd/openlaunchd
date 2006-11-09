@@ -37,7 +37,7 @@ libexec_PROGRAMS = launchproxy
 sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
 
 launchctl_CFLAGS = $(AM_CFLAGS) -I/System/Library/Frameworks/System.framework/PrivateHeaders
-launchctl_LDFLAGS = -framework CoreFoundation -weak_library /usr/lib/libedit.dylib
+launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit -weak_library /usr/lib/libedit.dylib
 
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation

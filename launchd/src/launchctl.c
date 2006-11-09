@@ -22,6 +22,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
+#include <IOKit/IOKitLib.h>
 #include <NSSystemDirectories.h>
 #include <mach/mach.h>
 #include <sys/types.h>
@@ -58,6 +59,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <paths.h>
 #include <utmp.h>
 #include <utmpx.h>
+#include <bootfiles.h>
+#include <sysexits.h>
 
 #include "libbootstrap_public.h"
 #include "libvproc_internal.h"
@@ -133,6 +136,7 @@ static void do_sysversion_sysctl(void);
 static void workaround4465949(void);
 static void do_application_firewall_magic(int sfd, launch_data_t thejob);
 static void preheat_page_cache_hack(void);
+static void do_bootroot_magic(void);
 
 static int bootstrap_cmd(int argc, char *const argv[]);
 static int load_and_unload_cmd(int argc, char *const argv[]);
@@ -1201,6 +1205,8 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	} else {
 		do_potential_fsck();
 	}
+
+	do_bootroot_magic();
 
 	if (path_check("/var/account/acct")) {
 		assumes(acct("/var/account/acct") != -1);
@@ -2761,4 +2767,43 @@ preheat_page_cache_hack(void)
 	}
 
 	closedir(thedir);
+}
+
+
+void
+do_bootroot_magic(void)
+{
+	const char *kextcache_tool[] = { "kextcache", "-U", "/", NULL };
+	CFTypeRef bootrootProp;
+	io_service_t chosen;
+	int wstatus;
+	pid_t p;
+	
+	chosen = IORegistryEntryFromPath(kIOMasterPortDefault, "IODeviceTree:/chosen");
+
+	if (!assumes(chosen)) {
+		return;
+	}
+
+	bootrootProp = IORegistryEntryCreateCFProperty(chosen, CFSTR(kBootRootActiveKey), kCFAllocatorDefault, 0);
+
+	IOObjectRelease(chosen);
+
+	if (!bootrootProp) {
+		return;
+	}
+
+	CFRelease(bootrootProp);
+
+	if (!assumes((p = fwexec(kextcache_tool, false)) != -1)) {
+		return;
+	}
+
+	if (!assumes(waitpid(p, &wstatus, 0) != -1)) {
+		return;
+	}
+
+	if (!WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EX_OSFILE) {
+		assumes(reboot(RB_AUTOBOOT) != -1);
+	}
 }
