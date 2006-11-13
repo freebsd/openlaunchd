@@ -441,6 +441,10 @@ job_export2(job_t j, bool subjobs)
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	}
 
+	if (j->session_create && (tmp = launch_data_new_bool(true))) {
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_SESSIONCREATE);
+	}
+
 	if (j->inetcompat && (tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY))) {
 		if ((tmp2 = launch_data_new_bool(j->inetcompat_wait))) {
 			launch_data_dict_insert(tmp, tmp2, LAUNCH_JOBINETDCOMPATIBILITY_WAIT);
@@ -779,6 +783,13 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 
 	if (!jr) {
 		return NULL;
+	}
+
+	if (getpid() == 1) {
+		struct ldcred ldc;
+
+		runtime_get_caller_creds(&ldc);
+		jr->mach_uid = ldc.uid;
 	}
 
 	jr->unload_at_exit = true;
@@ -4084,7 +4095,6 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		pid_t *child_pid, mach_port_t *obsvr_port)
 {
 	job_t jr;
-	struct ldcred ldc;
 	size_t offset = 0;
 	char *tmpp;
 	const char **argv = NULL, **env = NULL;
@@ -4092,8 +4102,6 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 	const char *path = NULL;
 	const char *workingdir = NULL;
 	size_t argv_i = 0, env_i = 0;
-
-	runtime_get_caller_creds(&ldc);
 
 #if 0
 	if (ldc.asid != inherited_asid) {
@@ -4141,10 +4149,6 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		return BOOTSTRAP_NAME_IN_USE;
 	default:
 		return BOOTSTRAP_NO_MEMORY;
-	}
-
-	if (getuid() == 0) {
-		jr->mach_uid = ldc.uid;
 	}
 
 	if (!job_setup_machport(jr)) {
