@@ -192,6 +192,35 @@ static void semaphoreitem_delete(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_setup(launch_data_t obj, const char *key, void *context);
 static void semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context);
 
+struct jobmgr_s {
+	SLIST_ENTRY(jobmgr_s) sle;
+	SLIST_HEAD(, jobmgr_s) submgrs;
+	SLIST_HEAD(, job_s) jobs;
+	mach_port_t jm_port;
+	mach_port_t req_port;
+	jobmgr_t parentmgr;
+	job_t anonj;
+	unsigned int transfer_bstrap:1;
+	char name[0];
+};
+
+#define jobmgr_assumes(jm, e)      \
+	                (__builtin_expect(!(e), 0) ? jobmgr_log_bug(jm, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+
+static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port);
+static jobmgr_t jobmgr_parent(jobmgr_t jm);
+static void jobmgr_dispatch_all(jobmgr_t jm);
+static job_t jobmgr_new_anonymous(jobmgr_t jm);
+static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
+static mach_port_t jobmgr_get_reqport(jobmgr_t jm);
+static void job_export_all2(jobmgr_t jm, launch_data_t where);
+static pid_t jobmgr_fork(jobmgr_t jm);
+static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
+static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent);
+static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap);
+static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+/* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
+static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
 struct job_s {
 	kq_callback kqjob_callback;
@@ -204,13 +233,11 @@ struct job_s {
 	SLIST_HEAD(, limititem) limits;
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
-	SLIST_HEAD(, job_s) jobs;
 	struct rusage ru;
-	job_t parent;
-	mach_port_t bs_port;
-	mach_port_t req_port;
+	mach_port_t j_port;
 	mach_port_t wait_reply_port;
 	uid_t mach_uid;
+	jobmgr_t mgr;
 	char **argv;
 	char *prog;
 	char *rootdir;
@@ -234,8 +261,8 @@ struct job_s {
 		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1,
 		     anonymous:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, transfer_bstrap:1, unload_at_exit:1, force_ppc:1,
-		     stall_before_exec:1, only_once:1, currently_ignored:1, forced_peers_to_demand_mode:1;
+	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, force_ppc:1, stall_before_exec:1,
+		     only_once:1, currently_ignored:1, forced_peers_to_demand_mode:1;
 	char label[0];
 };
 
@@ -249,7 +276,6 @@ static void job_import_string(job_t j, const char *key, const char *value);
 static void job_import_integer(job_t j, const char *key, long long value);
 static void job_import_dictionary(job_t j, const char *key, launch_data_t value);
 static void job_import_array(job_t j, const char *key, launch_data_t value);
-static void job_dispatch_all(job_t j);
 static bool job_set_global_on_demand(job_t j, bool val);
 static void job_watch(job_t j);
 static void job_ignore(job_t j);
@@ -263,26 +289,13 @@ static bool job_setup_machport(job_t j);
 static void job_postfork_become_user(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_callback(void *obj, struct kevent *kev);
-static pid_t job_fork(job_t j);
-static size_t job_prep_log_preface(job_t j, char *buf);
-static void job_setup_env_from_other_jobs(job_t j);
-static void job_export_all2(job_t j, launch_data_t where);
 static launch_data_t job_export2(job_t j, bool subjobs);
-static job_t job_find_by_pid(job_t j, pid_t p, bool recurse);
 static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
-static job_t job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond);
-static job_t job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port);
-static bool job_new_anonymous(job_t p);
-static job_t job_find_anonymous(job_t p);
+static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
 static const char *job_prog(job_t j);
 static pid_t job_get_pid(job_t j);
-static mach_port_t job_get_bsport(job_t j);
-static mach_port_t job_get_reqport(job_t j);
-static job_t job_get_bs(job_t j);
-static job_t job_parent(job_t j);
+static jobmgr_t job_get_bs(job_t j);
 static void job_uncork_fork(job_t j);
-static struct machservice *job_lookup_service(job_t jbs, const char *name, bool check_parent);
-static void job_foreach_service(job_t jbs, void (*bs_iter)(struct machservice *, void *), void *context, bool only_anonymous);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap);
 static void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
@@ -320,8 +333,8 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 static size_t global_on_demand_cnt;
-job_t root_job;
-job_t gc_this_job;
+jobmgr_t root_jobmgr;
+jobmgr_t gc_this_jobmgr;
 size_t total_children;
 
 void
@@ -481,6 +494,8 @@ job_export2(job_t j, bool subjobs)
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_MACHSERVICES);
 	}
 
+#if 0
+	/* jobs don't have subjobs anymore... */
 	if (subjobs && !SLIST_EMPTY(&j->jobs) && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
 		job_t ji;
 		size_t i = 0;
@@ -493,35 +508,71 @@ job_export2(job_t j, bool subjobs)
 
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_SUBJOBS);
 	}
+#endif
 
 	return r;
 }
 
 void
-job_remove_all_inactive(job_t j)
+jobmgr_remove_all_inactive(jobmgr_t jm)
 {
+	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
-	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
-		job_remove_all_inactive(ji);
+	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
+		jobmgr_remove_all_inactive(jmi);
 	}
 
-	if (!job_active(j)) {
-		job_remove(j);
-	} else {
-		if (debug_shutdown_hangs) {
-			job_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 8, j) != -1);
-		}
-		if (getpid() != 1) {
-			job_stop(j);
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+		if (!job_active(ji)) {
+			job_remove(ji);
+		} else {
+			if (debug_shutdown_hangs) {
+				job_assumes(ji, kevent_mod((uintptr_t)ji, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 8, ji) != -1);
+			}
+			if (getpid() != 1) {
+				job_stop(ji);
+			}
 		}
 	}
 }
 
 void
+jobmgr_remove(jobmgr_t jm)
+{
+	jobmgr_t jmi;
+	job_t ji;
+
+	while ((jmi = SLIST_FIRST(&jm->submgrs))) {
+		jobmgr_remove(jmi);
+	}
+
+	while ((ji = SLIST_FIRST(&jm->jobs))) {
+		job_remove(ji);
+	}
+
+	if (jm->parentmgr) {
+		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
+	}
+
+	if (jm->req_port) {
+		jobmgr_assumes(jm, launchd_mport_deallocate(jm->req_port) == KERN_SUCCESS);
+	}
+
+	if (jm->jm_port) {
+		if (jm->transfer_bstrap) {
+			jobmgr_assumes(jm, launchd_mport_deallocate(jm->jm_port) == KERN_SUCCESS);
+		} else {
+			jobmgr_assumes(jm, launchd_mport_close_recv(jm->jm_port) == KERN_SUCCESS);
+		}
+	}
+	
+	free(jm);
+}
+
+void
 job_remove(job_t j)
 {
-	job_t ji;
 	struct calendarinterval *ci;
 	struct socketgroup *sg;
 	struct watchpath *wp;
@@ -542,24 +593,17 @@ job_remove(job_t j)
 		}
 	}
 
-	if (j->parent) {
-		SLIST_REMOVE(&j->parent->jobs, j, job_s, sle);
+	if (job_assumes(j, j->mgr)) {
+		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
 	}
 
 	if (j->execfd) {
 		job_assumes(j, close(j->execfd) == 0);
 	}
 
-	if (j->bs_port) {
-		if (j->transfer_bstrap) {
-			job_assumes(j, launchd_mport_deallocate(j->bs_port) == KERN_SUCCESS);
-		} else {
-			job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
-		}
-	}
-
-	if (j->req_port) {
-		job_assumes(j, launchd_mport_deallocate(j->req_port) == KERN_SUCCESS);
+	if (j->j_port) {
+		job_assumes(j, launchd_mport_deallocate(j->j_port) == KERN_SUCCESS);
+		job_assumes(j, launchd_mport_close_recv(j->j_port) == KERN_SUCCESS);
 	}
 
 #if 0
@@ -567,9 +611,6 @@ job_remove(job_t j)
 	}
 #endif
 
-	while ((ji = SLIST_FIRST(&j->jobs))) {
-		job_remove(ji);
-	}
 	while ((sg = SLIST_FIRST(&j->sockets))) {
 		socketgroup_delete(j, sg);
 	}
@@ -675,7 +716,7 @@ job_set_global_on_demand(job_t j, bool val)
 	}
 
 	if (global_on_demand_cnt == 0) {
-		job_dispatch_all(root_job);
+		jobmgr_dispatch_all(root_jobmgr);
 	}
 
 	return true;
@@ -686,7 +727,7 @@ job_setup_machport(job_t j)
 {
 	mach_msg_size_t mxmsgsz;
 
-	if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
+	if (!job_assumes(j, launchd_mport_create_recv(&j->j_port) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
@@ -696,62 +737,62 @@ job_setup_machport(job_t j)
 		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
 
-	if (!job_assumes(j, runtime_add_mport(j->bs_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
+	if (!job_assumes(j, runtime_add_mport(j->j_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
 		goto out_bad2;
 	}
 
 	return true;
 out_bad2:
-	job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_close_recv(j->j_port) == KERN_SUCCESS);
 out_bad:
 	return false;
 }
 
 job_t 
-job_new_via_mach_init(job_t jbs, const char *cmd, uid_t uid, bool ond)
+job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 {
 	const char **argv = (const char **)mach_cmd2argv(cmd);
-	job_t j = NULL;
+	job_t jr = NULL;
 	char buf[1000];
 
-	if (!job_assumes(jbs, argv != NULL)) {
+	if (!job_assumes(j, argv != NULL)) {
 		goto out_bad;
 	}
 
 	/* preflight the string so we know how big it is */
 	snprintf(buf, sizeof(buf), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", basename((char *)argv[0]));
 
-	j = job_new(jbs, buf, NULL, argv, NULL, MACH_PORT_NULL);
-
-	snprintf(j->label, strlen(j->label) + 1, "%p.%s", j, basename(j->argv[0]));
+	jr = job_new(j->mgr, buf, NULL, argv, NULL);
 
 	free(argv);
 
-	if (!job_assumes(jbs, j != NULL)) {
+	if (!job_assumes(j, jr != NULL)) {
 		goto out_bad;
 	}
 
-	j->mach_uid = uid;
-	j->ondemand = ond;
-	j->legacy_mach_job = true;
-	j->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
+	snprintf(jr->label, strlen(jr->label) + 1, "%p.%s", jr, basename(jr->argv[0]));
 
-	if (!job_setup_machport(j)) {
+	jr->mach_uid = uid;
+	jr->ondemand = ond;
+	jr->legacy_mach_job = true;
+	jr->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
+
+	if (!job_setup_machport(jr)) {
 		goto out_bad;
 	}
 
-	if (!job_assumes(j, launchd_mport_notify_req(j->bs_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
-		job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
+	if (!job_assumes(jr, launchd_mport_notify_req(jr->j_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
+		job_assumes(jr, launchd_mport_close_recv(jr->j_port) == KERN_SUCCESS);
 		goto out_bad;
 	}
 
-	job_log(j, LOG_INFO, "Legacy%s server created in bootstrap: %x", ond ? " on-demand" : "", jbs->bs_port);
+	job_log(jr, LOG_INFO, "Legacy%s server created", ond ? " on-demand" : "");
 
-	return j;
+	return jr;
 
 out_bad:
-	if (j) {
-		job_remove(j);
+	if (jr) {
+		job_remove(jr);
 	}
 	return NULL;
 }
@@ -774,12 +815,12 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 {
 	job_t jr;
 
-	if ((jr = job_find(j, label)) != NULL) {
+	if ((jr = jobmgr_find(j->mgr, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	}
 
-	jr = job_new(j, label, path, argv, NULL, MACH_PORT_NULL);
+	jr = job_new(j->mgr, label, path, argv, NULL);
 
 	if (!jr) {
 		return NULL;
@@ -822,69 +863,48 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 }
 
 job_t
-job_find_anonymous(job_t p)
-{
-	job_t ji = NULL;
-
-	SLIST_FOREACH(ji, &p->jobs, sle) {
-		if (ji->anonymous) {
-			break;
-		}
-	}
-
-	return ji;
-}
-
-bool
-job_new_anonymous(job_t p)
+jobmgr_new_anonymous(jobmgr_t jm)
 {
 	char newlabel[1000], *procname = "unknown";
 	job_t jr;
 
-	snprintf(newlabel, sizeof(newlabel), "%u.anonymous", MACH_PORT_INDEX(p->bs_port));
+	snprintf(newlabel, sizeof(newlabel), "%u.anonymous", MACH_PORT_INDEX(jm->jm_port));
 
-	if ((jr = job_new(p, newlabel, procname, NULL, NULL, MACH_PORT_NULL))) {
+	if ((jr = job_new(jm, newlabel, procname, NULL, NULL))) {
 		jr->anonymous = true;
 	}
 
-	return jr ? true : false;
+	return jr;
 }
 
 job_t 
-job_new(job_t p, const char *label, const char *prog, const char *const *argv, const char *stdinpath, mach_port_t reqport)
+job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv, const char *stdinpath)
 {
 	const char *const *argv_tmp = argv;
 	char *co;
 	int i, cc = 0;
 	job_t j;
 
-	if (reqport == MACH_PORT_NULL && prog == NULL && argv == NULL) {
+	if (prog == NULL && argv == NULL) {
 		errno = EINVAL;
 		return NULL;
 	}
 
 	j = calloc(1, sizeof(struct job_s) + strlen(label) + 1);
 
-	if (!job_assumes(p, j != NULL)) {
+	if (!jobmgr_assumes(jm, j != NULL)) {
 		return NULL;
 	}
 
 	strcpy(j->label, label);
 	j->kqjob_callback = job_callback;
-	j->parent = p ? job_get_bs(p) : NULL;
+	j->mgr = jm;
 	j->min_run_time = LAUNCHD_MIN_JOB_RUN_TIME;
 	j->timeout = LAUNCHD_ADVISABLE_IDLE_TIMEOUT;
 	j->currently_ignored = true;
 	j->ondemand = true;
 	j->checkedin = true;
 	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
-
-	if (reqport != MACH_PORT_NULL) {
-		j->req_port = reqport;
-		if (!job_assumes(j, launchd_mport_notify_req(reqport, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS)) {
-			goto out_bad;
-		}
-	}
 
 	if (prog) {
 		j->prog = strdup(prog);
@@ -923,10 +943,9 @@ job_new(job_t p, const char *label, const char *prog, const char *const *argv, c
 		j->argv[i] = NULL;
 	}
 
-	if (j->parent) {
-		SLIST_INSERT_HEAD(&j->parent->jobs, j, sle);
-		job_log(j->parent, LOG_DEBUG, "Conceived");
-	}
+	SLIST_INSERT_HEAD(&jm->jobs, j, sle);
+
+	job_log(j, LOG_DEBUG, "Conceived");
 
 	return j;
 
@@ -1373,7 +1392,7 @@ job_import2(launch_data_t pload)
 	if (label == NULL) {
 		errno = EINVAL;
 		return NULL;
-	} else if ((j = job_find(root_job, label)) != NULL) {
+	} else if ((j = jobmgr_find(root_jobmgr, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
@@ -1394,7 +1413,7 @@ job_import2(launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	if ((j = job_new(root_job, label, prog, argv, NULL, MACH_PORT_NULL))) {
+	if ((j = job_new(root_jobmgr, label, prog, argv, NULL))) {
 		launch_data_dict_iterate(pload, job_import_keys, j);
 	}
 
@@ -1402,21 +1421,20 @@ job_import2(launch_data_t pload)
 }
 
 job_t 
-job_find(job_t j, const char *label)
+jobmgr_find(jobmgr_t jm, const char *label)
 {
-	job_t jr, ji;
+	jobmgr_t jmi;
+	job_t ji;
 
-	if (label[0] == '\0') {
-		return root_job;
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		if ((ji = jobmgr_find(jmi, label))) {
+			return ji;
+		}
 	}
 
-	if (strcmp(j->label, label) == 0) {
-		return j;
-	}
-
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find(ji, label))) {
-			return jr;
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		if (strcmp(ji->label, label) == 0) {
+			return ji;
 		}
 	}
 
@@ -1425,72 +1443,77 @@ job_find(job_t j, const char *label)
 }
 
 job_t 
-job_find_by_pid(job_t j, pid_t p, bool recurse)
+job_mig_intran2(jobmgr_t jm, mach_port_t p)
 {
-	job_t jr, ji;
+	job_t ji;
+	jobmgr_t jmi;
 
-	if (j->p == p) {
-		return j;
+	if (jm->jm_port == p) {
+		struct ldcred ldc;
+
+		runtime_get_caller_creds(&ldc);
+
+		SLIST_FOREACH(ji, &jm->jobs, sle) {
+			if (ji->p == ldc.pid) {
+				/* This is just a MRU perfomance hack */
+				SLIST_REMOVE(&jm->jobs, ji, job_s, sle);
+				SLIST_INSERT_HEAD(&jm->jobs, ji, sle);
+				return ji;
+			}
+		}
+
+		return jm->anonj;
 	}
 
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (ji->p == p) {
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		job_t jr;
+
+		if ((jr = job_mig_intran2(jmi, p))) {
+			return jr;
+		}
+	}
+
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		if (ji->j_port == p) {
 			return ji;
-		} else if (recurse && (jr = job_find_by_pid(ji, p, recurse))) {
-			return jr;
 		}
 	}
 
-	errno = ESRCH;
-	return NULL;
-}
-
-static job_t 
-job_find_by_port2(job_t j, mach_port_t p)
-{
-	struct machservice *ms;
-	job_t jr, ji;
-
-	if (j->bs_port == p) {
-		return j;
-	}
-
-	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (ms->port == p) {
-			return j;
-		}
-	}
-
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if ((jr = job_find_by_port2(ji, p))) {
-			return jr;
-		}
-	}
-
-	errno = ESRCH;
 	return NULL;
 }
 
 job_t 
 job_mig_intran(mach_port_t p)
 {
-	struct ldcred ldc;
-	job_t jp, jr = NULL;
+	job_t jr = job_mig_intran2(root_jobmgr, p);
 
-	runtime_get_caller_creds(&ldc);
-
-	if (launchd_assumes((jp = job_find_by_port2(root_job, p)) != NULL)) {
-		if (jp->req_port) {
-			if (!(jr = job_find_by_pid(jp, ldc.pid, false))) {
-				jr = job_find_anonymous(jp);
-			}
-		} else {
-			jr = jp;
-		}
-		job_assumes(jp, jr != NULL);
-	}
+	launchd_assumes(jr != NULL);
 
 	return jr;
+}
+
+job_t
+jobmgr_find_by_service_port(jobmgr_t jm, mach_port_t p)
+{
+	struct machservice *ms;
+	jobmgr_t jmi;
+	job_t ji, jr;
+
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		if ((jr = jobmgr_find_by_service_port(jmi, p))) {
+			return jr;
+		}
+	}
+
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			if (ms->port == p) {
+				return ji;
+			}
+		}
+	}
+
+	return NULL;
 }
 
 void
@@ -1499,17 +1522,22 @@ job_mig_destructor(job_t j __attribute__((unused)))
 }
 
 void
-job_export_all2(job_t j, launch_data_t where)
+job_export_all2(jobmgr_t jm, launch_data_t where)
 {
-	launch_data_t tmp;
+	jobmgr_t jmi;
 	job_t ji;
 
-	if (job_assumes(j, (tmp = job_export2(j, false)) != NULL)) {
-		launch_data_dict_insert(where, tmp, j->label);
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		job_export_all2(jmi, where);
 	}
 
-	SLIST_FOREACH(ji, &j->jobs, sle)
-		job_export_all2(ji, where);
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		launch_data_t tmp;
+
+		if (jobmgr_assumes(jm, (tmp = job_export2(ji, false)) != NULL)) {
+			launch_data_dict_insert(where, tmp, ji->label);
+		}
+	}
 }
 
 launch_data_t
@@ -1517,7 +1545,9 @@ job_export_all(void)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	job_export_all2(root_job, resp);
+	if (launchd_assumes(resp != NULL)) {
+		job_export_all2(root_jobmgr, resp);
+	}
 
 	return resp;
 }
@@ -1581,15 +1611,18 @@ job_reap(job_t j)
 }
 
 void
-job_dispatch_all(job_t j)
+jobmgr_dispatch_all(jobmgr_t jm)
 {
+	jobmgr_t jmi;
 	job_t ji;
 
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		job_dispatch_all(ji);
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		jobmgr_dispatch_all(jmi);
 	}
 
-	job_dispatch(j, false);
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		job_dispatch(ji, false);
+	}
 }
 
 void
@@ -1688,11 +1721,7 @@ job_start(job_t j)
 	bool sipc = false;
 	time_t td;
 
-	if (!job_assumes(j, j->req_port == MACH_PORT_NULL)) {
-		return;
-	}
-
-	if (!job_assumes(j, j->parent != NULL)) {
+	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
 	}
 
@@ -1732,7 +1761,7 @@ job_start(job_t j)
 
 	time(&j->start_time);
 
-	switch (c = job_fork(j->parent)) {
+	switch (c = jobmgr_fork(j->mgr)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		job_assumes(j, close(execspair[0]) == 0);
@@ -1858,16 +1887,20 @@ job_start_child(job_t j, int execfd)
 	exit(EXIT_FAILURE);
 }
 
-void job_setup_env_from_other_jobs(job_t j)
+void jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
 {
 	struct envitem *ei;
 	job_t ji;
 
-	SLIST_FOREACH(ji, &j->jobs, sle)
-		job_setup_env_from_other_jobs(ji);
+	if (jm->parentmgr) {
+		jobmgr_setup_env_from_other_jobs(jm->parentmgr);
+	}
 
-	SLIST_FOREACH(ei, &j->global_env, sle)
-		setenv(ei->key, ei->value, 1);
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		SLIST_FOREACH(ei, &ji->global_env, sle) {
+			setenv(ei->key, ei->value, 1);
+		}
+	}
 }
 
 void
@@ -2019,7 +2052,7 @@ job_setup_attributes(job_t j)
 		}
 	}
 
-	job_setup_env_from_other_jobs(root_job);
+	jobmgr_setup_env_from_other_jobs(j->mgr);
 
 	SLIST_FOREACH(ei, &j->env, sle)
 		setenv(ei->key, ei->value, 1);
@@ -2073,38 +2106,30 @@ calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 	}
 }
 
-size_t
-job_prep_log_preface(job_t j, char *buf)
+static void
+extract_rcsid_substr(const char *i, char *o, size_t osz)
 {
-	size_t lsz = strlen(j->label);
-	char newlabel[lsz * 2 + 1];
-	size_t i, o, r = 0;
+	char *rcs_rev_tmp = strchr(i, ' ');
 
-	for (i = 0, o = 0; i < lsz; i++, o++) {
-		if (j->label[i] == '%') {
-			newlabel[o] = '%';
-			o++;
-			newlabel[o] = '%';
-		} else {
-			newlabel[o] = j->label[i];
+	if (!rcs_rev_tmp) {
+		strlcpy(o, i, osz);
+	} else {
+		strlcpy(o, rcs_rev_tmp + 1, osz);
+		rcs_rev_tmp = strchr(o, ' ');
+		if (rcs_rev_tmp) {
+			*rcs_rev_tmp = '\0';
 		}
 	}
-	newlabel[o] = '\0';
-
-	if (j->parent) {
-		r = job_prep_log_preface(j->parent, buf);
-	}
-
-	return r + sprintf(buf + r, "%s%s", j->parent ? "/" : "", newlabel);
 }
 
 void
-job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
+jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test)
 {
 	int saved_errno = errno;
-	char buf[100];
 	const char *file = strrchr(path, '/');
-	char *rcs_rev_tmp = strchr(rcs_rev, ' ');
+	char buf[100];
+
+	extract_rcsid_substr(rcs_rev, buf, sizeof(buf));
 
 	if (!file) {
 		file = path;
@@ -2112,14 +2137,22 @@ job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, c
 		file += 1;
 	}
 
-	if (!rcs_rev_tmp) {
-		strlcpy(buf, rcs_rev, sizeof(buf));
+	jobmgr_log(jm, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
+}
+
+void
+job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
+{
+	int saved_errno = errno;
+	const char *file = strrchr(path, '/');
+	char buf[100];
+
+	extract_rcsid_substr(rcs_rev, buf, sizeof(buf));
+
+	if (!file) {
+		file = path;
 	} else {
-		strlcpy(buf, rcs_rev_tmp + 1, sizeof(buf));
-		rcs_rev_tmp = strchr(buf, ' ');
-		if (rcs_rev_tmp) {
-			*rcs_rev_tmp = '\0';
-		}
+		file += 1;
 	}
 
 	job_log(j, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
@@ -2130,7 +2163,6 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 {
 	char newmsg[10000];
 	int oldmask = 0;
-	size_t o;
 
 	/*
 	 * Hack: If bootstrap_port is set, we must be on the child side of a
@@ -2141,12 +2173,10 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 		return _vproc_logv(pri, err, msg, ap);
 	}
 
-	o = job_prep_log_preface(j, newmsg);
-
 	if (err) {
-		snprintf(newmsg + o, sizeof(newmsg) - o, ": %s: %s", msg, strerror(err));
+		snprintf(newmsg, sizeof(newmsg), "%s: %s: %s", j->label, msg, strerror(err));
 	} else {
-		snprintf(newmsg + o, sizeof(newmsg) - o, ": %s", msg);
+		snprintf(newmsg, sizeof(newmsg), "%s: %s", j->label, msg);
 	}
 
 	if (j->debug) {
@@ -2178,6 +2208,36 @@ job_log(job_t j, int pri, const char *msg, ...)
 	va_start(ap, msg);
 	job_logv(j, pri, 0, msg, ap);
 	va_end(ap);
+}
+
+#if 0
+void
+jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...)
+{
+	va_list ap;
+
+	va_start(ap, msg);
+	jobmgr_logv(jm, pri, errno, msg, ap);
+	va_end(ap);
+}
+#endif
+
+void
+jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...)
+{
+	va_list ap;
+
+	va_start(ap, msg);
+	jobmgr_logv(jm, pri, 0, msg, ap);
+	va_end(ap);
+}
+
+void
+jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap)
+{
+	if (launchd_assumes(jm->anonj)) {
+		job_logv(jm->anonj, pri, err, msg, ap);
+	}
 }
 
 bool
@@ -2657,7 +2717,7 @@ job_keepalive(job_t j)
 
 	/* Maybe another job has the inverse path based semaphore as this job */
 	if (dispatch_others) {
-		job_dispatch_all_other_semaphores(root_job, j);
+		jobmgr_dispatch_all_other_semaphores(root_jobmgr, j);
 	}
 
 	return false;
@@ -2684,10 +2744,6 @@ job_active(job_t j)
 		return true;
 	}
 
-	if (j->req_port) {
-		return true;
-	}
-
 	if (j->p) {
 		return true;
 	}
@@ -2708,25 +2764,25 @@ job_active(job_t j)
 pid_t
 launchd_fork(void)
 {
-	return job_fork(root_job);
+	return jobmgr_fork(root_jobmgr);
 }
 
 pid_t
-job_fork(job_t j)
+jobmgr_fork(jobmgr_t jm)
 {
-	mach_port_t p = j->bs_port;
+	mach_port_t p = jm->jm_port;
 	pid_t r = -1;
 
 	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
-	job_assumes(j, launchd_mport_make_send(p) == KERN_SUCCESS);
-	job_assumes(j, launchd_set_bport(p) == KERN_SUCCESS);
-	job_assumes(j, launchd_mport_deallocate(p) == KERN_SUCCESS);
+	jobmgr_assumes(jm, launchd_mport_make_send(p) == KERN_SUCCESS);
+	jobmgr_assumes(jm, launchd_set_bport(p) == KERN_SUCCESS);
+	jobmgr_assumes(jm, launchd_mport_deallocate(p) == KERN_SUCCESS);
 
 	r = fork();
 
 	if (r != 0) {
-		job_assumes(j, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
+		jobmgr_assumes(jm, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
 	} else if (r == 0) {
 		size_t i;
 
@@ -2881,7 +2937,7 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	struct machservice *ms;
 	mach_port_t p = MACH_PORT_NULL;
 
-	if ((ms = job_lookup_service(j->parent, key, false))) {
+	if ((ms = jobmgr_lookup_service(j->mgr, key, false))) {
 		job_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
 		return;
 	}
@@ -2898,10 +2954,10 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	}
 }
 
-job_t 
-job_parent(job_t j)
+jobmgr_t 
+jobmgr_parent(jobmgr_t jm)
 {
-	return j->parent;
+	return jm->parentmgr;
 }
 
 void
@@ -2920,60 +2976,42 @@ job_uncork_fork(job_t j)
 	}
 }
 
-void
-job_foreach_service(job_t j, void (*bs_iter)(struct machservice *, void *), void *context, bool only_anonymous)
+jobmgr_t 
+jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port)
 {
-	struct machservice *ms;
-	job_t ji;
-
-	j = job_get_bs(j);
-
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (ji->req_port) {
-			continue;
-		} else if (only_anonymous && !ji->anonymous) {
-			continue;
-		}
-
-		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			bs_iter(ms, context);
-		}
-	}
-
-	if (!job_assumes(j, SLIST_EMPTY(&j->machservices))) {
-		SLIST_FOREACH(ms, &j->machservices, sle) {
-			bs_iter(ms, context);
-		}
-	}
-}
-
-job_t 
-job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
-{
-	char bslabel[1024] = "100000";
 	mach_msg_size_t mxmsgsz;
-	job_t j;
+	jobmgr_t jmr;
 
 	if (requestorport == MACH_PORT_NULL) {
-		if (p) {
-			job_log(p, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
+		if (jm) {
+			jobmgr_log(jm, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
 		}
 		return NULL;
 	}
 
-	j = job_new(p, bslabel, NULL, NULL, NULL, requestorport);
+	jmr = calloc(1, sizeof(struct jobmgr_s) + strlen("100000") + 1);
 	
-	if (j == NULL) {
+	if (jmr == NULL) {
 		return NULL;
 	}
 
-	if (checkin_port != MACH_PORT_NULL) {
-		j->bs_port = checkin_port;
-	} else if (!job_assumes(j, launchd_mport_create_recv(&j->bs_port) == KERN_SUCCESS)) {
+	jmr->req_port = requestorport;
+
+	if ((jmr->parentmgr = jm)) {
+		SLIST_INSERT_HEAD(&jm->submgrs, jmr, sle);
+	}
+
+	if (!jobmgr_assumes(jmr, launchd_mport_notify_req(jmr->req_port, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
-	snprintf(j->label, strlen(j->label) + 1, "%d", MACH_PORT_INDEX(j->bs_port));
+	if (checkin_port != MACH_PORT_NULL) {
+		jmr->jm_port = checkin_port;
+	} else if (!jobmgr_assumes(jmr, launchd_mport_create_recv(&jmr->jm_port) == KERN_SUCCESS)) {
+		goto out_bad;
+	}
+
+	snprintf(jmr->name, strlen(jmr->name) + 1, "%u", MACH_PORT_INDEX(jmr->jm_port));
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
 	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
@@ -2981,29 +3019,32 @@ job_new_bootstrap(job_t p, mach_port_t requestorport, mach_port_t checkin_port)
 		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
 
-	if (!job_assumes(j, runtime_add_mport(j->bs_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
+	if (!jobmgr_assumes(jmr, runtime_add_mport(jmr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
-	if (p) {
-		job_log(p, LOG_DEBUG, "Mach sub-bootstrap created: %s", j->label);
+	if (jm) {
+		jobmgr_log(jm, LOG_DEBUG, "Mach sub-bootstrap created: %s", jmr->name);
 	}
 
-	job_assumes(j, job_new_anonymous(j));
+	jmr->anonj = jobmgr_new_anonymous(jmr);
 
-	return j;
+	jobmgr_assumes(jmr, jmr->anonj != NULL);
+
+	return jmr;
 
 out_bad:
-	if (j) {
-		job_remove(j);
+	if (jmr) {
+		jobmgr_remove(jmr);
 	}
 	return NULL;
 }
 
 void
-job_delete_anything_with_port(job_t j, mach_port_t port)
+jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 {
 	struct machservice *ms, *next_ms;
+	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
 	/* Mach ports, unlike Unix descriptors, are reference counted. In other
@@ -3016,56 +3057,42 @@ job_delete_anything_with_port(job_t j, mach_port_t port)
 	 * to use.
 	 */
 
-	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
-		job_delete_anything_with_port(ji, port);
-	}
-
-	SLIST_FOREACH_SAFE(ms, &j->machservices, sle, next_ms) {
-		if (ms->port == port) {
-			machservice_delete(ms);
+	if (jm->req_port == port) {
+		if (jm == root_jobmgr) {
+			launchd_shutdown();
+		} else {
+			return jobmgr_remove(jm);
 		}
 	}
 
-	if (j->req_port == port) {
-		if (j == root_job) {
-			launchd_shutdown();
-		} else {
-			return job_remove(j);
+	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
+		jobmgr_delete_anything_with_port(jmi, port);
+	}
+
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+		SLIST_FOREACH_SAFE(ms, &ji->machservices, sle, next_ms) {
+			if (ms->port == port) {
+				machservice_delete(ms);
+			}
 		}
 	}
 }
 
 struct machservice *
-job_lookup_service(job_t j, const char *name, bool check_parent)
+jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent)
 {
 	struct machservice *ms;
 	job_t ji;
 
-	j = job_get_bs(j);
-
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (ji->req_port) {
-			continue;
-		}
-
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (strcmp(name, ms->name) == 0) {
-				if (ji->parent) {
-					SLIST_REMOVE(&ji->parent->jobs, ji, job_s, sle);
-					SLIST_INSERT_HEAD(&ji->parent->jobs, ji, sle);
-				}
 				return ms;
 			}
 		}
 	}
 
-	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (strcmp(name, ms->name) == 0) {
-			return ms;
-		}
-	}
-
-	if (j->parent == NULL) {
+	if (jm->parentmgr == NULL) {
 		return NULL;
 	}
 
@@ -3073,7 +3100,7 @@ job_lookup_service(job_t j, const char *name, bool check_parent)
 		return NULL;
 	}
 
-	return job_lookup_service(j->parent, name, true);
+	return jobmgr_lookup_service(jm->parentmgr, name, true);
 }
 
 mach_port_t
@@ -3202,38 +3229,37 @@ job_checkin(job_t j)
 }
 
 bool
-job_ack_port_destruction(job_t j, mach_port_t p)
+jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p)
 {
+	struct machservice *ms = NULL;
+	jobmgr_t jmi;
 	job_t ji;
-	struct machservice *ms;
 
-	SLIST_FOREACH(ji, &j->jobs, sle) {
-		if (job_ack_port_destruction(ji, p)) {
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		if (jobmgr_ack_port_destruction(jmi, p)) {
 			return true;
 		}
 	}
 
-	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (ms->port == p) {
-			break;
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			if (ms->port != p) {
+				continue;
+			}
+
+			ms->isActive = false;
+
+			if (ms->reset) {
+				machservice_resetport(ji, ms);
+			}
+
+			job_log(ji, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
+			job_dispatch(ji, false);
+			return true;
 		}
 	}
 
-	if (ms == NULL) {
-		return false;
-	}
-
-	ms->isActive = false;
-
-	if (ms->reset) {
-		machservice_resetport(j, ms);
-	}
-
-	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
-
-	job_dispatch(j, false);
-
-	return true;
+	return false;
 }
 
 void
@@ -3241,8 +3267,8 @@ job_ack_no_senders(job_t j)
 {
 	j->priv_port_has_senders = false;
 
-	job_assumes(j, launchd_mport_close_recv(j->bs_port) == KERN_SUCCESS);
-	j->bs_port = 0;
+	job_assumes(j, launchd_mport_close_recv(j->j_port) == KERN_SUCCESS);
+	j->j_port = 0;
 
 	job_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
 
@@ -3250,29 +3276,19 @@ job_ack_no_senders(job_t j)
 }
 
 mach_port_t
-job_get_reqport(job_t j)
+jobmgr_get_reqport(jobmgr_t jm)
 {
-	j->transfer_bstrap = true;
-	gc_this_job = j;
+	jm->transfer_bstrap = true;
+	gc_this_jobmgr = jm;
 
-	return j->req_port;
+	return jm->req_port;
 }
 
-mach_port_t
-job_get_bsport(job_t j)
-{
-	return j->bs_port;
-}
-
-job_t 
+jobmgr_t 
 job_get_bs(job_t j)
 {
-	if (j->req_port) {
-		return j;
-	}
-
-	if (job_assumes(j, j->parent != NULL)) {
-		return j->parent;
+	if (job_assumes(j, j->mgr != NULL)) {
+		return j->mgr;
 	}
 
 	return NULL;
@@ -3369,20 +3385,20 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 void
-job_dispatch_all_other_semaphores(job_t j, job_t nj)
+jobmgr_dispatch_all_other_semaphores(jobmgr_t jm, job_t nj)
 {
+	jobmgr_t jmi;
 	job_t ji, jn;
 
-	if (j == nj) {
-		return;
+
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		jobmgr_dispatch_all_other_semaphores(jmi, nj);
 	}
 
-	SLIST_FOREACH_SAFE(ji, &j->jobs, sle, jn) {
-		job_dispatch_all_other_semaphores(ji, nj);
-	}
-
-	if (!SLIST_EMPTY(&j->semaphores)) {
-		job_dispatch(j, false);
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+		if (ji != nj && !SLIST_EMPTY(&ji->semaphores)) {
+			job_dispatch(ji, false);
+		}
 	}
 }
 
@@ -3564,6 +3580,10 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 	struct ldcred ldc;
 	job_t js;
 
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	runtime_get_caller_creds(&ldc);
 
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
@@ -3593,7 +3613,7 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	*server_portp = job_get_bsport(js);
+	*server_portp = js->j_port;
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -3601,6 +3621,10 @@ kern_return_t
 job_mig_get_integer(job_t j, get_set_int_key_t key, int64_t *val)
 {
 	kern_return_t kr = 0;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
 	switch (key) {
 	case LAST_EXIT_STATUS:
@@ -3619,6 +3643,10 @@ job_mig_set_integer(job_t j, get_set_int_key_t key, int64_t val)
 {
 	kern_return_t kr = 0;
 
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	switch (key) {
 	case GLOBAL_ON_DEMAND:
 		kr = job_set_global_on_demand(j, (bool)val) ? 0 : 1;
@@ -3634,6 +3662,10 @@ job_mig_set_integer(job_t j, get_set_int_key_t key, int64_t val)
 kern_return_t
 job_mig_getsocket(job_t j, name_t spr)
 {
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	if (!sockpath) {
 		return BOOTSTRAP_NO_MEMORY;
 	} else if (getpid() == 1) {
@@ -3648,6 +3680,10 @@ job_mig_getsocket(job_t j, name_t spr)
 kern_return_t
 job_mig_log(job_t j, int pri, int err, logmsg_t msg)
 {
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	if ((errno = err)) {
 		job_log_error(j, pri, "%s", msg);
 	} else {
@@ -3661,11 +3697,11 @@ kern_return_t
 job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 {
 	struct ldcred ldc;
-	job_t ji, jbs = root_job;
+	job_t ji;
 
-#if 0
-	jbs = job_get_bs(j);
-#endif
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
 	runtime_get_caller_creds(&ldc);
 
@@ -3679,7 +3715,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 	*up_cont = MACH_PORT_NULL;
 
-	SLIST_FOREACH(ji, &jbs->jobs, sle) {
+	SLIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
 		if (ji->mach_uid != which_user) {
 			continue;
 		}
@@ -3698,7 +3734,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 		sprintf(lbuf, "com.apple.launchd.peruser.%u", which_user);
 
-		ji = job_new(jbs, lbuf, "/sbin/launchd", NULL, NULL, 0);
+		ji = job_new(root_jobmgr, lbuf, "/sbin/launchd", NULL, NULL);
 
 		if (ji == NULL) {
 			return BOOTSTRAP_NO_MEMORY;
@@ -3729,9 +3765,13 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 	struct machservice *ms;
 	struct ldcred ldc;
 
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	runtime_get_caller_creds(&ldc);
 
-	ms = job_lookup_service(j, servicename, true);
+	ms = jobmgr_lookup_service(j->mgr, servicename, true);
 
 	if (ms == NULL) {
 		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
@@ -3764,6 +3804,10 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 	struct machservice *ms;
 	struct ldcred ldc;
 
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	runtime_get_caller_creds(&ldc);
 
 #if 0
@@ -3777,7 +3821,7 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 	 * 92) is a rogue application (not our UID, not root and not a child of
 	 * us). We'll have to reconcile this design friction at a later date.
 	 */
-	if (j->anonymous && job_get_bs(j)->parent == NULL && ldc.uid != 0 && ldc.uid != getuid() && ldc.uid != 92) {
+	if (j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.uid != getuid() && ldc.uid != 92) {
 		if (getpid() == 1) {
 			return VPROC_ERR_TRY_PER_USER;
 		} else {
@@ -3785,7 +3829,7 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 		}
 	}
 	
-	ms = job_lookup_service(j, servicename, false);
+	ms = jobmgr_lookup_service(j->mgr, servicename, false);
 
 	if (ms) {
 		if (machservice_job(ms) != j) {
@@ -3816,13 +3860,17 @@ job_mig_look_up(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg
 	struct machservice *ms;
 	struct ldcred ldc;
 
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	runtime_get_caller_creds(&ldc);
 
-	if (getpid() == 1 && j->anonymous && job_get_bs(j)->parent == NULL && ldc.uid != 0 && ldc.euid != 0) {
+	if (getpid() == 1 && j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.euid != 0) {
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
-	ms = job_lookup_service(j, servicename, true);
+	ms = jobmgr_lookup_service(j->mgr, servicename, true);
 
 	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
 		ms = NULL;
@@ -3849,16 +3897,19 @@ job_mig_look_up(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg
 kern_return_t
 job_mig_parent(job_t j, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 {
-	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
-	j = job_get_bs(j);
+	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
+	jobmgr_t jm = j->mgr;
 
 	*pptype = MACH_MSG_TYPE_MAKE_SEND;
 
-	if (job_parent(j)) {
-		*parentport = job_get_bsport(job_parent(j));
+	if (jobmgr_parent(jm)) {
+		*parentport = jobmgr_parent(jm)->jm_port;
 	} else if (MACH_PORT_NULL == inherited_bootstrap_port) {
-		*parentport = job_get_bsport(j);
+		*parentport = jm->jm_port;
 	} else {
 		*pptype = MACH_MSG_TYPE_COPY_SEND;
 		*parentport = inherited_bootstrap_port;
@@ -3866,76 +3917,61 @@ job_mig_parent(job_t j, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 	return BOOTSTRAP_SUCCESS;
 }
 
-static void
-job_mig_info_countservices(struct machservice *ms, void *context)
-{
-	unsigned int *cnt = context;
-
-	(*cnt)++;
-}
-
-struct x_bootstrap_info_copyservices_cb {
-	name_array_t service_names;
-	bootstrap_status_array_t service_actives;
-	mach_port_array_t ports;
-	unsigned int i;
-};
-
-static void
-job_mig_info_copyservices(struct machservice *ms, void *context)
-{
-	struct x_bootstrap_info_copyservices_cb *info_resp = context;
-
-	strlcpy(info_resp->service_names[info_resp->i], machservice_name(ms), sizeof(info_resp->service_names[0]));
-
-	launchd_assumes(info_resp->service_actives || info_resp->ports);
-
-	if (info_resp->service_actives) {
-		info_resp->service_actives[info_resp->i] = machservice_status(ms);
-	} else {
-		info_resp->ports[info_resp->i] = machservice_port(ms);
-	}
-	info_resp->i++;
-}
-
 kern_return_t
 job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 		bootstrap_status_array_t *serviceactivesp, unsigned int *serviceactives_cnt)
 {
-	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	unsigned int cnt = 0;
+	name_array_t service_names = NULL;
+	bootstrap_status_array_t service_actives = NULL;
+	unsigned int cnt = 0, cnt2 = 0;
+	struct machservice *ms;
+	jobmgr_t jm;
 	job_t ji;
 
-	for (ji = j; ji; ji = job_parent(ji))
-		job_foreach_service(ji, job_mig_info_countservices, &cnt, false);
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
-	mig_allocate((vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
-	if (!launchd_assumes(info_resp.service_names != NULL)) {
+	jm = j->mgr;
+
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			cnt++;
+		}
+	}
+
+	mig_allocate((vm_address_t *)&service_names, cnt * sizeof(service_names[0]));
+	if (!launchd_assumes(service_names != NULL)) {
 		goto out_bad;
 	}
 
-	mig_allocate((vm_address_t *)&info_resp.service_actives, cnt * sizeof(info_resp.service_actives[0]));
-	if (!launchd_assumes(info_resp.service_actives != NULL)) {
+	mig_allocate((vm_address_t *)&service_actives, cnt * sizeof(service_actives[0]));
+	if (!launchd_assumes(service_actives != NULL)) {
 		goto out_bad;
 	}
 
-	for (ji = j; ji; ji = job_parent(ji))
-		job_foreach_service(ji, job_mig_info_copyservices, &info_resp, false);
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
+			service_actives[cnt2] = machservice_status(ms);
+			cnt2++;
+		}
+	}
 
-	launchd_assumes(info_resp.i == cnt);
+	launchd_assumes(cnt == cnt2);
 
-	*servicenamesp = info_resp.service_names;
-	*serviceactivesp = info_resp.service_actives;
+	*servicenamesp = service_names;
+	*serviceactivesp = service_actives;
 	*servicenames_cnt = *serviceactives_cnt = cnt;
 
 	return BOOTSTRAP_SUCCESS;
 
 out_bad:
-	if (info_resp.service_names) {
-		mig_deallocate((vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	if (service_names) {
+		mig_deallocate((vm_address_t)service_names, cnt * sizeof(service_names[0]));
 	}
-	if (info_resp.service_actives) {
-		mig_deallocate((vm_address_t)info_resp.service_actives, cnt * sizeof(info_resp.service_actives[0]));
+	if (service_actives) {
+		mig_deallocate((vm_address_t)service_actives, cnt * sizeof(service_actives[0]));
 	}
 
 	return BOOTSTRAP_NO_MEMORY;
@@ -3944,47 +3980,61 @@ out_bad:
 kern_return_t
 job_mig_transfer_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *servicenamesp, unsigned int *servicenames_cnt,
-		mach_port_array_t *ports, unsigned int *ports_cnt)
+		mach_port_array_t *portsp, unsigned int *ports_cnt)
 {
-	struct x_bootstrap_info_copyservices_cb info_resp = { NULL, NULL, NULL, 0 };
-	unsigned int cnt = 0;
+	name_array_t service_names = NULL;
+	mach_port_array_t ports = NULL;
+	unsigned int cnt = 0, cnt2 = 0;
+	struct machservice *ms;
+	jobmgr_t jm;
 
-	if (j->anonymous) {
-		j = j->parent;
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
 	}
+
+	jm = j->mgr;
 
 	if (getpid() != 1) {
 		job_log(j, LOG_ERR, "Only the system launchd will transfer Mach sub-bootstraps.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
-	} else if (!job_parent(j)) {
+	} else if (jobmgr_parent(jm) == NULL) {
 		job_log(j, LOG_ERR, "Root Mach bootstrap cannot be transferred.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	} else if (!j->anonymous) {
+		job_log(j, LOG_ERR, "Only the anonymous job can transfer Mach sub-bootstraps.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	job_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
 
-	job_foreach_service(j, job_mig_info_countservices, &cnt, true);
+	SLIST_FOREACH(ms, &j->machservices, sle) {
+		cnt++;
+	}
 
-	mig_allocate((vm_address_t *)&info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
-	if (!launchd_assumes(info_resp.service_names != NULL)) {
+	mig_allocate((vm_address_t *)&service_names, cnt * sizeof(service_names[0]));
+	if (!launchd_assumes(service_names != NULL)) {
 		goto out_bad;
 	}
 
-	mig_allocate((vm_address_t *)&info_resp.ports, cnt * sizeof(info_resp.ports[0]));
-	if (!launchd_assumes(info_resp.ports != NULL)) {
+	mig_allocate((vm_address_t *)&ports, cnt * sizeof(ports[0]));
+	if (!launchd_assumes(ports != NULL)) {
 		goto out_bad;
 	}
 
-	job_foreach_service(j, job_mig_info_copyservices, &info_resp, true);
+	SLIST_FOREACH(ms, &j->machservices, sle) {
+		strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
+		ports[cnt2] = machservice_port(ms);
+		cnt2++;
+	}
 
-	launchd_assumes(info_resp.i == cnt);
+	launchd_assumes(cnt == cnt2);
 
-	*servicenamesp = info_resp.service_names;
-	*ports = info_resp.ports;
+	*servicenamesp = service_names;
+	*portsp = ports;
 	*servicenames_cnt = *ports_cnt = cnt;
 
-	*reqport = job_get_reqport(j);
-	*rcvright = job_get_bsport(j);
+	*reqport = jobmgr_get_reqport(jm);
+	*rcvright = jm->jm_port;
 
 	launchd_assumes(runtime_remove_mport(*rcvright) == KERN_SUCCESS);
 
@@ -3993,11 +4043,11 @@ job_mig_transfer_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 	return BOOTSTRAP_SUCCESS;
 
 out_bad:
-	if (info_resp.service_names) {
-		mig_deallocate((vm_address_t)info_resp.service_names, cnt * sizeof(info_resp.service_names[0]));
+	if (service_names) {
+		mig_deallocate((vm_address_t)service_names, cnt * sizeof(service_names[0]));
 	}
-	if (info_resp.ports) {
-		mig_deallocate((vm_address_t)info_resp.ports, cnt * sizeof(info_resp.ports[0]));
+	if (ports) {
+		mig_deallocate((vm_address_t)ports, cnt * sizeof(ports[0]));
 	}
 
 	return BOOTSTRAP_NO_MEMORY;
@@ -4007,9 +4057,15 @@ kern_return_t
 job_mig_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 {
 	int bsdepth = 0;
-	job_t js = j;
+	jobmgr_t jmr;
 
-	while ((js = job_parent(js)) != NULL) {
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	jmr = j->mgr;
+
+	while ((jmr = jobmgr_parent(jmr)) != NULL) {
 		bsdepth++;
 	}
 
@@ -4019,14 +4075,14 @@ job_mig_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if ((js = job_new_bootstrap(j, requestorport, MACH_PORT_NULL)) == NULL) {
+	if ((jmr = jobmgr_new(j->mgr, requestorport, MACH_PORT_NULL)) == NULL) {
 		if (requestorport == MACH_PORT_NULL) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	*subsetportp = job_get_bsport(js);
+	*subsetportp = jmr->jm_port;
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -4034,6 +4090,10 @@ kern_return_t
 job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
 	struct machservice *ms;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
 	if (job_prog(j)[0] == '\0') {
 		job_log(j, LOG_ERR, "Mach service creation requires a target server: %s", servicename);
@@ -4045,7 +4105,7 @@ job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	ms = job_lookup_service(j, servicename, false);
+	ms = jobmgr_lookup_service(j->mgr, servicename, false);
 	if (ms) {
 		job_log(j, LOG_DEBUG, "Mach service creation attempt for failed. Already exists: %s", servicename);
 		return BOOTSTRAP_NAME_IN_USE;
@@ -4070,6 +4130,9 @@ out_bad:
 kern_return_t
 job_mig_wait(job_t j, mach_port_t srp, integer_t *waitstatus)
 {
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 #if 0
 	struct ldcred ldc;
 	runtime_get_caller_creds(&ldc);
@@ -4080,8 +4143,8 @@ job_mig_wait(job_t j, mach_port_t srp, integer_t *waitstatus)
 kern_return_t
 job_mig_uncork_fork(job_t j)
 {
-	if (!j) {
-		return BOOTSTRAP_NOT_PRIVILEGED;
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
 	}
 
 	job_uncork_fork(j);
@@ -4102,6 +4165,10 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 	const char *path = NULL;
 	const char *workingdir = NULL;
 	size_t argv_i = 0, env_i = 0;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
 #if 0
 	if (ldc.asid != inherited_asid) {
@@ -4141,7 +4208,7 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		}
 	}
 
-	jr = job_new_spawn(job_get_bs(j), label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
+	jr = job_new_spawn(j, label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
 			flags & SPAWN_WANTS_WAIT4DEBUGGER, flags & SPAWN_WANTS_FORCE_PPC);
 
 	if (jr == NULL) switch (errno) {
@@ -4161,7 +4228,7 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 			flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
 
 	*child_pid = job_get_pid(jr);
-	*obsvr_port = job_get_bsport(jr);
+	*obsvr_port = jr->j_port;
 
 	return BOOTSTRAP_SUCCESS;
 }
@@ -4208,14 +4275,21 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 {
 	mach_msg_type_number_t l2l_i;
 	auditinfo_t inherited_audit;
-	job_t anon_job;
+	job_t ji, anon_job = NULL;
 
 	getaudit(&inherited_audit);
 	inherited_asid = inherited_audit.ai_asid;
 
-	launchd_assert((root_job = job_new_bootstrap(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
+	launchd_assert((root_jobmgr = jobmgr_new(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
 
-	launchd_assert((anon_job = job_find_anonymous(root_job)) != NULL);
+	SLIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
+		if (ji->anonymous) {
+			anon_job = ji;
+			break;
+		}
+	}
+
+	launchd_assert(anon_job != NULL);
 
 	launchd_assert(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
 

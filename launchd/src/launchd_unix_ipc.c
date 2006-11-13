@@ -398,19 +398,19 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			launch_data_set_bool(resp, batch_disabler_count == 0);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
-		if ((j = job_find(root_job, launch_data_get_string(data))) != NULL) {
+		if ((j = jobmgr_find(root_jobmgr, launch_data_get_string(data))) != NULL) {
 			job_dispatch(j, true);
 			errno = 0;
 		}
 		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_STOPJOB)) {
-		if ((j = job_find(root_job, launch_data_get_string(data))) != NULL) {
+		if ((j = jobmgr_find(root_jobmgr, launch_data_get_string(data))) != NULL) {
 			job_stop(j);
 			errno = 0;
 		}
 		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
-		if ((j = job_find(root_job, launch_data_get_string(data))) != NULL) {
+		if ((j = jobmgr_find(root_jobmgr, launch_data_get_string(data))) != NULL) {
 			job_remove(j);
 			errno = 0;
 		}
@@ -433,14 +433,14 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETRESOURCELIMITS)) {
 		resp = adjust_rlimits(data);
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOB)) {
-		if ((j = job_find(root_job, launch_data_get_string(data))) == NULL) {
+		if ((j = jobmgr_find(root_jobmgr, launch_data_get_string(data))) == NULL) {
 			resp = launch_data_new_errno(errno);
 		} else {
 			resp = job_export(j);
 			ipc_revoke_fds(resp);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBWITHHANDLES)) {
-		if ((j = job_find(root_job, launch_data_get_string(data))) == NULL) {
+		if ((j = jobmgr_find(root_jobmgr, launch_data_get_string(data))) == NULL) {
 			resp = launch_data_new_errno(errno);
 		} else {
 			resp = job_export(j);

@@ -160,7 +160,7 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 			continue;
 		}
 		if (status.mps_msgcount) {
-			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, job_mig_intran(members[i]));
+			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, jobmgr_find_by_service_port(root_jobmgr, members[i]));
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 			/* the callback may have tainted our ability to continue this for loop */
 			break;
@@ -407,7 +407,7 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 {
 	/* This message is sent to us when a receive right is returned to us. */
 
-	if (!job_ack_port_destruction(root_job, rights)) {
+	if (!jobmgr_ack_port_destruction(root_jobmgr, rights)) {
 		launchd_assumes(launchd_mport_close_recv(rights) == KERN_SUCCESS);
 	}
 
@@ -466,7 +466,7 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 		inherited_bootstrap_port = MACH_PORT_NULL;
 	}
 
-	job_delete_anything_with_port(root_job, name);
+	jobmgr_delete_anything_with_port(root_jobmgr, name);
 
 	/* A dead-name notification about a port appears to increment the
 	 * rights on said port. Let's deallocate it so that we don't leak
@@ -568,9 +568,9 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		bufReply = bufTemp;
 
 		/* XXX - So very gross */
-		if (gc_this_job) {
-			job_remove(gc_this_job);
-			gc_this_job = NULL;
+		if (gc_this_jobmgr) {
+			jobmgr_remove(gc_this_jobmgr);
+			gc_this_jobmgr = NULL;
 		}
 
 		if (!(tmp_options & MACH_RCV_MSG)) {

@@ -275,11 +275,11 @@ main(int argc, char *const *argv)
 		snprintf(ldconf, sizeof(ldconf), "%s/%s", h, LAUNCHD_CONF);
 	}
 
-	rlcj = job_new(root_job, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf, MACH_PORT_NULL);
+	rlcj = job_new(root_jobmgr, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf);
 	launchd_assert(rlcj != NULL);
 
 	if (argv[0]) {
-		fbj = job_new(root_job, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL, MACH_PORT_NULL);
+		fbj = job_new(root_jobmgr, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL);
 	}
 
 	if (NULL == getenv("PATH")) {
@@ -432,14 +432,16 @@ launchd_shutdown(void)
 	shutdown_in_progress = true;
 
 	if (stat("/var/db/debugShutdownHangs", &sb) != -1) {
-		// When this changes to a more sustainable API, update this:
-		// http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
+		/*
+		 * When this changes to a more sustainable API, update this:
+		 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
+		 */
 		debug_shutdown_hangs = true;
 	}
 
 	rlcj = NULL;
 
-	job_remove_all_inactive(root_job);
+	jobmgr_remove_all_inactive(root_jobmgr);
 
 	if (getpid() == 1) {
 		catatonia();
@@ -650,7 +652,7 @@ pfsystem_callback(void *obj, struct kevent *kev)
 
 	if (new_networking_state != network_up) {
 		network_up = new_networking_state;
-		job_dispatch_all_other_semaphores(root_job, NULL);
+		jobmgr_dispatch_all_other_semaphores(root_jobmgr, NULL);
 	}
 }
 
