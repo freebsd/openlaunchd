@@ -48,11 +48,13 @@ typedef enum {
 #define SPAWN_WANTS_FORCE_PPC		0x0010
 
 kern_return_t
-_launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
+_vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
 kern_return_t _vprocmgr_getsocket(name_t);
+
+vproc_err_t _vproc_move_subset_to_user(void);
 
 void _vproc_logv(int pri, int err, const char *msg, va_list ap);
 

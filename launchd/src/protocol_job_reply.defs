@@ -24,6 +24,7 @@ subsystem job_reply 500;
 #include <mach/mach_types.defs>
 #include "launchd_mig_types.defs"
 import "libbootstrap_public.h";
+import "libvproc_public.h";
 import "libvproc_internal.h";
 
 skip; /* create_server */

@@ -39,6 +39,7 @@
 #include <pwd.h>
 
 #include "libbootstrap_public.h"
+#include "libvproc_public.h"
 #include "libvproc_internal.h"
 
 /* __OSBogusByteSwap__() must not really exist in the symbol namespace
@@ -1188,30 +1189,24 @@ fexecv_as_user(const char *login, uid_t u, gid_t g, char *const argv[])
 pid_t
 create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 {
-	static char *const ldargv[] = { "/sbin/launchd", "-S", "Aqua", NULL };
 	char *largv[] = { "/bin/launchctl", "load", "-S", "Aqua", "-D", "all", "/etc/mach_init_per_user.d", NULL };
 	mach_port_t bezel_ui_server;
 	struct passwd *pwe;
 	struct stat sb;
 	int wstatus;
-	name_t sp;
-	pid_t p, ldp;
+	pid_t p;
 	uid_t u;
 	gid_t g;
+
+	if (_vproc_move_subset_to_user()) {
+		return -1;
+	}
 
 	if ((pwe = getpwnam(login)) == NULL)
 		return -1;
 
 	u = pwe->pw_uid;
 	g = pwe->pw_gid;
-
-	if ((ldp = fexecv_as_user(login, u, g, ldargv)) == -1) {
-		return -1;
-	}
-
-	while (_vprocmgr_getsocket(sp) != BOOTSTRAP_SUCCESS) {
-		usleep(20000);
-	}
 
 	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS) {
 		largv[5] = "system";
@@ -1245,5 +1240,5 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 		}
 	}
 
-	return ldp;
+	return 1;
 }

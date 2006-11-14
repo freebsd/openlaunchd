@@ -63,6 +63,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sysexits.h>
 
 #include "libbootstrap_public.h"
+#include "libvproc_public.h"
 #include "libvproc_internal.h"
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -532,6 +533,13 @@ readfile(const char *what, struct load_unload_state *lus)
 
 		if (i == c)
 			goto out_bad;
+	}
+
+	if (lus->session_type && !(tmpa = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE))) {
+		fprintf(stderr, "%s: Missing key \"%s\", defaulting value to \"Aqua\"\n", getprogname(),
+				LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE);
+		tmpa = launch_data_new_string("Aqua");
+		launch_data_dict_insert(thejob, tmpa, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE);
 	}
 
 	if ((tmpa = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE))) {

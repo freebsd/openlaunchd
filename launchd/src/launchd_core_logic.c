@@ -74,6 +74,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
 #include "libbootstrap_public.h"
+#include "libvproc_public.h"
 #include "libvproc_internal.h"
 
 #include "launchd.h"
@@ -288,6 +289,7 @@ static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
 static void job_postfork_become_user(job_t j);
 static void job_force_sampletool(job_t j);
+static void job_reparent_to_aqua_hack(job_t j);
 static void job_callback(void *obj, struct kevent *kev);
 static launch_data_t job_export2(job_t j, bool subjobs);
 static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
@@ -815,7 +817,7 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 {
 	job_t jr;
 
-	if ((jr = jobmgr_find(j->mgr, label)) != NULL) {
+	if ((jr = jobmgr_find(root_jobmgr, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	}
@@ -825,6 +827,8 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 	if (!jr) {
 		return NULL;
 	}
+
+	job_reparent_to_aqua_hack(jr);
 
 	if (getpid() == 1) {
 		struct ldcred ldc;
@@ -1097,6 +1101,9 @@ job_import_string(job_t j, const char *key, const char *value)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS) == 0) {
 			return;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE) == 0) {
+			if (strcmp(value, "Aqua") == 0) {
+				job_reparent_to_aqua_hack(j);
+			}
 			return;
 		}
 		break;
@@ -3705,8 +3712,8 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 	runtime_get_caller_creds(&ldc);
 
-	if (ldc.uid != 0) {
-		which_user = ldc.uid;
+	if (ldc.euid || ldc.uid) {
+		which_user = ldc.euid ? ldc.euid : ldc.uid;
 	}
 
 	if (which_user == 0) {
@@ -3940,6 +3947,10 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 		}
 	}
 
+	if (cnt == 0) {
+		goto out;
+	}
+
 	mig_allocate((vm_address_t *)&service_names, cnt * sizeof(service_names[0]));
 	if (!launchd_assumes(service_names != NULL)) {
 		goto out_bad;
@@ -3960,6 +3971,7 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 
 	launchd_assumes(cnt == cnt2);
 
+out:
 	*servicenamesp = service_names;
 	*serviceactivesp = service_actives;
 	*servicenames_cnt = *serviceactives_cnt = cnt;
@@ -3977,8 +3989,76 @@ out_bad:
 	return BOOTSTRAP_NO_MEMORY;
 }
 
+
+void
+job_reparent_to_aqua_hack(job_t j)
+{
+	jobmgr_t jmi = NULL;
+
+	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
+		if (strcmp(jmi->name, "Aqua") == 0) {
+			break;
+		}
+	}
+
+	if (job_assumes(j, jmi != NULL)) {
+		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
+		SLIST_INSERT_HEAD(&jmi->jobs, j, sle);
+		j->mgr = jmi;
+	}
+}
+
 kern_return_t
-job_mig_transfer_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
+job_mig_move_subset_to_user(job_t j, mach_port_t target_subset)
+{
+	mach_msg_type_number_t l2l_i, l2l_name_cnt = 0, l2l_port_cnt = 0;
+	name_array_t l2l_names = NULL;
+	mach_port_array_t l2l_ports = NULL;
+	mach_port_t reqport, rcvright;
+	kern_return_t kr;
+	jobmgr_t jmr;
+
+	kr = _vproc_grab_subset(target_subset, &reqport,
+			&rcvright, &l2l_names, &l2l_name_cnt, &l2l_ports, &l2l_port_cnt);
+
+	if (job_assumes(j, kr == 0)) {
+		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
+	} else {
+		goto out;
+	}
+
+	launchd_assert(l2l_name_cnt == l2l_port_cnt);
+
+	if ((jmr = jobmgr_new(j->mgr, reqport, rcvright)) == NULL) {
+		kr = BOOTSTRAP_NO_MEMORY;
+		goto out;
+	}
+
+	strcpy(jmr->name, "Aqua");
+
+	for (l2l_i = 0; l2l_i < l2l_name_cnt; l2l_i++) {
+		struct machservice *ms;
+
+		if ((ms = machservice_new(jmr->anonj, l2l_names[l2l_i], &l2l_ports[l2l_i]))) {
+			machservice_watch(ms);
+		}
+	}
+
+	kr = 0;
+
+out:
+	if (l2l_names) {
+		mig_deallocate((vm_address_t)l2l_names, l2l_name_cnt * sizeof(l2l_names[0]));
+	}
+	if (l2l_ports) {
+		mig_deallocate((vm_address_t)l2l_ports, l2l_port_cnt * sizeof(l2l_ports[0]));
+	}
+
+	return kr;
+}
+
+kern_return_t
+job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *servicenamesp, unsigned int *servicenames_cnt,
 		mach_port_array_t *portsp, unsigned int *ports_cnt)
 {
@@ -4165,18 +4245,18 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 	const char *path = NULL;
 	const char *workingdir = NULL;
 	size_t argv_i = 0, env_i = 0;
+	struct ldcred ldc;
+
+	runtime_get_caller_creds(&ldc);
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-#if 0
-	if (ldc.asid != inherited_asid) {
-		job_log(j, LOG_ERR, "Security: PID %d (ASID %d) was denied a request to spawn a process in this session (ASID %d)",
-				ldc.pid, ldc.asid, inherited_asid);
-		return BOOTSTRAP_NOT_PRIVILEGED;
+	if (getpid() == 1 && ldc.euid && ldc.uid) {
+		job_log(j, LOG_DEBUG, "Punting spawn to per-user-context");
+		return VPROC_ERR_TRY_PER_USER;
 	}
-#endif
 
 	argv = alloca((argc + 1) * sizeof(char *));
 	memset(argv, 0, (argc + 1) * sizeof(char *));
@@ -4270,17 +4350,15 @@ trusted_client_check(job_t j, struct ldcred *ldc)
 }
 
 void
-mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
-		name_array_t l2l_names, mach_port_array_t l2l_ports, mach_msg_type_number_t l2l_cnt)
+mach_init_init(mach_port_t checkin_port)
 {
-	mach_msg_type_number_t l2l_i;
 	auditinfo_t inherited_audit;
 	job_t ji, anon_job = NULL;
 
 	getaudit(&inherited_audit);
 	inherited_asid = inherited_audit.ai_asid;
 
-	launchd_assert((root_jobmgr = jobmgr_new(NULL, req_port ? req_port : mach_task_self(), checkin_port)) != NULL);
+	launchd_assert((root_jobmgr = jobmgr_new(NULL, mach_task_self(), checkin_port)) != NULL);
 
 	SLIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
 		if (ji->anonymous) {
@@ -4302,16 +4380,4 @@ mach_init_init(mach_port_t req_port, mach_port_t checkin_port,
 
 	/* cut off the Libc cache, we don't want to deadlock against ourself */
 	bootstrap_port = MACH_PORT_NULL;
-
-	if (l2l_names == NULL) {
-		return;
-	}
-
-	for (l2l_i = 0; l2l_i < l2l_cnt; l2l_i++) {
-		struct machservice *ms;
-
-		if ((ms = machservice_new(anon_job, l2l_names[l2l_i], &l2l_ports[l2l_i]))) {
-			machservice_watch(ms);
-		}
-	}
 }

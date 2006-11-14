@@ -36,12 +36,27 @@
 #include "protocol_vproc.h"
 
 kern_return_t
-_launchd_to_launchd(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
+_vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt)
 {
-	return vproc_mig_transfer_subset(bp, reqport, rcvright, service_names, service_namesCnt, ports, portCnt);
+	return vproc_mig_take_subset(bp, reqport, rcvright, service_names, service_namesCnt, ports, portCnt);
 }
+
+vproc_err_t
+_vproc_move_subset_to_user(void)
+{
+	kern_return_t kr = 1;
+	mach_port_t puc;
+
+	if (vproc_mig_lookup_per_user_context(bootstrap_port, 0, &puc) == 0) {
+		kr = vproc_mig_move_subset_to_user(puc, bootstrap_port);
+		mach_port_deallocate(mach_task_self(), puc);
+	}
+
+	return kr == 0 ? NULL : (vproc_err_t)_vproc_move_subset_to_user;
+}
+
 
 pid_t
 _spawn_via_launchd(const char *label, const char *const *argv, const struct spawn_via_launchd_attr *spawn_attrs, int struct_version)
@@ -111,6 +126,15 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	}
 
 	kr = vproc_mig_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, &p, &obsvr_port);
+
+	if (kr == VPROC_ERR_TRY_PER_USER) {
+		mach_port_t puc;
+
+		if (vproc_mig_lookup_per_user_context(bootstrap_port, 0, &puc) == 0) {
+			kr = vproc_mig_spawn(puc, buf, buf_len, argc, envc, flags, u_mask, &p, &obsvr_port);
+			mach_port_deallocate(mach_task_self(), puc);
+		}
+	}
 
 	free(buf);
 

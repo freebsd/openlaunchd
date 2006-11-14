@@ -65,6 +65,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <setjmp.h>
 
 #include "libbootstrap_public.h"
+#include "libvproc_public.h"
 #include "libvproc_internal.h"
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -122,9 +123,6 @@ main(int argc, char *const *argv)
 	};
 	struct sigaction fsa;
 	bool sflag = false, dflag = false, Dflag = false;
-	mach_msg_type_number_t l2l_name_cnt = 0, l2l_port_cnt = 0;
-	name_array_t l2l_names = NULL;
-	mach_port_array_t l2l_ports = NULL;
 	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
 	const char *h = getenv("HOME");
 	const char *session_type = NULL;
@@ -133,7 +131,6 @@ main(int argc, char *const *argv)
 	struct stat sb;
 	size_t i, checkin_fdcnt = 0;
 	int *checkin_fds = NULL;
-	mach_port_t req_mport = MACH_PORT_NULL;
 	mach_port_t checkin_mport = MACH_PORT_NULL;
 	int ch, ker, logopts;
 
@@ -247,29 +244,7 @@ main(int argc, char *const *argv)
 	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
 	launchd_assert(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
 
-	if (session_type && strcmp(session_type, "Aqua") == 0) {
-		mach_port_t newparent;
-
-		launchd_assert(bootstrap_parent(bootstrap_port, &newparent) == BOOTSTRAP_SUCCESS);
-
-		launchd_assert(_launchd_to_launchd(bootstrap_port, &req_mport, &checkin_mport,
-					&l2l_names, &l2l_name_cnt, &l2l_ports, &l2l_port_cnt) == BOOTSTRAP_SUCCESS);
-
-		launchd_assert(l2l_name_cnt == l2l_port_cnt);
-
-		task_set_bootstrap_port(mach_task_self(), newparent);
-		launchd_assumes(mach_port_deallocate(mach_task_self(), bootstrap_port) == KERN_SUCCESS);
-		bootstrap_port = newparent;
-	}
-
-	mach_init_init(req_mport, checkin_mport, l2l_names, l2l_ports, l2l_name_cnt);
-
-	if (l2l_names) {
-		mig_deallocate((vm_address_t)l2l_names, l2l_name_cnt * sizeof(l2l_names[0]));
-	}
-	if (l2l_ports) {
-		mig_deallocate((vm_address_t)l2l_ports, l2l_port_cnt * sizeof(l2l_ports[0]));
-	}
+	mach_init_init(checkin_mport);
 
 	if (h) {
 		snprintf(ldconf, sizeof(ldconf), "%s/%s", h, LAUNCHD_CONF);
