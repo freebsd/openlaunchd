@@ -532,9 +532,7 @@ jobmgr_remove_all_inactive(jobmgr_t jm)
 			if (debug_shutdown_hangs) {
 				job_assumes(ji, kevent_mod((uintptr_t)ji, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 8, ji) != -1);
 			}
-			if (getpid() != 1) {
-				job_stop(ji);
-			}
+			job_stop(ji);
 		}
 	}
 }
