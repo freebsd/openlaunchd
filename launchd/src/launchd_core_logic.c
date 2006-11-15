@@ -2059,8 +2059,9 @@ job_setup_attributes(job_t j)
 
 	jobmgr_setup_env_from_other_jobs(j->mgr);
 
-	SLIST_FOREACH(ei, &j->env, sle)
+	SLIST_FOREACH(ei, &j->env, sle) {
 		setenv(ei->key, ei->value, 1);
+	}
 
 	setsid();
 }
