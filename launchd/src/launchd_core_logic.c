@@ -254,6 +254,7 @@ struct job_s {
 	int execfd;
 	int nice;
 	int timeout;
+	int stdout_err_fd;
 	time_t start_time;
 	time_t min_run_time;
 	unsigned int start_interval;
@@ -287,6 +288,7 @@ static void job_start(job_t j);
 static void job_start_child(job_t j, int execfd) __attribute__((noreturn));
 static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
+static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
 static void job_postfork_become_user(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_reparent_to_aqua_hack(job_t j);
@@ -2029,33 +2031,9 @@ job_setup_attributes(job_t j)
 		umask(j->mask);
 	}
 
-	if (j->stdinpath) {
-		int sifd = open(j->stdinpath, O_RDONLY|O_NOCTTY);
-		if (sifd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdinpath);
-		} else {
-			job_assumes(j, dup2(sifd, STDIN_FILENO) != -1);
-			job_assumes(j, close(sifd) == 0);
-		}
-	}
-	if (j->stdoutpath) {
-		int sofd = open(j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT|O_NOCTTY, DEFFILEMODE);
-		if (sofd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stdoutpath);
-		} else {
-			job_assumes(j, dup2(sofd, STDOUT_FILENO) != -1);
-			job_assumes(j, close(sofd) == 0);
-		}
-	}
-	if (j->stderrpath) {
-		int sefd = open(j->stderrpath, O_WRONLY|O_APPEND|O_CREAT|O_NOCTTY, DEFFILEMODE);
-		if (sefd == -1) {
-			job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", j->stderrpath);
-		} else {
-			job_assumes(j, dup2(sefd, STDERR_FILENO) != -1);
-			job_assumes(j, close(sefd) == 0);
-		}
-	}
+	job_setup_fd(j, STDIN_FILENO,  j->stdinpath,  O_RDONLY);
+	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT);
+	job_setup_fd(j, STDERR_FILENO, j->stderrpath, O_WRONLY|O_APPEND|O_CREAT);
 
 	jobmgr_setup_env_from_other_jobs(j->mgr);
 
@@ -2064,6 +2042,55 @@ job_setup_attributes(job_t j)
 	}
 
 	setsid();
+}
+
+void
+job_setup_fd(job_t j, int target_fd, const char *path, int flags)
+{
+	char newpath[PATH_MAX];
+	int fd;
+
+	if (!path) {
+#if 0
+		switch (target_fd) {
+		case STDOUT_FILENO:
+		case STDERR_FILENO:
+			flags |= O_TRUNC;
+			break;
+		default:
+			return;
+		}
+
+		if (getuid() == 0) {
+			snprintf(newpath, sizeof(newpath), "/var/log/launchd");
+		} else {
+			struct passwd *pwe;
+
+			if (!job_assumes(j, (pwe = getpwuid(getuid())) != NULL)) {
+				return;
+			}
+
+			snprintf(newpath, sizeof(newpath), "%s/Library/Logs/launchd", pwe->pw_dir);
+		}
+
+		mkdir(newpath, ACCESSPERMS);
+
+		strcat(newpath, "/");
+		strcat(newpath, j->label);
+
+		path = newpath;
+#else
+		return;
+#endif
+	}
+
+	if ((fd = open(path, flags|O_NOCTTY, DEFFILEMODE)) == -1) {
+		job_log_error(j, LOG_WARNING, "open(\"%s\", ...)", path);
+		return;
+	}
+
+	job_assumes(j, dup2(fd, target_fd) != -1);
+	job_assumes(j, close(fd) == 0);
 }
 
 int
