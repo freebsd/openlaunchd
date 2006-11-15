@@ -2047,7 +2047,9 @@ job_setup_attributes(job_t j)
 void
 job_setup_fd(job_t j, int target_fd, const char *path, int flags)
 {
+#if 0
 	char newpath[PATH_MAX];
+#endif
 	int fd;
 
 	if (!path) {
