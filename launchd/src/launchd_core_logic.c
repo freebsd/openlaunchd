@@ -3701,10 +3701,10 @@ job_mig_getsocket(job_t j, name_t spr)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	ipc_server_init(NULL, 0);
+
 	if (!sockpath) {
 		return BOOTSTRAP_NO_MEMORY;
-	} else if (getpid() == 1) {
-		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	strncpy(spr, sockpath, sizeof(name_t));

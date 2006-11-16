@@ -485,8 +485,6 @@ fs_callback(void)
 			pending_stderr = NULL;
 		}
 	}
-
-	ipc_server_init(NULL, 0);
 }
 
 void
