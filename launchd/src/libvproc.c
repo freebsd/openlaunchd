@@ -235,9 +235,10 @@ _vproc_log(int pri, const char *msg, ...)
 void
 _vproc_log_error(int pri, const char *msg, ...)
 {
+	int saved_errno = errno;
 	va_list ap;
 
 	va_start(ap, msg);
-	_vproc_logv(pri, errno, msg, ap);
+	_vproc_logv(pri, saved_errno, msg, ap);
 	va_end(ap);
 }
