@@ -604,7 +604,6 @@ job_remove(job_t j)
 	}
 
 	if (j->j_port) {
-		job_assumes(j, launchd_mport_deallocate(j->j_port) == KERN_SUCCESS);
 		job_assumes(j, launchd_mport_close_recv(j->j_port) == KERN_SUCCESS);
 	}
 
