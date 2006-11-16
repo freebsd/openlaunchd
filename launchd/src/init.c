@@ -110,8 +110,6 @@ static kq_callback kqruncom_callback = runcom_callback;
 static void single_user(void);
 static void runcom(void);
 
-static bool runcom_safe = false;
-static bool runcom_netboot = false;
 static bool single_user_mode = false;
 static bool run_runcom = true;
 static pid_t single_user_pid = 0;
@@ -176,25 +174,10 @@ static bool should_fsck(void);
 void
 init_boot(bool sflag)
 {
-	int nbmib[2] = { CTL_KERN, KERN_NETBOOT };
-	int sbmib[2] = { CTL_KERN, KERN_SAFEBOOT };
-	uint32_t v = 0;
-	size_t vsz = sizeof(v);
-
 	if (sflag) {
 		single_user_mode = true;
 		run_runcom = false;
 	}
-
-	if (launchd_assumes(sysctl(nbmib, 2, &v, &vsz, NULL, 0) != -1)) {
-		if (v != 0)
-			runcom_netboot = true;
-	}
-	if (launchd_assumes(sysctl(sbmib, 2, &v, &vsz, NULL, 0) != -1)) {
-		if (v != 0)
-			runcom_safe = true;
-	}
-
 }
 
 void
@@ -308,10 +291,6 @@ single_user(void)
 		setctty(_PATH_CONSOLE, O_POPUP);
 
                 setenv("TERM", "vt100", 1);
-		setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
-		setenv("VerboseFlag", "-v", 1); /* single user mode implies verbose mode */
-		setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
-		setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 
 		if (runcom_fsck) {
 			fprintf(stdout, "Singleuser boot -- fsck not done\n");
@@ -365,7 +344,6 @@ static struct timeval runcom_start_tv = { 0, 0 };
 static void
 runcom(void)
 {
-	bool runcom_fsck = should_fsck();
 	char *argv[] = { "/bin/launchctl", "bootstrap", NULL };
 	struct termios term;
 	int vdisable;
@@ -405,10 +383,6 @@ runcom(void)
 		if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &term) == -1)
 			syslog(LOG_WARNING, "tcsetattr(\"%s\") %m", _PATH_CONSOLE);
 	}
-
-	setenv("SafeBoot", runcom_safe ? "-x" : "", 1);
-	setenv("FsckSlash", runcom_fsck ? "-F" : "", 1);
-	setenv("NetBoot", runcom_netboot ? "-N" : "", 1);
 
 	execv(argv[0], argv);
 	stall("can't exec %s for %s: %m", _PATH_BSHELL, _PATH_RUNCOM);
