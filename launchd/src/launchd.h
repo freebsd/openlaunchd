@@ -63,6 +63,4 @@ void mach_init_init(mach_port_t);
 
 int _fd(int fd);
 
-bool progeny_check(pid_t p);
-
 #endif

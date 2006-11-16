@@ -76,7 +76,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #define PID1LAUNCHD_CONF "/etc/launchd.conf"
 #define LAUNCHD_CONF ".launchd.conf"
-#define LAUNCHCTL_PATH "/bin/launchctl"
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
 extern char **environ;
@@ -106,6 +105,7 @@ static char *pending_stderr = NULL;
 static job_t rlcj = NULL;
 static jmp_buf doom_doom_doom;
 static void *crash_addr;
+static const char *launchctl_bootstrap_tool[] = { "/bin/launchctl", "bootstrap", NULL };
 
 sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
@@ -250,7 +250,7 @@ main(int argc, char *const *argv)
 		snprintf(ldconf, sizeof(ldconf), "%s/%s", h, LAUNCHD_CONF);
 	}
 
-	rlcj = job_new(root_jobmgr, READCONF_LABEL, LAUNCHCTL_PATH, NULL, ldconf);
+	rlcj = job_new(root_jobmgr, READCONF_LABEL, NULL, launchctl_bootstrap_tool, ldconf);
 	launchd_assert(rlcj != NULL);
 
 	if (argv[0]) {
@@ -654,31 +654,6 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 	}
 
 	syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
-}
-
-bool
-progeny_check(pid_t p)
-{
-	pid_t selfpid = getpid();
-
-	while (p != selfpid && p != 1) {
-		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, p };
-		size_t miblen = sizeof(mib) / sizeof(mib[0]);
-		struct kinfo_proc kp;
-		size_t kplen = sizeof(kp);
-
-		if (launchd_assumes(sysctl(mib, miblen, &kp, &kplen, NULL, 0) != -1) && launchd_assumes(kplen == sizeof(kp))) {
-			p = kp.kp_eproc.e_ppid;
-		} else {
-			return false;
-		}
-	}
-
-	if (p == selfpid) {
-		return true;
-	}
-
-	return false;
 }
 
 void

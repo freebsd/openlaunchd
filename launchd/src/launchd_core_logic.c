@@ -87,11 +87,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
 
-static au_asid_t inherited_asid;
 mach_port_t inherited_bootstrap_port;
-
-static bool trusted_client_check(job_t j, struct ldcred *ldc);
-
 
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
@@ -3624,21 +3620,19 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 
 #define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
-	#ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
+#ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	if (getpid() == 1) {
-		if (ldc.euid != 0 && ldc.euid != server_uid) {
+		if (ldc.euid && server_uid && (ldc.euid != server_uid)) {
 			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
 					server_cmd, ldc.euid, server_uid);
 			server_uid = ldc.euid;
 		}
 	} else
 #endif
-	if (!trusted_client_check(j, &ldc)) {
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	} else if (server_uid != getuid()) {
+	if ((getuid() != 0) && server_uid) {
 		job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
 				server_cmd, getuid(), server_uid);
-		server_uid = getuid();
+		server_uid = 0; /* zero means "do nothing" */
 	}
 
 	js = job_new_via_mach_init(j, server_cmd, server_uid, on_demand);
@@ -4340,50 +4334,10 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 	return BOOTSTRAP_SUCCESS;
 }
 
-bool
-trusted_client_check(job_t j, struct ldcred *ldc)
-{
-	static pid_t last_warned_pid = 0;
-
-	/*
-	 * In the long run, we wish to enforce the progeny rule, but for now,
-	 * we'll let root and the user be forgiven. Once we get CoreProcesses
-	 * to switch to using launchd rather than the WindowServer for indirect
-	 * process invocation, we can then seriously look at cranking up the
-	 * warning level here.
-	 */
-
-	if (inherited_asid == ldc->asid) {
-		return true;
-	}
-	if (progeny_check(ldc->pid)) {
-		return true;
-	}
-	if (ldc->euid == geteuid()) {
-		return true;
-	}
-	if (ldc->euid == 0 && ldc->uid == 0) {
-		return true;
-	}
-	if (last_warned_pid == ldc->pid) {
-		return false;
-	}
-
-	job_log(j, LOG_NOTICE, "Security: PID %d (ASID %d) was leaked into this session (ASID %d). This will be denied in the future.", ldc->pid, ldc->asid, inherited_asid);
-
-	last_warned_pid = ldc->pid;
-
-	return false;
-}
-
 void
 mach_init_init(mach_port_t checkin_port)
 {
-	auditinfo_t inherited_audit;
 	job_t ji, anon_job = NULL;
-
-	getaudit(&inherited_audit);
-	inherited_asid = inherited_audit.ai_asid;
 
 	launchd_assert((root_jobmgr = jobmgr_new(NULL, mach_task_self(), checkin_port)) != NULL);
 
