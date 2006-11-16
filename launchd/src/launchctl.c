@@ -1196,7 +1196,11 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	loopback_setup_ipv4();
 	loopback_setup_ipv6();
 
-	apply_sysctls_from_file("/etc/sysctl-macosxserver.conf");
+	if (path_check("/etc/rc.server")) {
+		const char *rcserver_tool[] = { _PATH_BSHELL, "/etc/rc.server", NULL };
+		assumes(fwexec(rcserver_tool, true) != -1);
+	}
+
 	apply_sysctls_from_file("/etc/sysctl.conf");
 
 	if (path_check("/etc/rc.cdrom")) {
