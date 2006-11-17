@@ -64,6 +64,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
+#include "libvproc_private.h"
 #include "libvproc_internal.h"
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -1218,8 +1219,6 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 		do_potential_fsck();
 	}
 
-	do_bootroot_magic();
-
 	if (path_check("/var/account/acct")) {
 		assumes(acct("/var/account/acct") != -1);
 	}
@@ -1256,6 +1255,8 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 
 	preheat_page_cache_hack();
 
+	_vproc_set_global_on_demand(true);
+
 	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL };
 	if (is_safeboot())
 		load_launchd_items[2] = "system";
@@ -1263,6 +1264,10 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 
 	const char *bcc_tag_tool[] = { "BootCacheControl", "tag", NULL };
 	assumes(fwexec(bcc_tag_tool, true) != -1);
+
+	do_bootroot_magic();
+
+	_vproc_set_global_on_demand(false);
 
 	const char *SystemStarter_tool[] = { "SystemStarter", NULL };
 	assumes(fwexec(SystemStarter_tool, false) != -1);

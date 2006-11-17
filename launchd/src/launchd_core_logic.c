@@ -376,7 +376,7 @@ job_watch(job_t j)
 	struct machservice *ms;
 	struct watchpath *wp;
 
-	if (!job_assumes(j, j->currently_ignored)) {
+	if (!j->currently_ignored) {
 		return;
 	}
 
@@ -1642,7 +1642,7 @@ job_dispatch(job_t j, bool kickstart)
 		return;
 	} else if (job_useless(j)) {
 		job_remove(j);
-	} else if (global_on_demand_cnt == 0 && (kickstart || job_keepalive(j))) {
+	} else if (kickstart || job_keepalive(j)) {
 		job_start(j);
 	} else {
 		job_watch(j);
@@ -2687,6 +2687,10 @@ job_keepalive(job_t j)
 	struct stat sb;
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
 	bool dispatch_others = false;
+
+	if (global_on_demand_cnt > 0) {
+		return false;
+	}
 
 	if (j->runatload && j->start_time == 0) {
 		job_log(j, LOG_DEBUG, "KeepAlive check: job needs to run at least once.");
