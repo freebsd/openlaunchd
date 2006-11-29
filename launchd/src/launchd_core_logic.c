@@ -197,6 +197,9 @@ struct jobmgr_s {
 	mach_port_t req_port;
 	jobmgr_t parentmgr;
 	job_t anonj;
+	char *jm_stdout;
+	char *jm_stderr;
+	unsigned int global_on_demand_cnt;
 	unsigned int transfer_bstrap:1;
 	char name[0];
 };
@@ -218,6 +221,8 @@ static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list 
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
 static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test);
+static char *jobmgr_get_stdout(jobmgr_t jm);
+static char *jobmgr_get_stderr(jobmgr_t jm);
 
 struct job_s {
 	kq_callback kqjob_callback;
@@ -332,7 +337,6 @@ kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
 
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
-static size_t global_on_demand_cnt;
 jobmgr_t root_jobmgr;
 jobmgr_t gc_this_jobmgr;
 size_t total_children;
@@ -564,6 +568,14 @@ jobmgr_remove(jobmgr_t jm)
 			jobmgr_assumes(jm, launchd_mport_close_recv(jm->jm_port) == KERN_SUCCESS);
 		}
 	}
+
+	if (jm->jm_stdout) {
+		free(jm->jm_stdout);
+	}
+
+	if (jm->jm_stderr) {
+		free(jm->jm_stderr);
+	}
 	
 	free(jm);
 }
@@ -707,13 +719,13 @@ job_set_global_on_demand(job_t j, bool val)
 	}
 
 	if ((j->forced_peers_to_demand_mode = val)) {
-		global_on_demand_cnt++;
+		j->mgr->global_on_demand_cnt++;
 	} else {
-		global_on_demand_cnt--;
+		j->mgr->global_on_demand_cnt--;
 	}
 
-	if (global_on_demand_cnt == 0) {
-		jobmgr_dispatch_all(root_jobmgr);
+	if (j->mgr->global_on_demand_cnt == 0) {
+		jobmgr_dispatch_all(j->mgr);
 	}
 
 	return true;
@@ -2027,8 +2039,8 @@ job_setup_attributes(job_t j)
 	}
 
 	job_setup_fd(j, STDIN_FILENO,  j->stdinpath,  O_RDONLY);
-	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT);
-	job_setup_fd(j, STDERR_FILENO, j->stderrpath, O_WRONLY|O_APPEND|O_CREAT);
+	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath ? j->stdoutpath : jobmgr_get_stdout(j->mgr), O_WRONLY|O_APPEND|O_CREAT);
+	job_setup_fd(j, STDERR_FILENO, j->stderrpath ? j->stderrpath : jobmgr_get_stderr(j->mgr), O_WRONLY|O_APPEND|O_CREAT);
 
 	jobmgr_setup_env_from_other_jobs(j->mgr);
 
@@ -2688,7 +2700,7 @@ job_keepalive(job_t j)
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
 	bool dispatch_others = false;
 
-	if (global_on_demand_cnt > 0) {
+	if (j->mgr->global_on_demand_cnt > 0) {
 		return false;
 	}
 
@@ -2986,6 +2998,30 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	if (launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
 		launch_data_dict_iterate(obj, machservice_setup_options, ms);
 	}
+}
+
+char *
+jobmgr_get_stdout(jobmgr_t jm)
+{
+	if (jm->jm_stdout) {
+		return jm->jm_stdout;
+	} else if (jm->parentmgr == NULL) {
+		return NULL;
+	}
+
+	return jobmgr_get_stdout(jm->parentmgr);
+}
+
+char *
+jobmgr_get_stderr(jobmgr_t jm)
+{
+	if (jm->jm_stderr) {
+		return jm->jm_stderr;
+	} else if (jm->parentmgr == NULL) {
+		return NULL;
+	}
+
+	return jobmgr_get_stderr(jm->parentmgr);
 }
 
 jobmgr_t 
