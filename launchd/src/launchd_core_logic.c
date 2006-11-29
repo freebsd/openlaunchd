@@ -592,6 +592,10 @@ job_remove(job_t j)
 
 	job_log(j, LOG_DEBUG, "Removed");
 
+	if (j->forced_peers_to_demand_mode) {
+		job_set_global_on_demand(j, false);
+	}
+
 	if (j->p && !j->anonymous) {
 		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
 			job_reap(j);
