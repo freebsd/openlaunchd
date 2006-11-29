@@ -659,7 +659,7 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 void
 launchd_post_kevent(void)
 {
-	if (shutdown_in_progress && total_children == 0) {
+	if (shutdown_in_progress && jobmgr_is_idle(root_jobmgr)) {
 		shutdown_in_progress = false;
 
 		if (getpid() != 1) {

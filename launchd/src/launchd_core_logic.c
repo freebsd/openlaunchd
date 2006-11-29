@@ -339,7 +339,6 @@ static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 jobmgr_t root_jobmgr;
 jobmgr_t gc_this_jobmgr;
-size_t total_children;
 
 void
 simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
@@ -598,7 +597,6 @@ job_remove(job_t j)
 			job_reap(j);
 		} else {
 			/* we've attached the simple zombie reaper, we're going to delete the job before it is dead */
-			total_children--;
 			job_stop(j);
 		}
 	}
@@ -1619,7 +1617,6 @@ job_reap(job_t j)
 		}
 	}
 
-	total_children--;
 	j->last_exit_status = status;
 	j->p = 0;
 }
@@ -1807,7 +1804,6 @@ job_start(job_t j)
 		break;
 	default:
 		j->p = c;
-		total_children++;
 		job_assumes(j, close(execspair[1]) == 0);
 		j->execfd = _fd(execspair[0]);
 		if (sipc) {
@@ -2998,6 +2994,20 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	if (launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
 		launch_data_dict_iterate(obj, machservice_setup_options, ms);
 	}
+}
+
+bool
+jobmgr_is_idle(jobmgr_t jm)
+{
+	job_t ji;
+
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		if (ji->p) {
+			return false;
+		}
+	}
+
+	return true;
 }
 
 char *

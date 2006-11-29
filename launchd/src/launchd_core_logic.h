@@ -28,8 +28,8 @@ typedef struct jobmgr_s *jobmgr_t;
 
 extern jobmgr_t root_jobmgr;
 extern jobmgr_t gc_this_jobmgr;
-extern size_t total_children;
 
+bool jobmgr_is_idle(jobmgr_t jm);
 void jobmgr_remove_all_inactive(jobmgr_t jm);
 void jobmgr_dispatch_all_other_semaphores(jobmgr_t jm, job_t nj);
 job_t jobmgr_find(jobmgr_t jm, const char *label);

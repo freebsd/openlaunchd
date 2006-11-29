@@ -74,6 +74,7 @@ static void *kqueue_demand_loop(void *arg);
 static void async_callback(void);
 static kq_callback kqasync_callback = (kq_callback)async_callback;
 
+static void record_caller_creds(mach_msg_header_t *mh);
 static void launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_reply_error_t *bufReply);
 static mach_msg_size_t max_msg_size;
 static mig_callback *mig_cb_table;
@@ -477,7 +478,7 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 	return KERN_SUCCESS;
 }
 
-static void
+void
 record_caller_creds(mach_msg_header_t *mh)
 {
 	mach_msg_max_trailer_t *tp;
