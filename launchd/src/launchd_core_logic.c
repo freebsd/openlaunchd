@@ -497,22 +497,6 @@ job_export2(job_t j, bool subjobs)
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_MACHSERVICES);
 	}
 
-#if 0
-	/* jobs don't have subjobs anymore... */
-	if (subjobs && !SLIST_EMPTY(&j->jobs) && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
-		job_t ji;
-		size_t i = 0;
-
-		SLIST_FOREACH(ji, &j->jobs, sle) {
-			tmp2 = job_export2(ji, true);
-			launch_data_array_set_index(tmp, tmp2, i);
-			i++;
-		}
-
-		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_SUBJOBS);
-	}
-#endif
-
 	return r;
 }
 
