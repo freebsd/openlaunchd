@@ -294,6 +294,21 @@ main(int argc, char *const *argv)
 		job_dispatch(fbj, true);
 	}
 
+	switch (setjmp(doom_doom_doom)) {
+		case SIGILL:
+		case SIGFPE:
+			syslog(LOG_EMERG, "We crashed at instruction: %p", crash_addr);
+			abort();
+		case SIGBUS:
+		case SIGSEGV:
+			syslog(LOG_EMERG, "We crashed trying to read/write: %p", crash_addr);
+			abort();
+		default:
+			abort();
+		case 0:
+			break;
+	}
+
 	if (getpid() == 1) {
 		handle_pid1_crashes_separately();
 
@@ -309,21 +324,6 @@ void
 handle_pid1_crashes_separately(void)
 {
 	struct sigaction fsa;
-
-	switch (setjmp(doom_doom_doom)) {
-		case SIGILL:
-		case SIGFPE:
-			syslog(LOG_EMERG, "We crashed at instruction: %p", crash_addr);
-			abort();
-		case SIGBUS:
-		case SIGSEGV:
-			syslog(LOG_EMERG, "We crashed trying to read/write: %p", crash_addr);
-			abort();
-		default:
-			abort();
-		case 0:
-			break;
-	}
 
 	fsa.sa_sigaction = fatal_signal_handler;
 	fsa.sa_flags = SA_SIGINFO;
