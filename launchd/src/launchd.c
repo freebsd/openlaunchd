@@ -98,6 +98,7 @@ static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
 static void monitor_networking_state(void);
 static void fatal_signal_handler(int sig, siginfo_t *si, void *uap);
+static void handle_pid1_crashes_separately(void);
 
 static bool re_exec_in_single_user_mode = false;
 static char *pending_stdout = NULL;
@@ -121,7 +122,6 @@ main(int argc, char *const *argv)
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
-	struct sigaction fsa;
 	bool sflag = false, dflag = false, Dflag = false;
 	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
 	const char *h = getenv("HOME");
@@ -301,23 +301,35 @@ main(int argc, char *const *argv)
 		job_dispatch(fbj, true);
 	}
 
-	if (getpid() == 1 && !job_active(rlcj)) {
-		init_pre_kevent();
+	if (getpid() == 1) {
+		handle_pid1_crashes_separately();
+
+		if (!job_active(rlcj)) {
+			init_pre_kevent();
+		}
 	}
 
+	launchd_runtime();
+}
+
+void
+handle_pid1_crashes_separately(void)
+{
+	struct sigaction fsa;
+
 	switch (setjmp(doom_doom_doom)) {
-	case SIGILL:
-	case SIGFPE:
-		syslog(LOG_EMERG, "We crashed at instruction: %p", crash_addr);
-		abort();
-	case SIGBUS:
-	case SIGSEGV:
-		syslog(LOG_EMERG, "We crashed trying to read/write: %p", crash_addr);
-		abort();
-	default:
-		abort();
-	case 0:
-		break;
+		case SIGILL:
+		case SIGFPE:
+			syslog(LOG_EMERG, "We crashed at instruction: %p", crash_addr);
+			abort();
+		case SIGBUS:
+		case SIGSEGV:
+			syslog(LOG_EMERG, "We crashed trying to read/write: %p", crash_addr);
+			abort();
+		default:
+			abort();
+		case 0:
+			break;
 	}
 
 	fsa.sa_sigaction = fatal_signal_handler;
@@ -328,8 +340,6 @@ main(int argc, char *const *argv)
 	launchd_assumes(sigaction(SIGFPE, &fsa, NULL) != -1);
 	launchd_assumes(sigaction(SIGBUS, &fsa, NULL) != -1);
 	launchd_assumes(sigaction(SIGSEGV, &fsa, NULL) != -1);
-
-	launchd_runtime();
 }
 
 void
