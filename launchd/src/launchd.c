@@ -81,12 +81,10 @@ static const char *const __rcs_file_version__ = "$Revision$";
 extern char **environ;
 
 static void signal_callback(void *, struct kevent *);
-static void fs_callback(void);
 static void ppidexit_callback(void);
 static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqsignal_callback = signal_callback;
-static kq_callback kqfs_callback = (kq_callback)fs_callback;
 static kq_callback kqppidexit_callback = (kq_callback)ppidexit_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
@@ -101,8 +99,6 @@ static void fatal_signal_handler(int sig, siginfo_t *si, void *uap);
 static void handle_pid1_crashes_separately(void);
 
 static bool re_exec_in_single_user_mode = false;
-static char *pending_stdout = NULL;
-static char *pending_stderr = NULL;
 static job_t rlcj = NULL;
 static jmp_buf doom_doom_doom;
 static void *crash_addr;
@@ -268,9 +264,6 @@ main(int argc, char *const *argv)
 	}
 
 	monitor_networking_state();
-
-	/* do this after pid1_magic_init() to not catch ourselves mounting stuff */
-	launchd_assumes(kevent_mod(0, EVFILT_FS, EV_ADD, 0, 0, &kqfs_callback) != -1);
 
 	if (session_type) {
 		pid_t pp = getppid();
@@ -475,29 +468,6 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 }
 
 void
-fs_callback(void)
-{
-	if (pending_stdout) {
-		int fd = open(pending_stdout, O_CREAT|O_APPEND|O_WRONLY|O_NOCTTY, DEFFILEMODE);
-		if (fd != -1) {
-			launchd_assumes(dup2(fd, STDOUT_FILENO) != -1);
-			launchd_assumes(close(fd) == 0);
-			free(pending_stdout);
-			pending_stdout = NULL;
-		}
-	}
-	if (pending_stderr) {
-		int fd = open(pending_stderr, O_CREAT|O_APPEND|O_WRONLY|O_NOCTTY, DEFFILEMODE);
-		if (fd != -1) {
-			launchd_assumes(dup2(fd, STDERR_FILENO) != -1);
-			launchd_assumes(close(fd) == 0);
-			free(pending_stderr);
-			pending_stderr = NULL;
-		}
-	}
-}
-
-void
 launchd_SessionCreate(void)
 {
 	OSStatus (*sescr)(SessionCreationFlags flags, SessionAttributeBits attributes);
@@ -534,17 +504,17 @@ launchd_setstdio(int d, launch_data_t o)
 	launch_data_t resp = launch_data_new_errno(0);
 
 	if (launch_data_get_type(o) == LAUNCH_DATA_STRING) {
-		char **where = &pending_stderr;
-
-		if (d == STDOUT_FILENO) {
-			where = &pending_stdout;
+		switch (d) {
+		case STDOUT_FILENO:
+			jobmgr_set_stdout(root_jobmgr, launch_data_get_string(o));
+			break;
+		case STDERR_FILENO:
+			jobmgr_set_stderr(root_jobmgr, launch_data_get_string(o));
+			break;
+		default:
+			launch_data_set_errno(resp, EINVAL);
+			break;
 		}
-		if (*where) {
-			free(*where);
-		}
-		*where = strdup(launch_data_get_string(o));
-	} else if (launch_data_get_type(o) == LAUNCH_DATA_FD) {
-		launchd_assumes(dup2(launch_data_get_fd(o), d) != -1);
 	} else {
 		launch_data_set_errno(resp, EINVAL);
 	}

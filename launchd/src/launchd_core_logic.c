@@ -3018,6 +3018,26 @@ jobmgr_is_idle(jobmgr_t jm)
 	return true;
 }
 
+void
+jobmgr_set_stdout(jobmgr_t jm, const char *what)
+{
+	if (jm->jm_stdout) {
+		free(jm->jm_stdout);
+	}
+
+	jm->jm_stdout = strdup(what);
+}
+
+void
+jobmgr_set_stderr(jobmgr_t jm, const char *what)
+{
+	if (jm->jm_stderr) {
+		free(jm->jm_stderr);
+	}
+
+	jm->jm_stderr = strdup(what);
+}
+
 char *
 jobmgr_get_stdout(jobmgr_t jm)
 {

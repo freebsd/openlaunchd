@@ -1719,22 +1719,16 @@ int
 stdio_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg, tmp;
-	int e, fd = -1, r = 0;
+	int e, r = 0;
 
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s %s <path>\n", getprogname(), argv[0]);
 		return 1;
 	}
 
-	fd = open(argv[1], O_CREAT|O_APPEND|O_WRONLY|O_NOCTTY, DEFFILEMODE);
-
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
-	if (fd == -1) {
-		tmp = launch_data_new_string(argv[1]);
-	} else {
-		tmp = launch_data_new_fd(fd);
-	}
+	tmp = launch_data_new_string(argv[1]);
 
 	if (!strcmp(argv[0], "stdout")) {
 		launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETSTDOUT);
@@ -1757,9 +1751,6 @@ stdio_cmd(int argc, char *const argv[])
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
 		r = 1;
 	}
-
-	if (fd != -1)
-		close(fd);
 
 	launch_data_free(resp);
 

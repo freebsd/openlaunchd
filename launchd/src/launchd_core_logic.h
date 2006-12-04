@@ -29,6 +29,8 @@ typedef struct jobmgr_s *jobmgr_t;
 extern jobmgr_t root_jobmgr;
 extern jobmgr_t gc_this_jobmgr;
 
+void jobmgr_set_stdout(jobmgr_t jm, const char *what);
+void jobmgr_set_stderr(jobmgr_t jm, const char *what);
 bool jobmgr_is_idle(jobmgr_t jm);
 void jobmgr_remove_all_inactive(jobmgr_t jm);
 void jobmgr_dispatch_all_other_semaphores(jobmgr_t jm, job_t nj);
