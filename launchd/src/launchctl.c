@@ -1180,6 +1180,11 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
 	struct group *tfp_gr;
 
+	if (getuid() != 0) {
+		fprintf(stderr, "%s: Only root can run the 'bootstrap' sub-command right now.\n", getprogname());
+		return 1;
+	}
+
 	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
 		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
 		gid_t tfp_r_gid = tfp_gr->gr_gid;

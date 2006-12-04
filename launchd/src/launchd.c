@@ -106,7 +106,7 @@ static char *pending_stderr = NULL;
 static job_t rlcj = NULL;
 static jmp_buf doom_doom_doom;
 static void *crash_addr;
-static const char *launchctl_bootstrap_tool[] = { "/bin/launchctl", "bootstrap", NULL };
+static const char *launchctl_bootstrap_tool[] = { "/bin/launchctl", /* "bootstrap", */ NULL };
 
 sigset_t blocked_signals = 0;
 bool shutdown_in_progress = false;
