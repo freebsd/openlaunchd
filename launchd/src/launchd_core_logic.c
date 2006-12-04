@@ -1921,6 +1921,7 @@ void
 job_postfork_become_user(job_t j)
 {
 	char loginname[2000];
+	char homedir[PATH_MAX];
 	struct passwd *pwe;
 	gid_t desired_gid = -1;
 	uid_t desired_uid = -1;
@@ -1944,6 +1945,7 @@ job_postfork_become_user(job_t j)
 	}
 
 	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
+	strlcpy(homedir, pwe->pw_dir, sizeof(homedir));
 
 	if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
 		job_log(j, LOG_ERR, "Expired account");
@@ -1984,6 +1986,8 @@ job_postfork_become_user(job_t j)
 		job_log_error(j, LOG_ERR, "setuid(%u)", desired_uid);
 		_exit(EXIT_FAILURE);
 	}
+
+	setenv("HOME", homedir, 0);
 }
 
 void
