@@ -1972,6 +1972,8 @@ job_postfork_become_user(job_t j)
 	}
 
 	setenv("HOME", homedir, 0);
+	setenv("USER", loginname, 0);
+	setenv("LOGNAME", loginname, 0);
 }
 
 void
