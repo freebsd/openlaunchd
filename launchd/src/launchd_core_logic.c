@@ -254,7 +254,7 @@ struct job_s {
 	pid_t p;
 	int argc;
 	int last_exit_status;
-	int execfd;
+	int forkfd;
 	int nice;
 	int timeout;
 	int stdout_err_fd;
@@ -288,7 +288,7 @@ static void job_reap(job_t j);
 static bool job_useless(job_t j);
 static bool job_keepalive(job_t j);
 static void job_start(job_t j);
-static void job_start_child(job_t j, int execfd) __attribute__((noreturn));
+static void job_start_child(job_t j) __attribute__((noreturn));
 static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
 static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
@@ -595,8 +595,8 @@ job_remove(job_t j)
 		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
 	}
 
-	if (j->execfd) {
-		job_assumes(j, close(j->execfd) == 0);
+	if (j->forkfd) {
+		job_assumes(j, close(j->forkfd) != -1);
 	}
 
 	if (j->j_port) {
@@ -1562,9 +1562,9 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
-	if (j->execfd) {
-		job_assumes(j, close(j->execfd) == 0);
-		j->execfd = 0;
+	if (j->forkfd) {
+		job_assumes(j, close(j->forkfd) != -1);
+		j->forkfd = 0;
 	}
 
 	if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
@@ -1681,22 +1681,7 @@ job_callback(void *obj, struct kevent *kev)
 		watchpath_callback(j, kev);
 		break;
 	case EVFILT_READ:
-		if ((int)kev->ident != j->execfd) {
-			socketgroup_callback(j, kev);
-			break;
-		}
-		if (kev->data > 0) {
-			int e;
-
-			read(j->execfd, &e, sizeof(e));
-			errno = e;
-			job_log_error(j, LOG_ERR, "execve()");
-			job_remove(j);
-			j = NULL;
-		} else {
-			job_assumes(j, close(j->execfd) == 0);
-			j->execfd = 0;
-		}
+		socketgroup_callback(j, kev);
 		break;
 	case EVFILT_MACHPORT:
 		job_dispatch(j, true);
@@ -1785,18 +1770,15 @@ job_start(job_t j)
 			snprintf(nbuf, sizeof(nbuf), "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
-		job_start_child(j, execspair[1]);
+		job_start_child(j);
 		break;
 	default:
 		j->p = c;
+		j->forkfd = _fd(execspair[0]);
 		job_assumes(j, close(execspair[1]) == 0);
-		j->execfd = _fd(execspair[0]);
 		if (sipc) {
 			job_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
-		}
-		if (kevent_mod(j->execfd, EVFILT_READ, EV_ADD, 0, 0, &j->kqjob_callback) == -1) {
-			job_log_error(j, LOG_ERR, "kevent_mod(j->execfd): %m");
 		}
 		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
 			job_log_error(j, LOG_ERR, "kevent()");
@@ -1808,16 +1790,14 @@ job_start(job_t j)
 		}
 
 		if (!j->stall_before_exec) {
-			/* this unblocks the child and avoids a race
-			 * between the above fork() and the kevent_mod() */
-			write(j->execfd, &c, sizeof(c));
+			job_uncork_fork(j);
 		}
 		break;
 	}
 }
 
 void
-job_start_child(job_t j, int execfd)
+job_start_child(job_t j)
 {
 	const char *file2exec = "/usr/libexec/launchproxy";
 	const char **argv;
@@ -1885,8 +1865,7 @@ job_start_child(job_t j, int execfd)
 		job_log_error(j, LOG_ERR, "posix_spawnp(\"%s\", ...)", argv[0]);
 	}
 
-	write(execfd, &errno, sizeof(errno));
-	exit(EXIT_FAILURE);
+	_exit(EXIT_FAILURE);
 }
 
 void jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
@@ -3063,15 +3042,12 @@ job_uncork_fork(job_t j)
 {
 	pid_t c = j->p;
 
-	if (j->stall_before_exec) {
-		job_log(j, LOG_DEBUG, "Uncorking the fork().");
-		/* this unblocks the child and avoids a race
-		 * between the above fork() and the kevent_mod() */
-		write(j->execfd, &c, sizeof(c));
-		j->stall_before_exec = false;
-	} else {
-		job_log(j, LOG_WARNING, "Attempt to uncork a job that isn't in the middle of a fork().");
-	}
+	job_log(j, LOG_DEBUG, "Uncorking the fork().");
+	/* this unblocks the child and avoids a race
+	 * between the above fork() and the kevent_mod() */
+	job_assumes(j, write(j->forkfd, &c, sizeof(c)) == sizeof(c));
+	job_assumes(j, close(j->forkfd) != -1);
+	j->forkfd = 0;
 }
 
 jobmgr_t 
@@ -4316,8 +4292,13 @@ job_mig_uncork_fork(job_t j)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	job_uncork_fork(j);
+	if (!j->stall_before_exec) {
+		job_log(j, LOG_WARNING, "Attempt to uncork a job that isn't in the middle of a fork().");
+		return 1;
+	}
 
+	job_uncork_fork(j);
+	j->stall_before_exec = false;
 	return 0;
 }
 
