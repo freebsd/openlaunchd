@@ -35,7 +35,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
-#include <sys/ptrace.h>
 #include <sys/stat.h>
 #include <sys/ucred.h>
 #include <sys/fcntl.h>
@@ -70,6 +69,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <string.h>
 #include <ctype.h>
 #include <glob.h>
+#include <spawn.h>
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -86,6 +86,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
+
+extern char **environ;
 
 mach_port_t inherited_bootstrap_port;
 
@@ -1683,11 +1685,6 @@ job_callback(void *obj, struct kevent *kev)
 			socketgroup_callback(j, kev);
 			break;
 		}
-		if (j->wait4debugger) {
-			/* Allow somebody else to attach */
-			job_assumes(j, kill(j->p, SIGSTOP) != -1);
-			job_assumes(j, ptrace(PT_DETACH, j->p, NULL, 0) != -1);
-		}
 		if (kev->data > 0) {
 			int e;
 
@@ -1824,9 +1821,14 @@ job_start_child(job_t j, int execfd)
 {
 	const char *file2exec = "/usr/libexec/launchproxy";
 	const char **argv;
+	posix_spawnattr_t spattr;
 	int gflags = GLOB_NOSORT|GLOB_NOCHECK|GLOB_TILDE|GLOB_DOOFFS;
+	pid_t junk_pid;
 	glob_t g;
+	short spflags = POSIX_SPAWN_SETEXEC;
 	int i;
+
+	posix_spawnattr_init(&spattr);
 
 	job_setup_attributes(j);
 
@@ -1860,8 +1862,8 @@ job_start_child(job_t j, int execfd)
 		argv++;
 	}
 
-	if (j->wait4debugger && ptrace(PT_TRACE_ME, getpid(), NULL, 0) == -1) {
-		job_log_error(j, LOG_ERR, "ptrace(PT_TRACE_ME, ...)");
+	if (j->wait4debugger) {
+		spflags |= POSIX_SPAWN_START_SUSPENDED;
 	}
 
 	if (j->force_ppc) {
@@ -1873,12 +1875,14 @@ job_start_child(job_t j, int execfd)
 		}
 	}
 
+	posix_spawnattr_setflags(&spattr, spflags);
+
 	if (j->prog) {
-		execv(j->inetcompat ? file2exec : j->prog, (char *const*)argv);
-		job_log_error(j, LOG_ERR, "execv(\"%s\", ...)", j->prog);
+		posix_spawn(&junk_pid, j->inetcompat ? file2exec : j->prog, NULL, &spattr, (char *const*)argv, environ);
+		job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", j->prog);
 	} else {
-		execvp(j->inetcompat ? file2exec : argv[0], (char *const*)argv);
-		job_log_error(j, LOG_ERR, "execvp(\"%s\", ...)", argv[0]);
+		posix_spawnp(&junk_pid, j->inetcompat ? file2exec : argv[0], NULL, &spattr, (char *const*)argv, environ);
+		job_log_error(j, LOG_ERR, "posix_spawnp(\"%s\", ...)", argv[0]);
 	}
 
 	write(execfd, &errno, sizeof(errno));
