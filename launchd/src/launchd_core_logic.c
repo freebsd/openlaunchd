@@ -1922,6 +1922,12 @@ job_postfork_become_user(job_t j)
 	desired_uid = pwe->pw_uid;
 	desired_gid = pwe->pw_gid;
 
+	if (j->username && strcmp(j->username, loginname) != 0) {
+		job_log(j, LOG_WARNING, "Suspicious setup: User \"%s\" maps to user: %s", j->username, loginname);
+	} else if (j->mach_uid && (j->mach_uid != desired_uid)) {
+		job_log(j, LOG_WARNING, "Suspicious setup: UID %u maps to UID %u", j->mach_uid, desired_uid);
+	}
+
 	if (j->groupname) {
 		struct group *gre;
 
@@ -3213,7 +3219,7 @@ machservice_delete(struct machservice *ms)
 	if (ms->recv) {
 		if (ms->isActive) {
 			/* FIXME we should cancel the notification */
-			job_log(ms->job, LOG_ERR, "Mach service deleted while we didn't own the receive right: %s", ms->name);
+			job_log(ms->job, LOG_DEBUG, "Mach service deleted while we didn't own the receive right: %s", ms->name);
 		} else {
 			job_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 		}
@@ -3673,9 +3679,11 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 		}
 	} else
 #endif
-	if ((getuid() != 0) && server_uid) {
-		job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
-				server_cmd, getuid(), server_uid);
+	if (getuid()) {
+		if (server_uid != getuid()) {
+			job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
+					server_cmd, getuid(), server_uid);
+		}
 		server_uid = 0; /* zero means "do nothing" */
 	}
 
