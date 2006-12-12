@@ -3383,21 +3383,15 @@ job_get_pid(job_t j)
 void
 job_force_sampletool(job_t j)
 {
+	char *sample_args[] = { "sample", NULL, "1", "-mayDie", NULL };
 	char pidstr[100];
 	pid_t sp;
 	
 	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
+	sample_args[1] = pidstr;
 
-	switch ((sp = fork())) {
-	case -1:
-		job_log_error(j, LOG_DEBUG, "Failed to spawn sample tool");
-		break;
-	case 0:
-		job_assumes(j, execlp("sample", "sample", pidstr, "1", "-mayDie", NULL) != -1);
-		_exit(EXIT_FAILURE);
-	default:
+	if (job_assumes(j, posix_spawnp(&sp, sample_args[0], NULL, NULL, sample_args, environ) == 0)) {
 		job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) != -1);
-		break;
 	}
 }
 
