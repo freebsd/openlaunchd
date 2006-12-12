@@ -1888,6 +1888,7 @@ void
 job_postfork_become_user(job_t j)
 {
 	char loginname[2000];
+	char shellpath[PATH_MAX];
 	char homedir[PATH_MAX];
 	struct passwd *pwe;
 	gid_t desired_gid = -1;
@@ -1911,6 +1912,7 @@ job_postfork_become_user(job_t j)
 		return;
 	}
 
+	strlcpy(shellpath, pwe->pw_shell, sizeof(shellpath));
 	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
 	strlcpy(homedir, pwe->pw_dir, sizeof(homedir));
 
@@ -1960,6 +1962,7 @@ job_postfork_become_user(job_t j)
 		_exit(EXIT_FAILURE);
 	}
 
+	setenv("SHELL", shellpath, 0);
 	setenv("HOME", homedir, 0);
 	setenv("USER", loginname, 0);
 	setenv("LOGNAME", loginname, 0);
