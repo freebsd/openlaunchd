@@ -377,6 +377,7 @@ job_ignore(job_t j)
 void
 job_watch(job_t j)
 {
+	struct semaphoreitem *si;
 	struct socketgroup *sg;
 	struct machservice *ms;
 	struct watchpath *wp;
@@ -397,6 +398,13 @@ job_watch(job_t j)
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
 		job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
+	}
+
+	SLIST_FOREACH(si, &j->semaphores, sle) {
+		if (si->why == PATH_EXISTS || si->why == PATH_MISSING) {
+			/* Maybe another job has the inverse path based semaphore as this job */
+			jobmgr_dispatch_all_other_semaphores(root_jobmgr, j);
+		}
 	}
 }
 
@@ -2707,7 +2715,6 @@ job_keepalive(job_t j)
 	struct machservice *ms;
 	struct stat sb;
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
-	bool dispatch_others = false;
 
 	if (j->mgr->global_on_demand_cnt > 0) {
 		return false;
@@ -2765,14 +2772,8 @@ job_keepalive(job_t j)
 						wanted_state ? "exists" : "is missing", si->what);
 				return true;
 			}
-			dispatch_others = true;
 			break;
 		}
-	}
-
-	/* Maybe another job has the inverse path based semaphore as this job */
-	if (dispatch_others) {
-		jobmgr_dispatch_all_other_semaphores(root_jobmgr, j);
 	}
 
 	return false;
