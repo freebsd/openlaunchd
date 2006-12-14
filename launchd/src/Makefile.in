@@ -253,7 +253,7 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
-@LIBS_ONLY_FALSE@man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launchproxy.8
+@LIBS_ONLY_FALSE@man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launchproxy.8 shutdown_debugger.8
 @LIBS_ONLY_FALSE@STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
