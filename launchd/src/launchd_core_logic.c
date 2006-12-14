@@ -1947,7 +1947,8 @@ job_postfork_become_user(job_t j)
 	}
 
 	/*
-	 * <rdar://problem/4616864> launchctl should invoke initgroups after setgid
+	 * The kernel team and the DirectoryServices team want initgroups()
+	 * called after setgid(). See 4616864 for more information.
 	 */
 
 	if (!j->no_init_groups) {
