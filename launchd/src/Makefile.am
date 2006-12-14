@@ -32,7 +32,7 @@ sbin_SCRIPTS = service
 
 bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
-libexec_PROGRAMS = launchproxy
+libexec_PROGRAMS = launchproxy shutdown_debugger
 
 sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
 

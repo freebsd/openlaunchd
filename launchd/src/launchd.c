@@ -63,6 +63,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <dirent.h>
 #include <string.h>
 #include <setjmp.h>
+#include <spawn.h>
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
@@ -82,10 +83,12 @@ extern char **environ;
 
 static void signal_callback(void *, struct kevent *);
 static void ppidexit_callback(void);
+static void debugshutdown_callback(void);
 static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqppidexit_callback = (kq_callback)ppidexit_callback;
+static kq_callback kqdebugshutdown_callback = (kq_callback)debugshutdown_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
 static void pid1_magic_init(bool sflag);
@@ -401,13 +404,14 @@ ppidexit_callback(void)
 void
 launchd_shutdown(void)
 {
-	struct stat sb;
-
 	if (shutdown_in_progress) {
 		return;
 	}
 
 	shutdown_in_progress = true;
+
+#if 0
+	struct stat sb;
 
 	if (stat("/var/db/debugShutdownHangs", &sb) != -1) {
 		/*
@@ -416,6 +420,12 @@ launchd_shutdown(void)
 		 */
 		debug_shutdown_hangs = true;
 	}
+#else
+	if (getpid() == 1) {
+		launchd_assumes(kevent_mod((uintptr_t)debugshutdown_callback,
+					EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 5, &kqdebugshutdown_callback) != -1);
+	}
+#endif
 
 	rlcj = NULL;
 
@@ -654,5 +664,16 @@ launchd_post_kevent(void)
 			return;
 		}
 		init_pre_kevent();
+	}
+}
+
+void
+debugshutdown_callback(void)
+{
+	char *sdd_args[] = { "/usr/libexec/shutdown_debugger", NULL };
+	pid_t sddp;
+
+	if (launchd_assumes(posix_spawn(&sddp, sdd_args[0], NULL, NULL, sdd_args, environ) == 0)) {
+		launchd_assumes(kevent_mod(sddp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) != -1);
 	}
 }

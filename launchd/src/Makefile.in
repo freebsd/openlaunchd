@@ -40,7 +40,8 @@ POST_UNINSTALL = :
 @LIBS_ONLY_FALSE@bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
 @LIBS_ONLY_FALSE@sbin_PROGRAMS = launchd$(EXEEXT) \
 @LIBS_ONLY_FALSE@	SystemStarter$(EXEEXT)
-@LIBS_ONLY_FALSE@libexec_PROGRAMS = launchproxy$(EXEEXT)
+@LIBS_ONLY_FALSE@libexec_PROGRAMS = launchproxy$(EXEEXT) \
+@LIBS_ONLY_FALSE@	shutdown_debugger$(EXEEXT)
 subdir = src
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
 	$(srcdir)/config.h.in
@@ -109,6 +110,9 @@ launchd_LDADD = $(LDADD)
 launchproxy_SOURCES = launchproxy.c
 launchproxy_OBJECTS = launchproxy.$(OBJEXT)
 launchproxy_LDADD = $(LDADD)
+shutdown_debugger_SOURCES = shutdown_debugger.c
+shutdown_debugger_OBJECTS = shutdown_debugger.$(OBJEXT)
+shutdown_debugger_LDADD = $(LDADD)
 wait4path_SOURCES = wait4path.c
 wait4path_OBJECTS = wait4path.$(OBJEXT)
 wait4path_LDADD = $(LDADD)
@@ -123,11 +127,12 @@ CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
 SOURCES = $(liblaunch_a_SOURCES) $(liblaunch_profile_a_SOURCES) \
 	$(SystemStarter_SOURCES) launchctl.c $(launchd_SOURCES) \
-	launchproxy.c wait4path.c
+	launchproxy.c shutdown_debugger.c wait4path.c
 DIST_SOURCES = $(am__liblaunch_a_SOURCES_DIST) \
 	$(am__liblaunch_profile_a_SOURCES_DIST) \
 	$(am__SystemStarter_SOURCES_DIST) launchctl.c \
-	$(am__launchd_SOURCES_DIST) launchproxy.c wait4path.c
+	$(am__launchd_SOURCES_DIST) launchproxy.c shutdown_debugger.c \
+	wait4path.c
 man1dir = $(mandir)/man1
 man5dir = $(mandir)/man5
 man8dir = $(mandir)/man8
@@ -393,6 +398,9 @@ launchd$(EXEEXT): $(launchd_OBJECTS) $(launchd_DEPENDENCIES)
 launchproxy$(EXEEXT): $(launchproxy_OBJECTS) $(launchproxy_DEPENDENCIES) 
 	@rm -f launchproxy$(EXEEXT)
 	$(LINK) $(launchproxy_LDFLAGS) $(launchproxy_OBJECTS) $(launchproxy_LDADD) $(LIBS)
+shutdown_debugger$(EXEEXT): $(shutdown_debugger_OBJECTS) $(shutdown_debugger_DEPENDENCIES) 
+	@rm -f shutdown_debugger$(EXEEXT)
+	$(LINK) $(shutdown_debugger_LDFLAGS) $(shutdown_debugger_OBJECTS) $(shutdown_debugger_LDADD) $(LIBS)
 wait4path$(EXEEXT): $(wait4path_OBJECTS) $(wait4path_DEPENDENCIES) 
 	@rm -f wait4path$(EXEEXT)
 	$(LINK) $(wait4path_LDFLAGS) $(wait4path_OBJECTS) $(wait4path_LDADD) $(LIBS)
@@ -445,6 +453,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-protocol_vprocUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libvproc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/protocol_vprocUser.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/shutdown_debugger.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wait4path.Po@am__quote@
 
 .c.o:
