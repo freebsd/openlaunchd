@@ -130,9 +130,8 @@ static void do_potential_fsck(void);
 static bool path_check(const char *path);
 static bool is_safeboot(void);
 static bool is_netboot(void);
-static void apply_func_to_dir(const char *thedir, void (*thefunc)(const char *));
 static void apply_sysctls_from_file(const char *thefile);
-static void empty_dir(const char *path);
+static void empty_dir(const char *thedir, struct stat *psb);
 static int touch_file(const char *path, mode_t m);
 static void do_sysversion_sysctl(void);
 static void workaround4465949(void);
@@ -1238,8 +1237,8 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 		assumes(fwexec(rccleanup_tool, true) != -1);
 	}
 
-	apply_func_to_dir(_PATH_VARRUN, empty_dir);
-	apply_func_to_dir(_PATH_TMP, empty_dir);
+	empty_dir(_PATH_VARRUN, NULL);
+	empty_dir(_PATH_TMP, NULL);
 	remove(_PATH_NOLOGIN);
 
 	// XXX --> RMRF_ITEMS="/var/tmp/folders.*
@@ -2549,34 +2548,66 @@ is_netboot(void)
 }
 
 void
-apply_func_to_dir(const char *thedir, void (*thefunc)(const char *))
+empty_dir(const char *thedir, struct stat *psb)
 {
 	struct dirent *de;
+	struct stat psb2;
 	DIR *od;
 	int currend_dir_fd;
 
-	if (!assumes((currend_dir_fd = open(".", 0)) != -1))
+	if (!psb) {
+		psb = &psb2;
+		if (!assumes(lstat(thedir, psb) != -1)) {
+			return;
+		}
+	}
+
+	if (!assumes((currend_dir_fd = open(".", 0)) != -1)) {
 		return;
+	}
 
-	if (!assumes(chdir(thedir) != -1))
+	if (!assumes(chdir(thedir) != -1)) {
 		goto out;
+	}
 
-	if (!assumes(od = opendir(".")))
+	if (!assumes(od = opendir("."))) {
 		goto out;
+	}
 
 	while ((de = readdir(od))) {
 		struct stat sb;
 
-		if (strcmp(de->d_name, ".") == 0)
+		if (strcmp(de->d_name, ".") == 0) {
 			continue;
-		if (strcmp(de->d_name, "..") == 0)
-			continue;
-
-		if (assumes(lstat(de->d_name, &sb) != -1)) {
-			if (S_ISDIR(sb.st_mode))
-				apply_func_to_dir(de->d_name, thefunc);
-			thefunc(de->d_name);
 		}
+
+		if (strcmp(de->d_name, "..") == 0) {
+			continue;
+		}
+
+		if (!assumes(lstat(de->d_name, &sb) != -1)) {
+			continue;
+		}
+
+		if (psb->st_dev != sb.st_dev) {
+			assumes(unmount(de->d_name, MNT_FORCE) != -1);
+
+			/* Let's lstat() again to see if the unmount() worked and what was under it */
+			if (!assumes(lstat(de->d_name, &sb) != -1)) {
+				continue;
+			}
+
+			if (!assumes(psb->st_dev == sb.st_dev)) {
+				continue;
+			}
+		}
+
+		if (S_ISDIR(sb.st_mode)) {
+			empty_dir(de->d_name, &sb);
+		}
+
+		assumes(lchflags(de->d_name, 0) != -1);
+		assumes(remove(de->d_name) != -1);
 	}
 
 	assumes(closedir(od) != -1);
@@ -2584,13 +2615,6 @@ apply_func_to_dir(const char *thedir, void (*thefunc)(const char *))
 out:
 	assumes(fchdir(currend_dir_fd) != -1);
 	assumes(close(currend_dir_fd) != -1);
-}
-
-void
-empty_dir(const char *path)
-{
-	assumes(lchflags(path, 0) != -1);
-	assumes(remove(path) != -1);
 }
 
 int
