@@ -811,6 +811,7 @@ job_t
 job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
 {
 	job_t jr;
+	size_t i;
 
 	if ((jr = jobmgr_find(root_jobmgr, label)) != NULL) {
 		errno = EEXIST;
@@ -845,15 +846,20 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 		jr->setmask = true;
 	}
 
-	if (env) for (; *env; env++) {
-		char newkey[strlen(*env) + 1], *eqoff = strchr(*env, '=');
+	if (env) for (i = 0; env[i]; i++) {
+		char *eqoff, tmpstr[strlen(env[i]) + 1];
+
+		strcpy(tmpstr, env[i]);
+
+		eqoff = strchr(tmpstr, '=');
+
 		if (!eqoff) {
-			job_log(jr, LOG_WARNING, "Environmental variable missing '=' separator: %s", *env);
+			job_log(jr, LOG_WARNING, "Environmental variable missing '=' separator: %s", tmpstr);
 			continue;
 		}
-		strcpy(newkey, *env);
+
 		*eqoff = '\0';
-		envitem_new(jr, newkey, eqoff + 1, false);
+		envitem_new(jr, tmpstr, eqoff + 1, false);
 	}
 
 	job_dispatch(jr, true);
@@ -2574,6 +2580,8 @@ envitem_new(job_t j, const char *k, const char *v, bool global)
 	} else {
 		SLIST_INSERT_HEAD(&j->env, ei, sle);
 	}
+
+	job_log(j, LOG_DEBUG, "Added environmental variable: %s=%s", k, v);
 
 	return true;
 }
