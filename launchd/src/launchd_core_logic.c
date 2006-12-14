@@ -1377,24 +1377,52 @@ job_import2(launch_data_t pload)
 	if (pload == NULL) {
 		return NULL;
 	}
+
 	if (launch_data_get_type(pload) != LAUNCH_DATA_DICTIONARY) {
+		errno = EINVAL;
 		return NULL;
 	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)) &&
 			(launch_data_get_type(tmp) == LAUNCH_DATA_STRING)) {
-		label = launch_data_get_string(tmp);
+		if (!(label = launch_data_get_string(tmp))) {
+			errno = EINVAL;
+			return NULL;
+		}
 	}
+
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM)) &&
 			(launch_data_get_type(tmp) == LAUNCH_DATA_STRING)) {
 		prog = launch_data_get_string(tmp);
 	}
-	ldpa = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 
-	if (label == NULL) {
-		errno = EINVAL;
-		return NULL;
-	} else if ((j = jobmgr_find(root_jobmgr, label)) != NULL) {
+	if ((ldpa = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAMARGUMENTS))) {
+		size_t i, c;
+
+		if (launch_data_get_type(ldpa) != LAUNCH_DATA_ARRAY) {
+			errno = EINVAL;
+			return NULL;
+		}
+
+		c = launch_data_array_get_count(ldpa);
+
+		argv = alloca((c + 1) * sizeof(char *));
+
+		for (i = 0; i < c; i++) {
+			tmp = launch_data_array_get_index(ldpa, i);
+
+			if (launch_data_get_type(tmp) != LAUNCH_DATA_STRING) {
+				errno = EINVAL;
+				return NULL;
+			}
+
+			argv[i] = launch_data_get_string(tmp);
+		}
+
+		argv[i] = NULL;
+	}
+
+	if ((j = jobmgr_find(root_jobmgr, label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
@@ -1403,16 +1431,6 @@ job_import2(launch_data_t pload)
 		/* the empty string, com.apple.launchd and number prefixes for labels are reserved */
 		errno = EINVAL;
 		return NULL;
-	}
-
-	if (ldpa) {
-		size_t i, c = launch_data_array_get_count(ldpa);
-
-		argv = alloca((c + 1) * sizeof(char *));
-
-		for (i = 0; i < c; i++)
-			argv[i] = launch_data_get_string(launch_data_array_get_index(ldpa, i));
-		argv[i] = NULL;
 	}
 
 	if ((j = job_new(root_jobmgr, label, prog, argv, NULL))) {
