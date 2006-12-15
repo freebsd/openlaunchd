@@ -105,6 +105,7 @@ static bool re_exec_in_single_user_mode = false;
 static job_t rlcj = NULL;
 static jmp_buf doom_doom_doom;
 static void *crash_addr;
+static pid_t crash_pid;
 static const char *launchctl_bootstrap_tool[] = { "/bin/launchctl", /* "bootstrap", */ NULL };
 
 sigset_t blocked_signals = 0;
@@ -297,18 +298,24 @@ main(int argc, char *const *argv)
 		job_dispatch(fbj, true);
 	}
 
+	char *doom_why = "at instruction";
 	switch (setjmp(doom_doom_doom)) {
-		case SIGILL:
-		case SIGFPE:
-			syslog(LOG_EMERG, "We crashed at instruction: %p", crash_addr);
-			abort();
+		case 0:
+			break;
 		case SIGBUS:
 		case SIGSEGV:
-			syslog(LOG_EMERG, "We crashed trying to read/write: %p", crash_addr);
-			abort();
+			doom_why = "trying to read/write";
+		case SIGILL:
+		case SIGFPE:
+			syslog(LOG_EMERG, "We crashed %s: %p (sent by PID %u)", doom_why, crash_addr, crash_pid);
 		default:
-			abort();
-		case 0:
+			sync();
+			sleep(3);
+			/* the kernel will panic() when PID 1 exits */
+			_exit(EXIT_FAILURE);
+			/* we should never get here */
+			reboot(0);
+			/* or here either */
 			break;
 	}
 
@@ -338,10 +345,33 @@ handle_pid1_crashes_separately(void)
 	launchd_assumes(sigaction(SIGSEGV, &fsa, NULL) != -1);
 }
 
+#define PID1_CRASH_LOGFILE "/var/log/launchd-pid1.crash"
+
 void
 fatal_signal_handler(int sig, siginfo_t *si, void *uap)
 {
+	char *sample_args[] = { "/usr/bin/sample", "1", "1", "-file", PID1_CRASH_LOGFILE, NULL };
+	pid_t sample_p;
+	int wstatus;
+
 	crash_addr = si->si_addr;
+	crash_pid = si->si_pid;
+
+	unlink(PID1_CRASH_LOGFILE);
+
+	switch ((sample_p = vfork())) {
+	case 0:
+		execve(sample_args[0], sample_args, environ);
+		_exit(EXIT_FAILURE);
+		break;
+	default:
+		waitpid(sample_p, &wstatus, 0);
+		sync();
+		break;
+	case -1:
+		break;
+	}
+
 	longjmp(doom_doom_doom, sig);
 }
 
