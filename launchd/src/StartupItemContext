@@ -2,4 +2,4 @@
 
 unset LAUNCHD_SOCKET
 
-exec launchctl bsexec / $@
+exec launchctl bsexec / "$@"
