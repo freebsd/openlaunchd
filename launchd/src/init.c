@@ -411,7 +411,6 @@ runcom_callback(void *obj __attribute__((unused)), struct kevent *kev __attribut
 	}
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_SUCCESS) {
-		logwtmp("~", "reboot", "");
 		return;
 	} else if (WIFSIGNALED(status) && (WTERMSIG(status) == SIGTERM || WTERMSIG(status) == SIGKILL)) {
 		return;
