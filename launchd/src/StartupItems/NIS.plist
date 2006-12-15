@@ -1,4 +1,0 @@
-{
-  Description     = "Network Information Service";
-  Provides        = ("NIS");
-}
