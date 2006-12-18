@@ -2219,7 +2219,9 @@ void
 job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 {
 	char newmsg[10000];
+	char *newlabel;
 	int oldmask = 0;
+	size_t i, o, jlabel_len = strlen(j->label);
 
 	/*
 	 * Hack: If bootstrap_port is set, we must be on the child side of a
@@ -2230,10 +2232,21 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 		return _vproc_logv(pri, err, msg, ap);
 	}
 
+	newlabel = alloca((jlabel_len + 1) * 2);
+
+	for (i = 0, o = 0; i < jlabel_len; i++, o++) {
+		if (j->label[i] == '%') {
+			newlabel[o] = '%';
+			o++;
+		}
+		newlabel[o] = j->label[i];
+	}
+	newlabel[o] = '\0';
+
 	if (err) {
-		snprintf(newmsg, sizeof(newmsg), "%s: %s: %s", j->label, msg, strerror(err));
+		snprintf(newmsg, sizeof(newmsg), "%s: %s: %s", newlabel, msg, strerror(err));
 	} else {
-		snprintf(newmsg, sizeof(newmsg), "%s: %s", j->label, msg);
+		snprintf(newmsg, sizeof(newmsg), "%s: %s", newlabel, msg);
 	}
 
 	if (j->debug) {
