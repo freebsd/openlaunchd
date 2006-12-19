@@ -1977,8 +1977,7 @@ job_postfork_become_user(job_t j)
 		_exit(EXIT_FAILURE);
 	}
 
-	if (-1 == setgid(desired_gid)) {
-		job_log_error(j, LOG_ERR, "setgid(%u)", desired_gid);
+	if (!job_assumes(j, setgid(desired_gid) != -1)) {
 		_exit(EXIT_FAILURE);
 	}
 
@@ -1988,14 +1987,12 @@ job_postfork_become_user(job_t j)
 	 */
 
 	if (!j->no_init_groups) {
-		if (initgroups(loginname, desired_gid) == -1) {
-			job_log_error(j, LOG_ERR, "initgroups()");
+		if (!job_assumes(j, initgroups(loginname, desired_gid) != -1)) {
 			_exit(EXIT_FAILURE);
 		}
 	}
 
-	if (-1 == setuid(desired_uid)) {
-		job_log_error(j, LOG_ERR, "setuid(%u)", desired_uid);
+	if (!job_assumes(j, setuid(desired_uid) != -1)) {
 		_exit(EXIT_FAILURE);
 	}
 
