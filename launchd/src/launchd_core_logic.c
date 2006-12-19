@@ -1973,6 +1973,10 @@ job_postfork_become_user(job_t j)
 		desired_gid = gre->gr_gid;
 	}
 
+	if (!job_assumes(j, setlogin(loginname) != -1)) {
+		_exit(EXIT_FAILURE);
+	}
+
 	if (-1 == setgid(desired_gid)) {
 		job_log_error(j, LOG_ERR, "setgid(%u)", desired_gid);
 		_exit(EXIT_FAILURE);
