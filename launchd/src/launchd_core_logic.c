@@ -238,6 +238,8 @@ struct job_s {
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
 	struct rusage ru;
+	binpref_t j_binpref;
+	size_t j_binpref_cnt;
 	mach_port_t j_port;
 	mach_port_t wait_reply_port;
 	uid_t mach_uid;
@@ -266,8 +268,8 @@ struct job_s {
 		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1,
 		     anonymous:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, force_ppc:1, stall_before_exec:1,
-		     only_once:1, currently_ignored:1, forced_peers_to_demand_mode:1;
+	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
+		     currently_ignored:1, forced_peers_to_demand_mode:1;
 	char label[0];
 };
 
@@ -297,7 +299,7 @@ static void job_force_sampletool(job_t j);
 static void job_reparent_to_aqua_hack(job_t j);
 static void job_callback(void *obj, struct kevent *kev);
 static launch_data_t job_export2(job_t j, bool subjobs);
-static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc);
+static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
 static const char *job_prog(job_t j);
 static pid_t job_get_pid(job_t j);
@@ -816,7 +818,7 @@ job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus)
 }
 
 job_t 
-job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d, bool fppc)
+job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d)
 {
 	job_t jr;
 	size_t i;
@@ -843,7 +845,6 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 
 	jr->unload_at_exit = true;
 	jr->stall_before_exec = w4d;
-	jr->force_ppc = fppc;
 
 	if (workingdir) {
 		jr->workingdir = strdup(workingdir);
@@ -869,8 +870,6 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 		*eqoff = '\0';
 		envitem_new(jr, tmpstr, eqoff + 1, false);
 	}
-
-	job_dispatch(jr, true);
 
 	return jr;
 }
@@ -1018,12 +1017,6 @@ void
 job_import_bool(job_t j, const char *key, bool value)
 {
 	switch (key[0]) {
-	case 'f':
-	case 'F':
-		if (strcasecmp(key, LAUNCH_JOBKEY_FORCEPOWERPC) == 0) {
-			j->force_ppc = value;
-		}
-		break;
 	case 'k':
 	case 'K':
 		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
@@ -1838,9 +1831,10 @@ job_start_child(job_t j)
 	pid_t junk_pid;
 	glob_t g;
 	short spflags = POSIX_SPAWN_SETEXEC;
+	size_t binpref_out_cnt = 0;
 	int i;
 
-	posix_spawnattr_init(&spattr);
+	job_assumes(j, posix_spawnattr_init(&spattr) == 0);
 
 	job_setup_attributes(j);
 
@@ -1878,16 +1872,12 @@ job_start_child(job_t j)
 		spflags |= POSIX_SPAWN_START_SUSPENDED;
 	}
 
-	if (j->force_ppc) {
-		int affinmib[] = { CTL_KERN, KERN_AFFINITY, 1, 1 };
-		size_t mibsz = sizeof(affinmib) / sizeof(affinmib[0]);
+	job_assumes(j, posix_spawnattr_setflags(&spattr, spflags) == 0);
 
-		if (sysctl(affinmib, mibsz, NULL, NULL,  NULL, 0) == -1) {
-			job_log_error(j, LOG_WARNING, "Failed to force PowerPC execution");
-		}
+	if (j->j_binpref_cnt) {
+		job_assumes(j, posix_spawnattr_setbinpref_np(&spattr, j->j_binpref_cnt, j->j_binpref, &binpref_out_cnt) == 0);
+		job_assumes(j, binpref_out_cnt == j->j_binpref_cnt);
 	}
-
-	posix_spawnattr_setflags(&spattr, spflags);
 
 	if (j->prog) {
 		posix_spawn(&junk_pid, j->inetcompat ? file2exec : j->prog, NULL, &spattr, (char *const*)argv, environ);
@@ -4352,7 +4342,7 @@ job_mig_uncork_fork(job_t j)
 kern_return_t
 job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
-		pid_t *child_pid, mach_port_t *obsvr_port)
+		binpref_t bin_pref, uint32_t binpref_cnt, pid_t *child_pid, mach_port_t *obsvr_port)
 {
 	job_t jr;
 	size_t offset = 0;
@@ -4406,7 +4396,7 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 	}
 
 	jr = job_new_spawn(j, label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
-			flags & SPAWN_WANTS_WAIT4DEBUGGER, flags & SPAWN_WANTS_FORCE_PPC);
+			flags & SPAWN_WANTS_WAIT4DEBUGGER);
 
 	if (jr == NULL) switch (errno) {
 	case EEXIST:
@@ -4415,14 +4405,17 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	memcpy(jr->j_binpref, bin_pref, sizeof(jr->j_binpref));
+	jr->j_binpref_cnt = binpref_cnt;
+
+	job_dispatch(jr, true);
+
 	if (!job_setup_machport(jr)) {
 		job_remove(jr);
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	job_log(j, LOG_INFO, "Spawned with flags:%s%s",
-			flags & SPAWN_WANTS_FORCE_PPC ? " ppc": "",
-			flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
+	job_log(j, LOG_INFO, "Spawned with flags:%s", flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
 
 	*child_pid = job_get_pid(jr);
 	*obsvr_port = jr->j_port;

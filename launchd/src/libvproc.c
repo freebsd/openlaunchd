@@ -68,9 +68,13 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	uint64_t flags = 0;
 	uint32_t argc = 0;
 	uint32_t envc = 0;
+	binpref_t bin_pref;
+	size_t binpref_cnt = 0, binpref_max = sizeof(bin_pref) / sizeof(bin_pref[0]);
 	pid_t p = -1;
 	mode_t u_mask = CMASK;
 	mach_port_t obsvr_port = MACH_PORT_NULL;
+
+	memset(&bin_pref, 0, sizeof(bin_pref));
 
 	for (tmpp = argv; *tmpp; tmpp++) {
 		argc++;
@@ -81,12 +85,20 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	}
 
 	if (spawn_attrs) switch (struct_version) {
+	case 1:
+		if (spawn_attrs->spawn_binpref) {
+			if (spawn_attrs->spawn_binpref_cnt < binpref_max) {
+				binpref_max = spawn_attrs->spawn_binpref_cnt;
+			}
+
+			for (; binpref_cnt < binpref_max; binpref_cnt++) {
+				bin_pref[binpref_cnt] = spawn_attrs->spawn_binpref[binpref_cnt];
+			}
+		}
+
 	case 0:
 		if (spawn_attrs->spawn_flags & SPAWN_VIA_LAUNCHD_STOPPED) {
 			flags |= SPAWN_WANTS_WAIT4DEBUGGER;
-		}
-		if (spawn_attrs->spawn_flags & SPAWN_VIA_LAUNCHD_FORCE_PPC) {
-			flags |= SPAWN_WANTS_FORCE_PPC;
 		}
 
 		if (spawn_attrs->spawn_env) {
@@ -125,13 +137,13 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 		break;
 	}
 
-	kr = vproc_mig_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, &p, &obsvr_port);
+	kr = vproc_mig_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, bin_pref, binpref_cnt, &p, &obsvr_port);
 
 	if (kr == VPROC_ERR_TRY_PER_USER) {
 		mach_port_t puc;
 
 		if (vproc_mig_lookup_per_user_context(bootstrap_port, 0, &puc) == 0) {
-			kr = vproc_mig_spawn(puc, buf, buf_len, argc, envc, flags, u_mask, &p, &obsvr_port);
+			kr = vproc_mig_spawn(puc, buf, buf_len, argc, envc, flags, u_mask, bin_pref, binpref_cnt, &p, &obsvr_port);
 			mach_port_deallocate(mach_task_self(), puc);
 		}
 	}

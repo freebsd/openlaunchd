@@ -20,6 +20,7 @@
 #ifndef _LAUNCH_PRIV_H_
 #define _LAUNCH_PRIV_H_
 
+#include <mach/mach.h>
 #include <sys/types.h>
 #include <launch.h>
 
@@ -93,7 +94,6 @@ bool launchd_batch_query(void);
  */
 
 #define SPAWN_VIA_LAUNCHD_STOPPED	0x0001
-#define SPAWN_VIA_LAUNCHD_FORCE_PPC	0x0002
 
 struct spawn_via_launchd_attr {
 	uint64_t		spawn_flags;
@@ -102,9 +102,11 @@ struct spawn_via_launchd_attr {
  	const char *const *	spawn_env;
  	const mode_t *		spawn_umask;
  	mach_port_t *		spawn_observer_port;
+ 	const cpu_type_t *	spawn_binpref;
+	size_t			spawn_binpref_cnt;
 };
 
-#define spawn_via_launchd(a, b, c) _spawn_via_launchd(a, b, c, 0)
+#define spawn_via_launchd(a, b, c) _spawn_via_launchd(a, b, c, 1)
 pid_t _spawn_via_launchd(
 		const char *label,
 		const char *const *argv,

@@ -99,6 +99,8 @@ routine spawn(
 		__envc		: uint32_t;
 		__flags		: uint64_t;
 		__umask		: uint16_t;
+		__binpref	: binpref_t;
+		__binpref_cnt	: uint32_t;
 	out	__pid		: pid_t;
 	out	__obsvr_port	: mach_port_make_send_t);
 

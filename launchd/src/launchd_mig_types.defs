@@ -35,6 +35,7 @@ type name_array_t		= ^array [] of name_t;
 type _internal_string_t		= ^array [] of char;
 type bootstrap_status_t		= integer_t;
 type bootstrap_status_array_t	= ^array [] of bootstrap_status_t;
+type binpref_t			= array [8] of integer_t;
 
 type job_t = mach_port_t
         intran: job_t job_mig_intran(mach_port_t) 

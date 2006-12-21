@@ -27,6 +27,7 @@
 typedef char * _internal_string_t;
 typedef char * logmsg_t;
 typedef mach_port_t vproc_mig_t;
+typedef integer_t binpref_t[8];
 typedef enum {
 	LAST_EXIT_STATUS = 1,
 	GLOBAL_ON_DEMAND,
@@ -45,7 +46,6 @@ typedef enum {
 #define SPAWN_HAS_WDIR			0x0002
 #define SPAWN_HAS_UMASK			0x0004
 #define SPAWN_WANTS_WAIT4DEBUGGER	0x0008
-#define SPAWN_WANTS_FORCE_PPC		0x0010
 
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
