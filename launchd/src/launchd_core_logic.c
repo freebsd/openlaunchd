@@ -2983,6 +2983,14 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 			job_assumes(ms->job, host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
 		}
 		break;
+	case LAUNCH_DATA_DICTIONARY:
+#ifdef MACH_EXCEPTION_CODES
+		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
+			job_assumes(ms->job, task_set_exception_ports(mts, em, ms->port,
+						EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+		}
+#endif
+		break;
 	default:
 		break;
 	}
