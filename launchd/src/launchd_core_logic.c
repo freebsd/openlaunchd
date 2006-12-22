@@ -748,6 +748,11 @@ job_setup_machport(job_t j)
 		goto out_bad2;
 	}
 
+	if (!job_assumes(j, launchd_mport_notify_req(j->j_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
+		job_assumes(j, launchd_mport_close_recv(j->j_port) == KERN_SUCCESS);
+		goto out_bad;
+	}
+
 	return true;
 out_bad2:
 	job_assumes(j, launchd_mport_close_recv(j->j_port) == KERN_SUCCESS);
@@ -785,11 +790,6 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 	jr->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
 
 	if (!job_setup_machport(jr)) {
-		goto out_bad;
-	}
-
-	if (!job_assumes(jr, launchd_mport_notify_req(jr->j_port, MACH_NOTIFY_NO_SENDERS) == KERN_SUCCESS)) {
-		job_assumes(jr, launchd_mport_close_recv(jr->j_port) == KERN_SUCCESS);
 		goto out_bad;
 	}
 
@@ -2691,9 +2691,12 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_useless(job_t j)
 {
-	/* Yes, j->unload_at_exit and j->j->only_once seem the same, but they'll differ someday... */
+	/* Yes, j->unload_at_exit and j->only_once seem the same, but they'll differ someday... */
 
 	if ((j->unload_at_exit || j->only_once) && j->start_time != 0) {
+		if (j->unload_at_exit && j->j_port) {
+			return false;
+		}
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
 		return true;
 	} else if (shutdown_in_progress) {
