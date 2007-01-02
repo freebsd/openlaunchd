@@ -613,10 +613,9 @@ job_remove(job_t j)
 		job_assumes(j, launchd_mport_close_recv(j->j_port) == KERN_SUCCESS);
 	}
 
-#if 0
-	if (j->wait_reply_port) {
+	if (!job_assumes(j, j->wait_reply_port == MACH_PORT_NULL)) {
+		job_assumes(j, launchd_mport_deallocate(j->wait_reply_port) == KERN_SUCCESS);
 	}
-#endif
 
 	while ((sg = SLIST_FIRST(&j->sockets))) {
 		socketgroup_delete(j, sg);
