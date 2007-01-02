@@ -257,6 +257,7 @@ struct job_s {
 	int argc;
 	int last_exit_status;
 	int forkfd;
+	int log_redirect_fd;
 	int nice;
 	int timeout;
 	int stdout_err_fd;
@@ -607,6 +608,10 @@ job_remove(job_t j)
 
 	if (j->forkfd) {
 		job_assumes(j, close(j->forkfd) != -1);
+	}
+
+	if (j->log_redirect_fd) {
+		job_assumes(j, close(j->log_redirect_fd) != -1);
 	}
 
 	if (j->j_port) {
@@ -1586,6 +1591,11 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
+	if (j->log_redirect_fd) {
+		job_assumes(j, close(j->log_redirect_fd) != -1);
+		j->log_redirect_fd = 0;
+	}
+
 	if (j->forkfd) {
 		job_assumes(j, close(j->forkfd) != -1);
 		j->forkfd = 0;
@@ -1705,7 +1715,30 @@ job_callback(void *obj, struct kevent *kev)
 		watchpath_callback(j, kev);
 		break;
 	case EVFILT_READ:
-		socketgroup_callback(j, kev);
+		if (kev->ident == (uintptr_t)j->log_redirect_fd) {
+			char buf[4001];
+			ssize_t rsz;
+
+			rsz = read(j->log_redirect_fd, buf, sizeof(buf) - 1);
+
+			if (rsz == 0) {
+				job_assumes(j, close(j->log_redirect_fd) != -1);
+				j->log_redirect_fd = 0;
+			} else if (job_assumes(j, rsz != -1)) {
+				buf[rsz] = '\0';
+				switch (buf[0]) {
+				case '\n':
+				case '\r':
+				case '\0':
+					break;
+				default:
+					job_log(j, LOG_NOTICE, "Standard Out/Error: %s", buf);
+					break;
+				}
+			}
+		} else {
+			socketgroup_callback(j, kev);
+		}
 		break;
 	case EVFILT_MACHPORT:
 		job_dispatch(j, true);
@@ -1721,6 +1754,7 @@ job_start(job_t j)
 {
 	int spair[2];
 	int execspair[2];
+	int oepair[2];
 	char nbuf[64];
 	pid_t c;
 	bool sipc = false;
@@ -1759,10 +1793,16 @@ job_start(job_t j)
 	j->checkedin = false;
 
 	if (sipc) {
-		socketpair(AF_UNIX, SOCK_STREAM, 0, spair);
+		job_assumes(j, socketpair(AF_UNIX, SOCK_STREAM, 0, spair) != -1);
 	}
 
-	socketpair(AF_UNIX, SOCK_STREAM, 0, execspair);
+	job_assumes(j, socketpair(AF_UNIX, SOCK_STREAM, 0, execspair) != -1);
+
+	if (job_assumes(j, pipe(oepair) != -1)) {
+		j->log_redirect_fd = _fd(oepair[0]);
+		job_assumes(j, fcntl(j->log_redirect_fd, F_SETFL, O_NONBLOCK) != -1);
+		job_assumes(j, kevent_mod(j->log_redirect_fd, EVFILT_READ, EV_ADD, 0, 0, j) != -1);
+	}
 
 	time(&j->start_time);
 
@@ -1777,6 +1817,9 @@ job_start(job_t j)
 		}
 		break;
 	case 0:
+		job_assumes(j, dup2(oepair[1], STDOUT_FILENO) != -1);
+		job_assumes(j, dup2(oepair[1], STDERR_FILENO) != -1);
+		job_assumes(j, close(oepair[1]) != -1);
 		job_assumes(j, close(execspair[0]) == 0);
 		/* wait for our parent to say they've attached a kevent to us */
 		read(_fd(execspair[1]), &c, sizeof(c));
@@ -1797,6 +1840,7 @@ job_start(job_t j)
 		job_start_child(j);
 		break;
 	default:
+		job_assumes(j, close(oepair[1]) != -1);
 		j->p = c;
 		j->forkfd = _fd(execspair[0]);
 		job_assumes(j, close(execspair[1]) == 0);
@@ -2544,8 +2588,9 @@ socketgroup_ignore(job_t j, struct socketgroup *sg)
 
 	job_log(j, LOG_DEBUG, "Ignoring Sockets:%s", buf);
 
-	for (i = 0; i < sg->fd_cnt; i++)
+	for (i = 0; i < sg->fd_cnt; i++) {
 		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
+	}
 }
 
 void
@@ -2563,8 +2608,9 @@ socketgroup_watch(job_t j, struct socketgroup *sg)
 
 	job_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
 
-	for (i = 0; i < sg->fd_cnt; i++)
+	for (i = 0; i < sg->fd_cnt; i++) {
 		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
+	}
 }
 
 void
