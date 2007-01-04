@@ -46,6 +46,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/resource.h>
 #include <sys/ioctl.h>
 #include <sys/mount.h>
+#include <sys/pipe.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -1686,26 +1687,31 @@ job_dispatch(job_t j, bool kickstart)
 void
 job_log_stdouterr(job_t j)
 {
-	char buf[4001];
+	char *msg, *bufindex, *buf = malloc(BIG_PIPE_SIZE + 1);
 	ssize_t rsz;
 
-	rsz = read(j->log_redirect_fd, buf, sizeof(buf) - 1);
+	if (!job_assumes(j, buf != NULL)) {
+		return;
+	}
+
+	bufindex = buf;
+
+	rsz = read(j->log_redirect_fd, buf, BIG_PIPE_SIZE);
 
 	if (rsz == 0) {
 		job_assumes(j, close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 	} else if (job_assumes(j, rsz != -1)) {
 		buf[rsz] = '\0';
-		switch (buf[0]) {
-		case '\n':
-		case '\r':
-		case '\0':
-			break;
-		default:
-			job_log(j, LOG_NOTICE, "Standard Out/Error: %s", buf);
-			break;
+
+		while ((msg = strsep(&bufindex, "\n\r"))) {
+			if (msg[0]) {
+				job_log(j, LOG_NOTICE, "Standard Out/Error: %s", msg);
+			}
 		}
 	}
+
+	free(buf);
 }
 
 void
