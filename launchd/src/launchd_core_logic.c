@@ -1699,6 +1699,7 @@ job_log_stdouterr(job_t j)
 	rsz = read(j->log_redirect_fd, buf, BIG_PIPE_SIZE);
 
 	if (rsz == 0) {
+		job_log(j, LOG_DEBUG, "Standard out/error pipe closed");
 		job_assumes(j, close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 	} else if (job_assumes(j, rsz != -1)) {
@@ -1706,7 +1707,7 @@ job_log_stdouterr(job_t j)
 
 		while ((msg = strsep(&bufindex, "\n\r"))) {
 			if (msg[0]) {
-				job_log(j, LOG_NOTICE, "Standard Out/Error: %s", msg);
+				job_log(j, LOG_NOTICE, "Standard out/error: %s", msg);
 			}
 		}
 	}
