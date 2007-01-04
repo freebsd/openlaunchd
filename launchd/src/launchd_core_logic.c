@@ -306,6 +306,7 @@ static const char *job_prog(job_t j);
 static pid_t job_get_pid(job_t j);
 static jobmgr_t job_get_bs(job_t j);
 static void job_uncork_fork(job_t j);
+static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap);
 static void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
@@ -1683,6 +1684,31 @@ job_dispatch(job_t j, bool kickstart)
 }
 
 void
+job_log_stdouterr(job_t j)
+{
+	char buf[4001];
+	ssize_t rsz;
+
+	rsz = read(j->log_redirect_fd, buf, sizeof(buf) - 1);
+
+	if (rsz == 0) {
+		job_assumes(j, close(j->log_redirect_fd) != -1);
+		j->log_redirect_fd = 0;
+	} else if (job_assumes(j, rsz != -1)) {
+		buf[rsz] = '\0';
+		switch (buf[0]) {
+		case '\n':
+		case '\r':
+		case '\0':
+			break;
+		default:
+			job_log(j, LOG_NOTICE, "Standard Out/Error: %s", buf);
+			break;
+		}
+	}
+}
+
+void
 job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
@@ -1716,26 +1742,7 @@ job_callback(void *obj, struct kevent *kev)
 		break;
 	case EVFILT_READ:
 		if (kev->ident == (uintptr_t)j->log_redirect_fd) {
-			char buf[4001];
-			ssize_t rsz;
-
-			rsz = read(j->log_redirect_fd, buf, sizeof(buf) - 1);
-
-			if (rsz == 0) {
-				job_assumes(j, close(j->log_redirect_fd) != -1);
-				j->log_redirect_fd = 0;
-			} else if (job_assumes(j, rsz != -1)) {
-				buf[rsz] = '\0';
-				switch (buf[0]) {
-				case '\n':
-				case '\r':
-				case '\0':
-					break;
-				default:
-					job_log(j, LOG_NOTICE, "Standard Out/Error: %s", buf);
-					break;
-				}
-			}
+			job_log_stdouterr(j);
 		} else {
 			socketgroup_callback(j, kev);
 		}
