@@ -903,6 +903,11 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	int i, cc = 0;
 	job_t j;
 
+	if (shutdown_in_progress) {
+		errno = EINVAL;
+		return NULL;
+	}
+
 	if (prog == NULL && argv == NULL) {
 		errno = EINVAL;
 		return NULL;
