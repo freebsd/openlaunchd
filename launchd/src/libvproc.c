@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -47,10 +48,15 @@ vproc_err_t
 _vproc_move_subset_to_user(void)
 {
 	kern_return_t kr = 1;
-	mach_port_t puc;
+	mach_port_t puc = 0, which_port = bootstrap_port;
 
-	if (vproc_mig_lookup_per_user_context(bootstrap_port, 0, &puc) == 0) {
-		kr = vproc_mig_move_subset_to_user(puc, bootstrap_port);
+	if ((getuid() || geteuid()) && vproc_mig_lookup_per_user_context(bootstrap_port, 0, &puc) == 0) {
+		which_port = puc;
+	}
+
+	kr = vproc_mig_move_subset_to_user(which_port, bootstrap_port);
+
+	if (puc) {
 		mach_port_deallocate(mach_task_self(), puc);
 	}
 
