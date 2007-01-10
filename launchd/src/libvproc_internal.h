@@ -31,6 +31,7 @@ typedef integer_t binpref_t[8];
 typedef enum {
 	LAST_EXIT_STATUS = 1,
 	GLOBAL_ON_DEMAND,
+	GSK_LOGINWINDOW_CONTEXT,
 } get_set_int_key_t;
 
 #ifdef protocol_vproc_MSG_COUNT
@@ -51,6 +52,8 @@ kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
+
+vproc_err_t __vproc_tag_loginwindow_context(void);
 
 kern_return_t _vprocmgr_getsocket(name_t);
 

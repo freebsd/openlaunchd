@@ -298,7 +298,7 @@ static bool job_setup_machport(job_t j);
 static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
 static void job_postfork_become_user(job_t j);
 static void job_force_sampletool(job_t j);
-static void job_reparent_to_aqua_hack(job_t j);
+static void job_reparent_hack(job_t j, const char *where);
 static void job_callback(void *obj, struct kevent *kev);
 static launch_data_t job_export2(job_t j, bool subjobs);
 static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
@@ -840,7 +840,7 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 		return NULL;
 	}
 
-	job_reparent_to_aqua_hack(jr);
+	job_reparent_hack(jr, "Aqua");
 
 	if (getpid() == 1) {
 		struct ldcred ldc;
@@ -1115,7 +1115,9 @@ job_import_string(job_t j, const char *key, const char *value)
 			return;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE) == 0) {
 			if (strcmp(value, "Aqua") == 0) {
-				job_reparent_to_aqua_hack(j);
+				job_reparent_hack(j, "Aqua");
+			} else if (strcmp(value, "LoginWindow") == 0) {
+				job_reparent_hack(j, "LoginWindow");
 			}
 			return;
 		}
@@ -3179,7 +3181,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port)
 		return NULL;
 	}
 
-	jmr = calloc(1, sizeof(struct jobmgr_s) + strlen("100000") + 1);
+	jmr = calloc(1, sizeof(struct jobmgr_s) + strlen("LoginWindow") + 1);
 	
 	if (jmr == NULL) {
 		return NULL;
@@ -3832,6 +3834,9 @@ job_mig_set_integer(job_t j, get_set_int_key_t key, int64_t val)
 	}
 
 	switch (key) {
+	case GSK_LOGINWINDOW_CONTEXT:
+		strcpy(j->mgr->name, "LoginWindow");
+		break;
 	case GLOBAL_ON_DEMAND:
 		kr = job_set_global_on_demand(j, (bool)val) ? 0 : 1;
 		break;
@@ -4166,14 +4171,13 @@ out_bad:
 	return BOOTSTRAP_NO_MEMORY;
 }
 
-
 void
-job_reparent_to_aqua_hack(job_t j)
+job_reparent_hack(job_t j, const char *where)
 {
 	jobmgr_t jmi = NULL;
 
 	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
-		if (strcmp(jmi->name, "Aqua") == 0) {
+		if (strcmp(jmi->name, where) == 0) {
 			break;
 		}
 	}

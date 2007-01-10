@@ -1186,6 +1186,30 @@ fexecv_as_user(const char *login, uid_t u, gid_t g, char *const argv[])
 	_exit(EXIT_FAILURE);
 }
 
+void
+load_launchd_jobs_at_loginwindow_prompt(int flags, ...)
+{
+	char *largv[] = { "/bin/launchctl", "load", "-S", "LoginWindow", "-D", "all", "/etc/mach_init_per_login_session.d", NULL };
+	int wstatus;
+	pid_t p;
+
+	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS) {
+		largv[5] = "system";
+	}
+
+	if (__vproc_tag_loginwindow_context()) {
+		return;
+	}
+
+	if ((p = fexecv_as_user("root", 0, 0, largv)) == -1) {
+		return;
+	}
+
+	if (waitpid(p, &wstatus, 0) != p) {
+		return;
+	}
+}
+
 pid_t
 create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 {

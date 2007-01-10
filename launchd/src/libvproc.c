@@ -208,6 +208,16 @@ _vproc_get_last_exit_status(int *wstatus)
 }
 
 vproc_err_t
+__vproc_tag_loginwindow_context(void)
+{
+	if (vproc_mig_set_integer(bootstrap_port, GSK_LOGINWINDOW_CONTEXT, 1) == 0) {
+		return NULL;
+	}
+
+	return (vproc_err_t)__vproc_tag_loginwindow_context;
+}
+
+vproc_err_t
 _vproc_set_global_on_demand(bool state)
 {
 	int64_t val = state ? ~0 : 0;
