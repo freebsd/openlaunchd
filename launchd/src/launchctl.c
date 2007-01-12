@@ -2827,7 +2827,7 @@ do_bootroot_magic(void)
 		return;
 	}
 
-	if (!WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EX_OSFILE) {
+	if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EX_OSFILE) {
 		assumes(reboot(RB_AUTOBOOT) != -1);
 	}
 }
