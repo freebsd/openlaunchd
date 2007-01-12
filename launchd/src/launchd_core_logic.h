@@ -33,7 +33,7 @@ void jobmgr_set_stdout(jobmgr_t jm, const char *what);
 void jobmgr_set_stderr(jobmgr_t jm, const char *what);
 bool jobmgr_is_idle(jobmgr_t jm);
 void jobmgr_remove_all_inactive(jobmgr_t jm);
-void jobmgr_dispatch_all_other_semaphores(jobmgr_t jm, job_t nj);
+void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
 job_t jobmgr_find(jobmgr_t jm, const char *label);
 void jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
 bool jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p);

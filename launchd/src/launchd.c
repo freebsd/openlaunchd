@@ -645,7 +645,7 @@ pfsystem_callback(void *obj, struct kevent *kev)
 
 	if (new_networking_state != network_up) {
 		network_up = new_networking_state;
-		jobmgr_dispatch_all_other_semaphores(root_jobmgr, NULL);
+		jobmgr_dispatch_all_semaphores(root_jobmgr);
 	}
 }
 

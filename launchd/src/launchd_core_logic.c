@@ -104,8 +104,10 @@ static void machservice_setup(launch_data_t obj, const char *key, void *context)
 static void machservice_setup_options(launch_data_t obj, const char *key, void *context);
 static void machservice_resetport(job_t j, struct machservice *ms);
 static struct machservice *machservice_new(job_t j, const char *name, mach_port_t *serviceport);
+static void machservice_ignore(job_t j, struct machservice *ms);
+static void machservice_watch(job_t j, struct machservice *ms);
 static void machservice_delete(struct machservice *);
-static void machservice_watch(struct machservice *);
+static void machservice_request_notifications(struct machservice *);
 static mach_port_t machservice_port(struct machservice *);
 static job_t machservice_job(struct machservice *);
 static bool machservice_hidden(struct machservice *);
@@ -126,19 +128,6 @@ static void socketgroup_watch(job_t j, struct socketgroup *sg);
 static void socketgroup_ignore(job_t j, struct socketgroup *sg);
 static void socketgroup_callback(job_t j, struct kevent *kev);
 static void socketgroup_setup(launch_data_t obj, const char *key, void *context);
-
-struct watchpath {
-	SLIST_ENTRY(watchpath) sle;
-	int fd;
-	unsigned int is_qdir:1, __junk:31;
-	char name[0];
-};
-
-static bool watchpath_new(job_t j, const char *name, bool qdir);
-static void watchpath_delete(job_t j, struct watchpath *wp);
-static void watchpath_watch(job_t j, struct watchpath *wp);
-static void watchpath_ignore(job_t j, struct watchpath *wp);
-static void watchpath_callback(job_t j, struct kevent *kev);
 
 struct calendarinterval {
 	SLIST_ENTRY(calendarinterval) sle;
@@ -178,12 +167,15 @@ typedef enum {
 	FAILED_EXIT,
 	PATH_EXISTS,
 	PATH_MISSING,
+	PATH_CHANGES,
+	DIR_NOT_EMPTY,
 	// FILESYSTEMTYPE_IS_MOUNTED,	/* for nfsiod, but maybe others */
 } semaphore_reason_t;
 
 struct semaphoreitem {
 	SLIST_ENTRY(semaphoreitem) sle;
 	semaphore_reason_t why;
+	int fd;
 	char what[0];
 };
 
@@ -191,6 +183,9 @@ static bool semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 static void semaphoreitem_delete(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_setup(launch_data_t obj, const char *key, void *context);
 static void semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context);
+static void semaphoreitem_callback(job_t j, struct kevent *kev);
+static void semaphoreitem_watch(job_t j, struct semaphoreitem *si);
+static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
 
 struct jobmgr_s {
 	SLIST_ENTRY(jobmgr_s) sle;
@@ -231,7 +226,6 @@ struct job_s {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(job_s) sle;
 	SLIST_HEAD(, socketgroup) sockets;
-	SLIST_HEAD(, watchpath) vnodes;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	SLIST_HEAD(, envitem) global_env;
 	SLIST_HEAD(, envitem) env;
@@ -356,9 +350,9 @@ simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
 void
 job_ignore(job_t j)
 {
+	struct semaphoreitem *si;
 	struct socketgroup *sg;
 	struct machservice *ms;
-	struct watchpath *wp;
 
 	if (j->currently_ignored) {
 		return;
@@ -370,12 +364,12 @@ job_ignore(job_t j)
 		socketgroup_ignore(j, sg);
 	}
 
-	SLIST_FOREACH(wp, &j->vnodes, sle) {
-		watchpath_ignore(j, wp);
+	SLIST_FOREACH(ms, &j->machservices, sle) {
+		machservice_ignore(j, ms);
 	}
 
-	SLIST_FOREACH(ms, &j->machservices, sle) {
-		job_assumes(j, runtime_remove_mport(ms->port) == KERN_SUCCESS);
+	SLIST_FOREACH(si, &j->semaphores, sle) {
+		semaphoreitem_ignore(j, si);
 	}
 }
 
@@ -385,7 +379,6 @@ job_watch(job_t j)
 	struct semaphoreitem *si;
 	struct socketgroup *sg;
 	struct machservice *ms;
-	struct watchpath *wp;
 
 	if (!j->currently_ignored) {
 		return;
@@ -397,19 +390,12 @@ job_watch(job_t j)
 		socketgroup_watch(j, sg);
 	}
 
-	SLIST_FOREACH(wp, &j->vnodes, sle) {
-		watchpath_watch(j, wp);
-	}
-
 	SLIST_FOREACH(ms, &j->machservices, sle) {
-		job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
+		machservice_watch(j, ms);
 	}
 
 	SLIST_FOREACH(si, &j->semaphores, sle) {
-		if (si->why == PATH_EXISTS || si->why == PATH_MISSING) {
-			/* Maybe another job has the inverse path based semaphore as this job */
-			jobmgr_dispatch_all_other_semaphores(root_jobmgr, j);
-		}
+		semaphoreitem_watch(j, si);
 	}
 }
 
@@ -583,7 +569,6 @@ job_remove(job_t j)
 {
 	struct calendarinterval *ci;
 	struct socketgroup *sg;
-	struct watchpath *wp;
 	struct limititem *li;
 	struct envitem *ei;
 	struct machservice *ms;
@@ -626,9 +611,6 @@ job_remove(job_t j)
 
 	while ((sg = SLIST_FIRST(&j->sockets))) {
 		socketgroup_delete(j, sg);
-	}
-	while ((wp = SLIST_FIRST(&j->vnodes))) {
-		watchpath_delete(j, wp);
 	}
 	while ((ci = SLIST_FIRST(&j->cal_intervals))) {
 		calendarinterval_delete(j, ci);
@@ -1299,9 +1281,6 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 void
 job_import_array(job_t j, const char *key, launch_data_t value)
 {
-	bool is_q_dir = false;
-	bool is_wp = false;
-
 	switch (key[0]) {
 	case 'l':
 	case 'L':
@@ -1314,14 +1293,24 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 	case 'q':
 	case 'Q':
 		if (strcasecmp(key, LAUNCH_JOBKEY_QUEUEDIRECTORIES) == 0) {
-			is_q_dir = true;
-			is_wp = true;
+			size_t i, qd_cnt = launch_data_array_get_count(value);
+			const char *thepath;
+			for (i = 0; i < qd_cnt; i++) {
+				thepath = launch_data_get_string(launch_data_array_get_index(value, i));
+				semaphoreitem_new(j, DIR_NOT_EMPTY, thepath);
+			}
+
 		}
 		break;
 	case 'w':
 	case 'W':
 		if (strcasecmp(key, LAUNCH_JOBKEY_WATCHPATHS) == 0) {
-			is_wp = true;
+			size_t i, wp_cnt = launch_data_array_get_count(value);
+			const char *thepath;
+			for (i = 0; i < wp_cnt; i++) {
+				thepath = launch_data_get_string(launch_data_array_get_index(value, i));
+				semaphoreitem_new(j, PATH_CHANGES, thepath);
+			}
 		}
 		break;
 	case 'b':
@@ -1340,15 +1329,6 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 		break;
 	default:
 		break;
-	}
-
-	if (is_wp) {
-		size_t i, wp_cnt = launch_data_array_get_count(value);
-		const char *thepath;
-		for (i = 0; i < wp_cnt; i++) {
-			thepath = launch_data_get_string(launch_data_array_get_index(value, i));
-			watchpath_new(j, thepath, is_q_dir);
-		}
 	}
 }
 
@@ -1752,7 +1732,7 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_VNODE:
-		watchpath_callback(j, kev);
+		semaphoreitem_callback(j, kev);
 		break;
 	case EVFILT_READ:
 		if (kev->ident == (uintptr_t)j->log_redirect_fd) {
@@ -2365,111 +2345,82 @@ jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap)
 	}
 }
 
-bool
-watchpath_new(job_t j, const char *name, bool qdir)
-{
-	struct watchpath *wp = calloc(1, sizeof(struct watchpath) + strlen(name) + 1);
-
-	if (!job_assumes(j, wp != NULL)) {
-		return false;
-	}
-
-	wp->is_qdir = qdir;
-
-	wp->fd = -1; /* watchpath_watch() will open this */
-
-	strcpy(wp->name, name);
-
-	SLIST_INSERT_HEAD(&j->vnodes, wp, sle);
-
-	return true;
-}       
-
-void
-watchpath_delete(job_t j, struct watchpath *wp) 
-{
-	if (wp->fd != -1) {
-		job_assumes(j, close(wp->fd) != -1);
-	}
-
-	SLIST_REMOVE(&j->vnodes, wp, watchpath, sle);
-
-	free(wp);
-}       
-
 void    
-watchpath_ignore(job_t j, struct watchpath *wp)
+semaphoreitem_ignore(job_t j, struct semaphoreitem *si)
 {       
-	if (wp->fd != -1) {
-		job_log(j, LOG_DEBUG, "Ignoring Vnode: %d", wp->fd);
-		job_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
+	if (si->fd != -1) {
+		job_log(j, LOG_DEBUG, "Ignoring Vnode: %d", si->fd);
+		job_assumes(j, kevent_mod(si->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
 	}
 }
 
 void
-watchpath_watch(job_t j, struct watchpath *wp)
+semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 {
-	int fflags = NOTE_WRITE|NOTE_EXTEND|NOTE_ATTRIB|NOTE_LINK;
-	int qdir_file_cnt;
-
-	if (!wp->is_qdir) {
-		fflags |= NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE;
-	}
-
-	if (wp->fd == -1) {
-		wp->fd = _fd(open(wp->name, O_EVTONLY|O_NOCTTY|O_NOFOLLOW));
-	}
-
-	if (wp->fd == -1) {
-		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", wp->name);
-	}
-
-	job_log(j, LOG_DEBUG, "Watching Vnode: %d", wp->fd);
-	job_assumes(j, kevent_mod(wp->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
-
-	if (!wp->is_qdir) {
+	char parentdir_path[PATH_MAX], *which_path = si->what;
+	int fflags = 0;
+	
+	switch (si->why) {
+	case PATH_EXISTS:
+		fflags = NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_EXTEND|NOTE_WRITE;
+		strlcpy(parentdir_path, dirname(si->what), sizeof(parentdir_path));
+		which_path = parentdir_path;
+		break;
+	case PATH_MISSING:
+		fflags = NOTE_DELETE|NOTE_RENAME;
+		break;
+	case PATH_CHANGES:
+		fflags = NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_EXTEND|NOTE_WRITE|NOTE_ATTRIB|NOTE_LINK;
+		break;
+	default:
 		return;
 	}
 
-	if (-1 == (qdir_file_cnt = dir_has_files(j, wp->name))) {
-		job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
-	} else if (qdir_file_cnt > 0) {
-		job_dispatch(j, true);
+	if (si->fd == -1) {
+		si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY));
 	}
+
+	if (si->fd == -1) {
+		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", which_path);
+	}
+
+	job_log(j, LOG_DEBUG, "Watching Vnode: %d", si->fd);
+	job_assumes(j, kevent_mod(si->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
 }
 
 void
-watchpath_callback(job_t j, struct kevent *kev)
+semaphoreitem_callback(job_t j, struct kevent *kev)
 {
-	struct watchpath *wp;
-	int dir_file_cnt;
+	struct semaphoreitem *si;
 
-	SLIST_FOREACH(wp, &j->vnodes, sle) {
-		if (wp->fd == (int)kev->ident) {
+	SLIST_FOREACH(si, &j->semaphores, sle) {
+		switch (si->why) {
+		case PATH_CHANGES:
+		case PATH_EXISTS:
+		case PATH_MISSING:
+			break;
+		default:
+			continue;
+		}
+
+		if (si->fd == (int)kev->ident) {
 			break;
 		}
 	}
 
-	job_assumes(j, wp != NULL);
-
-	if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
-		job_log(j, LOG_DEBUG, "Path invalidated: %s", wp->name);
-		job_assumes(j, close(wp->fd) == 0);
-		wp->fd = -1; /* this will get fixed in watchpath_watch() */
-	} else if (!wp->is_qdir) {
-		job_log(j, LOG_DEBUG, "Watch path modified: %s", wp->name);
-	} else {
-		job_log(j, LOG_DEBUG, "Queue directory modified: %s", wp->name);
-
-		if (-1 == (dir_file_cnt = dir_has_files(j, wp->name))) {
-			job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", wp->name);
-		} else if (0 == dir_file_cnt) {
-			job_log(j, LOG_DEBUG, "Spurious wake up, directory is empty again: %s", wp->name);
-			return;
-		}
+	if (!job_assumes(j, si != NULL)) {
+		return;
 	}
 
-	job_dispatch(j, true);
+	if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
+		job_log(j, LOG_DEBUG, "Path invalidated: %s", si->what);
+		job_assumes(j, close(si->fd) == 0);
+		si->fd = -1; /* this will get fixed in semaphoreitem_watch() */
+	}
+
+	job_log(j, LOG_DEBUG, "Watch path modified: %s", si->what);
+
+	job_dispatch(j, si->why == PATH_CHANGES ? true : false);
 }
 
 bool
@@ -2818,6 +2769,8 @@ job_keepalive(job_t j)
 
 	SLIST_FOREACH(si, &j->semaphores, sle) {
 		bool wanted_state = false;
+		int qdir_file_cnt;
+
 		switch (si->why) {
 		case NETWORK_UP:
 			wanted_state = true;
@@ -2843,6 +2796,19 @@ job_keepalive(job_t j)
 			if ((bool)(stat(si->what, &sb) == 0) == wanted_state) {
 				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the following path %s: %s",
 						wanted_state ? "exists" : "is missing", si->what);
+				if (si->fd != -1) {
+					job_assumes(j, close(si->fd) == 0);
+					si->fd = -1;
+				}
+				return true;
+			}
+			break;
+		case PATH_CHANGES:
+			break;
+		case DIR_NOT_EMPTY:
+			if (-1 == (qdir_file_cnt = dir_has_files(j, si->what))) {
+				job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", si->what);
+			} else if (qdir_file_cnt > 0) {
 				return true;
 			}
 			break;
@@ -2925,6 +2891,18 @@ jobmgr_fork(jobmgr_t jm)
 	sigprocmask(SIG_UNBLOCK, &blocked_signals, NULL);
 	
 	return r;
+}
+
+void
+machservice_watch(job_t j, struct machservice *ms)
+{
+	job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
+}
+
+void
+machservice_ignore(job_t j, struct machservice *ms)
+{
+	job_assumes(j, runtime_remove_mport(ms->port) == KERN_SUCCESS);
 }
 
 void
@@ -3347,7 +3325,7 @@ machservice_delete(struct machservice *ms)
 }
 
 void
-machservice_watch(struct machservice *ms)
+machservice_request_notifications(struct machservice *ms)
 {
 	mach_msg_id_t which = MACH_NOTIFY_DEAD_NAME;
 
@@ -3521,6 +3499,7 @@ semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 		return false;
 	}
 
+	si->fd = -1;
 	si->why = why;
 
 	if (what) {
@@ -3533,11 +3512,15 @@ semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 }
 
 void
-semaphoreitem_delete(job_t j, struct semaphoreitem *ri)
+semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 {
-	SLIST_REMOVE(&j->semaphores, ri, semaphoreitem, sle);
+	SLIST_REMOVE(&j->semaphores, si, semaphoreitem, sle);
 
-	free(ri);
+	if (si->fd != -1) {
+		job_assumes(j, close(si->fd) != -1);
+	}
+
+	free(si);
 }
 
 void
@@ -3571,18 +3554,18 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 }
 
 void
-jobmgr_dispatch_all_other_semaphores(jobmgr_t jm, job_t nj)
+jobmgr_dispatch_all_semaphores(jobmgr_t jm)
 {
 	jobmgr_t jmi;
 	job_t ji, jn;
 
 
 	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
-		jobmgr_dispatch_all_other_semaphores(jmi, nj);
+		jobmgr_dispatch_all_semaphores(jmi);
 	}
 
 	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
-		if (ji != nj && !SLIST_EMPTY(&ji->semaphores)) {
+		if (!SLIST_EMPTY(&ji->semaphores)) {
 			job_dispatch(ji, false);
 		}
 	}
@@ -3979,7 +3962,7 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
 
-	machservice_watch(ms);
+	machservice_request_notifications(ms);
 
 	job_log(j, LOG_INFO, "Check-in of service: %s", servicename);
 
@@ -4034,7 +4017,7 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 
 	if (serviceport != MACH_PORT_NULL) {
 		if ((ms = machservice_new(j, servicename, &serviceport))) {
-			machservice_watch(ms);
+			machservice_request_notifications(ms);
 		} else {
 			return BOOTSTRAP_NO_MEMORY;
 		}
@@ -4228,7 +4211,7 @@ job_mig_move_subset_to_user(job_t j, mach_port_t target_subset)
 		struct machservice *ms;
 
 		if ((ms = machservice_new(jmr->anonj, l2l_names[l2l_i], &l2l_ports[l2l_i]))) {
-			machservice_watch(ms);
+			machservice_request_notifications(ms);
 		}
 	}
 
