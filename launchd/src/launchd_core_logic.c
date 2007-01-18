@@ -1288,12 +1288,8 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS) == 0) {
 			return;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE) == 0) {
-			for (i = 0; i < value_cnt; i++) {
-				str = launch_data_get_string(launch_data_array_get_index(value, i));
-				if (job_assumes(j, str != NULL)) {
-					job_reparent_hack(j, str);
-				}
-			}
+			job_log(j, LOG_NOTICE, "launchctl should have transformed the \"%s\" array to a string", LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE);
+			return;
 		}
 		break;
 	case 'q':

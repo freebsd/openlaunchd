@@ -554,6 +554,9 @@ readfile(const char *what, struct load_unload_state *lus)
 				allowed_session = launch_data_get_string(tmps);
 				if (strcasecmp(lus->session_type, allowed_session) == 0) {
 					skipjob = false;
+					/* we have to do the following so job_reparent_hack() works within launchd */
+					tmpa = launch_data_new_string(lus->session_type);
+					launch_data_dict_insert(thejob, tmpa, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE);
 					break;
 				}
 			}
