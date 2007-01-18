@@ -1096,11 +1096,7 @@ job_import_string(job_t j, const char *key, const char *value)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS) == 0) {
 			return;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE) == 0) {
-			if (strcmp(value, "Aqua") == 0) {
-				job_reparent_hack(j, "Aqua");
-			} else if (strcmp(value, "LoginWindow") == 0) {
-				job_reparent_hack(j, "LoginWindow");
-			}
+			job_reparent_hack(j, value);
 			return;
 		}
 		break;
@@ -1281,6 +1277,9 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 void
 job_import_array(job_t j, const char *key, launch_data_t value)
 {
+	size_t i, value_cnt = launch_data_array_get_count(value);
+	const char *str;
+
 	switch (key[0]) {
 	case 'l':
 	case 'L':
@@ -1288,16 +1287,23 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 			return;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS) == 0) {
 			return;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE) == 0) {
+			for (i = 0; i < value_cnt; i++) {
+				str = launch_data_get_string(launch_data_array_get_index(value, i));
+				if (job_assumes(j, str != NULL)) {
+					job_reparent_hack(j, str);
+				}
+			}
 		}
 		break;
 	case 'q':
 	case 'Q':
 		if (strcasecmp(key, LAUNCH_JOBKEY_QUEUEDIRECTORIES) == 0) {
-			size_t i, qd_cnt = launch_data_array_get_count(value);
-			const char *thepath;
-			for (i = 0; i < qd_cnt; i++) {
-				thepath = launch_data_get_string(launch_data_array_get_index(value, i));
-				semaphoreitem_new(j, DIR_NOT_EMPTY, thepath);
+			for (i = 0; i < value_cnt; i++) {
+				str = launch_data_get_string(launch_data_array_get_index(value, i));
+				if (job_assumes(j, str != NULL)) {
+					semaphoreitem_new(j, DIR_NOT_EMPTY, str);
+				}
 			}
 
 		}
@@ -1305,11 +1311,11 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 	case 'w':
 	case 'W':
 		if (strcasecmp(key, LAUNCH_JOBKEY_WATCHPATHS) == 0) {
-			size_t i, wp_cnt = launch_data_array_get_count(value);
-			const char *thepath;
-			for (i = 0; i < wp_cnt; i++) {
-				thepath = launch_data_get_string(launch_data_array_get_index(value, i));
-				semaphoreitem_new(j, PATH_CHANGES, thepath);
+			for (i = 0; i < value_cnt; i++) {
+				str = launch_data_get_string(launch_data_array_get_index(value, i));
+				if (job_assumes(j, str != NULL)) {
+					semaphoreitem_new(j, PATH_CHANGES, str);
+				}
 			}
 		}
 		break;
@@ -1322,9 +1328,9 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 	case 's':
 	case 'S':
 		if (strcasecmp(key, LAUNCH_JOBKEY_STARTCALENDARINTERVAL) == 0) {
-			size_t i = 0, ci_cnt = launch_data_array_get_count(value);
-			for (i = 0; i < ci_cnt; i++)
+			for (i = 0; i < value_cnt; i++) {
 				calendarinterval_new_from_obj(j, launch_data_array_get_index(value, i));
+			}
 		}
 		break;
 	default:
@@ -2436,6 +2442,10 @@ calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 	tmptm.tm_mday = -1;
 	tmptm.tm_wday = -1;
 	tmptm.tm_mon = -1;
+
+	if (!job_assumes(j, obj != NULL)) {
+		return false;
+	}
 
 	if (LAUNCH_DATA_DICTIONARY != launch_data_get_type(obj)) {
 		return false;
@@ -4159,8 +4169,12 @@ job_reparent_hack(job_t j, const char *where)
 {
 	jobmgr_t jmi = NULL;
 
+	if (strcasecmp(where, "Aqua") != 0 && strcasecmp(where, "LoginWindow") != 0) {
+		return;
+	}
+
 	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
-		if (strcmp(jmi->name, where) == 0) {
+		if (strcasecmp(jmi->name, where) == 0) {
 			break;
 		}
 	}
