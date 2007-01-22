@@ -1979,7 +1979,7 @@ job_find_and_blame_pids_with_weird_uids(job_t j)
 			continue;
 		}
 
-		job_log(j, LOG_ERR, "PID %u (\"%s\") has no account to back it! (real/effective/saved UIDs: %u/%u/%u)",
+		job_log(j, LOG_ERR, "PID %u \"%s\" has no account to back it! Real/effective/saved UIDs: %u/%u/%u",
 				kp[i].kp_proc.p_pid, kp[i].kp_proc.p_comm, i_uid, i_euid, i_svuid);
 	}
 
