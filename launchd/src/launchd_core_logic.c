@@ -291,6 +291,7 @@ static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
 static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
 static void job_postfork_become_user(job_t j);
+static void job_find_and_blame_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_reparent_hack(job_t j, const char *where);
 static void job_callback(void *obj, struct kevent *kev);
@@ -1953,6 +1954,36 @@ void jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
 }
 
 void
+job_find_and_blame_pids_with_weird_uids(job_t j)
+{
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
+	size_t i, kp_cnt, len = 10*1024*1024;
+	struct kinfo_proc *kp = malloc(len);
+	uid_t u = j->mach_uid;
+
+	if (!job_assumes(j, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
+		return;
+	}
+
+	kp_cnt = len / sizeof(struct kinfo_proc);
+
+	for (i = 0; i <= kp_cnt; i++) {
+		uid_t i_euid = kp[i].kp_eproc.e_ucred.cr_uid;
+		uid_t i_uid = kp[i].kp_eproc.e_pcred.p_ruid;
+		uid_t i_svuid = kp[i].kp_eproc.e_pcred.p_svuid;
+
+		if (i_euid != u && i_uid != u && i_svuid != u) {
+			continue;
+		}
+
+		job_log(j, LOG_ERR, "PID %u (\"%s\") has no account to back it! (real/effective/saved UIDs: %u/%u/%u)",
+				kp[i].kp_proc.p_pid, kp[i].kp_proc.p_comm, i_uid, i_euid, i_svuid);
+	}
+
+	free(kp);
+}
+
+void
 job_postfork_become_user(job_t j)
 {
 	char loginname[2000];
@@ -1974,6 +2005,7 @@ job_postfork_become_user(job_t j)
 	} else if (j->mach_uid) {
 		if ((pwe = getpwuid(j->mach_uid)) == NULL) {
 			job_log(j, LOG_ERR, "getpwuid(\"%u\") failed", j->mach_uid);
+			job_find_and_blame_pids_with_weird_uids(j);
 			_exit(EXIT_FAILURE);
 		}
 	} else {
