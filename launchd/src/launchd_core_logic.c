@@ -1961,8 +1961,11 @@ job_find_and_blame_pids_with_weird_uids(job_t j)
 	struct kinfo_proc *kp = malloc(len);
 	uid_t u = j->mach_uid;
 
-	if (!job_assumes(j, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
+	if (!job_assumes(j, kp != NULL)) {
 		return;
+	}
+	if (!job_assumes(j, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
+		goto out;
 	}
 
 	kp_cnt = len / sizeof(struct kinfo_proc);
@@ -1980,6 +1983,7 @@ job_find_and_blame_pids_with_weird_uids(job_t j)
 				kp[i].kp_proc.p_pid, kp[i].kp_proc.p_comm, i_uid, i_euid, i_svuid);
 	}
 
+out:
 	free(kp);
 }
 
