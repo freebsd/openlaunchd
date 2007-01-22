@@ -1970,7 +1970,7 @@ job_find_and_blame_pids_with_weird_uids(job_t j)
 
 	kp_cnt = len / sizeof(struct kinfo_proc);
 
-	for (i = 0; i <= kp_cnt; i++) {
+	for (i = 0; i < kp_cnt; i++) {
 		uid_t i_euid = kp[i].kp_eproc.e_ucred.cr_uid;
 		uid_t i_uid = kp[i].kp_eproc.e_pcred.p_ruid;
 		uid_t i_svuid = kp[i].kp_eproc.e_pcred.p_svuid;
