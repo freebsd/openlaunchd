@@ -2752,7 +2752,8 @@ do_application_firewall_magic(int sfd, launch_data_t thejob)
 	}
 
 	if (assumes(prog != NULL)) {
-		assumes(setsockopt(sfd, SOL_SOCKET, SO_EXECPATH, prog, strlen(prog) + 1) != -1);
+		/* The networking team has asked us to ignore the failure of this API if errno == ENOPROTOOPT */
+		assumes(setsockopt(sfd, SOL_SOCKET, SO_EXECPATH, prog, strlen(prog) + 1) != -1 || errno == ENOPROTOOPT);
 	}
 }
 
