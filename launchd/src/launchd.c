@@ -290,7 +290,16 @@ main(int argc, char *const *argv)
 		}
 	}
 
-	if (stat(ldconf, &sb) == 0) {
+	/*
+	 * We cannot stat() anything in the home directory right now.
+	 *
+	 * The per-user launchd can easily be demand launched by the tool doing
+	 * the mount of the home directory. The result is an ugly deadlock.
+	 *
+	 * We hope to someday have a non-blocking stat(), but for now, we have
+	 * to skip it.
+	 */
+	if (!h && stat(ldconf, &sb) == 0) {
 		job_dispatch(rlcj, true);
 	}
 
