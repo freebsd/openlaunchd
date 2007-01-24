@@ -265,7 +265,7 @@ struct job_s {
 		     anonymous:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
-		     currently_ignored:1, forced_peers_to_demand_mode:1;
+		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1;
 	char label[0];
 };
 
@@ -1168,6 +1168,7 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 'N':
 		if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0) {
 			j->nice = value;
+			j->setnice = true;
 		}
 		break;
 	case 't':
@@ -2080,7 +2081,9 @@ job_setup_attributes(job_t j)
 	struct limititem *li;
 	struct envitem *ei;
 
-	setpriority(PRIO_PROCESS, 0, j->nice);
+	if (j->setnice) {
+		job_assumes(j, setpriority(PRIO_PROCESS, 0, j->nice) != -1);
+	}
 
 	SLIST_FOREACH(li, &j->limits, sle) {
 		struct rlimit rl;
