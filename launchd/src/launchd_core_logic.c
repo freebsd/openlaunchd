@@ -2912,6 +2912,7 @@ jobmgr_fork(jobmgr_t jm)
 {
 	mach_port_t p = jm->jm_port;
 	pid_t r = -1;
+	int saved_errno;
 
 	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
@@ -2920,6 +2921,8 @@ jobmgr_fork(jobmgr_t jm)
 	jobmgr_assumes(jm, launchd_mport_deallocate(p) == KERN_SUCCESS);
 
 	r = fork();
+
+	saved_errno = errno;
 
 	if (r != 0) {
 		jobmgr_assumes(jm, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
@@ -2935,6 +2938,7 @@ jobmgr_fork(jobmgr_t jm)
 
 	sigprocmask(SIG_UNBLOCK, &blocked_signals, NULL);
 	
+	errno = saved_errno;
 	return r;
 }
 
