@@ -404,7 +404,7 @@ void
 job_stop(job_t j)
 {
 	if (j->p) {
-		kill(j->p, SIGTERM);
+		job_assumes(j, kill(j->p, SIGTERM) != -1);
 	}
 }
 
@@ -1975,13 +1975,17 @@ job_find_and_blame_pids_with_weird_uids(job_t j)
 		uid_t i_euid = kp[i].kp_eproc.e_ucred.cr_uid;
 		uid_t i_uid = kp[i].kp_eproc.e_pcred.p_ruid;
 		uid_t i_svuid = kp[i].kp_eproc.e_pcred.p_svuid;
+		pid_t i_pid = kp[i].kp_proc.p_pid;
 
 		if (i_euid != u && i_uid != u && i_svuid != u) {
 			continue;
 		}
 
 		job_log(j, LOG_ERR, "PID %u \"%s\" has no account to back it! Real/effective/saved UIDs: %u/%u/%u",
-				kp[i].kp_proc.p_pid, kp[i].kp_proc.p_comm, i_uid, i_euid, i_svuid);
+				i_pid, kp[i].kp_proc.p_comm, i_uid, i_euid, i_svuid);
+
+		/* Ask the accountless process to exit. */
+		job_assumes(j, kill(i_pid, SIGTERM) != -1);
 	}
 
 out:
