@@ -469,10 +469,6 @@ launchd_shutdown(void)
 	rlcj = NULL;
 
 	jobmgr_remove_all_inactive(root_jobmgr);
-
-	if (getpid() == 1) {
-		catatonia();
-	}
 }
 
 void

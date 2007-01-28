@@ -55,9 +55,6 @@ boolean_t launchd_mach_ipc_demux(mach_msg_header_t *Request, mach_msg_header_t *
 void init_boot(bool sflag);
 void init_pre_kevent(void);
 
-void update_ttys(void);
-void catatonia(void);
-
 void mach_start_shutdown(void);
 void mach_init_init(mach_port_t);
 

@@ -37,7 +37,6 @@ __BEGIN_DECLS
 #define LAUNCH_KEY_SINGLEUSER		"SingleUser"
 #define LAUNCH_KEY_GETRESOURCELIMITS	"GetResourceLimits"
 #define LAUNCH_KEY_SETRESOURCELIMITS	"SetResourceLimits"
-#define LAUNCH_KEY_RELOADTTYS		"ReloadTTYS"
 #define LAUNCH_KEY_SETLOGMASK		"SetLogMask"
 #define LAUNCH_KEY_GETLOGMASK		"GetLogMask"
 #define LAUNCH_KEY_SETUMASK		"SetUmask"

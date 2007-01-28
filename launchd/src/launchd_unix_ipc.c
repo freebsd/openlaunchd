@@ -352,9 +352,6 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			} else {
 				resp = launch_data_new_errno(EACCES);
 			}
-		} else if (!strcmp(cmd, LAUNCH_KEY_RELOADTTYS)) {
-			update_ttys();
-			resp = launch_data_new_errno(0);
 		} else if (!strcmp(cmd, LAUNCH_KEY_SHUTDOWN)) {
 			launchd_shutdown();
 			resp = launch_data_new_errno(0);

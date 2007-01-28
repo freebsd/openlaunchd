@@ -134,7 +134,6 @@ static void apply_sysctls_from_file(const char *thefile);
 static void empty_dir(const char *thedir, struct stat *psb);
 static int touch_file(const char *path, mode_t m);
 static void do_sysversion_sysctl(void);
-static void workaround4465949(void);
 static void do_application_firewall_magic(int sfd, launch_data_t thejob);
 static void preheat_page_cache_hack(void);
 static void do_bootroot_magic(void);
@@ -185,7 +184,6 @@ static const struct {
 	{ "stderr",	stdio_cmd,		"Redirect launchd's standard error to the given path" },
 	{ "shutdown",	fyi_cmd,		"Prepare for system shutdown" },
 	{ "singleuser",	fyi_cmd,		"Switch to single-user mode" },
-	{ "reloadttys",	fyi_cmd,		"Reload /etc/ttys" },
 	{ "getrusage",	getrusage_cmd,		"Get resource usage statistics from launchd" },
 	{ "log",	logupdate_cmd,		"Adjust the logging level or mask of launchd" },
 	{ "umask",	umask_cmd,		"Change launchd's umask" },
@@ -1279,40 +1277,12 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	const char *SystemStarter_tool[] = { "SystemStarter", NULL };
 	assumes(fwexec(SystemStarter_tool, false) != -1);
 
-	workaround4465949();
-
 	if (path_check("/etc/rc.local")) {
 		const char *rc_local_tool[] = { _PATH_BSHELL, "/etc/rc.local", NULL };
 		assumes(fwexec(rc_local_tool, false) != -1);
 	}
 
 	return 0;
-}
-
-void
-workaround4465949(void)
-{
-	const char *pbs_tool[] = { "/System/Library/CoreServices/pbs", NULL };
-	const char *lca_tool[] = { "/System/Library/CoreServices/Language Chooser.app/Contents/MacOS/Language Chooser", NULL};
-	char *const reloadttys_argv[] = { "reloadttys", NULL };
-	int wstatus;
-	pid_t pbs_p;
-
-	if (path_check("/System/Library/LaunchDaemons/com.apple.loginwindow.plist")) {
-		return;
-	}
-
-	if (path_check(pbs_tool[0]) && path_check(lca_tool[0]) &&
-			!path_check("/var/db/.AppleSetupDone") &&
-			path_check("/var/db/.RunLanguageChooserToo")) {
-		if (assumes((pbs_p = fwexec(pbs_tool, false)) != -1)) {
-			assumes(fwexec(lca_tool, true) != -1);
-			assumes(kill(pbs_p, SIGTERM) != -1);
-			assumes(waitpid(pbs_p, &wstatus, 0) != -1);
-		}
-	}
-
-	assumes(fyi_cmd(1, reloadttys_argv) == 0);
 }
 
 int
@@ -1763,7 +1733,7 @@ int
 fyi_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
-	const char *lmsgk = LAUNCH_KEY_RELOADTTYS;
+	const char *lmsgk = NULL;
 	int e, r = 0;
 
 	if (argc != 1) {
@@ -1775,6 +1745,8 @@ fyi_cmd(int argc, char *const argv[])
 		lmsgk = LAUNCH_KEY_SHUTDOWN;
 	} else if (!strcmp(argv[0], "singleuser")) {
 		lmsgk = LAUNCH_KEY_SINGLEUSER;
+	} else {
+		return 1;
 	}
 
 	msg = launch_data_new_string(lmsgk);
