@@ -4546,6 +4546,8 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 	*child_pid = job_get_pid(jr);
 	*obsvr_port = jr->j_port;
 
+	mig_deallocate((vm_address_t)charbuf, charbuf_cnt);
+
 	return BOOTSTRAP_SUCCESS;
 }
 
