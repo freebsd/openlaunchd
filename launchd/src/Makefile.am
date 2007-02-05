@@ -93,7 +93,8 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 	mkdir -p $(DESTDIR)/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/Library/LaunchAgents
-	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
+	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
+	cp $(srcdir)/com.apple.SystemStarter.plist $(DESTDIR)/System/Library/LaunchDaemons
 
 endif

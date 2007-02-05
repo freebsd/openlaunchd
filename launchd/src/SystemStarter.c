@@ -22,6 +22,9 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  **/
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <paths.h>
 #include <unistd.h>
 #include <crt_externs.h>
 #include <fcntl.h>
@@ -147,7 +150,27 @@ main(int argc, char *argv[])
 		}
 	}
 
-	exit(system_starter(anAction, aService));
+	int ssec = system_starter(anAction, aService);
+	struct stat sb;
+
+	if (anAction == kActionStart && stat("/etc/rc.local", &sb) != -1) {
+		int wstatus;
+		pid_t rclp;
+
+		switch ((rclp = fork())) {
+		case -1:
+			break;
+		case 0:
+			execlp(_PATH_BSHELL, _PATH_BSHELL, "/etc/rc.local", NULL);
+			_exit(EXIT_FAILURE);
+			break;
+		default:
+			waitpid(rclp, &wstatus, 0);
+			break;
+		}
+	}
+
+	exit(ssec);
 }
 
 

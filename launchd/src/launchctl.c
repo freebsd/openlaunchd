@@ -1274,14 +1274,6 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 
 	_vproc_set_global_on_demand(false);
 
-	const char *SystemStarter_tool[] = { "SystemStarter", NULL };
-	assumes(fwexec(SystemStarter_tool, false) != -1);
-
-	if (path_check("/etc/rc.local")) {
-		const char *rc_local_tool[] = { _PATH_BSHELL, "/etc/rc.local", NULL };
-		assumes(fwexec(rc_local_tool, true) != -1);
-	}
-
 	return 0;
 }
 
