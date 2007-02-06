@@ -34,7 +34,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <mach/host_info.h>
 #include <mach/mach_host.h>
 #include <mach/exception.h>
-#include <mach-o/dyld.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/event.h>
@@ -51,6 +50,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <stdlib.h>
 #include <stdbool.h>
 #include <syslog.h>
+#include <dlfcn.h>
 
 #include "launchd_internalServer.h"
 #include "launchd_internal.h"
@@ -192,47 +192,18 @@ kqueue_demand_loop(void *arg __attribute__((unused)))
 	return NULL;
 }
 
-static bool
-ptr_is_in_exe(void *ptr)
-{
-	uint32_t i, count = _dyld_image_count();
-
-	for (i = 0; i < count; i++) {
-		const struct mach_header *header = _dyld_get_image_header(i);
-		uint32_t j, offset = _dyld_get_image_vmaddr_slide(i);
-		struct segment_command *seg;
-		struct load_command *cmd;
-
-		j = 0;
-		cmd = (struct load_command*)((char *)header + sizeof(struct mach_header));
-
-		while (j < header->ncmds) {
-			if (cmd->cmd == LC_SEGMENT) {
-				seg = (struct segment_command*)cmd;
-				if (((uint32_t)ptr >= (seg->vmaddr + offset)) && ((uint32_t)ptr < (seg->vmaddr + offset + seg->vmsize))) {
-					return true;
-				}
-			}
-
-			j++;
-			cmd = (struct load_command*)((char*)cmd + cmd->cmdsize);
-		}
-	}
-	
-	return false;
-}
-
 kern_return_t
 x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 {
 	struct timespec ts = { 0, 0 };
 	struct kevent kev;
+	Dl_info dli;
 	int kevr;
 
 	launchd_assumes((kevr = kevent(fd, NULL, 0, &kev, 1, &ts)) != -1);
 
 	if (kevr == 1) {
-		if (launchd_assumes(malloc_size(kev.udata) || ptr_is_in_exe(kev.udata))) {
+		if (launchd_assumes(malloc_size(kev.udata) || dladdr(kev.udata, &dli))) {
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 		} else {
 			syslog(LOG_ERR, "kev.ident == 0x%x kev.filter == 0x%x kev.fflags = 0x%x kev.udata = 0x%x",
