@@ -180,7 +180,7 @@ for use by the job at check in time.
 This key lets one override the default throttling policy imposed on jobs by
 .Nm launchd .
 The value is in seconds, and by default, jobs will not be spawned more than once every 10 seconds.
-The principle behind this is that jobs should linger around just in case their needed again in the near future. This not only
+The principle behind this is that jobs should linger around just in case they are needed again in the near future. This not only
 reduces the latency of responses, but it encourages developers to amortize the cost of program invocation.
 .It Sy InitGroups <boolean>
 This optional key specifies whether the job should have
