@@ -976,9 +976,7 @@ job_import(launch_data_t pload)
 		return NULL;
 	}
 
-	job_dispatch(j, false);
-
-	return j;
+	return job_dispatch(j, false);
 }
 
 launch_data_t
@@ -1641,19 +1639,19 @@ job_reap(job_t j)
 void
 jobmgr_dispatch_all(jobmgr_t jm)
 {
-	jobmgr_t jmi;
-	job_t ji;
+	jobmgr_t jmi, jmn;
+	job_t ji, jn;
 
-	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
 		jobmgr_dispatch_all(jmi);
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		job_dispatch(ji, false);
 	}
 }
 
-void
+job_t
 job_dispatch(job_t j, bool kickstart)
 {
 	/*
@@ -1664,15 +1662,18 @@ job_dispatch(job_t j, bool kickstart)
 	 *
 	 * This is a classic example. The act of dispatching a job may delete it.
 	 */
-	if (job_active(j)) {
-		return;
-	} else if (job_useless(j)) {
-		job_remove(j);
-	} else if (kickstart || job_keepalive(j)) {
-		job_start(j);
-	} else {
-		job_watch(j);
+	if (!job_active(j)) {
+		if (job_useless(j)) {
+			job_remove(j);
+			return NULL;
+		} else if (kickstart || job_keepalive(j)) {
+			job_start(j);
+		} else {
+			job_watch(j);
+		}
 	}
+
+	return j;
 }
 
 void
@@ -3468,6 +3469,7 @@ jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p)
 		}
 	}
 
+	/* We don't need the _SAFE version because we return after the job_dispatch() */
 	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (ms->port != p) {
@@ -3613,11 +3615,11 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 void
 jobmgr_dispatch_all_semaphores(jobmgr_t jm)
 {
-	jobmgr_t jmi;
+	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
 
-	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
 		jobmgr_dispatch_all_semaphores(jmi);
 	}
 
@@ -3979,10 +3981,12 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		ms->must_match_uid = true;
 		ms->hide = true;
 
-		job_dispatch(ji, false);
+		ji = job_dispatch(ji, false);
 	}
 
-	*up_cont = machservice_port(SLIST_FIRST(&ji->machservices));
+	if (job_assumes(j, ji != NULL)) {
+		*up_cont = machservice_port(SLIST_FIRST(&ji->machservices));
+	}
 
 	return 0;
 }
@@ -4538,7 +4542,11 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 	memcpy(jr->j_binpref, bin_pref, sizeof(jr->j_binpref));
 	jr->j_binpref_cnt = binpref_cnt;
 
-	job_dispatch(jr, true);
+	jr = job_dispatch(jr, true);
+
+	if (!job_assumes(j, jr != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
 	if (!job_setup_machport(jr)) {
 		job_remove(jr);

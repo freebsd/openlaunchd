@@ -43,7 +43,7 @@ job_t jobmgr_find_by_service_port(jobmgr_t jm, mach_port_t p);
 launch_data_t job_export_all(void);
 
 job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv, const char *stdinpath);
-void job_dispatch(job_t j, bool kickstart);
+job_t job_dispatch(job_t j, bool kickstart); /* returns j on success, NULL on job removal */
 bool job_active(job_t j);
 launch_data_t job_export(job_t j);
 void job_stop(job_t j);
