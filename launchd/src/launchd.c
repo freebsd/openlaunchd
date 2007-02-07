@@ -300,11 +300,11 @@ main(int argc, char *const *argv)
 	 * to skip it.
 	 */
 	if (!h && stat(ldconf, &sb) == 0) {
-		job_dispatch(rlcj, true);
+		rlcj = job_dispatch(rlcj, true);
 	}
 
 	if (fbj) {
-		job_dispatch(fbj, true);
+		fbj = job_dispatch(fbj, true);
 	}
 
 	char *doom_why = "at instruction";
@@ -474,24 +474,15 @@ launchd_shutdown(void)
 void
 launchd_single_user(void)
 {
-	int tries;
+	syslog(LOG_NOTICE, "Going to single-user mode");
+
+	re_exec_in_single_user_mode = true;
 
 	launchd_shutdown();
 
-	kill(-1, SIGTERM);
+	sleep(3);
 
-	for (tries = 0; tries < 10; tries++) {
-		sleep(1);
-		if (kill(-1, 0) == -1 && errno == ESRCH) {
-			goto out;
-		}
-	}
-
-	syslog(LOG_WARNING, "Gave up waiting for processes to exit while going to single user mode, sending SIGKILL");
 	kill(-1, SIGKILL);
-
-out:
-	re_exec_in_single_user_mode = true;
 }
 
 static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
@@ -501,7 +492,7 @@ static void signal_callback(void *obj __attribute__((unused)), struct kevent *ke
 	switch (kev->ident) {
 	case SIGHUP:
 		if (rlcj) {
-			job_dispatch(rlcj, true);
+			rlcj = job_dispatch(rlcj, true);
 		}
 		break;
 	case SIGTERM:
@@ -691,6 +682,7 @@ launchd_post_kevent(void)
 			exit(EXIT_SUCCESS);
 		} else if (re_exec_in_single_user_mode) {
 			re_exec_in_single_user_mode = false;
+			kill(-1, SIGKILL); /* One last time, just to clear the room */
 			launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
 		}
 	}
