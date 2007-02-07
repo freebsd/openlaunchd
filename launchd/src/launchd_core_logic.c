@@ -1933,10 +1933,10 @@ job_start_child(job_t j)
 	}
 
 	if (j->prog) {
-		posix_spawn(&junk_pid, j->inetcompat ? file2exec : j->prog, NULL, &spattr, (char *const*)argv, environ);
+		errno = posix_spawn(&junk_pid, j->inetcompat ? file2exec : j->prog, NULL, &spattr, (char *const*)argv, environ);
 		job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", j->prog);
 	} else {
-		posix_spawnp(&junk_pid, j->inetcompat ? file2exec : argv[0], NULL, &spattr, (char *const*)argv, environ);
+		errno = posix_spawnp(&junk_pid, j->inetcompat ? file2exec : argv[0], NULL, &spattr, (char *const*)argv, environ);
 		job_log_error(j, LOG_ERR, "posix_spawnp(\"%s\", ...)", argv[0]);
 	}
 
