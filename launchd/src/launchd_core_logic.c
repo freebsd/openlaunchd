@@ -87,6 +87,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
+#define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
 
 extern char **environ;
 
@@ -254,8 +255,10 @@ struct job_s {
 	int forkfd;
 	int log_redirect_fd;
 	int nice;
-	int timeout;
+	unsigned int timeout;
+	unsigned int exit_timeout;
 	int stdout_err_fd;
+	struct timeval sent_sigterm_time;
 	time_t start_time;
 	time_t min_run_time;
 	unsigned int start_interval;
@@ -405,6 +408,11 @@ job_stop(job_t j)
 {
 	if (j->p) {
 		job_assumes(j, kill(j->p, SIGTERM) != -1);
+		job_assumes(j, gettimeofday(&j->sent_sigterm_time, NULL) != -1);
+		if (j->exit_timeout) {
+			job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
+						EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
+		}
 	}
 }
 
@@ -516,9 +524,6 @@ jobmgr_remove_all_inactive(jobmgr_t jm)
 		if (!job_active(ji)) {
 			job_remove(ji);
 		} else {
-			if (debug_shutdown_hangs) {
-				job_assumes(ji, kevent_mod((uintptr_t)ji, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 8, ji) != -1);
-			}
 			job_stop(ji);
 		}
 	}
@@ -661,6 +666,9 @@ job_remove(job_t j)
 	}
 	if (j->start_interval) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+	}
+	if (j->exit_timeout) {
+		kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	}
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
@@ -907,6 +915,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	j->mgr = jm;
 	j->min_run_time = LAUNCHD_MIN_JOB_RUN_TIME;
 	j->timeout = LAUNCHD_ADVISABLE_IDLE_TIMEOUT;
+	j->exit_timeout = LAUNCHD_DEFAULT_EXIT_TIMEOUT;
 	j->currently_ignored = true;
 	j->ondemand = true;
 	j->checkedin = true;
@@ -1162,6 +1171,16 @@ void
 job_import_integer(job_t j, const char *key, long long value)
 {
 	switch (key[0]) {
+	case 'e':
+	case 'E':
+		if (strcasecmp(key, LAUNCH_JOBKEY_EXITTIMEOUT) == 0) {
+			if (value < 0) {
+				job_log(j, LOG_WARNING, "Exit timeout less zero. Ignoring.");
+			} else {
+				j->exit_timeout = value;
+			}
+		}
+		break;
 	case 'n':
 	case 'N':
 		if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0) {
@@ -1577,6 +1596,7 @@ job_export_all(void)
 void
 job_reap(job_t j)
 {
+	struct timeval tve, tvd;
 	struct rusage ru;
 	int status;
 
@@ -1596,10 +1616,22 @@ job_reap(job_t j)
 		return;
 	}
 
+	job_assumes(j, gettimeofday(&tve, NULL) != -1);
+
 	if (j->wait_reply_port) {
 		job_log(j, LOG_DEBUG, "MPM wait reply being sent");
 		job_assumes(j, job_mig_wait_reply(j->wait_reply_port, 0, status) == 0);
 		j->wait_reply_port = MACH_PORT_NULL;
+	}
+
+	if (j->sent_sigterm_time.tv_sec) {
+		double delta;
+
+		timersub(&tve, &j->sent_sigterm_time,  &tvd);
+
+		delta = (double)tvd.tv_sec + (double)tvd.tv_usec / (double)1000000;
+
+		job_log(j, tvd.tv_sec ? LOG_NOTICE : LOG_INFO, "Exited %f seconds after SIGTERM was sent", delta);
 	}
 
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
@@ -1724,14 +1756,14 @@ job_callback(void *obj, struct kevent *kev)
 		}
 		break;
 	case EVFILT_TIMER:
-		if ((uintptr_t)j == kev->ident) {
-			if (j->p && job_assumes(j, debug_shutdown_hangs)) {
-				job_force_sampletool(j);
-			} else {
-				job_dispatch(j, true);
-			}
-		} else if ((uintptr_t)&j->start_interval == kev->ident) {
+		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
 			job_dispatch(j, true);
+		} else if ((uintptr_t)&j->exit_timeout == kev->ident) {
+			if (debug_shutdown_hangs) {
+				job_force_sampletool(j);
+			}
+			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
+			job_assumes(j, kill(j->p, SIGKILL) != -1);
 		} else {
 			calendarinterval_callback(j, kev);
 		}
@@ -1787,6 +1819,9 @@ job_start(job_t j)
 	}
 
 	job_log(j, LOG_DEBUG, "Starting");
+
+	j->sent_sigterm_time.tv_sec = 0;
+	j->sent_sigterm_time.tv_usec = 0;
 
 	/* FIXME, using stdinpath is a hack for re-reading the conf file */
 	if (j->stdinpath) {

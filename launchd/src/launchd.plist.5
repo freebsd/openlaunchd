@@ -176,6 +176,10 @@ before running the job. Known bug: Property lists don't support octal, so please
 The recommended idle time out (in seconds) to pass to the job. If no value is specified, a default time out will be supplied by
 .Nm launchd
 for use by the job at check in time.
+.It Sy ExitTimeOut <integer>
+The amount of time
+.Nm launchd
+waits before sending a SIGKILL signal. The default value is 20 seconds. The value zero is interpreted as infinity.
 .It Sy ThrottleInterval <integer>
 This key lets one override the default throttling policy imposed on jobs by
 .Nm launchd .

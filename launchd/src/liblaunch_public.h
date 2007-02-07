@@ -58,6 +58,7 @@ __BEGIN_DECLS
 #define LAUNCH_JOBKEY_USERNAME			"UserName"
 #define LAUNCH_JOBKEY_GROUPNAME			"GroupName"
 #define LAUNCH_JOBKEY_TIMEOUT			"TimeOut"
+#define LAUNCH_JOBKEY_EXITTIMEOUT		"ExitTimeOut"
 #define LAUNCH_JOBKEY_INITGROUPS		"InitGroups"
 #define LAUNCH_JOBKEY_SOCKETS			"Sockets"
 #define LAUNCH_JOBKEY_MACHSERVICES		"MachServices"
