@@ -1803,7 +1803,7 @@ job_start(job_t j)
 
 	job_assumes(j, socketpair(AF_UNIX, SOCK_STREAM, 0, execspair) != -1);
 
-	if (job_assumes(j, pipe(oepair) != -1)) {
+	if (!j->legacy_mach_job && job_assumes(j, pipe(oepair) != -1)) {
 		j->log_redirect_fd = _fd(oepair[0]);
 		job_assumes(j, fcntl(j->log_redirect_fd, F_SETFL, O_NONBLOCK) != -1);
 		job_assumes(j, kevent_mod(j->log_redirect_fd, EVFILT_READ, EV_ADD, 0, 0, j) != -1);
@@ -1822,9 +1822,11 @@ job_start(job_t j)
 		}
 		break;
 	case 0:
-		job_assumes(j, dup2(oepair[1], STDOUT_FILENO) != -1);
-		job_assumes(j, dup2(oepair[1], STDERR_FILENO) != -1);
-		job_assumes(j, close(oepair[1]) != -1);
+		if (!j->legacy_mach_job) {
+			job_assumes(j, dup2(oepair[1], STDOUT_FILENO) != -1);
+			job_assumes(j, dup2(oepair[1], STDERR_FILENO) != -1);
+			job_assumes(j, close(oepair[1]) != -1);
+		}
 		job_assumes(j, close(execspair[0]) == 0);
 		/* wait for our parent to say they've attached a kevent to us */
 		read(_fd(execspair[1]), &c, sizeof(c));
@@ -1845,7 +1847,9 @@ job_start(job_t j)
 		job_start_child(j);
 		break;
 	default:
-		job_assumes(j, close(oepair[1]) != -1);
+		if (!j->legacy_mach_job) {
+			job_assumes(j, close(oepair[1]) != -1);
+		}
 		j->p = c;
 		j->forkfd = _fd(execspair[0]);
 		job_assumes(j, close(execspair[1]) == 0);
