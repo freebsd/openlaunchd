@@ -209,6 +209,7 @@ struct jobmgr_s {
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_tickle(jobmgr_t jm);
+static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm);
 static job_t jobmgr_new_anonymous(jobmgr_t jm);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);

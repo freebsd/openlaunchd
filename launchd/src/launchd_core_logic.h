@@ -37,7 +37,6 @@ void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
 job_t jobmgr_find(jobmgr_t jm, const char *label);
 void jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
 bool jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p);
-void jobmgr_remove(jobmgr_t jm);
 job_t jobmgr_find_by_service_port(jobmgr_t jm, mach_port_t p);
 
 launch_data_t job_export_all(void);
