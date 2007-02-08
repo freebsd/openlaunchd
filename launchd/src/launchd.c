@@ -110,7 +110,7 @@ static pid_t crash_pid;
 static const char *launchctl_bootstrap_tool[] = { "/bin/launchctl", /* "bootstrap", */ NULL };
 
 sigset_t blocked_signals = 0;
-bool shutdown_in_progress = false;
+static bool shutdown_in_progress = false;
 bool debug_shutdown_hangs = false;
 bool network_up = false;
 int batch_disabler_count = 0;
@@ -469,7 +469,7 @@ launchd_shutdown(void)
 
 	rlcj = NULL;
 
-	jobmgr_remove_all_inactive(root_jobmgr);
+	root_jobmgr = jobmgr_shutdown(root_jobmgr);
 }
 
 void
@@ -676,7 +676,7 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 void
 launchd_post_kevent(void)
 {
-	if (shutdown_in_progress && jobmgr_is_idle(root_jobmgr)) {
+	if (shutdown_in_progress && (!root_jobmgr || jobmgr_is_idle(root_jobmgr))) {
 		shutdown_in_progress = false;
 
 		if (getpid() == 1) {

@@ -199,7 +199,7 @@ struct jobmgr_s {
 	char *jm_stdout;
 	char *jm_stderr;
 	unsigned int global_on_demand_cnt;
-	unsigned int transfer_bstrap:1;
+	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1;
 	char name[0];
 };
 
@@ -208,6 +208,7 @@ struct jobmgr_s {
 
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
+static jobmgr_t jobmgr_tickle(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm);
 static job_t jobmgr_new_anonymous(jobmgr_t jm);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
@@ -268,7 +269,7 @@ struct job_s {
 		     anonymous:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
-		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1;
+		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1;
 	char label[0];
 };
 
@@ -510,23 +511,27 @@ job_export2(job_t j, bool subjobs)
 	return r;
 }
 
-void
-jobmgr_remove_all_inactive(jobmgr_t jm)
+jobmgr_t
+jobmgr_shutdown(jobmgr_t jm)
 {
 	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
-		jobmgr_remove_all_inactive(jmi);
+		jobmgr_shutdown(jmi);
 	}
 
 	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		if (!job_active(ji)) {
 			job_remove(ji);
-		} else {
+		} else if (!ji->hopefully_exits_last) {
 			job_stop(ji);
 		}
 	}
+
+	jm->shutting_down = true;
+
+	return jobmgr_tickle(jm);
 }
 
 void
@@ -593,10 +598,6 @@ job_remove(job_t j)
 			/* we've attached the simple zombie reaper, we're going to delete the job before it is dead */
 			job_stop(j);
 		}
-	}
-
-	if (job_assumes(j, j->mgr)) {
-		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
 	}
 
 	if (j->forkfd) {
@@ -672,6 +673,12 @@ job_remove(job_t j)
 	}
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+
+	if (job_assumes(j, j->mgr)) {
+		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
+		jobmgr_tickle(j->mgr);
+	}
+
 	free(j);
 }
 
@@ -894,7 +901,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	int i, cc = 0;
 	job_t j;
 
-	if (shutdown_in_progress) {
+	if (jm->shutting_down) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1034,6 +1041,12 @@ job_import_bool(job_t j, const char *key, bool value)
 	case 'D':
 		if (strcasecmp(key, LAUNCH_JOBKEY_DEBUG) == 0) {
 			j->debug = value;
+		}
+		break;
+	case 'h':
+	case 'H':
+		if (strcasecmp(key, LAUNCH_JOBKEY_HOPEFULLYEXITSLAST) == 0) {
+			j->hopefully_exits_last = value;
 		}
 		break;
 	case 's':
@@ -2805,7 +2818,7 @@ job_useless(job_t j)
 		}
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
 		return true;
-	} else if (shutdown_in_progress) {
+	} else if (j->mgr->shutting_down) {
 		job_log(j, LOG_INFO, "Exited while shutdown in progress.");
 		return true;
 	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
@@ -3162,6 +3175,35 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	}
 }
 
+jobmgr_t
+jobmgr_tickle(jobmgr_t jm)
+{
+	job_t ji;
+
+	if (jm->sent_stop_to_hopeful_jobs || !jm->shutting_down) {
+		return jm;
+	}
+
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		if (ji->p && !ji->hopefully_exits_last) {
+			return jm;
+		}
+	}
+
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
+		job_stop(ji);
+	}
+
+	jm->sent_stop_to_hopeful_jobs = true;
+
+	if (jobmgr_is_idle(jm)) {
+		jobmgr_remove(jm);
+		return NULL;
+	}
+
+	return jm;
+}
+
 bool
 jobmgr_is_idle(jobmgr_t jm)
 {
@@ -3321,11 +3363,7 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 	 */
 
 	if (jm->req_port == port) {
-		if (jm == root_jobmgr) {
-			launchd_shutdown();
-		} else {
-			return jobmgr_remove(jm);
-		}
+		jobmgr_shutdown(jm);
 	}
 
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
