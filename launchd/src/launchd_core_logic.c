@@ -516,6 +516,8 @@ jobmgr_shutdown(jobmgr_t jm)
 	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
+	jobmgr_log(jm, LOG_DEBUG, "Beginning job manager shutdown");
+
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
 		jobmgr_shutdown(jmi);
 	}
@@ -539,16 +541,20 @@ jobmgr_remove(jobmgr_t jm)
 	jobmgr_t jmi;
 	job_t ji;
 
-	while ((jmi = SLIST_FIRST(&jm->submgrs))) {
-		jobmgr_remove(jmi);
+	jobmgr_log(jm, LOG_DEBUG, "Removed job manager");
+
+	if (!jobmgr_assumes(jm, SLIST_EMPTY(&jm->submgrs))) {
+		while ((jmi = SLIST_FIRST(&jm->submgrs))) {
+			jobmgr_remove(jmi);
+		}
 	}
+
+	/* We should have one job left and it should be the anonymous job */
+	ji = SLIST_FIRST(&jm->jobs);
+	jobmgr_assumes(jm, ji && ji == jm->anonj && (SLIST_NEXT(ji, sle) == NULL));
 
 	while ((ji = SLIST_FIRST(&jm->jobs))) {
 		job_remove(ji);
-	}
-
-	if (jm->parentmgr) {
-		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 	}
 
 	if (jm->req_port) {
@@ -570,6 +576,11 @@ jobmgr_remove(jobmgr_t jm)
 	if (jm->jm_stderr) {
 		free(jm->jm_stderr);
 	}
+
+	if (jm->parentmgr) {
+		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
+		jobmgr_tickle(jm->parentmgr);
+	}
 	
 	free(jm);
 }
@@ -590,20 +601,16 @@ job_remove(job_t j)
 		job_set_global_on_demand(j, false);
 	}
 
-	if (j->p && !j->anonymous) {
-		if (kevent_mod(j->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) == -1) {
-			job_reap(j);
-		} else {
-			/* we've attached the simple zombie reaper, we're going to delete the job before it is dead */
-			job_stop(j);
-		}
+	if (!job_assumes(j, j->p == 0)) {
+		job_assumes(j, kill(j->p, SIGKILL) != -1);
+		job_reap(j);
 	}
 
-	if (j->forkfd) {
+	if (!job_assumes(j, j->forkfd == 0)) {
 		job_assumes(j, close(j->forkfd) != -1);
 	}
 
-	if (j->log_redirect_fd) {
+	if (!job_assumes(j, j->log_redirect_fd == 0)) {
 		job_assumes(j, close(j->log_redirect_fd) != -1);
 	}
 
@@ -2803,7 +2810,16 @@ job_useless(job_t j)
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
 		return true;
 	} else if (j->mgr->shutting_down) {
-		job_log(j, LOG_INFO, "Exited while shutdown in progress.");
+		unsigned int cnt = 0;
+		job_t ji;
+
+		SLIST_FOREACH(ji, &j->mgr->jobs, sle) {
+			if (ji->p) {
+				cnt++;
+			}
+		}
+
+		job_log(j, LOG_INFO, "Exited while shutdown in progress. Processes remaining: %u", cnt);
 		return true;
 	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
 		job_log(j, LOG_WARNING, "Failed to check-in!");
@@ -3193,6 +3209,10 @@ jobmgr_is_idle(jobmgr_t jm)
 {
 	job_t ji;
 
+	if (!SLIST_EMPTY(&jm->submgrs)) {
+		return false;
+	}
+
 	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		if (ji->p) {
 			return false;
@@ -3319,6 +3339,8 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port)
 	jmr->anonj = jobmgr_new_anonymous(jmr);
 
 	jobmgr_assumes(jmr, jmr->anonj != NULL);
+
+	jobmgr_log(jmr, LOG_DEBUG, "Created job manager");
 
 	return jmr;
 

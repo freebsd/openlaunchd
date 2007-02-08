@@ -35,6 +35,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <mach/mach_host.h>
 #include <mach/exception.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/event.h>
 #include <sys/queue.h>
@@ -578,7 +579,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 
 		/* XXX - So very gross */
 		if (gc_this_jobmgr) {
-			jobmgr_remove(gc_this_jobmgr);
+			jobmgr_shutdown(gc_this_jobmgr);
 			gc_this_jobmgr = NULL;
 		}
 
@@ -674,7 +675,9 @@ vsyslog(int priority, const char *message, va_list args)
 	pthread_mutex_lock(&ourlock);
 
 	if (ourlogfile == NULL) {
+		rename("/var/log/launchd_raw.log", "/var/log/launchd_raw-old.log");
 		ourlogfile = fopen("/var/log/launchd_raw.log", "a");
+		chmod("/var/log/launchd_raw.log", DEFFILEMODE);
 	}
 
 	pthread_mutex_unlock(&ourlock);
