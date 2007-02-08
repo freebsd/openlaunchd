@@ -41,6 +41,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/kern_event.h>
+#include <sys/reboot.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -678,12 +679,14 @@ launchd_post_kevent(void)
 	if (shutdown_in_progress && jobmgr_is_idle(root_jobmgr)) {
 		shutdown_in_progress = false;
 
-		if (getpid() != 1) {
+		if (getpid() == 1) {
+			if (re_exec_in_single_user_mode) {
+				kill(-1, SIGKILL); /* One last time, just to clear the room */
+				launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
+			}
+			launchd_assumes(reboot(RB_HALT) != -1);
+		} else {
 			exit(EXIT_SUCCESS);
-		} else if (re_exec_in_single_user_mode) {
-			re_exec_in_single_user_mode = false;
-			kill(-1, SIGKILL); /* One last time, just to clear the room */
-			launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
 		}
 	}
 	if (getpid() == 1) {
