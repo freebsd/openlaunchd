@@ -263,10 +263,9 @@ struct job_s {
 	time_t start_time;
 	time_t min_run_time;
 	unsigned int start_interval;
-	unsigned int checkedin:1, firstborn:1, debug:1, inetcompat:1, inetcompat_wait:1,
+	unsigned int checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
-		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1,
-		     anonymous:1;
+		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1;
@@ -926,7 +925,6 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	j->currently_ignored = true;
 	j->ondemand = true;
 	j->checkedin = true;
-	j->firstborn = (strcmp(label, FIRSTBORN_LABEL) == 0);
 
 	if (prog) {
 		j->prog = strdup(prog);
@@ -1760,13 +1758,7 @@ job_callback(void *obj, struct kevent *kev)
 	switch (kev->filter) {
 	case EVFILT_PROC:
 		job_reap(j);
-
-		if (j->firstborn) {
-			job_log(j, LOG_DEBUG, "first born died, begin shutdown");
-			launchd_shutdown();
-		} else {
-			job_dispatch(j, false);
-		}
+		job_dispatch(j, false);
 		break;
 	case EVFILT_TIMER:
 		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
@@ -1879,14 +1871,6 @@ job_start(job_t j)
 		job_assumes(j, close(execspair[0]) == 0);
 		/* wait for our parent to say they've attached a kevent to us */
 		read(_fd(execspair[1]), &c, sizeof(c));
-		if (j->firstborn) {
-			setpgid(getpid(), getpid());
-			if (isatty(STDIN_FILENO)) {
-				if (tcsetpgrp(STDIN_FILENO, getpid()) == -1) {
-					job_log_error(j, LOG_WARNING, "tcsetpgrp()");
-				}
-			}
-		}
 
 		if (sipc) {
 			job_assumes(j, close(spair[0]) == 0);

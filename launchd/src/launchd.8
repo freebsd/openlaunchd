@@ -37,14 +37,10 @@ During boot
 is invoked by the kernel to run as the first process on the system and to further bootstrap the rest of the system.
 .Sh OPTIONS
 .Bl -tag -width -indent
-.It Fl d
-Daemonize. Useful when passing a command to launchd on the command line.
 .It Fl D
 Debug. Prints syslog messages to stderr and adjusts logging via
 .Xr syslog 3
 to LOG_DEBUG.
-.It Fl S Ar SessionType
-Instruct launchd to which session type it is.
 .El
 .Sh OPTIONS WHEN RUN AS PID 1
 .Bl -tag -width -indent

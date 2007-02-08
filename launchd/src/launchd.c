@@ -83,12 +83,10 @@ static const char *const __rcs_file_version__ = "$Revision$";
 extern char **environ;
 
 static void signal_callback(void *, struct kevent *);
-static void ppidexit_callback(void);
 static void debugshutdown_callback(void);
 static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqsignal_callback = signal_callback;
-static kq_callback kqppidexit_callback = (kq_callback)ppidexit_callback;
 static kq_callback kqdebugshutdown_callback = (kq_callback)debugshutdown_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
@@ -123,17 +121,15 @@ main(int argc, char *const *argv)
 		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
-	bool sflag = false, dflag = false, Dflag = false;
+	bool sflag = false, Dflag = false;
 	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
 	const char *h = getenv("HOME");
-	const char *session_type = NULL;
 	const char *optargs = NULL;
-	job_t fbj = NULL;
 	struct stat sb;
 	size_t i, checkin_fdcnt = 0;
 	int *checkin_fds = NULL;
 	mach_port_t checkin_mport = MACH_PORT_NULL;
-	int ch, ker, logopts;
+	int ch, logopts;
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
 	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
@@ -200,14 +196,12 @@ main(int argc, char *const *argv)
 	if (getpid() == 1) {
 		optargs = "s";
 	} else {
-		optargs = "DS:dh";
+		optargs = "Dh";
 	}
 
 	while ((ch = getopt(argc, argv, optargs)) != -1) {
 		switch (ch) {
-		case 'S': session_type = optarg; break;	/* what type of session we're creating */
 		case 'D': Dflag = true;   break;	/* debug */
-		case 'd': dflag = true;   break;	/* daemonize */
 		case 's': sflag = true;   break;	/* single user */
 		case 'h': usage(stdout);  break;	/* help */
 		case '?': /* we should do something with the global optopt variable here */
@@ -221,10 +215,6 @@ main(int argc, char *const *argv)
 	argv += optind;
 
 	/* main phase three: get the party started */
-
-	if (dflag) {
-		launchd_assumes(daemon(0, 0) == 0);
-	}
 
 	logopts = LOG_PID|LOG_CONS;
 	if (Dflag) {
@@ -254,10 +244,6 @@ main(int argc, char *const *argv)
 	rlcj = job_new(root_jobmgr, READCONF_LABEL, NULL, launchctl_bootstrap_tool, ldconf);
 	launchd_assert(rlcj != NULL);
 
-	if (argv[0]) {
-		fbj = job_new(root_jobmgr, FIRSTBORN_LABEL, NULL, (const char *const *)argv, NULL);
-	}
-
 	if (NULL == getenv("PATH")) {
 		setenv("PATH", _PATH_STDPATH, 1);
 	}
@@ -270,27 +256,6 @@ main(int argc, char *const *argv)
 
 	monitor_networking_state();
 
-	if (session_type) {
-		pid_t pp = getppid();
-
-		/* As a per session launchd, we need to exit if our parent dies.
-		 *
-		 * Normally, in Unix, SIGHUP would cause us to exit, but we're a
-		 * daemon, and daemons use SIGHUP to signal the need to reread
-		 * configuration files. "Weee."
-		 */
-
-		if (pp == 1) {
-			exit(EXIT_SUCCESS);
-		}
-
-		ker = kevent_mod(pp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqppidexit_callback);
-
-		if (ker == -1) {
-			exit(launchd_assumes(errno == ESRCH) ? EXIT_SUCCESS : EXIT_FAILURE);
-		}
-	}
-
 	/*
 	 * We cannot stat() anything in the home directory right now.
 	 *
@@ -302,10 +267,6 @@ main(int argc, char *const *argv)
 	 */
 	if (!h && stat(ldconf, &sb) == 0) {
 		rlcj = job_dispatch(rlcj, true);
-	}
-
-	if (fbj) {
-		fbj = job_dispatch(fbj, true);
 	}
 
 	char *doom_why = "at instruction";
@@ -428,17 +389,6 @@ _fd(int fd)
 		launchd_assumes(fcntl(fd, F_SETFD, 1) != -1);
 	}
 	return fd;
-}
-
-void
-ppidexit_callback(void)
-{
-	syslog(LOG_INFO, "Parent process exited");
-
-	launchd_shutdown();
-
-	/* Let's just bail for now. We should really try to wait for jobs to exit first. */
-	exit(EXIT_SUCCESS);
 }
 
 void

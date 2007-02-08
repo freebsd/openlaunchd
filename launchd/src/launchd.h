@@ -26,7 +26,6 @@
 #include "libbootstrap_public.h"
 #include "launchd_runtime.h"
 
-#define FIRSTBORN_LABEL "com.apple.launchd.firstborn"
 #define READCONF_LABEL "com.apple.launchd.readconfig"
 
 struct kevent;
