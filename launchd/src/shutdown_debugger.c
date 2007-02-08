@@ -33,6 +33,7 @@ static TAILQ_HEAD(hproc_head, hproc) hprocs = TAILQ_HEAD_INITIALIZER(hprocs);
 static void populate_proc_list(void);
 static void debug_machports(pid_t pid, const char *pname);
 static void debug_machports2(pid_t pid, FILE *where);
+static void do_stackshot(void);
 
 static int kq;
 
@@ -69,6 +70,8 @@ main(void)
 	}
 
 	closedir(thedir);
+
+	do_stackshot();
 
 	assert((kq = kqueue()) != -1);
 
@@ -523,4 +526,12 @@ debug_machports2(pid_t pid, FILE *where)
 
 	fprintf(where, "Finished.\n");
 	return;
+}
+
+void
+do_stackshot(void)
+{
+	/* yes, we really mean to exec without fork at this point in time */
+	execl("/usr/libexec/stackshot", "/usr/libexec/stackshot", "-i", "-f", "./shutdown-stackshot.log", NULL);
+	_exit(EXIT_FAILURE);
 }
