@@ -789,7 +789,8 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 
 	free(argv);
 
-	if (!job_assumes(j, jr != NULL)) {
+	/* jobs can easily be denied creation during shutdown */
+	if (!jr) {
 		goto out_bad;
 	}
 
