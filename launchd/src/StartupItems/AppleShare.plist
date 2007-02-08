@@ -1,5 +1,0 @@
-{
-  Description     = "Apple File Service";
-  Provides        = ("Apple File Service");
-  Requires        = ("Disks");
-}
