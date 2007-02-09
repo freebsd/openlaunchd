@@ -32,6 +32,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <mach/host_info.h>
 #include <mach/mach_host.h>
 #include <mach/exception.h>
+#include <mach/host_reboot.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
@@ -199,6 +200,7 @@ struct jobmgr_s {
 	char *jm_stdout;
 	char *jm_stderr;
 	unsigned int global_on_demand_cnt;
+	unsigned int would_have_sigkilled;
 	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1;
 	char name[0];
 };
@@ -209,6 +211,7 @@ struct jobmgr_s {
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_tickle(jobmgr_t jm);
+static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm);
 static job_t jobmgr_new_anonymous(jobmgr_t jm);
@@ -305,6 +308,7 @@ static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond
 static const char *job_prog(job_t j);
 static pid_t job_get_pid(job_t j);
 static jobmgr_t job_get_bs(job_t j);
+static void job_kill(job_t j);
 static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap);
@@ -337,6 +341,7 @@ static bool cronemu_mday(struct tm *wtm, int mday, int hour, int min);
 static bool cronemu_hour(struct tm *wtm, int hour, int min);
 static bool cronemu_min(struct tm *wtm, int min);
 
+static unsigned int total_children;
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 jobmgr_t root_jobmgr;
@@ -1628,6 +1633,8 @@ job_reap(job_t j)
 		return;
 	}
 
+	total_children--;
+
 	/* Performance hack */
 	TAILQ_REMOVE(&j->mgr->jobs, j, sle);
 	TAILQ_INSERT_TAIL(&j->mgr->jobs, j, sle);
@@ -1756,6 +1763,19 @@ job_log_stdouterr(job_t j)
 }
 
 void
+job_kill(job_t j)
+{
+	if (debug_shutdown_hangs) {
+		j->mgr->would_have_sigkilled++;
+		if (j->mgr->would_have_sigkilled >= total_children) {
+			job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == 0);
+		}
+	} else {
+		job_assumes(j, kill(j->p, SIGKILL) != -1);
+	}
+}
+
+void
 job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
@@ -1771,7 +1791,7 @@ job_callback(void *obj, struct kevent *kev)
 		} else if ((uintptr_t)&j->exit_timeout == kev->ident) {
 			job_force_sampletool(j);
 			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
-			job_assumes(j, kill(j->p, SIGKILL) != -1);
+			job_kill(j);
 		} else {
 			calendarinterval_callback(j, kev);
 		}
@@ -1883,6 +1903,8 @@ job_start(job_t j)
 		job_start_child(j);
 		break;
 	default:
+		total_children++;
+
 		/* Performance hack */
 		TAILQ_REMOVE(&j->mgr->jobs, j, sle);
 		TAILQ_INSERT_HEAD(&j->mgr->jobs, j, sle);
@@ -2810,16 +2832,7 @@ job_useless(job_t j)
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
 		return true;
 	} else if (j->mgr->shutting_down) {
-		unsigned int cnt = 0;
-		job_t ji;
-
-		TAILQ_FOREACH(ji, &j->mgr->jobs, sle) {
-			if (ji->p) {
-				cnt++;
-			}
-		}
-
-		job_log(j, LOG_INFO, "Exited while shutdown in progress. Processes remaining: %u", cnt);
+		job_log(j, LOG_NOTICE, "Exited while shutdown in progress. Processes remaining: %u", total_children);
 		return true;
 	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
 		job_log(j, LOG_WARNING, "Failed to check-in!");
@@ -3197,11 +3210,48 @@ jobmgr_tickle(jobmgr_t jm)
 	jm->sent_stop_to_hopeful_jobs = true;
 
 	if (jobmgr_is_idle(jm)) {
+		jobmgr_log_stray_children(jm);
 		jobmgr_remove(jm);
 		return NULL;
 	}
 
 	return jm;
+}
+
+void
+jobmgr_log_stray_children(jobmgr_t jm)
+{
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
+	size_t i, kp_cnt, len = 10*1024*1024;
+	struct kinfo_proc *kp;
+
+	if (jm->parentmgr || getpid() != 1) {
+		return;
+	}
+
+	if (!jobmgr_assumes(jm, (kp = malloc(len)) != NULL)) {
+		return;
+	}
+	if (!jobmgr_assumes(jm, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
+		goto out;
+	}
+
+	kp_cnt = len / sizeof(struct kinfo_proc);
+
+	for (i = 0; i < kp_cnt; i++) {
+		pid_t p_i = kp[i].kp_proc.p_pid;
+		pid_t pp_i = kp[i].kp_eproc.e_ppid;
+
+		if (p_i == 0 || p_i == 1) {
+			continue;
+		}
+
+		jobmgr_log(jm, LOG_WARNING, "Stray process at shutdown: PID %u PPID %u %s", p_i, pp_i, kp[i].kp_proc.p_comm);
+		jobmgr_assumes(jm, kill(p_i, SIGKILL) != -1);
+	}
+
+out:
+	free(kp);
 }
 
 bool
