@@ -337,20 +337,10 @@ static bool cronemu_mday(struct tm *wtm, int mday, int hour, int min);
 static bool cronemu_hour(struct tm *wtm, int hour, int min);
 static bool cronemu_min(struct tm *wtm, int min);
 
-static void simple_zombie_reaper(void *, struct kevent *);
-
-kq_callback kqsimple_zombie_reaper = simple_zombie_reaper;
-
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 jobmgr_t root_jobmgr;
 jobmgr_t gc_this_jobmgr;
-
-void
-simple_zombie_reaper(void *obj __attribute__((unused)), struct kevent *kev)
-{
-	waitpid(kev->ident, NULL, 0);
-}
 
 void
 job_ignore(job_t j)
@@ -1779,9 +1769,7 @@ job_callback(void *obj, struct kevent *kev)
 		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
 			job_dispatch(j, true);
 		} else if ((uintptr_t)&j->exit_timeout == kev->ident) {
-			if (debug_shutdown_hangs) {
-				job_force_sampletool(j);
-			}
+			job_force_sampletool(j);
 			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
 			job_assumes(j, kill(j->p, SIGKILL) != -1);
 		} else {
@@ -3625,15 +3613,71 @@ job_get_pid(job_t j)
 void
 job_force_sampletool(job_t j)
 {
-	char *sample_args[] = { "sample", NULL, "1", "-mayDie", NULL };
+	struct stat sb;
+	char logfile[PATH_MAX];
 	char pidstr[100];
+	char *sample_args[] = { "sample", pidstr, "1", "-mayDie", "-file", logfile, NULL };
+	char *contents = NULL;
+	int logfile_fd = -1;
+	int console_fd = -1;
 	pid_t sp;
+
+	if (!debug_shutdown_hangs) {
+		return;
+	}
 	
 	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
-	sample_args[1] = pidstr;
+	snprintf(logfile, sizeof(logfile), "/var/log/shutdown/%s-%u.sample.txt", j->label, j->p);
 
-	if (job_assumes(j, posix_spawnp(&sp, sample_args[0], NULL, NULL, sample_args, environ) == 0)) {
-		job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) != -1);
+	job_assumes(j, mkdir("/var/log/shutdown", S_IRWXU) != -1 || errno == EEXIST);
+
+	/*
+	 * This will stall launchd for as long as the 'sample' tool runs.
+	 *
+	 * We didn't give the 'sample' tool a bootstrap port, so it therefore
+	 * can't deadlock against launchd.
+	 */
+	if (job_assumes(j, (errno = posix_spawnp(&sp, sample_args[0], NULL, NULL, sample_args, environ)) == 0)) {
+		int wstatus;
+
+		job_assumes(j, waitpid(sp, &wstatus, 0) != -1);
+	}
+
+	if (!job_assumes(j, (logfile_fd = open(logfile, O_RDONLY|O_NOCTTY)) != -1)) {
+		goto out;
+	}
+
+	if (!job_assumes(j, (console_fd = open(_PATH_CONSOLE, O_WRONLY|O_APPEND||O_NOCTTY)) != -1)) {
+		goto out;
+	}
+
+	if (!job_assumes(j, fstat(logfile_fd, &sb) != -1)) {
+		goto out;
+	}
+
+	contents = malloc(sb.st_size);
+
+	if (!job_assumes(j, contents != NULL)) {
+		goto out;
+	}
+
+	if (!job_assumes(j, read(logfile_fd, contents, sb.st_size) == sb.st_size)) {
+		goto out;
+	}
+
+	job_assumes(j, write(console_fd, contents, sb.st_size) == sb.st_size);
+
+out:
+	if (contents) {
+		free(contents);
+	}
+
+	if (logfile_fd != -1) {
+		job_assumes(j, close(logfile_fd) != -1);
+	}
+
+	if (console_fd != -1) {
+		job_assumes(j, close(console_fd) != -1);
 	}
 }
 

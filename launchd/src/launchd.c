@@ -394,28 +394,26 @@ _fd(int fd)
 void
 launchd_shutdown(void)
 {
+	struct stat sb;
+
 	if (shutdown_in_progress) {
 		return;
 	}
 
 	shutdown_in_progress = true;
 
-#if 0
-	struct stat sb;
-
-	if (stat("/var/db/debugShutdownHangs", &sb) != -1) {
-		/*
-		 * When this changes to a more sustainable API, update this:
-		 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
-		 */
-		debug_shutdown_hangs = true;
-	}
-#else
 	if (getpid() == 1) {
+		if (stat("/var/db/debugShutdownHangs", &sb) != -1) {
+			/*
+			 * When this changes to a more sustainable API, update this:
+			 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
+			 */
+			debug_shutdown_hangs = true;
+		}
+
 		launchd_assumes(kevent_mod((uintptr_t)debugshutdown_callback,
 					EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 5, &kqdebugshutdown_callback) != -1);
 	}
-#endif
 
 	rlcj = NULL;
 
@@ -654,6 +652,9 @@ debugshutdown_callback(void)
 	pid_t sddp;
 
 	if (launchd_assumes(posix_spawn(&sddp, sdd_args[0], NULL, NULL, sdd_args, environ) == 0)) {
-		launchd_assumes(kevent_mod(sddp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &kqsimple_zombie_reaper) != -1);
+		int wstatus;
+
+		/* No bootstrap port was given. It is safe to block. */
+		launchd_assumes(waitpid(sddp, &wstatus, 0) != -1);
 	}
 }

@@ -31,7 +31,6 @@
 struct kevent;
 struct conncb;
 
-extern kq_callback kqsimple_zombie_reaper;
 extern sigset_t blocked_signals;
 extern bool debug_shutdown_hangs;
 extern bool network_up;
