@@ -40,6 +40,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/ucred.h>
 #include <sys/fcntl.h>
 #include <sys/un.h>
+#include <sys/reboot.h>
 #include <sys/wait.h>
 #include <sys/sysctl.h>
 #include <sys/sockio.h>
@@ -211,6 +212,7 @@ struct jobmgr_s {
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_tickle(jobmgr_t jm);
+static bool jobmgr_is_idle(jobmgr_t jm);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm);
@@ -576,6 +578,10 @@ jobmgr_remove(jobmgr_t jm)
 	if (jm->parentmgr) {
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 		jobmgr_tickle(jm->parentmgr);
+	} else if (getpid() == 1) {
+		jobmgr_assumes(jm,  reboot(RB_HALT) != -1);
+	} else {
+		exit(EXIT_SUCCESS);
 	}
 	
 	free(jm);

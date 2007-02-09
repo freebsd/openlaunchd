@@ -417,7 +417,7 @@ launchd_shutdown(void)
 
 	rlcj = NULL;
 
-	root_jobmgr = jobmgr_shutdown(root_jobmgr);
+	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }
 
 void
@@ -624,7 +624,8 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 void
 launchd_post_kevent(void)
 {
-	if (shutdown_in_progress && (!root_jobmgr || jobmgr_is_idle(root_jobmgr))) {
+#if 0
+	if (shutdown_in_progress && jobmgr_is_idle(root_jobmgr)) {
 		shutdown_in_progress = false;
 
 		if (getpid() == 1) {
@@ -632,11 +633,9 @@ launchd_post_kevent(void)
 				kill(-1, SIGKILL); /* One last time, just to clear the room */
 				launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
 			}
-			launchd_assumes(reboot(RB_HALT) != -1);
-		} else {
-			exit(EXIT_SUCCESS);
 		}
 	}
+#endif
 	if (getpid() == 1) {
 		if (rlcj && job_active(rlcj)) {
 			return;
