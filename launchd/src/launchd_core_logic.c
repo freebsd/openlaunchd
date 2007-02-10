@@ -201,7 +201,6 @@ struct jobmgr_s {
 	char *jm_stdout;
 	char *jm_stderr;
 	unsigned int global_on_demand_cnt;
-	unsigned int would_have_sigkilled;
 	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1;
 	char name[0];
 };
@@ -1771,14 +1770,7 @@ job_log_stdouterr(job_t j)
 void
 job_kill(job_t j)
 {
-	if (debug_shutdown_hangs) {
-		j->mgr->would_have_sigkilled++;
-		if (j->mgr->would_have_sigkilled >= total_children) {
-			job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == 0);
-		}
-	} else {
-		job_assumes(j, kill(j->p, SIGKILL) != -1);
-	}
+	job_assumes(j, kill(j->p, SIGKILL) != -1);
 }
 
 void
@@ -1788,8 +1780,13 @@ job_callback(void *obj, struct kevent *kev)
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
-		job_reap(j);
-		job_dispatch(j, false);
+		if (kev->fflags & NOTE_EXEC) {
+			job_log(j, LOG_DEBUG, "Called execve()");
+		}
+		if (kev->fflags & NOTE_EXIT) {
+			job_reap(j);
+			job_dispatch(j, false);
+		}
 		break;
 	case EVFILT_TIMER:
 		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
@@ -1925,7 +1922,7 @@ job_start(job_t j)
 			job_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
-		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
+		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXEC|NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
@@ -3501,13 +3498,8 @@ machservice_name(struct machservice *ms)
 void
 machservice_delete(struct machservice *ms)
 {
-	if (ms->recv) {
-		if (ms->isActive) {
-			/* FIXME we should cancel the notification */
-			job_log(ms->job, LOG_DEBUG, "Mach service deleted while we didn't own the receive right: %s", ms->name);
-		} else {
-			job_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
-		}
+	if (ms->recv && job_assumes(ms->job, !ms->isActive)) {
+		job_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	}
 
 	job_assumes(ms->job, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
