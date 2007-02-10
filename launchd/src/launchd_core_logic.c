@@ -3668,6 +3668,7 @@ job_force_sampletool(job_t j)
 	char *contents = NULL;
 	int logfile_fd = -1;
 	int console_fd = -1;
+	int wstatus;
 	pid_t sp;
 
 	if (!debug_shutdown_hangs) {
@@ -3685,17 +3686,23 @@ job_force_sampletool(job_t j)
 	 * We didn't give the 'sample' tool a bootstrap port, so it therefore
 	 * can't deadlock against launchd.
 	 */
-	if (job_assumes(j, (errno = posix_spawnp(&sp, sample_args[0], NULL, NULL, sample_args, environ)) == 0)) {
-		int wstatus;
+	if (!job_assumes(j, (errno = posix_spawnp(&sp, sample_args[0], NULL, NULL, sample_args, environ)) == 0)) {
+		goto out;
+	}
 
-		job_assumes(j, waitpid(sp, &wstatus, 0) != -1);
+	if (!job_assumes(j, waitpid(sp, &wstatus, 0) != -1)) {
+		goto out;
+	}
+
+	if (!job_assumes(j, WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0)) {
+		goto out;
 	}
 
 	if (!job_assumes(j, (logfile_fd = open(logfile, O_RDONLY|O_NOCTTY)) != -1)) {
 		goto out;
 	}
 
-	if (!job_assumes(j, (console_fd = open(_PATH_CONSOLE, O_WRONLY|O_APPEND||O_NOCTTY)) != -1)) {
+	if (!job_assumes(j, (console_fd = open(_PATH_CONSOLE, O_WRONLY|O_APPEND|O_NOCTTY)) != -1)) {
 		goto out;
 	}
 
