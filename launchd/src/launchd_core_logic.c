@@ -129,7 +129,7 @@ static bool socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd
 static void socketgroup_delete(job_t j, struct socketgroup *sg);
 static void socketgroup_watch(job_t j, struct socketgroup *sg);
 static void socketgroup_ignore(job_t j, struct socketgroup *sg);
-static void socketgroup_callback(job_t j, struct kevent *kev);
+static void socketgroup_callback(job_t j);
 static void socketgroup_setup(launch_data_t obj, const char *key, void *context);
 
 struct calendarinterval {
@@ -141,7 +141,7 @@ static bool calendarinterval_new(job_t j, struct tm *w);
 static bool calendarinterval_new_from_obj(job_t j, launch_data_t obj);
 static void calendarinterval_delete(job_t j, struct calendarinterval *ci);
 static void calendarinterval_setalarm(job_t j, struct calendarinterval *ci);
-static void calendarinterval_callback(job_t j, struct kevent *kev);
+static void calendarinterval_callback(job_t j, void *ident);
 
 struct envitem {
 	SLIST_ENTRY(envitem) sle;
@@ -303,6 +303,9 @@ static void job_find_and_blame_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_reparent_hack(job_t j, const char *where);
 static void job_callback(void *obj, struct kevent *kev);
+static void job_callback_proc(job_t j, int fflags);
+static void job_callback_timer(job_t j, void *ident);
+static void job_callback_read(job_t j, int ident);
 static launch_data_t job_export2(job_t j, bool subjobs);
 static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
@@ -1774,47 +1777,60 @@ job_kill(job_t j)
 }
 
 void
+job_callback_proc(job_t j, int fflags)
+{
+	if (fflags & NOTE_EXEC) {
+		job_log(j, LOG_DEBUG, "Called execve()");
+	}
+
+	if (fflags & NOTE_EXIT) {
+		job_reap(j);
+		job_dispatch(j, false);
+	}
+}
+
+void
+job_callback_timer(job_t j, void *ident)
+{
+	if (j == ident || &j->start_interval == ident) {
+		job_dispatch(j, true);
+	} else if (&j->exit_timeout == ident) {
+		job_force_sampletool(j);
+		job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
+		job_kill(j);
+	} else {
+		calendarinterval_callback(j, ident);
+	}
+}
+
+void
+job_callback_read(job_t j, int ident)
+{
+	if (ident == j->log_redirect_fd) {
+		job_log_stdouterr(j);
+	} else {
+		socketgroup_callback(j);
+	}
+}
+
+void
 job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
-		if (kev->fflags & NOTE_EXEC) {
-			job_log(j, LOG_DEBUG, "Called execve()");
-		}
-		if (kev->fflags & NOTE_EXIT) {
-			job_reap(j);
-			job_dispatch(j, false);
-		}
-		break;
+		return job_callback_proc(j, kev->fflags);
 	case EVFILT_TIMER:
-		if ((uintptr_t)j == kev->ident || (uintptr_t)&j->start_interval == kev->ident) {
-			job_dispatch(j, true);
-		} else if ((uintptr_t)&j->exit_timeout == kev->ident) {
-			job_force_sampletool(j);
-			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
-			job_kill(j);
-		} else {
-			calendarinterval_callback(j, kev);
-		}
-		break;
+		return job_callback_timer(j, (void *)kev->ident);
 	case EVFILT_VNODE:
-		semaphoreitem_callback(j, kev);
-		break;
+		return semaphoreitem_callback(j, kev);
 	case EVFILT_READ:
-		if (kev->ident == (uintptr_t)j->log_redirect_fd) {
-			job_log_stdouterr(j);
-		} else {
-			socketgroup_callback(j, kev);
-		}
-		break;
+		return job_callback_read(j, kev->ident);
 	case EVFILT_MACHPORT:
-		job_dispatch(j, true);
-		break;
+		return (void)job_dispatch(j, true);
 	default:
-		job_assumes(j, false);
-		break;
+		return (void)job_assumes(j, false);
 	}
 }
 
@@ -2607,12 +2623,12 @@ calendarinterval_delete(job_t j, struct calendarinterval *ci)
 }
 
 void
-calendarinterval_callback(job_t j, struct kevent *kev)
+calendarinterval_callback(job_t j, void *ident)
 {
 	struct calendarinterval *ci;
 
 	SLIST_FOREACH(ci, &j->cal_intervals, sle) {
-		if ((uintptr_t)ci == kev->ident) {
+		if (ci == ident) {
 			break;
 		}
 	}
@@ -2704,7 +2720,7 @@ socketgroup_watch(job_t j, struct socketgroup *sg)
 }
 
 void
-socketgroup_callback(job_t j, struct kevent *kev)
+socketgroup_callback(job_t j)
 {
 	job_dispatch(j, true);
 }
