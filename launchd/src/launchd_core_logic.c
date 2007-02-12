@@ -273,7 +273,7 @@ struct job_s {
 		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
-		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1;
+		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1;
 	char label[0];
 };
 
@@ -599,15 +599,19 @@ job_remove(job_t j)
 	struct machservice *ms;
 	struct semaphoreitem *si;
 
-	job_log(j, LOG_DEBUG, "Removed");
+	if (j->p) {
+		job_log(j, LOG_DEBUG, "Removal pended until the job exits.");
+
+		if (!j->removal_pending) {
+			j->removal_pending = true;
+			job_stop(j);
+		}
+
+		return;
+	}
 
 	if (j->forced_peers_to_demand_mode) {
 		job_set_global_on_demand(j, false);
-	}
-
-	if (!job_assumes(j, j->p == 0)) {
-		job_assumes(j, kill(j->p, SIGKILL) != -1);
-		job_reap(j);
 	}
 
 	if (!job_assumes(j, j->forkfd == 0)) {
@@ -688,6 +692,8 @@ job_remove(job_t j)
 		TAILQ_REMOVE(&j->mgr->jobs, j, sle);
 		jobmgr_tickle(j->mgr);
 	}
+
+	job_log(j, LOG_DEBUG, "Removed");
 
 	free(j);
 }
@@ -2849,6 +2855,9 @@ job_useless(job_t j)
 			return false;
 		}
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
+		return true;
+	} else if (j->removal_pending) {
+		job_log(j, LOG_DEBUG, "Exited while removal was pending.");
 		return true;
 	} else if (j->mgr->shutting_down) {
 		job_log(j, LOG_NOTICE, "Exited while shutdown in progress. Processes remaining: %u", total_children);
