@@ -143,6 +143,197 @@ mport_demand_loop(void *arg __attribute__((unused)))
 	return NULL;
 }
 
+static void
+log_kevent_struct(int level, struct kevent *kev)
+{
+	const char *filter_str;
+	char ident_buf[100];
+	char filter_buf[100];
+	char fflags_buf[1000];
+	char flags_buf[1000] = "0x0";
+	char *flags_off = NULL;
+	char *fflags_off = NULL;
+	unsigned short flags = kev->flags;
+	unsigned int fflags = kev->fflags;
+
+	if (flags) while (flags) {
+		if (flags_off) {
+			*flags_off = '|';
+			flags_off++;
+			*flags_off = '\0';
+		} else {
+			flags_off = flags_buf;
+		}
+		if (flags & EV_ADD) {
+			flags_off += sprintf(flags_off, "EV_ADD");
+			flags &= ~EV_ADD;
+		} else if (flags & EV_DELETE) {
+			flags_off += sprintf(flags_off, "EV_DELETE");
+			flags &= ~EV_DELETE;
+		} else if (flags & EV_ENABLE) {
+			flags_off += sprintf(flags_off, "EV_ENABLE");
+			flags &= ~EV_ENABLE;
+		} else if (flags & EV_DISABLE) {
+			flags_off += sprintf(flags_off, "EV_DISABLE");
+			flags &= ~EV_DISABLE;
+		} else if (flags & EV_ONESHOT) {
+			flags_off += sprintf(flags_off, "EV_ONESHOT");
+			flags &= ~EV_ONESHOT;
+		} else if (flags & EV_CLEAR) {
+			flags_off += sprintf(flags_off, "EV_CLEAR");
+			flags &= ~EV_CLEAR;
+		} else if (flags & EV_EOF) {
+			flags_off += sprintf(flags_off, "EV_EOF");
+			flags &= ~EV_EOF;
+		} else if (flags & EV_ERROR) {
+			flags_off += sprintf(flags_off, "EV_ERROR");
+			flags &= ~EV_ERROR;
+		} else {
+			flags_off += sprintf(flags_off, "0x%x", flags);
+			flags = 0;
+		}
+	}
+
+	snprintf(ident_buf, sizeof(ident_buf), "%ld", kev->ident);
+	snprintf(fflags_buf, sizeof(fflags_buf), "0x%x", fflags);
+
+	switch (kev->filter) {
+	case EVFILT_READ:
+		filter_str = "EVFILT_READ";
+		break;
+	case EVFILT_WRITE:
+		filter_str = "EVFILT_WRITE";
+		break;
+	case EVFILT_AIO:
+		filter_str = "EVFILT_AIO";
+		break;
+	case EVFILT_VNODE:
+		filter_str = "EVFILT_VNODE";
+		if (fflags) while (fflags) {
+			if (fflags_off) {
+				*fflags_off = '|';
+				fflags_off++;
+				*fflags_off = '\0';
+			} else {
+				fflags_off = fflags_buf;
+			}
+
+#define FFLAGIF(ff) if (fflags & ff) { fflags_off += sprintf(fflags_off, #ff); fflags &= ~ff; }
+
+			FFLAGIF(NOTE_DELETE)
+			else FFLAGIF(NOTE_WRITE)
+			else FFLAGIF(NOTE_EXTEND)
+			else FFLAGIF(NOTE_ATTRIB)
+			else FFLAGIF(NOTE_LINK)
+			else FFLAGIF(NOTE_RENAME)
+			else FFLAGIF(NOTE_REVOKE)
+			else {
+				fflags_off += sprintf(fflags_off, "0x%x", fflags);
+				fflags = 0;
+			}
+		}
+		break;
+	case EVFILT_PROC:
+		filter_str = "EVFILT_PROC";
+		if (fflags) while (fflags) {
+			if (fflags_off) {
+				*fflags_off = '|';
+				fflags_off++;
+				*fflags_off = '\0';
+			} else {
+				fflags_off = fflags_buf;
+			}
+
+			FFLAGIF(NOTE_EXIT)
+			else FFLAGIF(NOTE_FORK)
+			else FFLAGIF(NOTE_EXEC)
+			else FFLAGIF(NOTE_TRACK)
+			else FFLAGIF(NOTE_TRACKERR)
+			else FFLAGIF(NOTE_CHILD)
+			else {
+				fflags_off += sprintf(fflags_off, "0x%x", fflags);
+				fflags = 0;
+			}
+		}
+		break;
+	case EVFILT_SIGNAL:
+		filter_str = "EVFILT_SIGNAL";
+		switch (kev->ident) {
+#define SIG2CASE(sg)	case sg: sprintf(ident_buf, #sg); break
+		SIG2CASE(SIGHUP);
+		SIG2CASE(SIGINT);
+		SIG2CASE(SIGQUIT);
+		SIG2CASE(SIGILL);
+		SIG2CASE(SIGTRAP);
+		SIG2CASE(SIGABRT);
+		SIG2CASE(SIGFPE);
+		SIG2CASE(SIGKILL);
+		SIG2CASE(SIGBUS);
+		SIG2CASE(SIGSEGV);
+		SIG2CASE(SIGSYS);
+		SIG2CASE(SIGPIPE);
+		SIG2CASE(SIGALRM);
+		SIG2CASE(SIGTERM);
+		SIG2CASE(SIGURG);
+		SIG2CASE(SIGSTOP);
+		SIG2CASE(SIGTSTP);
+		SIG2CASE(SIGCONT);
+		SIG2CASE(SIGCHLD);
+		SIG2CASE(SIGTTIN);
+		SIG2CASE(SIGTTOU);
+		SIG2CASE(SIGIO);
+		SIG2CASE(SIGXCPU);
+		SIG2CASE(SIGXFSZ);
+		SIG2CASE(SIGVTALRM);
+		SIG2CASE(SIGPROF);
+		SIG2CASE(SIGWINCH);
+		SIG2CASE(SIGINFO);
+		SIG2CASE(SIGUSR1);
+		SIG2CASE(SIGUSR2);
+		default:
+			sprintf(ident_buf, "%ld", kev->ident);
+			break;
+		}
+		break;
+	case EVFILT_TIMER:
+		filter_str = "EVFILT_TIMER";
+		snprintf(ident_buf, sizeof(ident_buf), "0x%lx", kev->ident);
+		if (fflags) while (fflags) {
+			if (fflags_off) {
+				*fflags_off = '|';
+				fflags_off++;
+				*fflags_off = '\0';
+			} else {
+				fflags_off = fflags_buf;
+			}
+
+			FFLAGIF(NOTE_SECONDS)
+			else FFLAGIF(NOTE_USECONDS)
+			else FFLAGIF(NOTE_NSECONDS)
+			else FFLAGIF(NOTE_ABSOLUTE)
+			else {
+				fflags_off += sprintf(fflags_off, "0x%x", fflags);
+				fflags = 0;
+			}
+		}
+		break;
+	case EVFILT_MACHPORT:
+		filter_str = "EVFILT_MACHPORT";
+		snprintf(ident_buf, sizeof(ident_buf), "0x%lx", kev->ident);
+		break;
+	case EVFILT_FS:
+		filter_str = "EVFILT_FS";
+		break;
+	default:
+		snprintf(filter_buf, sizeof(filter_buf), "%d", kev->filter);
+		filter_str = filter_buf;
+		break;
+	}
+
+	syslog(level, "KEVENT: ident = %s filter = %s flags = %s fflags = %s data = 0x%x udata = %p",
+			ident_buf, filter_str, flags_buf, fflags_buf, kev->data, kev->udata);
+}
+
 kern_return_t
 x_handle_mport(mach_port_t junk __attribute__((unused)))
 {
@@ -166,7 +357,10 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 		if (status.mps_msgcount) {
 			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, jobmgr_find_by_service_port(root_jobmgr, members[i]));
 			if (launchd_assumes(kev.udata != NULL)) {
+				log_kevent_struct(LOG_DEBUG, &kev);
 				(*((kq_callback *)kev.udata))(kev.udata, &kev);
+			} else {
+				log_kevent_struct(LOG_ERR, &kev);
 			}
 			/* the callback may have tainted our ability to continue this for loop */
 			break;
@@ -207,10 +401,10 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 
 	if (kevr == 1) {
 		if (launchd_assumes(malloc_size(kev.udata) || dladdr(kev.udata, &dli))) {
+			log_kevent_struct(LOG_DEBUG, &kev);
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
 		} else {
-			syslog(LOG_ERR, "kev.ident == 0x%x kev.filter == 0x%x kev.fflags = 0x%x kev.udata = 0x%x",
-					kev.ident, kev.filter, kev.fflags, kev.udata);
+			log_kevent_struct(LOG_ERR, &kev);
 		}
 	}
 

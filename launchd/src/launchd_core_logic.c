@@ -1837,8 +1837,7 @@ job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
 
-	job_log(j, LOG_DEBUG, "kev.ident = 0x%lx kev.filter = 0x%x kev->flags = 0x%x kev.fflags = 0x%x kev.data = 0x%lx kev.udata = %p",
-			kev->ident, kev->filter, kev->flags, kev->fflags, kev->data, kev->udata);
+	job_log(j, LOG_DEBUG, "Dispatching kevent callback.");
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
