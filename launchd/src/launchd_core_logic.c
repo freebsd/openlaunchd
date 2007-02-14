@@ -362,6 +362,8 @@ job_ignore(job_t j)
 		return;
 	}
 
+	job_log(j, LOG_DEBUG, "Ignoring...");
+
 	j->currently_ignored = true;
 
 	SLIST_FOREACH(sg, &j->sockets, sle) {
@@ -387,6 +389,8 @@ job_watch(job_t j)
 	if (!j->currently_ignored) {
 		return;
 	}
+
+	job_log(j, LOG_DEBUG, "Watching...");
 
 	j->currently_ignored = false;
 
@@ -1735,11 +1739,17 @@ job_dispatch(job_t j, bool kickstart)
 		if (job_useless(j)) {
 			job_remove(j);
 			return NULL;
-		} else if (kickstart || job_keepalive(j)) {
+		} else if (kickstart) {
+			job_log(j, LOG_DEBUG, "Kick-starting.");
+			job_start(j);
+		} else if (job_keepalive(j)) {
+			job_log(j, LOG_DEBUG, "Keeping alive...");
 			job_start(j);
 		} else {
 			job_watch(j);
 		}
+	} else {
+		job_log(j, LOG_DEBUG, "Tried to dispatch an already active job.");
 	}
 
 	return j;
@@ -1823,6 +1833,9 @@ void
 job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
+
+	job_log(j, LOG_DEBUG, "kev.ident = 0x%lx kev.filter = 0x%x kev->flags = 0x%x kev.fflags = 0x%x kev.data = 0x%lx kev.udata = %p",
+			kev->ident, kev->filter, kev->flags, kev->fflags, kev->data, kev->udata);
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
@@ -2900,8 +2913,9 @@ job_keepalive(job_t j)
 	SLIST_FOREACH(ms, &j->machservices, sle) {
 		statusCnt = MACH_PORT_RECEIVE_STATUS_COUNT;
 		if (mach_port_get_attributes(mach_task_self(), ms->port, MACH_PORT_RECEIVE_STATUS,
-					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS)
+					(mach_port_info_t)&status, &statusCnt) != KERN_SUCCESS) {
 			continue;
+		}
 		if (status.mps_msgcount) {
 			job_log(j, LOG_DEBUG, "KeepAlive check: job restarted due to %d queued Mach messages on service: %s",
 					status.mps_msgcount, ms->name);

@@ -165,7 +165,9 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 		}
 		if (status.mps_msgcount) {
 			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, jobmgr_find_by_service_port(root_jobmgr, members[i]));
-			(*((kq_callback *)kev.udata))(kev.udata, &kev);
+			if (launchd_assumes(kev.udata != NULL)) {
+				(*((kq_callback *)kev.udata))(kev.udata, &kev);
+			}
 			/* the callback may have tainted our ability to continue this for loop */
 			break;
 		}
