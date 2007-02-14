@@ -1802,6 +1802,10 @@ job_callback_proc(job_t j, int fflags)
 		job_log(j, LOG_DEBUG, "Called execve()");
 	}
 
+	if (fflags & NOTE_FORK) {
+		job_log(j, LOG_DEBUG, "Called fork()");
+	}
+
 	if (fflags & NOTE_EXIT) {
 		job_reap(j);
 		job_dispatch(j, false);
@@ -1959,7 +1963,7 @@ job_start(job_t j)
 			job_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
-		if (kevent_mod(c, EVFILT_PROC, EV_ADD, NOTE_EXEC|NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
+		if (kevent_mod(c, EVFILT_PROC, EV_ADD, /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
