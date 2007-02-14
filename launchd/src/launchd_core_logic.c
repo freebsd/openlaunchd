@@ -919,6 +919,7 @@ jobmgr_new_anonymous(jobmgr_t jm)
 job_t 
 job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv, const char *stdinpath)
 {
+	char compile_time_assert[offsetof(struct job_s, kqjob_callback) == 0 ? 1 : -1] __attribute__((unused));
 	const char *const *argv_tmp = argv;
 	char *co;
 	int i, cc = 0;
@@ -1963,7 +1964,7 @@ job_start(job_t j)
 			job_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
-		if (kevent_mod(c, EVFILT_PROC, EV_ADD, /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT, 0, &j->kqjob_callback) == -1) {
+		if (kevent_mod(c, EVFILT_PROC, EV_ADD, /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT, 0, j) == -1) {
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
