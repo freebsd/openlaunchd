@@ -164,31 +164,18 @@ log_kevent_struct(int level, struct kevent *kev)
 		} else {
 			flags_off = flags_buf;
 		}
-		if (flags & EV_ADD) {
-			flags_off += sprintf(flags_off, "EV_ADD");
-			flags &= ~EV_ADD;
-		} else if (flags & EV_DELETE) {
-			flags_off += sprintf(flags_off, "EV_DELETE");
-			flags &= ~EV_DELETE;
-		} else if (flags & EV_ENABLE) {
-			flags_off += sprintf(flags_off, "EV_ENABLE");
-			flags &= ~EV_ENABLE;
-		} else if (flags & EV_DISABLE) {
-			flags_off += sprintf(flags_off, "EV_DISABLE");
-			flags &= ~EV_DISABLE;
-		} else if (flags & EV_ONESHOT) {
-			flags_off += sprintf(flags_off, "EV_ONESHOT");
-			flags &= ~EV_ONESHOT;
-		} else if (flags & EV_CLEAR) {
-			flags_off += sprintf(flags_off, "EV_CLEAR");
-			flags &= ~EV_CLEAR;
-		} else if (flags & EV_EOF) {
-			flags_off += sprintf(flags_off, "EV_EOF");
-			flags &= ~EV_EOF;
-		} else if (flags & EV_ERROR) {
-			flags_off += sprintf(flags_off, "EV_ERROR");
-			flags &= ~EV_ERROR;
-		} else {
+
+#define FLAGIF(f) if (flags & f) { flags_off += sprintf(flags_off, #f); flags &= ~f; }
+
+		FLAGIF(EV_ADD)
+		else FLAGIF(EV_DELETE)
+		else FLAGIF(EV_ENABLE)
+		else FLAGIF(EV_DISABLE)
+		else FLAGIF(EV_ONESHOT)
+		else FLAGIF(EV_CLEAR)
+		else FLAGIF(EV_EOF)
+		else FLAGIF(EV_ERROR)
+		else {
 			flags_off += sprintf(flags_off, "0x%x", flags);
 			flags = 0;
 		}
