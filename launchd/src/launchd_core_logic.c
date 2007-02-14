@@ -273,7 +273,8 @@ struct job_s {
 		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
-		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1;
+		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
+		     wait4pipe_eof:1;
 	char label[0];
 };
 
@@ -869,6 +870,7 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 	}
 
 	jr->unload_at_exit = true;
+	jr->wait4pipe_eof = true;
 	jr->stall_before_exec = w4d;
 
 	if (workingdir) {
@@ -1637,7 +1639,7 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
-	if (j->log_redirect_fd) {
+	if (j->log_redirect_fd && !j->wait4pipe_eof) {
 		job_assumes(j, close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 	}
@@ -1773,6 +1775,7 @@ job_log_stdouterr(job_t j)
 		job_log(j, LOG_DEBUG, "Standard out/error pipe closed");
 		job_assumes(j, close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
+		job_dispatch(j, false);
 	} else if (job_assumes(j, rsz != -1)) {
 		buf[rsz] = '\0';
 
@@ -2993,6 +2996,10 @@ job_active(job_t j)
 	struct machservice *ms;
 
 	if (j->anonymous) {
+		return true;
+	}
+
+	if (j->wait4pipe_eof && j->log_redirect_fd) {
 		return true;
 	}
 
