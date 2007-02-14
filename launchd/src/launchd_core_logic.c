@@ -1963,9 +1963,7 @@ job_start(job_t j)
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
-		       	if (j->ondemand) {
-				job_ignore(j);
-			}
+			job_ignore(j);
 		}
 
 		if (!j->stall_before_exec) {
