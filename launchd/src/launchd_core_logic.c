@@ -2521,6 +2521,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 	case PATH_MISSING:
 		fflags = NOTE_DELETE|NOTE_RENAME;
 		break;
+	case DIR_NOT_EMPTY:
 	case PATH_CHANGES:
 		fflags = NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_EXTEND|NOTE_WRITE|NOTE_ATTRIB|NOTE_LINK;
 		break;
@@ -2550,6 +2551,7 @@ semaphoreitem_callback(job_t j, struct kevent *kev)
 		case PATH_CHANGES:
 		case PATH_EXISTS:
 		case PATH_MISSING:
+		case DIR_NOT_EMPTY:
 			break;
 		default:
 			continue;
