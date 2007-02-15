@@ -593,7 +593,7 @@ jobmgr_remove(jobmgr_t jm)
 		if (!jm->power_cycle) {
 			flags |= RB_HALT;
 		}
-		if (!jm->ups_delay) {
+		if (jm->ups_delay) {
 			flags |= RB_UPSDELAY;
 		}
 
