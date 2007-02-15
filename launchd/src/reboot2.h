@@ -1,5 +1,5 @@
-#ifndef _POWEROFF_H_
-#define _POWEROFF_H_
+#ifndef _REBOOT2_H_
+#define _REBOOT2_H_
 /*
  * Copyright (c) 2007 Apple Inc. All rights reserved.
  *
@@ -21,16 +21,14 @@
  */
 
 #include <sys/cdefs.h>
+#include <sys/reboot.h>
 #include <stdint.h>
 
 __BEGIN_DECLS
 
-#define POWEROFF_RESET	1
-#define POWEROFF_UPSDELAY	2
-
 /* Returns NULL on success. Not NULL on failure */
 
-__attribute__((visibility("default"))) void *poweroff(uint64_t flags);
+__attribute__((visibility("default"))) void *reboot2(uint64_t flags);
 
 __END_DECLS
 

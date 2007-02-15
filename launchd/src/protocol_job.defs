@@ -41,7 +41,7 @@ routine create_server(
 		__on_demand	: boolean_t;
 	out	__server_port	: mach_port_make_send_t);
 
-routine poweroff(
+routine reboot2(
 		__bs_port	: job_t;
 		__flags		: uint64_t);
 

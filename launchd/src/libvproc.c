@@ -36,7 +36,7 @@
 
 #include "protocol_vproc.h"
 
-#include "poweroff.h"
+#include "reboot2.h"
 
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
@@ -220,7 +220,7 @@ __vproc_tag_loginwindow_context(void)
 }
 
 void *
-poweroff(uint64_t flags)
+reboot2(uint64_t flags)
 {
 	mach_port_t parent_port = 0;
 	mach_port_t previous_port = 0;
@@ -239,12 +239,12 @@ poweroff(uint64_t flags)
 
 	} while (parent_port != previous_port);
 
-	if (vproc_mig_poweroff(parent_port, flags) == 0) {
+	if (vproc_mig_reboot2(parent_port, flags) == 0) {
 		return NULL;
 	}
 
 out_bad:
-	return poweroff;
+	return reboot2;
 }
 
 vproc_err_t
