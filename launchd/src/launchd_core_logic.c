@@ -687,9 +687,6 @@ job_remove(job_t j)
 	if (j->start_interval) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 	}
-	if (j->exit_timeout) {
-		kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
-	}
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 
@@ -1652,6 +1649,10 @@ job_reap(job_t j)
 
 	if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
 		return;
+	}
+
+	if (j->exit_timeout) {
+		kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	}
 
 	total_children--;
