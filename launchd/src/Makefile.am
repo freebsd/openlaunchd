@@ -89,6 +89,7 @@ install-data-hook: install-startupitems
 	mkdir -p $(DESTDIR)/usr/local/include
 	cp $(srcdir)/liblaunch_private.h $(DESTDIR)/usr/local/include/launch_priv.h
 	cp $(srcdir)/libvproc_private.h $(DESTDIR)/usr/local/include/vproc_priv.h
+	cp $(srcdir)/poweroff.h $(DESTDIR)/usr/local/include/poweroff.h
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 	mkdir -p $(DESTDIR)/Library/LaunchDaemons

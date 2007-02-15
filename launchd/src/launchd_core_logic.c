@@ -80,6 +80,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "libvproc_public.h"
 #include "libvproc_internal.h"
 
+#include "poweroff.h"
+
 #include "launchd.h"
 #include "launchd_runtime.h"
 #include "launchd_unix_ipc.h"
@@ -201,7 +203,7 @@ struct jobmgr_s {
 	char *jm_stdout;
 	char *jm_stderr;
 	unsigned int global_on_demand_cnt;
-	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1;
+	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1, power_cycle:1;
 	char name[0];
 };
 
@@ -586,7 +588,7 @@ jobmgr_remove(jobmgr_t jm)
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 		jobmgr_tickle(jm->parentmgr);
 	} else if (getpid() == 1) {
-		jobmgr_assumes(jm,  reboot(RB_HALT) != -1);
+		jobmgr_assumes(jm,  reboot(jm->power_cycle ? RB_AUTOBOOT : RB_HALT) != -1);
 	} else {
 		exit(EXIT_SUCCESS);
 	}
@@ -4108,6 +4110,30 @@ job_mig_get_integer(job_t j, get_set_int_key_t key, int64_t *val)
 	}
 
 	return kr;
+}
+
+kern_return_t
+job_mig_poweroff(job_t j, uint64_t flags)
+{
+	struct ldcred ldc;
+
+	if (getpid() != 1) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	runtime_get_caller_creds(&ldc);
+
+	if (ldc.euid) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	if (flags & POWEROFF_RESET) {
+		root_jobmgr->power_cycle = true;
+	}
+
+	launchd_shutdown();
+
+	return 0;
 }
 
 kern_return_t

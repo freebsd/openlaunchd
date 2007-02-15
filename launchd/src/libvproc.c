@@ -36,6 +36,8 @@
 
 #include "protocol_vproc.h"
 
+#include "poweroff.h"
+
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
@@ -215,6 +217,34 @@ __vproc_tag_loginwindow_context(void)
 	}
 
 	return (vproc_err_t)__vproc_tag_loginwindow_context;
+}
+
+void *
+poweroff(uint64_t flags)
+{
+	mach_port_t parent_port = 0;
+	mach_port_t previous_port = 0;
+
+	do {
+		if (previous_port) {
+			mach_port_deallocate(mach_task_self(), previous_port);
+			previous_port = parent_port;
+		} else {
+			previous_port = bootstrap_port;
+		}
+
+		if (bootstrap_parent(previous_port, &parent_port) != 0) {
+			goto out_bad;
+		}
+
+	} while (parent_port != previous_port);
+
+	if (vproc_mig_poweroff(parent_port, flags) == 0) {
+		return NULL;
+	}
+
+out_bad:
+	return poweroff;
 }
 
 vproc_err_t
