@@ -26,6 +26,7 @@
 __BEGIN_DECLS
 
 #define POWEROFF_RESET	1
+#define POWEROFF_UPSDELAY	2
 
 /* Returns NULL on success. Not NULL on failure */
 

@@ -203,7 +203,7 @@ struct jobmgr_s {
 	char *jm_stdout;
 	char *jm_stderr;
 	unsigned int global_on_demand_cnt;
-	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1, power_cycle:1;
+	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1, power_cycle:1, ups_delay:1;
 	char name[0];
 };
 
@@ -588,7 +588,16 @@ jobmgr_remove(jobmgr_t jm)
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 		jobmgr_tickle(jm->parentmgr);
 	} else if (getpid() == 1) {
-		jobmgr_assumes(jm,  reboot(jm->power_cycle ? RB_AUTOBOOT : RB_HALT) != -1);
+		int flags = 0;
+
+		if (!jm->power_cycle) {
+			flags |= RB_HALT;
+		}
+		if (!jm->ups_delay) {
+			flags |= RB_UPSDELAY;
+		}
+
+		jobmgr_assumes(jm,  reboot(flags) != -1);
 	} else {
 		exit(EXIT_SUCCESS);
 	}
@@ -4129,6 +4138,9 @@ job_mig_poweroff(job_t j, uint64_t flags)
 
 	if (flags & POWEROFF_RESET) {
 		root_jobmgr->power_cycle = true;
+	}
+	if (flags & POWEROFF_UPSDELAY) {
+		root_jobmgr->ups_delay = true;
 	}
 
 	launchd_shutdown();
