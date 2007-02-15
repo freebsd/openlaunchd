@@ -2027,6 +2027,7 @@ job_start_child(job_t j)
 	}
 
 	if (j->wait4debugger) {
+		/* 4438161 gdb hangs when trying to attach to SIGSTOPed processes (breaks launchd's "WaitForDebugger") */
 		spflags |= POSIX_SPAWN_START_SUSPENDED;
 	}
 

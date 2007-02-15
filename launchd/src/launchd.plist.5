@@ -232,7 +232,7 @@ should adjust its log mask temporarily to LOG_DEBUG while dealing with this job.
 .It Sy WaitForDebugger <boolean>
 This optional key specifies that
 .Nm launchd
-should instruct the kernel to have the job wait for a debugger to attach before any code in the job is executed.
+should instruct the kernel to have the job wait for a debugger to attach before any code in the job is executed. This feature may not work due to bug 4438161.
 .It Sy SoftResourceLimits <dictionary of integers>
 .It Sy HardResourceLimits <dictionary of integers>
 Resource limits to be imposed on the job. These adjust variables set with
