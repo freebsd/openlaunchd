@@ -79,15 +79,15 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define PID1LAUNCHD_CONF "/etc/launchd.conf"
 #define LAUNCHD_CONF ".launchd.conf"
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+#define SHUTDOWN_LOG_DIR "/var/log/shutdown"
+
 
 extern char **environ;
 
 static void signal_callback(void *, struct kevent *);
-static void debugshutdown_callback(void);
 static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqsignal_callback = signal_callback;
-static kq_callback kqdebugshutdown_callback = (kq_callback)debugshutdown_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
 static void pid1_magic_init(bool sflag);
@@ -99,6 +99,7 @@ static bool get_network_state(void);
 static void monitor_networking_state(void);
 static void fatal_signal_handler(int sig, siginfo_t *si, void *uap);
 static void handle_pid1_crashes_separately(void);
+static void prep_shutdown_log_dir(void);
 
 static bool re_exec_in_single_user_mode = false;
 static job_t rlcj = NULL;
@@ -392,6 +393,51 @@ _fd(int fd)
 }
 
 void
+prep_shutdown_log_dir(void)
+{
+	struct stat sb;
+	struct dirent *de;
+	DIR *thedir = NULL;
+
+	if (!launchd_assumes(mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST)) {
+		goto out;
+	}
+
+	if (!launchd_assumes(lstat(SHUTDOWN_LOG_DIR, &sb) != -1)) {
+		goto out;
+	}
+
+	if (!launchd_assumes(S_ISDIR(sb.st_mode))) {
+		goto out;
+	}
+
+	if (!launchd_assumes(chdir(SHUTDOWN_LOG_DIR) != -1)) {
+		goto out;
+	}
+
+	if (!launchd_assumes((thedir = opendir(".")) != NULL)) {
+		goto out;
+	}
+
+	while ((de = readdir(thedir))) {
+		if (strcmp(de->d_name, ".") == 0) {
+			continue;
+		} else if (strcmp(de->d_name, "..") == 0) {
+			continue;
+		} else {
+			launchd_assumes(remove(de->d_name) != -1);
+		}
+	}
+
+out:
+	if (thedir) {
+		closedir(thedir);
+	}
+
+	chdir("/");
+}
+
+void
 launchd_shutdown(void)
 {
 	struct stat sb;
@@ -402,17 +448,13 @@ launchd_shutdown(void)
 
 	shutdown_in_progress = true;
 
-	if (getpid() == 1) {
-		if (stat("/var/db/debugShutdownHangs", &sb) != -1) {
-			/*
-			 * When this changes to a more sustainable API, update this:
-			 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
-			 */
-			debug_shutdown_hangs = true;
-		}
-
-		launchd_assumes(kevent_mod((uintptr_t)debugshutdown_callback,
-					EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 5, &kqdebugshutdown_callback) != -1);
+	if (getpid() == 1 && stat("/var/db/debugShutdownHangs", &sb) != -1) {
+		/*
+		 * When this changes to a more sustainable API, update this:
+		 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
+		 */
+		prep_shutdown_log_dir();
+		debug_shutdown_hangs = true;
 	}
 
 	rlcj = NULL;
@@ -641,19 +683,5 @@ launchd_post_kevent(void)
 			return;
 		}
 		init_pre_kevent();
-	}
-}
-
-void
-debugshutdown_callback(void)
-{
-	char *sdd_args[] = { "/usr/libexec/shutdown_debugger", NULL };
-	pid_t sddp;
-
-	if (launchd_assumes(posix_spawn(&sddp, sdd_args[0], NULL, NULL, sdd_args, environ) == 0)) {
-		int wstatus;
-
-		/* No bootstrap port was given. It is safe to block. */
-		launchd_assumes(waitpid(sddp, &wstatus, 0) != -1);
 	}
 }
