@@ -8,16 +8,8 @@
 
 StartService ()
 {
-    if [ ! -f /var/db/volinfo.database ]; then Uninitialized_VSDB=-YES-; fi
-
     echo "Checking disks"
     /sbin/autodiskmount -va
-
-    if [ "${Uninitialized_VSDB:=-NO-}" = "-YES-" ]; then
-        if [ -x /usr/sbin/vsdbutil ]; then
-            /usr/sbin/vsdbutil -i
-        fi
-    fi
 }
 
 StopService ()
