@@ -2455,16 +2455,20 @@ do_potential_fsck(void)
 	const char *remount_tool[] = { "mount", "-uw", "/", NULL };
 	struct statfs sfs;
 
-	if (assumes(statfs("/", &sfs) != -1)) {
-		if (!(sfs.f_flags & MNT_RDONLY)) {
-			fprintf(stdout, "Root file system is read-write, skipping fsck.\n");
-			return;
-		}
+	if (!assumes(statfs("/", &sfs) != -1)) {
+		return;
+	}
+
+	if (!(sfs.f_flags & MNT_RDONLY)) {
+		return;
 	}
 
 	if (!is_safeboot()) {
-		if (fwexec(fsck_tool, true) != -1)
+		if (sfs.f_flags & MNT_JOURNALED) {
 			goto out;
+		} else if (fwexec(fsck_tool, true) != -1) {
+			goto out;
+		}
 	}
 
 	if (fwexec(safe_fsck_tool, true) != -1) {
@@ -2475,6 +2479,16 @@ do_potential_fsck(void)
 
 	return;
 out:
+	/* 
+	 * Once this is fixed:
+	 *
+	 * <rdar://problem/3948774> Mount flag updates should be possible with NULL as the forth argument to mount()
+	 *
+	 * We can then do this one system call instead of calling out a full blown process.
+	 *
+	 * assumes(mount(sfs.f_fstypename, "/", MNT_UPDATE, NULL) != -1);
+	 */
+
 	assumes(fwexec(remount_tool, true) != -1);
 }
 
