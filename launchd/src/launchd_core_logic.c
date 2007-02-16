@@ -204,7 +204,7 @@ struct jobmgr_s {
 	char *jm_stderr;
 	int reboot_flags;
 	unsigned int global_on_demand_cnt;
-	unsigned int transfer_bstrap:1, sent_stop_to_hopeful_jobs:1, shutting_down:1;
+	unsigned int sent_stop_to_hopeful_jobs:1, shutting_down:1;
 	char name[0];
 };
 
@@ -213,14 +213,13 @@ struct jobmgr_s {
 
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
-static jobmgr_t jobmgr_tickle(jobmgr_t jm);
+static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
 static bool jobmgr_is_idle(jobmgr_t jm);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm);
 static job_t jobmgr_new_anonymous(jobmgr_t jm);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
-static mach_port_t jobmgr_get_reqport(jobmgr_t jm);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static pid_t jobmgr_fork(jobmgr_t jm);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
@@ -353,7 +352,6 @@ static unsigned int total_children;
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 jobmgr_t root_jobmgr;
-jobmgr_t gc_this_jobmgr;
 
 void
 job_ignore(job_t j)
@@ -526,6 +524,8 @@ jobmgr_shutdown(jobmgr_t jm)
 
 	jobmgr_log(jm, LOG_DEBUG, "Beginning job manager shutdown");
 
+	jm->shutting_down = true;
+
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
 		jobmgr_shutdown(jmi);
 	}
@@ -538,9 +538,7 @@ jobmgr_shutdown(jobmgr_t jm)
 		}
 	}
 
-	jm->shutting_down = true;
-
-	return jobmgr_tickle(jm);
+	return jobmgr_do_garbage_collection(jm);
 }
 
 void
@@ -559,7 +557,12 @@ jobmgr_remove(jobmgr_t jm)
 
 	/* We should have one job left and it should be the anonymous job */
 	ji = TAILQ_FIRST(&jm->jobs);
-	jobmgr_assumes(jm, ji && ji == jm->anonj && (TAILQ_NEXT(ji, sle) == NULL));
+	if (!(jobmgr_assumes(jm, ji != NULL) && jobmgr_assumes(jm, ji == jm->anonj)
+				&& jobmgr_assumes(jm, TAILQ_NEXT(ji, sle) == NULL))) {
+		TAILQ_FOREACH(ji, &jm->jobs, sle) {
+			job_log(ji, LOG_ERR, "Still remaining at removal.");
+		}
+	}
 
 	while ((ji = TAILQ_FIRST(&jm->jobs))) {
 		job_remove(ji);
@@ -570,11 +573,7 @@ jobmgr_remove(jobmgr_t jm)
 	}
 
 	if (jm->jm_port) {
-		if (jm->transfer_bstrap) {
-			jobmgr_assumes(jm, launchd_mport_deallocate(jm->jm_port) == KERN_SUCCESS);
-		} else {
-			jobmgr_assumes(jm, launchd_mport_close_recv(jm->jm_port) == KERN_SUCCESS);
-		}
+		jobmgr_assumes(jm, launchd_mport_close_recv(jm->jm_port) == KERN_SUCCESS);
 	}
 
 	if (jm->jm_stdout) {
@@ -587,7 +586,6 @@ jobmgr_remove(jobmgr_t jm)
 
 	if (jm->parentmgr) {
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
-		jobmgr_tickle(jm->parentmgr);
 	} else if (getpid() == 1) {
 		jobmgr_assumes(jm,  reboot(jm->reboot_flags) != -1);
 	} else {
@@ -695,7 +693,6 @@ job_remove(job_t j)
 
 	if (job_assumes(j, j->mgr)) {
 		TAILQ_REMOVE(&j->mgr->jobs, j, sle);
-		jobmgr_tickle(j->mgr);
 	}
 
 	job_log(j, LOG_DEBUG, "Removed");
@@ -1814,6 +1811,10 @@ job_callback_proc(job_t j, int fflags)
 	if (fflags & NOTE_EXIT) {
 		job_reap(j);
 		job_dispatch(j, false);
+
+		if (launchd_assumes(root_jobmgr != NULL)) {
+			root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
+		}
 	}
 }
 
@@ -3247,11 +3248,28 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 }
 
 jobmgr_t
-jobmgr_tickle(jobmgr_t jm)
+jobmgr_do_garbage_collection(jobmgr_t jm)
 {
+	jobmgr_t jmi, jmn;
 	job_t ji;
 
-	if (jm->sent_stop_to_hopeful_jobs || !jm->shutting_down) {
+	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
+		jobmgr_do_garbage_collection(jmi);
+	}
+
+	if (!jm->shutting_down) {
+		return jm;
+	}
+
+	jobmgr_log(jm, LOG_DEBUG, "Garbage collecting.");
+
+	if (jobmgr_is_idle(jm)) {
+		jobmgr_log_stray_children(jm);
+		jobmgr_remove(jm);
+		return NULL;
+	}
+
+	if (jm->sent_stop_to_hopeful_jobs) {
 		return jm;
 	}
 
@@ -3261,17 +3279,13 @@ jobmgr_tickle(jobmgr_t jm)
 		}
 	}
 
+	jobmgr_log(jm, LOG_DEBUG, "Asking \"hopeful\" jobs to exit.");
+
 	TAILQ_FOREACH(ji, &jm->jobs, sle) {
 		job_stop(ji);
 	}
 
 	jm->sent_stop_to_hopeful_jobs = true;
-
-	if (jobmgr_is_idle(jm)) {
-		jobmgr_log_stray_children(jm);
-		jobmgr_remove(jm);
-		return NULL;
-	}
 
 	return jm;
 }
@@ -3461,7 +3475,7 @@ out_bad:
 	return NULL;
 }
 
-void
+jobmgr_t
 jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 {
 	struct machservice *ms, *next_ms;
@@ -3478,10 +3492,6 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 	 * to use.
 	 */
 
-	if (jm->req_port == port) {
-		jobmgr_shutdown(jm);
-	}
-
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
 		jobmgr_delete_anything_with_port(jmi, port);
 	}
@@ -3493,6 +3503,12 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 			}
 		}
 	}
+
+	if (jm->req_port == port) {
+		return jobmgr_shutdown(jm);
+	}
+
+	return jm;
 }
 
 struct machservice *
@@ -3686,15 +3702,6 @@ job_ack_no_senders(job_t j)
 	job_log(j, LOG_DEBUG, "No more senders on privileged Mach bootstrap port");
 
 	job_dispatch(j, false);
-}
-
-mach_port_t
-jobmgr_get_reqport(jobmgr_t jm)
-{
-	jm->transfer_bstrap = true;
-	gc_this_jobmgr = jm;
-
-	return jm->req_port;
 }
 
 jobmgr_t 
@@ -4609,6 +4616,8 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 	SLIST_FOREACH(ms, &j->machservices, sle) {
 		strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
 		ports[cnt2] = machservice_port(ms);
+		/* Increment the send right by one so we can shutdown the jobmgr cleanly */
+		jobmgr_assumes(jm, (errno = mach_port_mod_refs(mach_task_self(), ports[cnt2], MACH_PORT_RIGHT_SEND, 1)) == 0);
 		cnt2++;
 	}
 
@@ -4618,12 +4627,13 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 	*portsp = ports;
 	*servicenames_cnt = *ports_cnt = cnt;
 
-	*reqport = jobmgr_get_reqport(jm);
+	*reqport = jm->req_port;
 	*rcvright = jm->jm_port;
 
-	launchd_assumes(runtime_remove_mport(*rcvright) == KERN_SUCCESS);
+	jm->req_port = 0;
+	jm->jm_port = 0;
 
-	launchd_assumes(launchd_mport_make_send(*rcvright) == KERN_SUCCESS);
+	jobmgr_shutdown(jm);
 
 	return BOOTSTRAP_SUCCESS;
 

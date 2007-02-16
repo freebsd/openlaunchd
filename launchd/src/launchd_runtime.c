@@ -659,7 +659,9 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 		inherited_bootstrap_port = MACH_PORT_NULL;
 	}
 
-	jobmgr_delete_anything_with_port(root_jobmgr, name);
+	if (launchd_assumes(root_jobmgr != NULL)) {
+		root_jobmgr = jobmgr_delete_anything_with_port(root_jobmgr, name);
+	}
 
 	/* A dead-name notification about a port appears to increment the
 	 * rights on said port. Let's deallocate it so that we don't leak
@@ -759,12 +761,6 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		bufTemp = bufRequest;
 		bufRequest = bufReply;
 		bufReply = bufTemp;
-
-		/* XXX - So very gross */
-		if (gc_this_jobmgr) {
-			jobmgr_shutdown(gc_this_jobmgr);
-			gc_this_jobmgr = NULL;
-		}
 
 		if (!(tmp_options & MACH_RCV_MSG)) {
 			continue;
