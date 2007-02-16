@@ -101,7 +101,7 @@ struct machservice {
 	SLIST_ENTRY(machservice) sle;
 	job_t			job;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1, debug_on_close:1;
 	char			name[0];
 };
 
@@ -1676,7 +1676,7 @@ job_reap(job_t j)
 
 		delta = (double)tvd.tv_sec + (double)tvd.tv_usec / (double)1000000;
 
-		job_log(j, tvd.tv_sec ? LOG_NOTICE : LOG_INFO, "Exited %f seconds after SIGTERM was sent", delta);
+		job_log(j, LOG_INFO, "Exited %f seconds after SIGTERM was sent", delta);
 	}
 
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
@@ -2886,7 +2886,7 @@ job_useless(job_t j)
 		job_log(j, LOG_DEBUG, "Exited while removal was pending.");
 		return true;
 	} else if (j->mgr->shutting_down) {
-		job_log(j, LOG_NOTICE, "Exited while shutdown in progress. Processes remaining: %u", total_children);
+		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %u", total_children);
 		return true;
 	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
 		job_log(j, LOG_WARNING, "Failed to check-in!");
@@ -3196,7 +3196,9 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		}
 	case LAUNCH_DATA_BOOL:
 		b = launch_data_get_bool(obj);
-		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_RESETATCLOSE) == 0) {
+		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_ENTERKERNELDEBUGGERONCLOSE) == 0) {
+			ms->debug_on_close = b;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_RESETATCLOSE) == 0) {
 			ms->reset = b;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
 			ms->hide = b;
@@ -3569,6 +3571,11 @@ machservice_name(struct machservice *ms)
 void
 machservice_delete(struct machservice *ms)
 {
+	if (ms->debug_on_close) {
+		job_log(ms->job, LOG_NOTICE, "About to enter kernel debugger because of Mach port: 0x%x", ms->port);
+		job_assumes(ms->job, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
+	}
+
 	if (ms->recv && job_assumes(ms->job, !ms->isActive)) {
 		job_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	}
