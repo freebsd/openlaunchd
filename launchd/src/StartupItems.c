@@ -158,6 +158,7 @@ static void SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		CFSTR("Core Services"),
 		CFSTR("Network"),
 		CFSTR("TIM"),
+		CFSTR("Disks"),
 		NULL
 	};
 	CFMutableArrayRef aList, aNewList;
@@ -959,7 +960,6 @@ int StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef an
 
 			case 0:	/* Child */
 				{
-					setpriority(PRIO_PROCESS, 0, 0);
 					if (setsid() == -1)
 						syslog(LOG_WARNING, "Unable to create session for item %s: %m", anExecutable);
 

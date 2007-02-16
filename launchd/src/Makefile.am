@@ -68,17 +68,7 @@ man5_MANS = launchd.plist.5 launchd.conf.5
 
 man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launchproxy.8
 
-STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
-
-$(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
-	mkdir -p $@
-	cp $(srcdir)/StartupItems/$(notdir $@) $@
-	chmod 755 $@/$(notdir $@)
-	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
-
-install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
-
-install-data-hook: install-startupitems
+install-data-hook:
 	mkdir -p $(DESTDIR)/usr/libexec
 	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include/servers

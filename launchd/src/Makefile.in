@@ -249,7 +249,6 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
 @LIBS_ONLY_FALSE@man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launchproxy.8
-@LIBS_ONLY_FALSE@STARTUPITEMS = $(basename $(notdir $(wildcard $(srcdir)/StartupItems/*.plist)))
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -1075,15 +1074,7 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_FALSE@launchd_internal.h launchd_internalServer.c launchd_internalUser.c launchd_internalServer.h: $(srcdir)/launchd_internal.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader launchd_internalServer.h $(srcdir)/launchd_internal.defs
 
-@LIBS_ONLY_FALSE@$(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS)):
-@LIBS_ONLY_FALSE@	mkdir -p $@
-@LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItems/$(notdir $@) $@
-@LIBS_ONLY_FALSE@	chmod 755 $@/$(notdir $@)
-@LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItems/$(notdir $@).plist $@/StartupParameters.plist
-
-@LIBS_ONLY_FALSE@install-startupitems: $(addprefix $(DESTDIR)/System/Library/StartupItems/, $(STARTUPITEMS))
-
-@LIBS_ONLY_FALSE@install-data-hook: install-startupitems
+@LIBS_ONLY_FALSE@install-data-hook:
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/include/servers

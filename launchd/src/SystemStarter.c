@@ -44,6 +44,7 @@ static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
 static void	displayErrorMessages(StartupContext aStartupContext);
 static void	doCFnote(void);
+static pid_t	fwexec(const char *const *argv, bool _wait);
 
 int 
 main(int argc, char *argv[])
@@ -112,10 +113,8 @@ main(int argc, char *argv[])
 	if (argc == 2) {
 		aService = argv[1];
 	} else if (!gDebugFlag && anAction != kActionStop) {
-		pid_t ipwa;
-		int status;
-
-		setpriority(PRIO_PROCESS, 0, 20);
+		const char *ipw_cmd[] = { "/usr/sbin/ipconfig", "waitall", NULL };
+		const char *adm_cmd[] = { "/sbin/autodiskmount", "-va", NULL };
 
 		/* Too many old StartupItems had implicit dependancies on
 		 * "Network" via other StartupItems that are now no-ops.
@@ -124,30 +123,8 @@ main(int argc, char *argv[])
 		 * so we'll stall here to deal with this legacy dependancy
 		 * problem.
 		 */
-		switch ((ipwa = fork())) {
-		case -1:
-			syslog(LOG_WARNING, "fork(): %m");
-			break;
-		case 0:
-			execl("/usr/sbin/ipconfig", "ipconfig", "waitall", NULL);
-			syslog(LOG_WARNING, "execl(): %m");
-			exit(EXIT_FAILURE);
-		default:
-			if (waitpid(ipwa, &status, 0) == -1) {
-				syslog(LOG_WARNING, "waitpid(): %m");
-				break;
-			} else if (WIFEXITED(status)) {
-				if (WEXITSTATUS(status) == 0) {
-					break;
-				} else {
-					syslog(LOG_WARNING, "ipconfig waitall exit status: %d", WEXITSTATUS(status));
-				}
-			} else {
-				/* must have died due to signal */
-				syslog(LOG_WARNING, "ipconfig waitall: %s", strsignal(WTERMSIG(status)));
-			}
-			break;
-		}
+		fwexec(ipw_cmd, true);
+		fwexec(adm_cmd, true);
 	}
 
 	int ssec = system_starter(anAction, aService);
@@ -405,4 +382,39 @@ static void doCFnote(void)
 			CFSTR("com.apple.startupitems.completed"),
 			NULL, NULL,
 			kCFNotificationDeliverImmediately | kCFNotificationPostToAllSessions);
+}
+
+pid_t
+fwexec(const char *const *argv, bool _wait)
+{
+	int wstatus;
+	pid_t p;
+
+	switch ((p = fork())) {
+	case -1:
+		return -1;
+	case 0:
+		setsid();
+		execvp(argv[0], (char *const *)argv);
+		_exit(EXIT_FAILURE);
+		break;
+	default:
+		if (!_wait)
+			return p;
+		if (waitpid(p, &wstatus, 0) == -1) {
+			return -1;
+		} else if (WIFEXITED(wstatus)) {
+			if (WEXITSTATUS(wstatus) == 0) {
+				return 0;
+			} else {
+				syslog(LOG_WARNING, "%s exit status: %d", argv[0], WEXITSTATUS(wstatus));
+			}
+		} else {
+			/* must have died due to signal */
+			syslog(LOG_WARNING, "%s died: %s", argv[0], strsignal(WTERMSIG(wstatus)));
+		}
+		break;
+	}
+
+	return -1;
 }
