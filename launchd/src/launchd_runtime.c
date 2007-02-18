@@ -343,12 +343,16 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 		}
 		if (status.mps_msgcount) {
 			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, jobmgr_find_by_service_port(root_jobmgr, members[i]));
+#if 0
 			if (launchd_assumes(kev.udata != NULL)) {
+#endif
 				log_kevent_struct(LOG_DEBUG, &kev);
 				(*((kq_callback *)kev.udata))(kev.udata, &kev);
+#if 0
 			} else {
 				log_kevent_struct(LOG_ERR, &kev);
 			}
+#endif
 			/* the callback may have tainted our ability to continue this for loop */
 			break;
 		}
@@ -381,18 +385,23 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 {
 	struct timespec ts = { 0, 0 };
 	struct kevent kev;
-	Dl_info dli;
 	int kevr;
 
 	launchd_assumes((kevr = kevent(fd, NULL, 0, &kev, 1, &ts)) != -1);
 
 	if (kevr == 1) {
+#if 0
+		Dl_info dli;
+
 		if (launchd_assumes(malloc_size(kev.udata) || dladdr(kev.udata, &dli))) {
+#endif
 			log_kevent_struct(LOG_DEBUG, &kev);
 			(*((kq_callback *)kev.udata))(kev.udata, &kev);
+#if 0
 		} else {
 			log_kevent_struct(LOG_ERR, &kev);
 		}
+#endif
 	}
 
 	launchd_post_kevent();

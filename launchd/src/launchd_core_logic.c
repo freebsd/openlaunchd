@@ -92,6 +92,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
 #define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
+#define LAUNCHD_SIGKILL_TIMEOUT 5
 
 extern char **environ;
 
@@ -276,7 +277,7 @@ struct job_s {
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     wait4pipe_eof:1;
+		     wait4pipe_eof:1, sent_sigkill:1;
 	char label[0];
 };
 
@@ -1709,7 +1710,12 @@ job_reap(job_t j)
 		}
 	}
 
+	if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
+		job_log(j, LOG_WARNING, "Failed to check-in!");
+	}
+
 	j->last_exit_status = status;
+	j->sent_sigkill = false;
 	j->p = 0;
 }
 
@@ -1743,11 +1749,7 @@ job_dispatch(job_t j, bool kickstart)
 		if (job_useless(j)) {
 			job_remove(j);
 			return NULL;
-		} else if (kickstart) {
-			job_log(j, LOG_DEBUG, "Kick-starting.");
-			job_start(j);
-		} else if (job_keepalive(j)) {
-			job_log(j, LOG_DEBUG, "Keeping alive...");
+		} else if (kickstart || job_keepalive(j)) {
 			job_start(j);
 		} else {
 			job_watch(j);
@@ -1795,6 +1797,11 @@ void
 job_kill(job_t j)
 {
 	job_assumes(j, kill(j->p, SIGKILL) != -1);
+
+	j->sent_sigkill = true;
+
+	job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
+				EV_ADD|EV_ONESHOT, NOTE_SECONDS, LAUNCHD_SIGKILL_TIMEOUT, j) != -1);
 }
 
 void
@@ -1824,9 +1831,16 @@ job_callback_timer(job_t j, void *ident)
 	if (j == ident || &j->start_interval == ident) {
 		job_dispatch(j, true);
 	} else if (&j->exit_timeout == ident) {
-		job_force_sampletool(j);
-		job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
-		job_kill(j);
+		if (j->sent_sigkill) {
+			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %u seconds ago...", LAUNCHD_SIGKILL_TIMEOUT);
+			if (debug_shutdown_hangs) {
+				job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
+			}
+		} else {
+			job_force_sampletool(j);
+			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
+			job_kill(j);
+		}
 	} else {
 		calendarinterval_callback(j, ident);
 	}
@@ -2888,12 +2902,14 @@ job_useless(job_t j)
 	} else if (j->mgr->shutting_down) {
 		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %u", total_children);
 		return true;
-	} else if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
-		job_log(j, LOG_WARNING, "Failed to check-in!");
-		return true;
-	} else if (j->legacy_mach_job && SLIST_EMPTY(&j->machservices)) {
-		job_log(j, LOG_INFO, "Garbage collecting");
-		return true;
+	} else if (j->legacy_mach_job) {
+		if (SLIST_EMPTY(&j->machservices)) {
+			job_log(j, LOG_INFO, "Garbage collecting");
+			return true;
+		} else if (!j->checkedin) {
+			job_log(j, LOG_WARNING, "Failed to check-in!");
+			return true;
+		}
 	}
 
 	return false;
@@ -2946,8 +2962,7 @@ job_keepalive(job_t j)
 			wanted_state = true;
 		case NETWORK_DOWN:
 			if (network_up == wanted_state) {
-				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the network is %s.",
-						wanted_state ? "up" : "down");
+				job_log(j, LOG_DEBUG, "KeepAlive: The network is %s.", wanted_state ? "up" : "down");
 				return true;
 			}
 			break;
@@ -2955,8 +2970,7 @@ job_keepalive(job_t j)
 			wanted_state = true;
 		case FAILED_EXIT:
 			if (good_exit == wanted_state) {
-				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the exit state was %s.",
-						wanted_state ? "successful" : "failure");
+				job_log(j, LOG_DEBUG, "KeepAlive: The exit state was %s.", wanted_state ? "successful" : "failure");
 				return true;
 			}
 			break;
@@ -2964,12 +2978,11 @@ job_keepalive(job_t j)
 			wanted_state = true;
 		case PATH_MISSING:
 			if ((bool)(stat(si->what, &sb) == 0) == wanted_state) {
-				job_log(j, LOG_DEBUG, "KeepAlive check: job configured to run while the following path %s: %s",
-						wanted_state ? "exists" : "is missing", si->what);
 				if (si->fd != -1) {
 					job_assumes(j, close(si->fd) == 0);
 					si->fd = -1;
 				}
+				job_log(j, LOG_DEBUG, "KeepAlive: The following path %s: %s", wanted_state ? "exists" : "is missing", si->what);
 				return true;
 			}
 			break;
@@ -2979,6 +2992,7 @@ job_keepalive(job_t j)
 			if (-1 == (qdir_file_cnt = dir_has_files(j, si->what))) {
 				job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", si->what);
 			} else if (qdir_file_cnt > 0) {
+				job_log(j, LOG_DEBUG, "KeepAlive: Directory is not empty: %s", si->what);
 				return true;
 			}
 			break;
