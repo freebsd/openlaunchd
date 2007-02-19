@@ -31,8 +31,6 @@ __BEGIN_DECLS
 #define LAUNCH_KEY_GETUSERENVIRONMENT	"GetUserEnvironment"
 #define LAUNCH_KEY_SETUSERENVIRONMENT	"SetUserEnvironment"
 #define LAUNCH_KEY_UNSETUSERENVIRONMENT	"UnsetUserEnvironment"
-#define LAUNCH_KEY_SETSTDOUT		"SetStandardOut"
-#define LAUNCH_KEY_SETSTDERR		"SetStandardError"
 #define LAUNCH_KEY_SHUTDOWN		"Shutdown"
 #define LAUNCH_KEY_SINGLEUSER		"SingleUser"
 #define LAUNCH_KEY_GETRESOURCELIMITS	"GetResourceLimits"
@@ -76,7 +74,7 @@ int launchd_msg_recv(launch_t, void (*)(launch_data_t, void *), void *);
  * This returns 1 on success (it used to return otherwise), and -1 on failure.
  */
 #define	LOAD_ONLY_SAFEMODE_LAUNCHAGENTS	1
-pid_t create_and_switch_to_per_session_launchd(const char *login, int flags, ...);
+pid_t create_and_switch_to_per_session_launchd(const char * /* loginname */, int flags, ...);
 
 /* Also for LoginWindow.
  *

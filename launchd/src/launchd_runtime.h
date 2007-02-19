@@ -45,7 +45,7 @@ struct ldcred {
 #define launchd_blame(e, b)	\
 	(__builtin_expect(!(e), 0) ? syslog(LOG_DEBUG, "Encountered bug: %d", b), false : true)
 
-#define launchd_assert(e)	launchd_assumes(e) ? true : abort();
+#define launchd_assert(e)	if (__builtin_constant_p(e)) { char __compile_time_assert__[e ? 1 : -1] __attribute__((unused)); } else if (!launchd_assumes(e)) { abort(); }
 
 void _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
@@ -64,6 +64,7 @@ kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_s
 kern_return_t runtime_remove_mport(mach_port_t name);
 bool runtime_get_caller_creds(struct ldcred *ldc);
 
+const char *signal_to_C_name(unsigned int sig);
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 

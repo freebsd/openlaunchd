@@ -28,8 +28,7 @@ typedef struct jobmgr_s *jobmgr_t;
 
 extern jobmgr_t root_jobmgr;
 
-void jobmgr_set_stdout(jobmgr_t jm, const char *what);
-void jobmgr_set_stderr(jobmgr_t jm, const char *what);
+void jobmgr_init(bool);
 jobmgr_t jobmgr_shutdown(jobmgr_t jm);
 void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
 job_t jobmgr_find(jobmgr_t jm, const char *label);
@@ -39,7 +38,6 @@ job_t jobmgr_find_by_service_port(jobmgr_t jm, mach_port_t p);
 
 launch_data_t job_export_all(void);
 
-job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv, const char *stdinpath);
 job_t job_dispatch(job_t j, bool kickstart); /* returns j on success, NULL on job removal */
 bool job_active(job_t j);
 launch_data_t job_export(job_t j);

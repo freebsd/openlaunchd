@@ -61,6 +61,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <utmpx.h>
 #include <bootfiles.h>
 #include <sysexits.h>
+#include <util.h>
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
@@ -137,6 +138,8 @@ static void do_sysversion_sysctl(void);
 static void do_application_firewall_magic(int sfd, launch_data_t thejob);
 static void preheat_page_cache_hack(void);
 static void do_bootroot_magic(void);
+static void do_single_user_mode(bool);
+static bool do_single_user_mode2(void);
 
 static int bootstrap_cmd(int argc, char *const argv[]);
 static int load_and_unload_cmd(int argc, char *const argv[]);
@@ -1174,16 +1177,74 @@ _fd(int fd)
 	return fd;
 }
 
-int
-bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__((unused)))
+void
+do_single_user_mode(bool sflag)
+{
+	if (sflag) {
+		while (!do_single_user_mode2()) {
+			sleep(1);
+		}
+	}
+}
+
+bool
+do_single_user_mode2(void)
+{
+	bool runcom_fsck = true; /* should_fsck(); */
+	int wstatus;
+	int fd;
+	pid_t p;
+
+	switch ((p = fork())) {
+	case -1:
+		syslog(LOG_ERR, "can't fork single-user shell, trying again: %m");
+		return false;
+	case 0:
+		break;
+	default:
+		assumes(waitpid(p, &wstatus, 0) != -1);
+		if (WIFEXITED(wstatus)) {
+			if (WEXITSTATUS(wstatus) == EXIT_SUCCESS) {
+				return true;
+			} else {
+				fprintf(stdout, "single user mode: exit status: %d\n", WEXITSTATUS(wstatus));
+			}
+		} else {
+			fprintf(stdout, "single user mode shell: %s\n", strsignal(WTERMSIG(wstatus)));
+		}
+		return false;
+	}
+
+	revoke(_PATH_CONSOLE);
+	if (!assumes((fd = open(_PATH_CONSOLE, O_RDWR)) != -1)) {
+		_exit(EXIT_FAILURE);
+	}
+	if (!assumes(login_tty(fd) != -1)) {
+		_exit(EXIT_FAILURE);
+	}
+	setenv("TERM", "vt100", 1);
+	if (runcom_fsck) {
+		fprintf(stdout, "Singleuser boot -- fsck not done\n");
+		fprintf(stdout, "Root device is mounted read-only\n\n");
+		fprintf(stdout, "If you want to make modifications to files:\n");
+		fprintf(stdout, "\t/sbin/fsck -fy\n\t/sbin/mount -uw /\n\n");
+		fprintf(stdout, "If you wish to boot the system:\n");
+		fprintf(stdout, "\texit\n\n");
+		fflush(stdout);
+	}
+
+	execl(_PATH_BSHELL, "-sh", NULL);
+	syslog(LOG_ERR, "can't exec %s for single user: %m", _PATH_BSHELL);
+	_exit(EXIT_FAILURE);
+}
+
+static void
+very_pid2_specific_bootstrap(bool sflag)
 {
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
 	struct group *tfp_gr;
 
-	if (getuid() != 0) {
-		fprintf(stderr, "%s: Only root can run the 'bootstrap' sub-command right now.\n", getprogname());
-		return 1;
-	}
+	do_single_user_mode(sflag);
 
 	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
 		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
@@ -1262,9 +1323,12 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 
 	_vproc_set_global_on_demand(true);
 
-	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL };
-	if (is_safeboot())
+	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL, NULL };
+
+	if (is_safeboot()) {
 		load_launchd_items[2] = "system";
+	}
+
 	assumes(load_and_unload_cmd(4, load_launchd_items) == 0);
 
 	const char *bcc_tag_tool[] = { "BootCacheControl", "tag", NULL };
@@ -1273,6 +1337,22 @@ bootstrap_cmd(int argc __attribute__((unused)), char *const argv[] __attribute__
 	do_bootroot_magic();
 
 	_vproc_set_global_on_demand(false);
+}
+
+int
+bootstrap_cmd(int argc, char *const argv[] __attribute__((unused)))
+{
+	if (getpid() == 2 && getuid() == 0) {
+		very_pid2_specific_bootstrap(argc == 2);
+	} else if (getuid() != 0) {
+		char *load_launchd_items[] = { "load", "-D", "all", "-S", "Background", NULL };
+
+		if (is_safeboot()) {
+			load_launchd_items[2] = "system";
+		}
+
+		assumes(load_and_unload_cmd(5, load_launchd_items) == 0);
+	}
 
 	return 0;
 }
@@ -1680,45 +1760,10 @@ list_cmd(int argc, char *const argv[])
 }
 
 int
-stdio_cmd(int argc, char *const argv[])
+stdio_cmd(int argc __attribute__((unused)), char *const argv[])
 {
-	launch_data_t resp, msg, tmp;
-	int e, r = 0;
-
-	if (argc != 2) {
-		fprintf(stderr, "usage: %s %s <path>\n", getprogname(), argv[0]);
-		return 1;
-	}
-
-	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-
-	tmp = launch_data_new_string(argv[1]);
-
-	if (!strcmp(argv[0], "stdout")) {
-		launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETSTDOUT);
-	} else {
-		launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETSTDERR);
-	}
-
-	resp = launch_msg(msg);
-	launch_data_free(msg);
-
-	if (resp == NULL) {
-		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
-		return 1;
-	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
-		if ((e = launch_data_get_errno(resp))) {
-			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(e));
-			r = 1;
-		}
-	} else {
-		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
-		r = 1;
-	}
-
-	launch_data_free(resp);
-
-	return r;
+	fprintf(stderr, "%s %s: This sub-command no longer does anything\n", getprogname(), argv[0]);
+	return 1;
 }
 
 int

@@ -88,20 +88,15 @@ ipc_clean_up(void)
 }
 
 void
-ipc_server_init(int *fds, size_t fd_cnt)
+ipc_server_init(void)
 {
 	struct sockaddr_un sun;
 	mode_t oldmask;
 	int r, fd = -1;
 	char ourdir[1024];
-	size_t i;
 
 	if (ipc_inited) {
 		return;
-	}
-
-	if (fds) {
-		goto add_fds;
 	}
 
 	memset(&sun, 0, sizeof(sun));
@@ -163,27 +158,17 @@ ipc_server_init(int *fds, size_t fd_cnt)
 		goto out_bad;
 	}
 
-add_fds:
-	if (fds) {
-		for (i = 0; i < fd_cnt; i++) {
-			if (kevent_mod(fds[i], EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
-				syslog(LOG_ERR, "kevent_mod(%d, EVFILT_READ): %m", fds[i]);
-				goto out_bad;
-			}
-		}
-	} else if (kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
+	if (kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
 		syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
 		goto out_bad;
 	}
 
 	ipc_inited = true;
 
-	if (!fds) {
-		sockdir = strdup(ourdir);
-		sockpath = strdup(sun.sun_path);
-		ipc_self = getpid();
-		atexit(ipc_clean_up);
-	}
+	sockdir = strdup(ourdir);
+	sockpath = strdup(sun.sun_path);
+	ipc_self = getpid();
+	atexit(ipc_clean_up);
 
 out_bad:
 	if (!ipc_inited && fd != -1) {
@@ -446,10 +431,6 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		resp = launch_data_new_integer(setlogmask(launch_data_get_integer(data)));
 	} else if (!strcmp(cmd, LAUNCH_KEY_SETUMASK)) {
 		resp = launch_data_new_integer(umask(launch_data_get_integer(data)));
-	} else if (!strcmp(cmd, LAUNCH_KEY_SETSTDOUT)) {
-		resp = launchd_setstdio(STDOUT_FILENO, data);
-	} else if (!strcmp(cmd, LAUNCH_KEY_SETSTDERR)) {
-		resp = launchd_setstdio(STDERR_FILENO, data);
 	} else if (!strcmp(cmd, LAUNCH_KEY_BATCHCONTROL)) {
 		batch_job_enable(launch_data_get_bool(data), rmc->c);
 		resp = launch_data_new_errno(0);

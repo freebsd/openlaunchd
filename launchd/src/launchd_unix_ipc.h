@@ -43,6 +43,6 @@ void ipc_readmsg(launch_data_t msg, void *context);
 void ipc_revoke_fds(launch_data_t o);
 void ipc_close_fds(launch_data_t o);
 void ipc_clean_up(void);
-void ipc_server_init(int *, size_t);
+void ipc_server_init(void);
 
 #endif

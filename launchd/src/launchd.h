@@ -26,12 +26,11 @@
 #include "libbootstrap_public.h"
 #include "launchd_runtime.h"
 
-#define READCONF_LABEL "com.apple.launchd.readconfig"
+#define SHUTDOWN_LOG_DIR "/var/log/shutdown"
 
 struct kevent;
 struct conncb;
 
-extern sigset_t blocked_signals;
 extern bool debug_shutdown_hangs;
 extern bool network_up;
 extern int batch_disabler_count;
@@ -45,15 +44,9 @@ launch_data_t launchd_setstdio(int d, launch_data_t o);
 void launchd_SessionCreate(void);
 void launchd_shutdown(void);
 void launchd_single_user(void);
-void launchd_post_kevent(void);
-pid_t launchd_fork(void);
 boolean_t launchd_mach_ipc_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
-void init_boot(bool sflag);
-void init_pre_kevent(void);
-
 void mach_start_shutdown(void);
-void mach_init_init(mach_port_t);
 
 int _fd(int fd);
 

@@ -194,6 +194,7 @@ static void semaphoreitem_watch(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
 
 struct jobmgr_s {
+	kq_callback kqjobmgr_callback;
 	SLIST_ENTRY(jobmgr_s) sle;
 	SLIST_HEAD(, jobmgr_s) submgrs;
 	TAILQ_HEAD(, job_s) jobs;
@@ -201,8 +202,6 @@ struct jobmgr_s {
 	mach_port_t req_port;
 	jobmgr_t parentmgr;
 	job_t anonj;
-	char *jm_stdout;
-	char *jm_stderr;
 	int reboot_flags;
 	unsigned int global_on_demand_cnt;
 	unsigned int sent_stop_to_hopeful_jobs:1, shutting_down:1;
@@ -212,7 +211,7 @@ struct jobmgr_s {
 #define jobmgr_assumes(jm, e)      \
 	                (__builtin_expect(!(e), 0) ? jobmgr_log_bug(jm, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
-static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port);
+static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
 static bool jobmgr_is_idle(jobmgr_t jm);
@@ -222,6 +221,7 @@ static void jobmgr_dispatch_all(jobmgr_t jm);
 static job_t jobmgr_new_anonymous(jobmgr_t jm);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
+static void jobmgr_callback(void *obj, struct kevent *kev);
 static pid_t jobmgr_fork(jobmgr_t jm);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
 static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent);
@@ -229,8 +229,6 @@ static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list 
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
 static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test);
-static char *jobmgr_get_stdout(jobmgr_t jm);
-static char *jobmgr_get_stderr(jobmgr_t jm);
 
 struct job_s {
 	kq_callback kqjob_callback;
@@ -255,7 +253,6 @@ struct job_s {
 	char *workingdir;
 	char *username;
 	char *groupname;
-	char *stdinpath;
 	char *stdoutpath;
 	char *stderrpath;
 	pid_t p;
@@ -311,6 +308,7 @@ static void job_callback_proc(job_t j, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static launch_data_t job_export2(job_t j, bool subjobs);
+static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
 static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
 static const char *job_prog(job_t j);
@@ -577,14 +575,6 @@ jobmgr_remove(jobmgr_t jm)
 		jobmgr_assumes(jm, launchd_mport_close_recv(jm->jm_port) == KERN_SUCCESS);
 	}
 
-	if (jm->jm_stdout) {
-		free(jm->jm_stdout);
-	}
-
-	if (jm->jm_stderr) {
-		free(jm->jm_stderr);
-	}
-
 	if (jm->parentmgr) {
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 	} else if (getpid() == 1) {
@@ -676,9 +666,6 @@ job_remove(job_t j)
 	}
 	if (j->groupname) {
 		free(j->groupname);
-	}
-	if (j->stdinpath) {
-		free(j->stdinpath);
 	}
 	if (j->stdoutpath) {
 		free(j->stdoutpath);
@@ -797,7 +784,7 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 	/* preflight the string so we know how big it is */
 	snprintf(buf, sizeof(buf), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", basename((char *)argv[0]));
 
-	jr = job_new(j->mgr, buf, NULL, argv, NULL);
+	jr = job_new(j->mgr, buf, NULL, argv);
 
 	free(argv);
 
@@ -852,7 +839,7 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 		return NULL;
 	}
 
-	jr = job_new(j->mgr, label, path, argv, NULL);
+	jr = job_new(j->mgr, label, path, argv);
 
 	if (!jr) {
 		return NULL;
@@ -907,7 +894,7 @@ jobmgr_new_anonymous(jobmgr_t jm)
 
 	snprintf(newlabel, sizeof(newlabel), "%u.anonymous", MACH_PORT_INDEX(jm->jm_port));
 
-	if ((jr = job_new(jm, newlabel, procname, NULL, NULL))) {
+	if ((jr = job_new(jm, newlabel, procname, NULL))) {
 		jr->anonymous = true;
 	}
 
@@ -915,13 +902,14 @@ jobmgr_new_anonymous(jobmgr_t jm)
 }
 
 job_t 
-job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv, const char *stdinpath)
+job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv)
 {
-	char compile_time_assert[offsetof(struct job_s, kqjob_callback) == 0 ? 1 : -1] __attribute__((unused));
 	const char *const *argv_tmp = argv;
 	char *co;
 	int i, cc = 0;
 	job_t j;
+
+	launchd_assert(offsetof(struct job_s, kqjob_callback) == 0);
 
 	if (jm->shutting_down) {
 		errno = EINVAL;
@@ -952,13 +940,6 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	if (prog) {
 		j->prog = strdup(prog);
 		if (!job_assumes(j, j->prog != NULL)) {
-			goto out_bad;
-		}
-	}
-
-	if (stdinpath) {
-		j->stdinpath = strdup(stdinpath);
-		if (!job_assumes(j, j->stdinpath != NULL)) {
 			goto out_bad;
 		}
 	}
@@ -995,9 +976,6 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 out_bad:
 	if (j->prog) {
 		free(j->prog);
-	}
-	if (j->stdinpath) {
-		free(j->stdinpath);
 	}
 	free(j);
 
@@ -1488,7 +1466,7 @@ job_import2(launch_data_t pload)
 		return NULL;
 	}
 
-	if ((j = job_new(root_jobmgr, label, prog, argv, NULL))) {
+	if ((j = job_new(root_jobmgr, label, prog, argv))) {
 		launch_data_dict_iterate(pload, job_import_keys, j);
 	}
 
@@ -1801,7 +1779,7 @@ job_kill(job_t j)
 	j->sent_sigkill = true;
 
 	job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
-				EV_ADD|EV_ONESHOT, NOTE_SECONDS, LAUNCHD_SIGKILL_TIMEOUT, j) != -1);
+				EV_ADD, NOTE_SECONDS, LAUNCHD_SIGKILL_TIMEOUT, j) != -1);
 }
 
 void
@@ -1832,8 +1810,15 @@ job_callback_timer(job_t j, void *ident)
 		job_dispatch(j, true);
 	} else if (&j->exit_timeout == ident) {
 		if (j->sent_sigkill) {
-			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %u seconds ago...", LAUNCHD_SIGKILL_TIMEOUT);
-			if (debug_shutdown_hangs) {
+			struct timeval tvd, tve;
+			double delta;
+
+			job_assumes(j, gettimeofday(&tve, NULL) != -1);
+			timersub(&tve, &j->sent_sigterm_time,  &tvd);
+			delta = (double)tvd.tv_sec + (double)tvd.tv_usec / (double)1000000;
+			delta -= (double)j->exit_timeout;
+			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %f seconds ago...", delta);
+			if (debug_shutdown_hangs && delta > 60) {
 				job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
 			}
 		} else {
@@ -1853,6 +1838,25 @@ job_callback_read(job_t j, int ident)
 		job_log_stdouterr(j);
 	} else {
 		socketgroup_callback(j);
+	}
+}
+
+void
+jobmgr_callback(void *obj, struct kevent *kev)
+{
+	jobmgr_t jm = obj;
+
+	switch (kev->filter) {
+	case EVFILT_SIGNAL:
+		switch (kev->ident) {
+		case SIGTERM:
+			return launchd_shutdown();
+		default:
+			return (void)jobmgr_assumes(jm, false);
+		}
+		break;
+	default:
+		return (void)jobmgr_assumes(jm, false);
 	}
 }
 
@@ -1915,10 +1919,7 @@ job_start(job_t j)
 	j->sent_sigterm_time.tv_sec = 0;
 	j->sent_sigterm_time.tv_usec = 0;
 
-	/* FIXME, using stdinpath is a hack for re-reading the conf file */
-	if (j->stdinpath) {
-	       sipc = true;
-	} else if (!j->legacy_mach_job) {
+	if (!j->legacy_mach_job) {
 		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
 	}
 
@@ -2054,6 +2055,10 @@ job_start_child(job_t j)
 	if (j->j_binpref_cnt) {
 		job_assumes(j, posix_spawnattr_setbinpref_np(&spattr, j->j_binpref_cnt, j->j_binpref, &binpref_out_cnt) == 0);
 		job_assumes(j, binpref_out_cnt == j->j_binpref_cnt);
+	}
+
+	for (i = 1; i < NSIG; i++) {
+		signal(i, SIG_DFL);
 	}
 
 	if (j->prog) {
@@ -2262,9 +2267,8 @@ job_setup_attributes(job_t j)
 		umask(j->mask);
 	}
 
-	job_setup_fd(j, STDIN_FILENO,  j->stdinpath,  O_RDONLY);
-	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath ? j->stdoutpath : jobmgr_get_stdout(j->mgr), O_WRONLY|O_APPEND|O_CREAT);
-	job_setup_fd(j, STDERR_FILENO, j->stderrpath ? j->stderrpath : jobmgr_get_stderr(j->mgr), O_WRONLY|O_APPEND|O_CREAT);
+	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT);
+	job_setup_fd(j, STDERR_FILENO, j->stderrpath, O_WRONLY|O_APPEND|O_CREAT);
 
 	jobmgr_setup_env_from_other_jobs(j->mgr);
 
@@ -2278,43 +2282,10 @@ job_setup_attributes(job_t j)
 void
 job_setup_fd(job_t j, int target_fd, const char *path, int flags)
 {
-#if 0
-	char newpath[PATH_MAX];
-#endif
 	int fd;
 
 	if (!path) {
-#if 0
-		switch (target_fd) {
-		case STDOUT_FILENO:
-		case STDERR_FILENO:
-			flags |= O_TRUNC;
-			break;
-		default:
-			return;
-		}
-
-		if (getuid() == 0) {
-			snprintf(newpath, sizeof(newpath), "/var/log/launchd");
-		} else {
-			struct passwd *pwe;
-
-			if (!job_assumes(j, (pwe = getpwuid(getuid())) != NULL)) {
-				return;
-			}
-
-			snprintf(newpath, sizeof(newpath), "%s/Library/Logs/launchd", pwe->pw_dir);
-		}
-
-		mkdir(newpath, ACCESSPERMS);
-
-		strcat(newpath, "/");
-		strcat(newpath, j->label);
-
-		path = newpath;
-#else
 		return;
-#endif
 	}
 
 	if ((fd = open(path, flags|O_NOCTTY, DEFFILEMODE)) == -1) {
@@ -2427,10 +2398,10 @@ job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, c
 void
 job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 {
-	char newmsg[10000];
+	char *newmsg;
 	char *newlabel;
 	int oldmask = 0;
-	size_t i, o, jlabel_len = strlen(j->label);
+	size_t i, o, jlabel_len = strlen(j->label), newmsgsz;
 
 	/*
 	 * Hack: If bootstrap_port is set, we must be on the child side of a
@@ -2442,6 +2413,8 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 	}
 
 	newlabel = alloca((jlabel_len + 1) * 2);
+	newmsgsz = (jlabel_len + 1) * 2 + strlen(msg) + 100;
+	newmsg = alloca(newmsgsz);
 
 	for (i = 0, o = 0; i < jlabel_len; i++, o++) {
 		if (j->label[i] == '%') {
@@ -2453,16 +2426,16 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 	newlabel[o] = '\0';
 
 	if (err) {
-		snprintf(newmsg, sizeof(newmsg), "%s: %s: %s", newlabel, msg, strerror(err));
+		snprintf(newmsg, newmsgsz, "%s: %s: %s", newlabel, msg, strerror(err));
 	} else {
-		snprintf(newmsg, sizeof(newmsg), "%s: %s", newlabel, msg);
+		snprintf(newmsg, newmsgsz, "%s: %s", newlabel, msg);
 	}
 
 	if (j->debug) {
 		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
 	}
 
-	vsyslog(pri, newmsg, ap);
+	jobmgr_logv(j->mgr, pri, 0, newmsg, ap);
 
 	if (j->debug) {
 		setlogmask(oldmask);
@@ -2514,8 +2487,33 @@ jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...)
 void
 jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap)
 {
-	if (launchd_assumes(jm->anonj)) {
-		job_logv(jm->anonj, pri, err, msg, ap);
+	char *newmsg;
+	char *newname;
+	size_t i, o, jmname_len = strlen(jm->name), newmsgsz;
+
+	newname = alloca((jmname_len + 1) * 2);
+	newmsgsz = (jmname_len + 1) * 2 + strlen(msg) + 100;
+	newmsg = alloca(newmsgsz);
+
+	for (i = 0, o = 0; i < jmname_len; i++, o++) {
+		if (jm->name[i] == '%') {
+			newname[o] = '%';
+			o++;
+		}
+		newname[o] = jm->name[i];
+	}
+	newname[o] = '\0';
+
+	if (err) {
+		snprintf(newmsg, newmsgsz, "%s: %s: %s", newname, msg, strerror(err));
+	} else {
+		snprintf(newmsg, newmsgsz, "%s: %s", newname, msg);
+	}
+
+	if (jm->parentmgr) {
+		jobmgr_logv(jm->parentmgr, pri, 0, newmsg, ap);
+	} else {
+		vsyslog(pri, newmsg, ap);
 	}
 }
 
@@ -3045,19 +3043,11 @@ job_active(job_t j)
 }
 
 pid_t
-launchd_fork(void)
-{
-	return jobmgr_fork(root_jobmgr);
-}
-
-pid_t
 jobmgr_fork(jobmgr_t jm)
 {
 	mach_port_t p = jm->jm_port;
 	pid_t r = -1;
 	int saved_errno;
-
-	sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 
 	jobmgr_assumes(jm, launchd_mport_make_send(p) == KERN_SUCCESS);
 	jobmgr_assumes(jm, launchd_set_bport(p) == KERN_SUCCESS);
@@ -3069,18 +3059,8 @@ jobmgr_fork(jobmgr_t jm)
 
 	if (r != 0) {
 		jobmgr_assumes(jm, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
-	} else if (r == 0) {
-		size_t i;
-
-		for (i = 0; i < NSIG; i++) {
-			if (sigismember(&blocked_signals, i)) {
-				signal(i, SIG_DFL);
-			}
-		}
 	}
 
-	sigprocmask(SIG_UNBLOCK, &blocked_signals, NULL);
-	
 	errno = saved_errno;
 	return r;
 }
@@ -3360,50 +3340,6 @@ jobmgr_is_idle(jobmgr_t jm)
 	return true;
 }
 
-void
-jobmgr_set_stdout(jobmgr_t jm, const char *what)
-{
-	if (jm->jm_stdout) {
-		free(jm->jm_stdout);
-	}
-
-	jm->jm_stdout = strdup(what);
-}
-
-void
-jobmgr_set_stderr(jobmgr_t jm, const char *what)
-{
-	if (jm->jm_stderr) {
-		free(jm->jm_stderr);
-	}
-
-	jm->jm_stderr = strdup(what);
-}
-
-char *
-jobmgr_get_stdout(jobmgr_t jm)
-{
-	if (jm->jm_stdout) {
-		return jm->jm_stdout;
-	} else if (jm->parentmgr == NULL) {
-		return NULL;
-	}
-
-	return jobmgr_get_stdout(jm->parentmgr);
-}
-
-char *
-jobmgr_get_stderr(jobmgr_t jm)
-{
-	if (jm->jm_stderr) {
-		return jm->jm_stderr;
-	} else if (jm->parentmgr == NULL) {
-		return NULL;
-	}
-
-	return jobmgr_get_stderr(jm->parentmgr);
-}
-
 jobmgr_t 
 jobmgr_parent(jobmgr_t jm)
 {
@@ -3424,25 +3360,33 @@ job_uncork_fork(job_t j)
 }
 
 jobmgr_t 
-jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port)
+jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag)
 {
+	const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", NULL, NULL };
 	mach_msg_size_t mxmsgsz;
+	job_t bootstrapper = NULL;
 	jobmgr_t jmr;
 
-	if (requestorport == MACH_PORT_NULL) {
-		if (jm) {
-			jobmgr_log(jm, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
-		}
+	if (sflag) {
+		bootstrap_tool[2] = "-s";
+	}
+
+	launchd_assert(offsetof(struct jobmgr_s, kqjobmgr_callback) == 0);
+
+	if (jm && requestorport == MACH_PORT_NULL) {
+		jobmgr_log(jm, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
 		return NULL;
 	}
 
-	jmr = calloc(1, sizeof(struct jobmgr_s) + strlen("LoginWindow") + 1);
+	jmr = calloc(1, sizeof(struct jobmgr_s) + 30);
 	
 	if (jmr == NULL) {
 		return NULL;
 	}
 
 	TAILQ_INIT(&jmr->jobs);
+	jmr->kqjobmgr_callback = jobmgr_callback;
+	strcpy(jmr->name, "In-utero");
 
 	jmr->req_port = requestorport;
 
@@ -3450,17 +3394,44 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port)
 		SLIST_INSERT_HEAD(&jm->submgrs, jmr, sle);
 	}
 
-	if (!jobmgr_assumes(jmr, launchd_mport_notify_req(jmr->req_port, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS)) {
+	if (jm && !jobmgr_assumes(jmr, launchd_mport_notify_req(jmr->req_port, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
-	if (checkin_port != MACH_PORT_NULL) {
-		jmr->jm_port = checkin_port;
+	if (transfer_port != MACH_PORT_NULL) {
+		jobmgr_assumes(jmr, jm != NULL);
+		jmr->jm_port = transfer_port;
+	} else if (!jm && getpid() != 1) {
+		char *trusted_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
+		name_t service_buf;
+
+		snprintf(service_buf, sizeof(service_buf), "com.apple.launchd.peruser.%u", getuid());
+
+		if (!jobmgr_assumes(jmr, bootstrap_check_in(bootstrap_port, service_buf, &jmr->jm_port) == 0)) {
+			goto out_bad;
+		}
+
+		if (trusted_fd) {
+			int dfd, lfd = strtol(trusted_fd, NULL, 10);
+
+			if ((dfd = dup(lfd)) >= 0) {
+				jobmgr_assumes(jmr, close(dfd) != -1);
+				jobmgr_assumes(jmr, close(lfd) != -1);
+			}
+
+			unsetenv(LAUNCHD_TRUSTED_FD_ENV);
+		}
+
+		inherited_bootstrap_port = bootstrap_port;
+		/* cut off the Libc cache, we don't want to deadlock against ourself */
+		bootstrap_port = MACH_PORT_NULL;
+		/* We set this explicitly as we start each child */
+		launchd_assert(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
 	} else if (!jobmgr_assumes(jmr, launchd_mport_create_recv(&jmr->jm_port) == KERN_SUCCESS)) {
 		goto out_bad;
 	}
 
-	snprintf(jmr->name, strlen(jmr->name) + 1, "%u", MACH_PORT_INDEX(jmr->jm_port));
+	sprintf(jmr->name, "%u", MACH_PORT_INDEX(jmr->jm_port));
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
 	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
@@ -3472,15 +3443,19 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t checkin_port)
 		goto out_bad;
 	}
 
-	if (jm) {
-		jobmgr_log(jm, LOG_DEBUG, "Mach sub-bootstrap created: %s", jmr->name);
+	jobmgr_assumes(jmr, (jmr->anonj = jobmgr_new_anonymous(jmr)) != NULL);
+
+	bootstrapper = job_new(jmr, "com.apple.launchctld", NULL, bootstrap_tool);
+
+	if (!jm) {
+		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
 	}
 
-	jmr->anonj = jobmgr_new_anonymous(jmr);
+	jobmgr_log(jmr, LOG_DEBUG, "Created job manager%s%s", jm ? " with parent: " : ".", jm ? jm->name : "");
 
-	jobmgr_assumes(jmr, jmr->anonj != NULL);
-
-	jobmgr_log(jmr, LOG_DEBUG, "Created job manager");
+	if (!jm && jobmgr_assumes(jmr, bootstrapper != NULL)) {
+		jobmgr_assumes(jmr, job_dispatch(bootstrapper, true) != NULL);
+	}
 
 	return jmr;
 
@@ -3759,9 +3734,11 @@ job_force_sampletool(job_t j)
 	}
 	
 	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
-	snprintf(logfile, sizeof(logfile), "/var/log/shutdown/%s-%u.sample.txt", j->label, j->p);
+	snprintf(logfile, sizeof(logfile), SHUTDOWN_LOG_DIR "/%s-%u.sample.txt", j->label, j->p);
 
-	job_assumes(j, mkdir("/var/log/shutdown", S_IRWXU) != -1 || errno == EEXIST);
+	if (!job_assumes(j, unlink(logfile) != -1 || errno == ENOENT)) {
+		goto out;
+	}
 
 	/*
 	 * This will stall launchd for as long as the 'sample' tool runs.
@@ -3776,6 +3753,8 @@ job_force_sampletool(job_t j)
 	if (!job_assumes(j, waitpid(sp, &wstatus, 0) != -1)) {
 		goto out;
 	}
+
+	sync();
 
 	if (!job_assumes(j, WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0)) {
 		goto out;
@@ -4194,7 +4173,7 @@ job_mig_getsocket(job_t j, name_t spr)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	ipc_server_init(NULL, 0);
+	ipc_server_init();
 
 	if (!sockpath) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -4262,7 +4241,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 		sprintf(lbuf, "com.apple.launchd.peruser.%u", which_user);
 
-		ji = job_new(root_jobmgr, lbuf, "/sbin/launchd", NULL, NULL);
+		ji = job_new(root_jobmgr, lbuf, "/sbin/launchd", NULL);
 
 		if (ji == NULL) {
 			return BOOTSTRAP_NO_MEMORY;
@@ -4562,7 +4541,7 @@ job_mig_move_subset_to_user(job_t j, mach_port_t target_subset)
 
 	launchd_assert(l2l_name_cnt == l2l_port_cnt);
 
-	if ((jmr = jobmgr_new(j->mgr, reqport, rcvright)) == NULL) {
+	if ((jmr = jobmgr_new(j->mgr, reqport, rcvright, false)) == NULL) {
 		kr = BOOTSTRAP_NO_MEMORY;
 		goto out;
 	}
@@ -4691,7 +4670,7 @@ job_mig_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if ((jmr = jobmgr_new(j->mgr, requestorport, MACH_PORT_NULL)) == NULL) {
+	if ((jmr = jobmgr_new(j->mgr, requestorport, MACH_PORT_NULL, false)) == NULL) {
 		if (requestorport == MACH_PORT_NULL) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
@@ -4864,30 +4843,7 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 }
 
 void
-mach_init_init(mach_port_t checkin_port)
+jobmgr_init(bool sflag)
 {
-	job_t ji, anon_job = NULL;
-
-	launchd_assert((root_jobmgr = jobmgr_new(NULL, mach_task_self(), checkin_port)) != NULL);
-
-	TAILQ_FOREACH(ji, &root_jobmgr->jobs, sle) {
-		if (ji->anonymous) {
-			anon_job = ji;
-			break;
-		}
-	}
-
-	launchd_assert(anon_job != NULL);
-
-	launchd_assert(launchd_get_bport(&inherited_bootstrap_port) == KERN_SUCCESS);
-
-	if (getpid() != 1) {
-		launchd_assumes(inherited_bootstrap_port != MACH_PORT_NULL);
-	}
-
-	/* We set this explicitly as we start each child */
-	launchd_assert(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
-
-	/* cut off the Libc cache, we don't want to deadlock against ourself */
-	bootstrap_port = MACH_PORT_NULL;
+	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag)) != NULL);
 }

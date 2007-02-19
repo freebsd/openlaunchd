@@ -73,6 +73,7 @@ static pthread_t demand_thread;
 
 static void *mport_demand_loop(void *arg);
 static void *kqueue_demand_loop(void *arg);
+static void log_kevent_struct(int level, struct kevent *kev);
 
 static void async_callback(void);
 static kq_callback kqasync_callback = (kq_callback)async_callback;
@@ -143,7 +144,51 @@ mport_demand_loop(void *arg __attribute__((unused)))
 	return NULL;
 }
 
-static void
+const char *
+signal_to_C_name(unsigned int sig)
+{
+	static char unknown[25];
+
+#define SIG2CASE(sg)	case sg: return #sg
+
+	switch (sig) {
+	SIG2CASE(SIGHUP);
+	SIG2CASE(SIGINT);
+	SIG2CASE(SIGQUIT);
+	SIG2CASE(SIGILL);
+	SIG2CASE(SIGTRAP);
+	SIG2CASE(SIGABRT);
+	SIG2CASE(SIGFPE);
+	SIG2CASE(SIGKILL);
+	SIG2CASE(SIGBUS);
+	SIG2CASE(SIGSEGV);
+	SIG2CASE(SIGSYS);
+	SIG2CASE(SIGPIPE);
+	SIG2CASE(SIGALRM);
+	SIG2CASE(SIGTERM);
+	SIG2CASE(SIGURG);
+	SIG2CASE(SIGSTOP);
+	SIG2CASE(SIGTSTP);
+	SIG2CASE(SIGCONT);
+	SIG2CASE(SIGCHLD);
+	SIG2CASE(SIGTTIN);
+	SIG2CASE(SIGTTOU);
+	SIG2CASE(SIGIO);
+	SIG2CASE(SIGXCPU);
+	SIG2CASE(SIGXFSZ);
+	SIG2CASE(SIGVTALRM);
+	SIG2CASE(SIGPROF);
+	SIG2CASE(SIGWINCH);
+	SIG2CASE(SIGINFO);
+	SIG2CASE(SIGUSR1);
+	SIG2CASE(SIGUSR2);
+	default:
+		snprintf(unknown, sizeof(unknown), "%u", sig);
+		return unknown;
+	}
+}
+
+void
 log_kevent_struct(int level, struct kevent *kev)
 {
 	const char *filter_str;
@@ -245,42 +290,7 @@ log_kevent_struct(int level, struct kevent *kev)
 		break;
 	case EVFILT_SIGNAL:
 		filter_str = "EVFILT_SIGNAL";
-		switch (kev->ident) {
-#define SIG2CASE(sg)	case sg: sprintf(ident_buf, #sg); break
-		SIG2CASE(SIGHUP);
-		SIG2CASE(SIGINT);
-		SIG2CASE(SIGQUIT);
-		SIG2CASE(SIGILL);
-		SIG2CASE(SIGTRAP);
-		SIG2CASE(SIGABRT);
-		SIG2CASE(SIGFPE);
-		SIG2CASE(SIGKILL);
-		SIG2CASE(SIGBUS);
-		SIG2CASE(SIGSEGV);
-		SIG2CASE(SIGSYS);
-		SIG2CASE(SIGPIPE);
-		SIG2CASE(SIGALRM);
-		SIG2CASE(SIGTERM);
-		SIG2CASE(SIGURG);
-		SIG2CASE(SIGSTOP);
-		SIG2CASE(SIGTSTP);
-		SIG2CASE(SIGCONT);
-		SIG2CASE(SIGCHLD);
-		SIG2CASE(SIGTTIN);
-		SIG2CASE(SIGTTOU);
-		SIG2CASE(SIGIO);
-		SIG2CASE(SIGXCPU);
-		SIG2CASE(SIGXFSZ);
-		SIG2CASE(SIGVTALRM);
-		SIG2CASE(SIGPROF);
-		SIG2CASE(SIGWINCH);
-		SIG2CASE(SIGINFO);
-		SIG2CASE(SIGUSR1);
-		SIG2CASE(SIGUSR2);
-		default:
-			sprintf(ident_buf, "%ld", kev->ident);
-			break;
-		}
+		strcpy(ident_buf, signal_to_C_name(kev->ident));
 		break;
 	case EVFILT_TIMER:
 		filter_str = "EVFILT_TIMER";
@@ -403,8 +413,6 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 		}
 #endif
 	}
-
-	launchd_post_kevent();
 
 	return 0;
 }

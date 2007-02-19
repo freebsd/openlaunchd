@@ -70,13 +70,11 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "libvproc_public.h"
 #include "libvproc_internal.h"
 #include "liblaunch_public.h"
-#include "liblaunch_private.h"
 
 #include "launchd_runtime.h"
 #include "launchd_core_logic.h"
 #include "launchd_unix_ipc.h"
 
-#define PID1LAUNCHD_CONF "/etc/launchd.conf"
 #define LAUNCHD_CONF ".launchd.conf"
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 #define SHUTDOWN_LOG_DIR "/var/log/shutdown"
@@ -84,15 +82,11 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 extern char **environ;
 
-static void signal_callback(void *, struct kevent *);
 static void pfsystem_callback(void *, struct kevent *);
 
-static kq_callback kqsignal_callback = signal_callback;
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
-static void pid1_magic_init(bool sflag);
-
-static void usage(FILE *where);
+static void pid1_magic_init(void);
 
 static void testfd_or_openfd(int fd, const char *path, int flags);
 static bool get_network_state(void);
@@ -102,13 +96,9 @@ static void handle_pid1_crashes_separately(void);
 static void prep_shutdown_log_dir(void);
 
 static bool re_exec_in_single_user_mode = false;
-static job_t rlcj = NULL;
-static jmp_buf doom_doom_doom;
 static void *crash_addr;
 static pid_t crash_pid;
-static const char *launchctl_bootstrap_tool[] = { "/bin/launchctl", /* "bootstrap", */ NULL };
 
-sigset_t blocked_signals = 0;
 static bool shutdown_in_progress = false;
 bool debug_shutdown_hangs = false;
 bool network_up = false;
@@ -118,186 +108,60 @@ int
 main(int argc, char *const *argv)
 {
 	static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
-		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, /*SIGCHLD,*/
-		SIGTTIN, SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
+		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, SIGTTIN,
+		SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
 		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 	};
-	bool sflag = false, Dflag = false;
-	char ldconf[PATH_MAX] = PID1LAUNCHD_CONF;
-	const char *h = getenv("HOME");
-	const char *optargs = NULL;
-	struct stat sb;
-	size_t i, checkin_fdcnt = 0;
-	int *checkin_fds = NULL;
-	mach_port_t checkin_mport = MACH_PORT_NULL;
-	int ch, logopts;
+	bool sflag = false;
+	size_t i;
+	int ch;
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
 	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
 	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
 
-	/* main() phase one: sanitize the process */
-
-	if (getpid() != 1) {
-		launch_data_t ldresp, ldmsg = launch_data_new_string(LAUNCH_KEY_CHECKIN);
-
-		if ((ldresp = launch_msg(ldmsg))) {
-			if (launch_data_get_type(ldresp) == LAUNCH_DATA_DICTIONARY) {
-				const char *ldlabel = launch_data_get_string(launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_LABEL));
-				launch_data_t tmp;
-
-				if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_SOCKETS))) {
-					if ((tmp = launch_data_dict_lookup(tmp, "LaunchIPC"))) {
-						checkin_fdcnt = launch_data_array_get_count(tmp);
-						checkin_fds = alloca(sizeof(int) * checkin_fdcnt);
-						for (i = 0; i < checkin_fdcnt; i++) {
-							checkin_fds[i] = _fd(launch_data_get_fd(launch_data_array_get_index(tmp, i)));
-						}
-					}
-				}
-				if ((tmp = launch_data_dict_lookup(ldresp, LAUNCH_JOBKEY_MACHSERVICES))) {
-					if ((tmp = launch_data_dict_lookup(tmp, ldlabel))) {
-						checkin_mport = launch_data_get_machport(tmp);
-					}
-				}
-			}
-			launch_data_free(ldresp);
-		} else {
-			int sigi, fdi, dts = getdtablesize();
-			sigset_t emptyset;
-
-			/* We couldn't check-in.
-			 *
-			 * Assume the worst and clean up whatever mess our parent process left us with...
-			 */
-
-			for (fdi = STDERR_FILENO + 1; fdi < dts; fdi++)
-				close(fdi);
-			for (sigi = 1; sigi < NSIG; sigi++) {
-				switch (sigi) {
-				case SIGKILL:
-				case SIGSTOP:
-					break;
-				default:
-					launchd_assumes(signal(sigi, SIG_DFL) != SIG_ERR);
-					break;
-				}
-			}
-			sigemptyset(&emptyset);
-			launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) == 0);
+	while ((ch = getopt(argc, argv, "s")) != -1) {
+		switch (ch) {
+		case 's': sflag = true;   break;	/* single user */
+		case '?': /* we should do something with the global optopt variable here */
+		default:
+			fprintf(stderr, "%s: ignoring unknown arguments\n", getprogname());
+			break;
 		}
+	}
 
-		launch_data_free(ldmsg);
+	if (getpid() != 1 && getppid() != 1) {
+		fprintf(stderr, "%s: This program is not meant to be run directly.\n", getprogname());
+		exit(EXIT_FAILURE);
 	}
 
 	launchd_runtime_init();
 
-	/* main() phase two: parse arguments */
-
-	if (getpid() == 1) {
-		optargs = "s";
-	} else {
-		optargs = "Dh";
-	}
-
-	while ((ch = getopt(argc, argv, optargs)) != -1) {
-		switch (ch) {
-		case 'D': Dflag = true;   break;	/* debug */
-		case 's': sflag = true;   break;	/* single user */
-		case 'h': usage(stdout);  break;	/* help */
-		case '?': /* we should do something with the global optopt variable here */
-		default:
-			fprintf(stderr, "ignoring unknown arguments\n");
-			usage(stderr);
-			break;
-		}
-	}
-	argc -= optind;
-	argv += optind;
-
-	/* main phase three: get the party started */
-
-	logopts = LOG_PID|LOG_CONS;
-	if (Dflag) {
-		logopts |= LOG_PERROR;
-	}
-
-	openlog(getprogname(), logopts, LOG_LAUNCHD);
-	setlogmask(LOG_UPTO(Dflag ? LOG_DEBUG : LOG_NOTICE));
-
-	sigemptyset(&blocked_signals);
+	openlog(getprogname(), LOG_PID|LOG_CONS, LOG_LAUNCHD);
+	setlogmask(LOG_UPTO(/* LOG_DEBUG */ LOG_NOTICE));
 
 	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
-		launchd_assumes(kevent_mod(sigigns[i], EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
-		sigaddset(&blocked_signals, sigigns[i]);
 		launchd_assumes(signal(sigigns[i], SIG_IGN) != SIG_ERR);
 	}
-
-	/* sigh... ignoring SIGCHLD has side effects: we can't call wait*() */
-	launchd_assert(kevent_mod(SIGCHLD, EVFILT_SIGNAL, EV_ADD, 0, 0, &kqsignal_callback) != -1);
-
-	mach_init_init(checkin_mport);
-
-	if (h) {
-		snprintf(ldconf, sizeof(ldconf), "%s/%s", h, LAUNCHD_CONF);
-	}
-
-	rlcj = job_new(root_jobmgr, READCONF_LABEL, NULL, launchctl_bootstrap_tool, ldconf);
-	launchd_assert(rlcj != NULL);
 
 	if (NULL == getenv("PATH")) {
 		setenv("PATH", _PATH_STDPATH, 1);
 	}
 
 	if (getpid() == 1) {
-		pid1_magic_init(sflag);
+		pid1_magic_init();
 	} else {
-		ipc_server_init(checkin_fds, checkin_fdcnt);
+		ipc_server_init();
 	}
 
 	monitor_networking_state();
 
-	/*
-	 * We cannot stat() anything in the home directory right now.
-	 *
-	 * The per-user launchd can easily be demand launched by the tool doing
-	 * the mount of the home directory. The result is an ugly deadlock.
-	 *
-	 * We hope to someday have a non-blocking stat(), but for now, we have
-	 * to skip it.
-	 */
-	if (!h && stat(ldconf, &sb) == 0) {
-		rlcj = job_dispatch(rlcj, true);
-	}
-
-	char *doom_why = "at instruction";
-	switch (setjmp(doom_doom_doom)) {
-		case 0:
-			break;
-		case SIGBUS:
-		case SIGSEGV:
-			doom_why = "trying to read/write";
-		case SIGILL:
-		case SIGFPE:
-			syslog(LOG_EMERG, "We crashed %s: %p (sent by PID %u)", doom_why, crash_addr, crash_pid);
-		default:
-			sync();
-			sleep(3);
-			/* the kernel will panic() when PID 1 exits */
-			_exit(EXIT_FAILURE);
-			/* we should never get here */
-			reboot(0);
-			/* or here either */
-			break;
-	}
 
 	if (getpid() == 1) {
 		handle_pid1_crashes_separately();
-
-		if (!job_active(rlcj)) {
-			init_pre_kevent();
-		}
 	}
+
+	jobmgr_init(sflag);
 
 	launchd_runtime();
 }
@@ -322,6 +186,7 @@ handle_pid1_crashes_separately(void)
 void
 fatal_signal_handler(int sig, siginfo_t *si, void *uap)
 {
+	const char *doom_why = "at instruction";
 	char *sample_args[] = { "/usr/bin/sample", "1", "1", "-file", PID1_CRASH_LOGFILE, NULL };
 	pid_t sample_p;
 	int wstatus;
@@ -338,50 +203,41 @@ fatal_signal_handler(int sig, siginfo_t *si, void *uap)
 		break;
 	default:
 		waitpid(sample_p, &wstatus, 0);
-		sync();
 		break;
 	case -1:
 		break;
 	}
 
-	longjmp(doom_doom_doom, sig);
+	switch (sig) {
+	default:
+	case 0:
+		break;
+	case SIGBUS:
+	case SIGSEGV:
+		doom_why = "trying to read/write";
+	case SIGILL:
+	case SIGFPE:
+		syslog(LOG_EMERG, "We crashed %s: %p (sent by PID %u)", doom_why, crash_addr, crash_pid);
+		sync();
+		sleep(3);
+		/* the kernel will panic() when PID 1 exits */
+		_exit(EXIT_FAILURE);
+		/* we should never get here */
+		reboot(0);
+		/* or here either */
+		break;
+	}
 }
 
 void
-pid1_magic_init(bool sflag)
+pid1_magic_init(void)
 {
 	launchd_assumes(setsid() != -1);
 	launchd_assumes(chdir("/") != -1);
 	launchd_assumes(setlogin("root") != -1);
 	launchd_assumes(mount("fdesc", "/dev", MNT_UNION, NULL) != -1);
-
-	init_boot(sflag);
 }
 
-
-void
-usage(FILE *where)
-{
-	const char *opts = "[-d]";
-
-	if (getuid() == 0) {
-		opts = "[-d] [-S <type> -U <user>]";
-	}
-
-	fprintf(where, "%s: %s [-- command [args ...]]\n", getprogname(), opts);
-
-	fprintf(where, "\t-d          Daemonize.\n");
-	fprintf(where, "\t-h          This usage statement.\n");
-
-	if (getuid() == 0) {
-		fprintf(where, "\t-S <type>   What type of session to create (Aqua, tty or X11).\n");
-		fprintf(where, "\t-U <user>   Which user to create the session as.\n");
-	}
-
-	if (where == stdout) {
-		exit(EXIT_SUCCESS);
-	}
-}
 
 int
 _fd(int fd)
@@ -395,46 +251,7 @@ _fd(int fd)
 void
 prep_shutdown_log_dir(void)
 {
-	struct stat sb;
-	struct dirent *de;
-	DIR *thedir = NULL;
-
-	if (!launchd_assumes(mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST)) {
-		goto out;
-	}
-
-	if (!launchd_assumes(lstat(SHUTDOWN_LOG_DIR, &sb) != -1)) {
-		goto out;
-	}
-
-	if (!launchd_assumes(S_ISDIR(sb.st_mode))) {
-		goto out;
-	}
-
-	if (!launchd_assumes(chdir(SHUTDOWN_LOG_DIR) != -1)) {
-		goto out;
-	}
-
-	if (!launchd_assumes((thedir = opendir(".")) != NULL)) {
-		goto out;
-	}
-
-	while ((de = readdir(thedir))) {
-		if (strcmp(de->d_name, ".") == 0) {
-			continue;
-		} else if (strcmp(de->d_name, "..") == 0) {
-			continue;
-		} else {
-			launchd_assumes(remove(de->d_name) != -1);
-		}
-	}
-
-out:
-	if (thedir) {
-		closedir(thedir);
-	}
-
-	chdir("/");
+	launchd_assumes(mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST);
 }
 
 void
@@ -457,8 +274,6 @@ launchd_shutdown(void)
 		debug_shutdown_hangs = true;
 	}
 
-	rlcj = NULL;
-
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }
 
@@ -474,24 +289,6 @@ launchd_single_user(void)
 	sleep(3);
 
 	kill(-1, SIGKILL);
-}
-
-static void signal_callback(void *obj __attribute__((unused)), struct kevent *kev)
-{
-	syslog(LOG_DEBUG, "Received signal: %u", kev->ident);
-
-	switch (kev->ident) {
-	case SIGHUP:
-		if (rlcj) {
-			rlcj = job_dispatch(rlcj, true);
-		}
-		break;
-	case SIGTERM:
-		launchd_shutdown();
-		break;
-	default:
-		break;
-	} 
 }
 
 void
@@ -523,30 +320,6 @@ testfd_or_openfd(int fd, const char *path, int flags)
 			launchd_assumes(close(tmpfd) == 0);
 		}
 	}
-}
-
-launch_data_t                   
-launchd_setstdio(int d, launch_data_t o)
-{
-	launch_data_t resp = launch_data_new_errno(0);
-
-	if (launch_data_get_type(o) == LAUNCH_DATA_STRING) {
-		switch (d) {
-		case STDOUT_FILENO:
-			jobmgr_set_stdout(root_jobmgr, launch_data_get_string(o));
-			break;
-		case STDERR_FILENO:
-			jobmgr_set_stderr(root_jobmgr, launch_data_get_string(o));
-			break;
-		default:
-			launch_data_set_errno(resp, EINVAL);
-			break;
-		}
-	} else {
-		launch_data_set_errno(resp, EINVAL);
-	}
-
-	return resp;
 }
 
 void
@@ -661,27 +434,4 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 	}
 
 	syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
-}
-
-void
-launchd_post_kevent(void)
-{
-#if 0
-	if (shutdown_in_progress && jobmgr_is_idle(root_jobmgr)) {
-		shutdown_in_progress = false;
-
-		if (getpid() == 1) {
-			if (re_exec_in_single_user_mode) {
-				kill(-1, SIGKILL); /* One last time, just to clear the room */
-				launchd_assumes(execl("/sbin/launchd", "/sbin/launchd", "-s", NULL) != -1);
-			}
-		}
-	}
-#endif
-	if (getpid() == 1) {
-		if (rlcj && job_active(rlcj)) {
-			return;
-		}
-		init_pre_kevent();
-	}
 }
