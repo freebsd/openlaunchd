@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <bsm/libbsm.h>
 #include <stdbool.h>
+#include <syslog.h>
 
 struct ldcred {
 	uid_t   euid;
@@ -67,6 +68,12 @@ bool runtime_get_caller_creds(struct ldcred *ldc);
 const char *signal_to_C_name(unsigned int sig);
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
+
+void runtime_openlog(const char *ident, int logopt, int facility);
+int runtime_setlogmask(int maskpri);
+void runtime_syslog(int priority, const char *message, ...) __attribute__((format(printf, 2, 3)));
+void runtime_vsyslog(int priority, const char *message, va_list args) __attribute__((format(printf, 2, 0)));
+
 
 kern_return_t launchd_set_bport(mach_port_t name);
 kern_return_t launchd_get_bport(mach_port_t *name);

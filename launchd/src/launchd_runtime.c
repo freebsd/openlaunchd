@@ -124,6 +124,9 @@ launchd_runtime_init(void)
 	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
 	pthread_attr_destroy(&attr);
+
+	openlog(getprogname(), LOG_PID|LOG_CONS, LOG_LAUNCHD);
+	setlogmask(LOG_UPTO(/* LOG_DEBUG */ LOG_NOTICE));
 }
 
 void *
@@ -352,7 +355,7 @@ log_kevent_struct(int level, struct kevent *kev)
 		break;
 	}
 
-	syslog(level, "KEVENT: ident = %s filter = %s flags = %s fflags = %s data = 0x%x udata = %p",
+	runtime_syslog(level, "KEVENT: ident = %s filter = %s flags = %s fflags = %s data = 0x%lx udata = %p",
 			ident_buf, filter_str, flags_buf, fflags_buf, kev->data, kev->udata);
 }
 
@@ -849,69 +852,77 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 	}
 }
 
-#if 0
-
-/* For ugly debug scenarios where syslogd is long gone (for example, during system shutdown). */
-
 void
-closelog(void)
+runtime_openlog(const char *ident, int logopt, int facility)
 {
-}
-
-void
-openlog(const char *ident, int logopt, int facility)
-{
-	ident = 0;
-	logopt = 0;
-	facility = 0;
+	openlog(ident, logopt, facility);
 }
 
 int
-setlogmask(int maskpri)
+runtime_setlogmask(int maskpri)
 {
-	return maskpri;
+	return setlogmask(maskpri);
 }
 
 void
-syslog(int priority, const char *message, ...)
+runtime_syslog(int priority, const char *message, ...)
 {
 	va_list ap;
 
 	va_start(ap, message);
 
-	vsyslog(priority, message, ap);
+	runtime_vsyslog(priority, message, ap);
 
 	va_end(ap);
 }
 
 void
-vsyslog(int priority, const char *message, va_list args)
+runtime_vsyslog(int priority, const char *message, va_list args)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
 	static FILE *ourlogfile = NULL;
+	static struct timeval shutdown_start = { 0, 0 };
+	struct timeval tvnow, tvd;
 	int saved_errno = errno;
 	char newmsg[10000];
+	double float_time;
 	size_t i, j;
+
+	if (!(debug_shutdown_hangs && getpid() == 1)) {
+		return vsyslog(priority, message, args);
+	}
+
+	if (shutdown_start.tv_sec == 0) {
+		gettimeofday(&shutdown_start, NULL);
+	}
+
+	if (gettimeofday(&tvnow, NULL) == -1) {
+		tvnow.tv_sec = 0;
+		tvnow.tv_usec = 0;
+	}
 
 	pthread_mutex_lock(&ourlock);
 
 	if (ourlogfile == NULL) {
-		rename("/var/log/launchd_raw.log", "/var/log/launchd_raw-old.log");
-		ourlogfile = fopen("/var/log/launchd_raw.log", "a");
-		chmod("/var/log/launchd_raw.log", DEFFILEMODE);
+		rename("/var/log/launchd-shutdown.log", "/var/log/launchd-shutdown.log.1");
+		ourlogfile = fopen("/var/log/launchd-shutdown.log", "a");
 	}
 
 	pthread_mutex_unlock(&ourlock);
 
 	if (ourlogfile == NULL) {
-		return;
+		syslog(LOG_ERR, "Couldn't open alternate log file!");
+		return vsyslog(priority, message, args);
 	}
 
 	if (message == NULL) {
 		return;
 	}
 
-	snprintf(newmsg, sizeof(newmsg), "p%u pp%u\t", getpid(), getppid());
+	timersub(&tvnow, &shutdown_start, &tvd);
+
+	float_time = (double)tvd.tv_sec + (double)tvd.tv_usec / (double)1000000;
+	snprintf(newmsg, sizeof(newmsg), "%f\t", float_time);
 
 	for (i = 0, j = strlen(newmsg); message[i];) {
 		if (message[i] == '%' && message[i + 1] == 'm') {
@@ -932,5 +943,3 @@ vsyslog(int priority, const char *message, va_list args)
 
 	fflush(ourlogfile);
 }
-
-#endif

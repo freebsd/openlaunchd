@@ -57,7 +57,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
-#include <syslog.h>
 #include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -225,7 +224,7 @@ static void jobmgr_callback(void *obj, struct kevent *kev);
 static pid_t jobmgr_fork(jobmgr_t jm);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
 static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent);
-static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap);
+static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
 static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test);
@@ -274,7 +273,7 @@ struct job_s {
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     wait4pipe_eof:1, sent_sigkill:1;
+		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1;
 	char label[0];
 };
 
@@ -317,7 +316,7 @@ static jobmgr_t job_get_bs(job_t j);
 static void job_kill(job_t j);
 static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
-static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap);
+static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
 static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
@@ -536,6 +535,10 @@ jobmgr_shutdown(jobmgr_t jm)
 		}
 	}
 
+	if (debug_shutdown_hangs && jm->parentmgr == NULL && getpid() == 1) {
+		jobmgr_assumes(jm, kevent_mod((uintptr_t)jm, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, 3, jm) != -1);
+	}
+
 	return jobmgr_do_garbage_collection(jm);
 }
 
@@ -577,8 +580,10 @@ jobmgr_remove(jobmgr_t jm)
 	if (jm->parentmgr) {
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 	} else if (getpid() == 1) {
+		jobmgr_log(jm, LOG_DEBUG, "About to call reboot(0x%x).", jm->reboot_flags);
 		jobmgr_assumes(jm,  reboot(jm->reboot_flags) != -1);
 	} else {
+		jobmgr_log(jm, LOG_DEBUG, "About to exit.");
 		exit(EXIT_SUCCESS);
 	}
 	
@@ -1081,6 +1086,8 @@ job_import_bool(job_t j, const char *key, bool value)
 	case 'E':
 		if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0) {
 			j->globargv = value;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_ENTERKERNELDEBUGGERBEFOREKILL) == 0) {
+			j->debug_before_kill = value;
 		}
 		break;
 	case 'w':
@@ -1459,7 +1466,7 @@ job_import2(launch_data_t pload)
 		return NULL;
 	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
 			(strtol(label, NULL, 10) != 0)) {
-		syslog(LOG_ERR, "Somebody attempted to use a reserved prefix for a label: %s", label);
+		jobmgr_log(root_jobmgr, LOG_ERR, "Somebody attempted to use a reserved prefix for a label: %s", label);
 		/* the empty string, com.apple.launchd and number prefixes for labels are reserved */
 		errno = EINVAL;
 		return NULL;
@@ -1810,18 +1817,16 @@ job_callback_timer(job_t j, void *ident)
 	} else if (&j->exit_timeout == ident) {
 		if (j->sent_sigkill) {
 			struct timeval tvd, tve;
-			double delta;
 
 			job_assumes(j, gettimeofday(&tve, NULL) != -1);
 			timersub(&tve, &j->sent_sigterm_time,  &tvd);
-			delta = (double)tvd.tv_sec + (double)tvd.tv_usec / (double)1000000;
-			delta -= (double)j->exit_timeout;
-			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %f seconds ago...", delta);
-			if (debug_shutdown_hangs && delta > 60) {
-				job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
-			}
+			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %lu seconds ago...", tvd.tv_sec);
 		} else {
 			job_force_sampletool(j);
+			if (j->debug_before_kill) {
+				job_log(j, LOG_NOTICE, "Exit timeout elapsed. Entering the kernel debugger.");
+				job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
+			}
 			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
 			job_kill(j);
 		}
@@ -1853,6 +1858,9 @@ jobmgr_callback(void *obj, struct kevent *kev)
 		default:
 			return (void)jobmgr_assumes(jm, false);
 		}
+		break;
+	case EVFILT_TIMER:
+		jobmgr_log(jm, LOG_NOTICE, "Still alive with %u children.", total_children);
 		break;
 	default:
 		return (void)jobmgr_assumes(jm, false);
@@ -2512,7 +2520,7 @@ jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap)
 	if (jm->parentmgr) {
 		jobmgr_logv(jm->parentmgr, pri, 0, newmsg, ap);
 	} else {
-		vsyslog(pri, newmsg, ap);
+		runtime_vsyslog(pri, newmsg, ap);
 	}
 }
 
@@ -3749,11 +3757,16 @@ job_force_sampletool(job_t j)
 		goto out;
 	}
 
+	job_log(j, LOG_DEBUG, "Waiting for 'sample' to finish.");
+
 	if (!job_assumes(j, waitpid(sp, &wstatus, 0) != -1)) {
 		goto out;
 	}
 
-	sync();
+	/*
+	 * This won't work if the VFS or filesystems are sick:
+	 * sync();
+	 */
 
 	if (!job_assumes(j, WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0)) {
 		goto out;
@@ -3789,12 +3802,15 @@ out:
 	}
 
 	if (logfile_fd != -1) {
+		job_assumes(j, fcntl(logfile_fd, F_FULLFSYNC, 0) != -1);
 		job_assumes(j, close(logfile_fd) != -1);
 	}
 
 	if (console_fd != -1) {
 		job_assumes(j, close(console_fd) != -1);
 	}
+
+	job_log(j, LOG_DEBUG, "Finished sampling.");
 }
 
 bool

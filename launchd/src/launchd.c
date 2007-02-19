@@ -50,7 +50,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
-#include <syslog.h>
 #include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,9 +136,6 @@ main(int argc, char *const *argv)
 
 	launchd_runtime_init();
 
-	openlog(getprogname(), LOG_PID|LOG_CONS, LOG_LAUNCHD);
-	setlogmask(LOG_UPTO(/* LOG_DEBUG */ LOG_NOTICE));
-
 	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
 		launchd_assumes(signal(sigigns[i], SIG_IGN) != SIG_ERR);
 	}
@@ -217,7 +213,7 @@ fatal_signal_handler(int sig, siginfo_t *si, void *uap)
 		doom_why = "trying to read/write";
 	case SIGILL:
 	case SIGFPE:
-		syslog(LOG_EMERG, "We crashed %s: %p (sent by PID %u)", doom_why, crash_addr, crash_pid);
+		runtime_syslog(LOG_EMERG, "We crashed %s: %p (sent by PID %u)", doom_why, crash_addr, crash_pid);
 		sync();
 		sleep(3);
 		/* the kernel will panic() when PID 1 exits */
@@ -280,7 +276,7 @@ launchd_shutdown(void)
 void
 launchd_single_user(void)
 {
-	syslog(LOG_NOTICE, "Going to single-user mode");
+	runtime_syslog(LOG_NOTICE, "Going to single-user mode");
 
 	re_exec_in_single_user_mode = true;
 
@@ -314,7 +310,7 @@ testfd_or_openfd(int fd, const char *path, int flags)
 		launchd_assumes(close(tmpfd) == 0);
 	} else {
 		if (-1 == (tmpfd = open(path, flags | O_NOCTTY, DEFFILEMODE))) {
-			syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
+			runtime_syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
 		} else if (tmpfd != fd) {
 			launchd_assumes(dup2(tmpfd, fd) != -1);
 			launchd_assumes(close(tmpfd) == 0);
@@ -433,5 +429,5 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 		}
 	}
 
-	syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
+	runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
 }

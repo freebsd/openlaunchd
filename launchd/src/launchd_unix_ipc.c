@@ -39,7 +39,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
-#include <syslog.h>
 #include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,9 +80,9 @@ ipc_clean_up(void)
 	}
 
 	if (-1 == unlink(sockpath)) {
-		syslog(LOG_WARNING, "unlink(\"%s\"): %m", sockpath);
+		runtime_syslog(LOG_WARNING, "unlink(\"%s\"): %m", sockpath);
 	} else if (-1 == rmdir(sockdir)) {
-		syslog(LOG_WARNING, "rmdir(\"%s\"): %m", sockdir);
+		runtime_syslog(LOG_WARNING, "rmdir(\"%s\"): %m", sockdir);
 	}
 }
 
@@ -115,11 +114,11 @@ ipc_server_init(void)
 				stat(ourdir, &sb);
 				if (!S_ISDIR(sb.st_mode)) {
 					errno = EEXIST;
-					syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+					runtime_syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
 					goto out_bad;
 				}
 			} else {
-				syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
+				runtime_syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
 				goto out_bad;
 			}
 		}
@@ -133,7 +132,7 @@ ipc_server_init(void)
 
 	if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
 		if (errno != EROFS) {
-			syslog(LOG_ERR, "unlink(\"thesocket\"): %m");
+			runtime_syslog(LOG_ERR, "unlink(\"thesocket\"): %m");
 		}
 		goto out_bad;
 	}
@@ -148,18 +147,18 @@ ipc_server_init(void)
 
 	if (r == -1) {
 		if (errno != EROFS) {
-			syslog(LOG_ERR, "bind(\"thesocket\"): %m");
+			runtime_syslog(LOG_ERR, "bind(\"thesocket\"): %m");
 		}
 		goto out_bad;
 	}
 
 	if (listen(fd, SOMAXCONN) == -1) {
-		syslog(LOG_ERR, "listen(\"thesocket\"): %m");
+		runtime_syslog(LOG_ERR, "listen(\"thesocket\"): %m");
 		goto out_bad;
 	}
 
 	if (kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
-		syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
+		runtime_syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
 		goto out_bad;
 	}
 
@@ -213,7 +212,7 @@ ipc_callback(void *obj, struct kevent *kev)
 	if (kev->filter == EVFILT_READ) {
 		if (launchd_msg_recv(c->conn, ipc_readmsg, c) == -1 && errno != EAGAIN) {
 			if (errno != ECONNRESET) {
-				syslog(LOG_DEBUG, "%s(): recv: %m", __func__);
+				runtime_syslog(LOG_DEBUG, "%s(): recv: %m", __func__);
 			}
 			ipc_close(c);
 		}
@@ -221,14 +220,14 @@ ipc_callback(void *obj, struct kevent *kev)
 		r = launchd_msg_send(c->conn, NULL);
 		if (r == -1) {
 			if (errno != EAGAIN) {
-				syslog(LOG_DEBUG, "%s(): send: %m", __func__);
+				runtime_syslog(LOG_DEBUG, "%s(): send: %m", __func__);
 				ipc_close(c);
 			}
 		} else if (r == 0) {
 			kevent_mod(launchd_getfd(c->conn), EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
 		}
 	} else {
-		syslog(LOG_DEBUG, "%s(): unknown filter type!", __func__);
+		runtime_syslog(LOG_DEBUG, "%s(): unknown filter type!", __func__);
 		ipc_close(c);
 	}
 }
@@ -310,7 +309,7 @@ ipc_readmsg(launch_data_t msg, void *context)
 		if (errno == EAGAIN) {
 			kevent_mod(launchd_getfd(rmc.c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &rmc.c->kqconn_callback);
 		} else {
-			syslog(LOG_DEBUG, "launchd_msg_send() == -1: %m");
+			runtime_syslog(LOG_DEBUG, "launchd_msg_send() == -1: %m");
 			ipc_close(rmc.c);
 		}
 	}
@@ -332,7 +331,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	if (rmc->c->j) {
 		job_log(rmc->c->j, LOG_DEBUG, "Unix IPC request: %s", cmd);
 	} else {
-	       	syslog(LOG_DEBUG, "Unix IPC request: %s", cmd);
+	       	runtime_syslog(LOG_DEBUG, "Unix IPC request: %s", cmd);
 	}
 
 	if (data == NULL) {
@@ -471,7 +470,7 @@ adjust_rlimits(launch_data_t in)
 		ltmpsz = launch_data_get_opaque_size(in);
 
 		if (ltmpsz > sizeof(l)) {
-			syslog(LOG_WARNING, "Too much rlimit data sent!");
+			runtime_syslog(LOG_WARNING, "Too much rlimit data sent!");
 			ltmpsz = sizeof(l);
 		}
 		
@@ -507,12 +506,12 @@ adjust_rlimits(launch_data_t in)
 				if (gval > 0) {
 					launchd_assumes(sysctl(gmib, 2, NULL, NULL, &gval, sizeof(gval)) != -1);
 				} else {
-					syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", gstr);
+					runtime_syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", gstr);
 				}
 				if (pval > 0) {
 					launchd_assumes(sysctl(pmib, 2, NULL, NULL, &pval, sizeof(pval)) != -1);
 				} else {
-					syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", pstr);
+					runtime_syslog(LOG_WARNING, "sysctl(\"%s\"): can't be zero", pstr);
 				}
 			}
 			launchd_assumes(setrlimit(i, ltmp + i) != -1);
