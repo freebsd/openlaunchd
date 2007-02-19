@@ -1239,10 +1239,13 @@ do_single_user_mode2(void)
 static void
 very_pid2_specific_bootstrap(bool sflag)
 {
+	struct timeval tvs, tve, tvd;
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
 	struct group *tfp_gr;
 
 	do_single_user_mode(sflag);
+
+	assumes(gettimeofday(&tvs, NULL) != -1);
 
 	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
 		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
@@ -1335,6 +1338,20 @@ very_pid2_specific_bootstrap(bool sflag)
 	do_bootroot_magic();
 
 	_vproc_set_global_on_demand(false);
+
+	assumes(gettimeofday(&tve, NULL) != -1);
+
+	timersub(&tve, &tvs, &tvd);
+
+	if (!path_check("/System/Library/LoginPlugins/BootCache.loginPlugin")) {
+		int remaining_sec = 60 - tvd.tv_sec;
+		if (remaining_sec > 0) {
+			sleep(remaining_sec);
+		}
+
+		const char *bcc_stop_tool[] = { "BootCacheControl", "stop", NULL };
+		assumes(fwexec(bcc_stop_tool, true) != -1);
+	}
 }
 
 int
