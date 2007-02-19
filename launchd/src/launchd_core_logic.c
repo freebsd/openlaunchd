@@ -318,7 +318,6 @@ static void job_kill(job_t j);
 static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap);
-static void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
 static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);

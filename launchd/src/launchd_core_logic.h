@@ -49,5 +49,6 @@ launch_data_t job_import_bulk(launch_data_t pload);
 job_t job_mig_intran(mach_port_t mp);
 void job_mig_destructor(job_t j);
 void job_ack_no_senders(job_t j);
+void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 
 #endif

@@ -329,6 +329,12 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		return;
 	}
 
+	if (rmc->c->j) {
+		job_log(rmc->c->j, LOG_DEBUG, "Unix IPC request: %s", cmd);
+	} else {
+	       	syslog(LOG_DEBUG, "Unix IPC request: %s", cmd);
+	}
+
 	if (data == NULL) {
 		if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
 			if (rmc->c->j) {
