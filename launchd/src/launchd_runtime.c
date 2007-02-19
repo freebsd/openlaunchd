@@ -40,6 +40,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/event.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
+#include <sys/mount.h>
 #include <bsm/libbsm.h>
 #include <malloc/malloc.h>
 #include <unistd.h>
@@ -320,6 +321,30 @@ log_kevent_struct(int level, struct kevent *kev)
 		break;
 	case EVFILT_FS:
 		filter_str = "EVFILT_FS";
+		snprintf(ident_buf, sizeof(ident_buf), "0x%lx", kev->ident);
+		if (fflags) while (fflags) {
+			if (fflags_off) {
+				*fflags_off = '|';
+				fflags_off++;
+				*fflags_off = '\0';
+			} else {
+				fflags_off = fflags_buf;
+			}
+
+			FFLAGIF(VQ_NOTRESP)
+			else FFLAGIF(VQ_NEEDAUTH)
+			else FFLAGIF(VQ_LOWDISK)
+			else FFLAGIF(VQ_MOUNT)
+			else FFLAGIF(VQ_UNMOUNT)
+			else FFLAGIF(VQ_DEAD)
+			else FFLAGIF(VQ_ASSIST)
+			else FFLAGIF(VQ_NOTRESPLOCK)
+			else FFLAGIF(VQ_UPDATE)
+			else {
+				fflags_off += sprintf(fflags_off, "0x%x", fflags);
+				fflags = 0;
+			}
+		}
 		break;
 	default:
 		snprintf(filter_buf, sizeof(filter_buf), "%d", kev->filter);
