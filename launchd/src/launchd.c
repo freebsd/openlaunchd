@@ -64,6 +64,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <string.h>
 #include <setjmp.h>
 #include <spawn.h>
+#include <sched.h>
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
@@ -341,8 +342,15 @@ get_network_state(void)
 {
 	struct ifaddrs *ifa, *ifai;
 	bool up = false;
+	int r;
 
-	if (!launchd_assumes(getifaddrs(&ifa) != -1)) {
+	/* Workaround 4978696: getifaddrs() reports false ENOMEM */
+	while ((r = getifaddrs(&ifa)) == -1 && errno == ENOMEM) {
+		runtime_syslog(LOG_DEBUG, "Worked around bug: 4978696");
+		launchd_assumes(sched_yield() != -1);
+	}
+
+	if (!launchd_assumes(r != -1)) {
 		return network_up;
 	}
 
