@@ -3325,7 +3325,10 @@ jobmgr_log_stray_children(jobmgr_t jm)
 		}
 
 		jobmgr_log(jm, LOG_WARNING, "Stray process at shutdown: PID %u PPID %u %s", p_i, pp_i, kp[i].kp_proc.p_comm);
-		jobmgr_assumes(jm, kill(p_i, SIGKILL) != -1);
+		/*
+		 * The kernel team requested that I not do this for Leopard.
+		 * jobmgr_assumes(jm, kill(p_i, SIGKILL) != -1);
+		 */
 	}
 
 out:
