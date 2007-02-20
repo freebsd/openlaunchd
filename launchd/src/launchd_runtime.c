@@ -41,6 +41,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/mount.h>
+#include <sys/reboot.h>
 #include <bsm/libbsm.h>
 #include <malloc/malloc.h>
 #include <unistd.h>
@@ -149,6 +150,45 @@ mport_demand_loop(void *arg __attribute__((unused)))
 }
 
 const char *
+reboot_flags_to_C_names(unsigned int flags)
+{
+#define MAX_RB_STR "RB_ASKNAME|RB_SINGLE|RB_NOSYNC|RB_KDB|RB_HALT|RB_INITNAME|RB_DFLTROOT|RB_ALTBOOT|RB_UNIPROC|RB_SAFEBOOT|RB_UPSDELAY|0xdeadbeeffeedface"
+	static char flags_buf[sizeof(MAX_RB_STR)];
+	char *flags_off = NULL;
+
+	if (flags) while (flags) {
+		if (flags_off) {
+			*flags_off = '|';
+			flags_off++;
+			*flags_off = '\0';
+		} else {
+			flags_off = flags_buf;
+		}
+
+#define FLAGIF(f) if (flags & f) { flags_off += sprintf(flags_off, #f); flags &= ~f; }
+
+		FLAGIF(RB_ASKNAME)
+		else FLAGIF(RB_SINGLE)
+		else FLAGIF(RB_NOSYNC)
+		else FLAGIF(RB_KDB)
+		else FLAGIF(RB_HALT)
+		else FLAGIF(RB_INITNAME)
+		else FLAGIF(RB_DFLTROOT)
+		else FLAGIF(RB_ALTBOOT)
+		else FLAGIF(RB_UNIPROC)
+		else FLAGIF(RB_SAFEBOOT)
+		else FLAGIF(RB_UPSDELAY)
+		else {
+			flags_off += sprintf(flags_off, "0x%x", flags);
+			flags = 0;
+		}
+		return flags_buf;
+	} else {
+		return "RB_AUTOBOOT";
+	}
+}
+
+const char *
 signal_to_C_name(unsigned int sig)
 {
 	static char unknown[25];
@@ -213,8 +253,6 @@ log_kevent_struct(int level, struct kevent *kev)
 		} else {
 			flags_off = flags_buf;
 		}
-
-#define FLAGIF(f) if (flags & f) { flags_off += sprintf(flags_off, #f); flags &= ~f; }
 
 		FLAGIF(EV_ADD)
 		else FLAGIF(EV_DELETE)
@@ -852,10 +890,20 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 	}
 }
 
+static FILE *ourlogfile;
+
 void
 runtime_openlog(const char *ident, int logopt, int facility)
 {
 	openlog(ident, logopt, facility);
+}
+
+void
+runtime_closelog(void)
+{
+	if (ourlogfile) {
+		fflush(ourlogfile);
+	}
 }
 
 int
@@ -880,7 +928,6 @@ void
 runtime_vsyslog(int priority, const char *message, va_list args)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
-	static FILE *ourlogfile = NULL;
 	static struct timeval shutdown_start = { 0, 0 };
 	struct timeval tvnow, tvd;
 	int saved_errno = errno;
@@ -940,6 +987,4 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 	strcpy(newmsg + j, "\n");
 
 	vfprintf(ourlogfile, newmsg, args);
-
-	fflush(ourlogfile);
 }

@@ -580,9 +580,12 @@ jobmgr_remove(jobmgr_t jm)
 	if (jm->parentmgr) {
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 	} else if (getpid() == 1) {
-		jobmgr_log(jm, LOG_DEBUG, "About to call reboot(0x%x).", jm->reboot_flags);
+		jobmgr_log(jm, LOG_DEBUG, "About to call: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
+		runtime_closelog();
 		jobmgr_assumes(jm,  reboot(jm->reboot_flags) != -1);
+		runtime_closelog();
 	} else {
+		runtime_closelog();
 		jobmgr_log(jm, LOG_DEBUG, "About to exit.");
 		exit(EXIT_SUCCESS);
 	}
