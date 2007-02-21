@@ -217,11 +217,7 @@ fatal_signal_handler(int sig, siginfo_t *si, void *uap)
 		runtime_syslog(LOG_EMERG, "We crashed %s: %p (sent by PID %u)", doom_why, crash_addr, crash_pid);
 		sync();
 		sleep(3);
-		/* the kernel will panic() when PID 1 exits */
-		_exit(EXIT_FAILURE);
-		/* we should never get here */
 		reboot(0);
-		/* or here either */
 		break;
 	}
 }
