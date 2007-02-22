@@ -502,13 +502,29 @@ job_export2(job_t j, bool subjobs)
 
 	if (!SLIST_EMPTY(&j->machservices) && (tmp = launch_data_alloc(LAUNCH_DATA_DICTIONARY))) {
 		struct machservice *ms;
+		
+		tmp3 = NULL;
 
 		SLIST_FOREACH(ms, &j->machservices, sle) {
-			tmp2 = launch_data_new_machport(MACH_PORT_NULL);
-			launch_data_dict_insert(tmp, tmp2, ms->name);
+			if (ms->per_pid) {
+				if (tmp3 == NULL) {
+					tmp3 = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+				}
+				if (tmp3) {
+					tmp2 = launch_data_new_machport(MACH_PORT_NULL);
+					launch_data_dict_insert(tmp3, tmp2, ms->name);
+				}
+			} else {
+				tmp2 = launch_data_new_machport(MACH_PORT_NULL);
+				launch_data_dict_insert(tmp, tmp2, ms->name);
+			}
 		}
 
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_MACHSERVICES);
+
+		if (tmp3) {
+			launch_data_dict_insert(r, tmp3, LAUNCH_JOBKEY_PERJOBMACHSERVICES);
+		}
 	}
 
 	return r;
@@ -3532,11 +3548,10 @@ jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t ta
 			continue;
 		}
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			if (target_pid && !ms->per_pid) {
-				continue;
-			}
-			if (strcmp(name, ms->name) == 0) {
-				return ms;
+			if ((target_pid && ms->per_pid) || (!target_pid && !ms->per_pid)) {
+				if (strcmp(name, ms->name) == 0) {
+					return ms;
+				}
 			}
 		}
 	}
@@ -4482,7 +4497,9 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 
 	TAILQ_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			cnt++;
+			if (!ms->per_pid) {
+				cnt++;
+			}
 		}
 	}
 
@@ -4502,9 +4519,11 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 
 	TAILQ_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
-			service_actives[cnt2] = machservice_status(ms);
-			cnt2++;
+			if (!ms->per_pid) {
+				strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
+				service_actives[cnt2] = machservice_status(ms);
+				cnt2++;
+			}
 		}
 	}
 
