@@ -2337,9 +2337,12 @@ bsexec_cmd(int argc, char *const argv[])
 	setgid(getgid());
 	setuid(getuid());
 
-	execvp(argv[2], argv + 2);
-	fprintf(stderr, "execvp(): %s\n", strerror(errno));
-	return 1;
+	if (fwexec((const char *const *)argv + 2, true) == -1) {
+		fprintf(stderr, "%s bsexec failed: %s\n", getprogname(), strerror(errno));
+		return 1;
+	}
+
+	return 0;
 }
 
 int
