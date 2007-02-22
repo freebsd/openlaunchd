@@ -54,15 +54,18 @@ routine check_in(
 			__service_name	: name_t;
 		out	__service_port	: mach_port_move_receive_t);
 
-routine register(
+routine register2(
 		__bs_port	: job_t;
 		__service_name	: name_t;
-		__service_port	: mach_port_t);
+		__service_port	: mach_port_t;
+		__flags		: uint64_t);
 
-routine look_up(
+routine look_up2(
 		__bs_port	: job_t;
 		__service_name	: name_t;
-	out	__service_port	: mach_port_send_t);
+	out	__service_port	: mach_port_send_t;
+		__target_pid	: pid_t;
+		__flags		: uint64_t);
 
 skip; /* last used in 10.4 */
 

@@ -76,6 +76,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
 #include "libbootstrap_public.h"
+#include "libbootstrap_private.h"
 #include "libvproc_public.h"
 #include "libvproc_internal.h"
 
@@ -101,14 +102,14 @@ struct machservice {
 	SLIST_ENTRY(machservice) sle;
 	job_t			job;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1, debug_on_close:1;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1, debug_on_close:1, per_pid:1;
 	char			name[0];
 };
 
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
 static void machservice_setup_options(launch_data_t obj, const char *key, void *context);
 static void machservice_resetport(job_t j, struct machservice *ms);
-static struct machservice *machservice_new(job_t j, const char *name, mach_port_t *serviceport);
+static struct machservice *machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_local);
 static void machservice_ignore(job_t j, struct machservice *ms);
 static void machservice_watch(job_t j, struct machservice *ms);
 static void machservice_delete(struct machservice *);
@@ -223,7 +224,7 @@ static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static void jobmgr_callback(void *obj, struct kevent *kev);
 static pid_t jobmgr_fork(jobmgr_t jm);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
-static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent);
+static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid);
 static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
@@ -3097,7 +3098,7 @@ machservice_resetport(job_t j, struct machservice *ms)
 }
 
 struct machservice *
-machservice_new(job_t j, const char *name, mach_port_t *serviceport)
+machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_local)
 {
 	struct machservice *ms;
 
@@ -3107,6 +3108,7 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport)
 
 	strcpy(ms->name, name);
 	ms->job = j;
+	ms->per_pid = pid_local;
 
 	if (*serviceport == MACH_PORT_NULL) {
 		if (!job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS)) {
@@ -3236,12 +3238,12 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	struct machservice *ms;
 	mach_port_t p = MACH_PORT_NULL;
 
-	if ((ms = jobmgr_lookup_service(j->mgr, key, false))) {
+	if ((ms = jobmgr_lookup_service(j->mgr, key, false, 0))) {
 		job_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
 		return;
 	}
 
-	if ((ms = machservice_new(j, key, &p)) == NULL) {
+	if ((ms = machservice_new(j, key, &p, false)) == NULL) {
 		job_log_error(j, LOG_WARNING, "Cannot add service: %s", key);
 		return;
 	}
@@ -3516,13 +3518,23 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 }
 
 struct machservice *
-jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent)
+jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid)
 {
 	struct machservice *ms;
 	job_t ji;
 
+	if (target_pid) {
+		jobmgr_assumes(jm, !check_parent);
+	}
+
 	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+		if (target_pid && (ji->p != target_pid)) {
+			continue;
+		}
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			if (target_pid && !ms->per_pid) {
+				continue;
+			}
 			if (strcmp(name, ms->name) == 0) {
 				return ms;
 			}
@@ -3537,7 +3549,7 @@ jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent)
 		return NULL;
 	}
 
-	return jobmgr_lookup_service(jm->parentmgr, name, true);
+	return jobmgr_lookup_service(jm->parentmgr, name, true, 0);
 }
 
 mach_port_t
@@ -4270,7 +4282,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 		ji->mach_uid = which_user;
 
-		if ((ms = machservice_new(ji, lbuf, up_cont)) == NULL) {
+		if ((ms = machservice_new(ji, lbuf, up_cont, false)) == NULL) {
 			job_remove(ji);
 			return BOOTSTRAP_NO_MEMORY;
 		}
@@ -4301,7 +4313,7 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 
 	runtime_get_caller_creds(&ldc);
 
-	ms = jobmgr_lookup_service(j->mgr, servicename, true);
+	ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
 
 	if (ms == NULL) {
 		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
@@ -4329,7 +4341,7 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 }
 
 kern_return_t
-job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
+job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t flags)
 {
 	struct machservice *ms;
 	struct ldcred ldc;
@@ -4344,7 +4356,7 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 	job_log(j, LOG_NOTICE, "bootstrap_register() is deprecated. PID: %u Service: %s", ldc.pid, servicename);
 #endif
 
-	job_log(j, LOG_DEBUG, "Mach service registration attempt: %s", servicename);
+	job_log(j, LOG_DEBUG, "%sMach service registration attempt: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 
 	/*
 	 * From a per-user/session launchd's perspective, SecurityAgent (UID
@@ -4359,7 +4371,7 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 		}
 	}
 	
-	ms = jobmgr_lookup_service(j->mgr, servicename, false);
+	ms = jobmgr_lookup_service(j->mgr, servicename, false, flags & BOOTSTRAP_PER_PID_SERVICE ? ldc.pid : 0);
 
 	if (ms) {
 		if (machservice_job(ms) != j) {
@@ -4374,7 +4386,7 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 	}
 
 	if (serviceport != MACH_PORT_NULL) {
-		if ((ms = machservice_new(j, servicename, &serviceport))) {
+		if ((ms = machservice_new(j, servicename, &serviceport, flags & BOOTSTRAP_PER_PID_SERVICE ? true : false))) {
 			machservice_request_notifications(ms);
 		} else {
 			return BOOTSTRAP_NO_MEMORY;
@@ -4385,7 +4397,7 @@ job_mig_register(job_t j, name_t servicename, mach_port_t serviceport)
 }
 
 kern_return_t
-job_mig_look_up(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype)
+job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype, pid_t target_pid, uint64_t flags)
 {
 	struct machservice *ms;
 	struct ldcred ldc;
@@ -4400,7 +4412,11 @@ job_mig_look_up(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
-	ms = jobmgr_lookup_service(j->mgr, servicename, true);
+	if (flags & BOOTSTRAP_PER_PID_SERVICE) {
+		ms = jobmgr_lookup_service(j->mgr, servicename, false, target_pid);
+	} else {
+		ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
+	}
 
 	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
 		ms = NULL;
@@ -4410,16 +4426,16 @@ job_mig_look_up(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg
 
 	if (ms) {
 		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
-		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d): %s", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "%sMach service lookup (by PID %d): %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", ldc.pid, servicename);
 		*serviceportp = machservice_port(ms);
 		*ptype = MACH_MSG_TYPE_COPY_SEND;
 		return BOOTSTRAP_SUCCESS;
-	} else if (inherited_bootstrap_port != MACH_PORT_NULL) {
+	} else if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && (inherited_bootstrap_port != MACH_PORT_NULL)) {
 		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) forwarded: %s", ldc.pid, servicename);
 		*ptype = MACH_MSG_TYPE_MOVE_SEND;
 		return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
 	} else {
-		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) failed: %s", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "%sMach service lookup (by PID %d) failed: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", ldc.pid, servicename);
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 }
@@ -4572,7 +4588,7 @@ job_mig_move_subset_to_user(job_t j, mach_port_t target_subset)
 	for (l2l_i = 0; l2l_i < l2l_name_cnt; l2l_i++) {
 		struct machservice *ms;
 
-		if ((ms = machservice_new(jmr->anonj, l2l_names[l2l_i], &l2l_ports[l2l_i]))) {
+		if ((ms = machservice_new(jmr->anonj, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
 			machservice_request_notifications(ms);
 		}
 	}
@@ -4721,7 +4737,7 @@ job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	ms = jobmgr_lookup_service(j->mgr, servicename, false);
+	ms = jobmgr_lookup_service(j->mgr, servicename, false, 0);
 	if (ms) {
 		job_log(j, LOG_DEBUG, "Mach service creation attempt for failed. Already exists: %s", servicename);
 		return BOOTSTRAP_NAME_IN_USE;
@@ -4730,7 +4746,7 @@ job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 	job_checkin(j);
 
 	*serviceportp = MACH_PORT_NULL;
-	ms = machservice_new(j, servicename, serviceportp);
+	ms = machservice_new(j, servicename, serviceportp, false);
 
 	if (!launchd_assumes(ms != NULL)) {
 		goto out_bad;

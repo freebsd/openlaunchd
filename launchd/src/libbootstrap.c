@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "libbootstrap_public.h"
+#include "libbootstrap_private.h"
 
 #include "libvproc_public.h"
 #include "libvproc_private.h"
@@ -66,13 +67,19 @@ bootstrap_parent(mach_port_t bp, mach_port_t *parent_port)
 kern_return_t
 bootstrap_register(mach_port_t bp, name_t service_name, mach_port_t sp)
 {
-	kern_return_t kr = vproc_mig_register(bp, service_name, sp);
+	return bootstrap_register2(bp, service_name, sp, 0);
+}
+
+kern_return_t
+bootstrap_register2(mach_port_t bp, name_t service_name, mach_port_t sp, uint64_t flags)
+{
+	kern_return_t kr = vproc_mig_register2(bp, service_name, sp, flags);
 
 	if (kr == VPROC_ERR_TRY_PER_USER) {
 		mach_port_t puc;
 
 		if (vproc_mig_lookup_per_user_context(bp, 0, &puc) == 0) {
-			kr = vproc_mig_register(puc, service_name, sp);
+			kr = vproc_mig_register2(puc, service_name, sp, flags);
 			mach_port_deallocate(mach_task_self(), puc);
 		}
 	}
@@ -95,10 +102,16 @@ bootstrap_check_in(mach_port_t bp, name_t service_name, mach_port_t *sp)
 kern_return_t
 bootstrap_look_up(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
+	return bootstrap_look_up2(bp, service_name, sp, 0, 0);
+}
+
+kern_return_t
+bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t target_pid, uint64_t flags)
+{
 	kern_return_t kr;
 	mach_port_t puc;
 
-	if ((kr = vproc_mig_look_up(bp, service_name, sp)) != VPROC_ERR_TRY_PER_USER) {
+	if ((kr = vproc_mig_look_up2(bp, service_name, sp, target_pid, flags)) != VPROC_ERR_TRY_PER_USER) {
 		return kr;
 	}
 
@@ -106,7 +119,7 @@ bootstrap_look_up(mach_port_t bp, name_t service_name, mach_port_t *sp)
 		return kr;
 	}
 
-	kr = vproc_mig_look_up(puc, service_name, sp);
+	kr = vproc_mig_look_up2(puc, service_name, sp, target_pid, flags);
 	mach_port_deallocate(mach_task_self(), puc);
 
 	return kr;

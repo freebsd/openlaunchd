@@ -70,22 +70,23 @@ man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launch
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/libexec
-	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	mkdir -p $(DESTDIR)/usr/include/servers
-	cp $(srcdir)/liblaunch_public.h $(DESTDIR)/usr/include/launch.h
-	cp $(srcdir)/libvproc_public.h $(DESTDIR)/usr/include/vproc.h
-	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
-	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
 	mkdir -p $(DESTDIR)/usr/local/include
-	cp $(srcdir)/liblaunch_private.h $(DESTDIR)/usr/local/include/launch_priv.h
-	cp $(srcdir)/libvproc_private.h $(DESTDIR)/usr/local/include/vproc_priv.h
-	cp $(srcdir)/reboot2.h $(DESTDIR)/usr/local/include/reboot2.h
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
 	mkdir -p $(DESTDIR)/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
+	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
+	cp $(srcdir)/liblaunch_public.h $(DESTDIR)/usr/include/launch.h
+	cp $(srcdir)/libvproc_public.h $(DESTDIR)/usr/include/vproc.h
+	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
+	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap_defs.h
+	cp $(srcdir)/libbootstrap_private.h $(DESTDIR)/usr/local/include/bootstrap_priv.h
+	cp $(srcdir)/liblaunch_private.h $(DESTDIR)/usr/local/include/launch_priv.h
+	cp $(srcdir)/libvproc_private.h $(DESTDIR)/usr/local/include/vproc_priv.h
+	cp $(srcdir)/reboot2.h $(DESTDIR)/usr/local/include/reboot2.h
 	cp $(srcdir)/com.apple.SystemStarter.plist $(DESTDIR)/System/Library/LaunchDaemons
 
 endif
