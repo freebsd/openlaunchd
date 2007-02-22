@@ -1345,9 +1345,10 @@ very_pid2_specific_bootstrap(bool sflag)
 
 	if (!path_check("/System/Library/LoginPlugins/BootCache.loginPlugin")) {
 		int remaining_sec = 60 - tvd.tv_sec;
+
 		if (remaining_sec > 0) {
 			sleep(remaining_sec);
-		}
+		}	
 
 		const char *bcc_stop_tool[] = { "BootCacheControl", "stop", NULL };
 		assumes(fwexec(bcc_stop_tool, true) != -1);
@@ -1357,9 +1358,9 @@ very_pid2_specific_bootstrap(bool sflag)
 int
 bootstrap_cmd(int argc, char *const argv[] __attribute__((unused)))
 {
-	if (getpid() == 2 && getuid() == 0) {
+	if (getuid() == 0) {
 		very_pid2_specific_bootstrap(argc == 2);
-	} else if (getuid() != 0) {
+	} else {
 		char *load_launchd_items[] = { "load", "-D", "all", "-S", "Background", NULL };
 
 		if (is_safeboot()) {
