@@ -218,7 +218,6 @@ static bool jobmgr_is_idle(jobmgr_t jm);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm);
-static job_t jobmgr_new_anonymous(jobmgr_t jm);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static void jobmgr_callback(void *obj, struct kevent *kev);
@@ -911,10 +910,14 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 }
 
 job_t
-jobmgr_new_anonymous(jobmgr_t jm)
+jobmgr_get_anonymous(jobmgr_t jm)
 {
 	char newlabel[1000], *procname = "unknown";
 	job_t jr;
+
+	if (jm->anonj) {
+		return jm->anonj;
+	}
 
 	snprintf(newlabel, sizeof(newlabel), "%u.anonymous", MACH_PORT_INDEX(jm->jm_port));
 
@@ -3474,7 +3477,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 		goto out_bad;
 	}
 
-	jobmgr_assumes(jmr, (jmr->anonj = jobmgr_new_anonymous(jmr)) != NULL);
+	jobmgr_assumes(jmr, (jmr->anonj = jobmgr_get_anonymous(jmr)) != NULL);
 
 	bootstrapper = job_new(jmr, "com.apple.launchctld", NULL, bootstrap_tool);
 

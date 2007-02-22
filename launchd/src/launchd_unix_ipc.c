@@ -184,7 +184,7 @@ ipc_open(int fd, job_t j)
 
 	c->kqconn_callback = ipc_callback;
 	c->conn = launchd_fdopen(fd);
-	c->j = j;
+	c->j = j ? j : jobmgr_get_anonymous(root_jobmgr);
 	SLIST_INSERT_HEAD(&connections, c, sle);
 	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
@@ -328,11 +328,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		return;
 	}
 
-	if (rmc->c->j) {
-		job_log(rmc->c->j, LOG_DEBUG, "Unix IPC request: %s", cmd);
-	} else {
-	       	runtime_syslog(LOG_DEBUG, "Unix IPC request: %s", cmd);
-	}
+	job_log(rmc->c->j, LOG_DEBUG, "Unix IPC request: %s", cmd);
 
 	if (data == NULL) {
 		if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
