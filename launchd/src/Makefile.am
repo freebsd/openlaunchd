@@ -40,7 +40,7 @@ launchctl_CFLAGS = $(AM_CFLAGS) -I/System/Library/Frameworks/System.framework/Pr
 launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit -weak_library /usr/lib/libedit.dylib
 
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-SystemStarter_LDFLAGS = -framework CoreFoundation
+SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter

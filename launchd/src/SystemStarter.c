@@ -22,6 +22,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  **/
 
+#include <IOKit/IOKitLib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <paths.h>
@@ -115,6 +116,8 @@ main(int argc, char *argv[])
 	} else if (!gDebugFlag && anAction != kActionStop) {
 		const char *ipw_cmd[] = { "/usr/sbin/ipconfig", "waitall", NULL };
 		const char *adm_cmd[] = { "/sbin/autodiskmount", "-va", NULL };
+		mach_timespec_t w = { 600, 0 };
+		kern_return_t kr;
 
 		/* Too many old StartupItems had implicit dependancies on
 		 * "Network" via other StartupItems that are now no-ops.
@@ -123,6 +126,11 @@ main(int argc, char *argv[])
 		 * so we'll stall here to deal with this legacy dependancy
 		 * problem.
 		 */
+
+		if ((kr = IOKitWaitQuiet(kIOMasterPortDefault, &w)) != kIOReturnSuccess) {
+			syslog(LOG_NOTICE, "IOKitWaitQuiet: %d\n", kr);
+		}
+
 		fwexec(ipw_cmd, true);
 		fwexec(adm_cmd, true);
 	}
