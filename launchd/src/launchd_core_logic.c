@@ -2256,8 +2256,7 @@ job_setup_attributes(job_t j)
 	SLIST_FOREACH(li, &j->limits, sle) {
 		struct rlimit rl;
 
-		if (getrlimit(li->which, &rl) == -1) {
-			job_log_error(j, LOG_WARNING, "getrlimit()");
+		if (!job_assumes(j, getrlimit(li->which, &rl) != -1)) {
 			continue;
 		}
 
@@ -2278,19 +2277,17 @@ job_setup_attributes(job_t j)
 	}
 
 	if (j->low_pri_io) {
-		if (setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE) == -1) {
-			job_log_error(j, LOG_WARNING, "setiopolicy_np()");
-		}
+		job_assumes(j, setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE) != -1);
 	}
 	if (j->rootdir) {
-		chroot(j->rootdir);
-		chdir(".");
+		job_assumes(j, chroot(j->rootdir) != -1);
+		job_assumes(j, chdir(".") != -1);
 	}
 
 	job_postfork_become_user(j);
 
 	if (j->workingdir) {
-		chdir(j->workingdir);
+		job_assumes(j, chdir(j->workingdir) != -1);
 	}
 
 	if (j->setmask) {
@@ -2306,7 +2303,7 @@ job_setup_attributes(job_t j)
 		setenv(ei->key, ei->value, 1);
 	}
 
-	setsid();
+	job_assumes(j, setsid() != -1);
 }
 
 void
