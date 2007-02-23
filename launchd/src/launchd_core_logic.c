@@ -2660,6 +2660,7 @@ calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 	}
 	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MONTH))) {
 		tmptm.tm_mon = launch_data_get_integer(tmp_k);
+		tmptm.tm_mon -= 1; /* 4798263 cron compatibility */
 	}
 
 	return calendarinterval_new(j, &tmptm);
