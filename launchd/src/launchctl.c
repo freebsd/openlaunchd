@@ -205,8 +205,6 @@ main(int argc, char *const argv[])
 {
 	char *l;
 
-	do_sysversion_sysctl();
-
 	istty = isatty(STDIN_FILENO);
 
 	argc--, argv++;
@@ -1242,6 +1240,8 @@ very_pid2_specific_bootstrap(bool sflag)
 	struct timeval tvs, tve, tvd;
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
 	struct group *tfp_gr;
+
+	do_sysversion_sysctl();
 
 	do_single_user_mode(sflag);
 
@@ -2716,9 +2716,6 @@ do_sysversion_sysctl(void)
 	size_t bufsz = sizeof(buf);
 
 	/* <rdar://problem/4477682> ER: launchd should set kern.osversion very early in boot */
-
-	if (getuid() != 0)
-		return;
 
 	if (sysctl(mib, 2, buf, &bufsz, NULL, 0) == -1) {
 		fprintf(stderr, "sysctl(): %s\n", strerror(errno));
