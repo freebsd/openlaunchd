@@ -623,9 +623,9 @@ launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, siz
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
 		o_in_w->_array_cnt = host2big(d->_array_cnt);
-		*where = realloc(*where, *len + (d->_array_cnt * sizeof(launch_data_t)));
-		memcpy(*where + *len, d->_array, d->_array_cnt * sizeof(launch_data_t));
-		*len += d->_array_cnt * sizeof(launch_data_t);
+		*where = realloc(*where, *len + (d->_array_cnt * sizeof(uint64_t)));
+		memset(*where + *len, 0, d->_array_cnt * sizeof(uint64_t));
+		*len += d->_array_cnt * sizeof(uint64_t);
 
 		for (i = 0; i < d->_array_cnt; i++)
 			launch_data_pack(d->_array[i], where, len, fd_where, fdcnt);
@@ -649,12 +649,12 @@ launch_data_unpack(launch_t conn, size_t *data_offset, size_t *fdoffset)
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
 		tmpcnt = big2host(r->_array_cnt);
-		if ((conn->recvlen - *data_offset) < (tmpcnt * sizeof(launch_data_t))) {
+		if ((conn->recvlen - *data_offset) < (tmpcnt * sizeof(uint64_t))) {
 			errno = EAGAIN;
 			return NULL;
 		}
 		r->_array = conn->recvbuf + *data_offset;
-		*data_offset += tmpcnt * sizeof(launch_data_t);
+		*data_offset += tmpcnt * sizeof(uint64_t);
 		for (i = 0; i < tmpcnt; i++) {
 			r->_array[i] = launch_data_unpack(conn, data_offset, fdoffset);
 			if (r->_array[i] == NULL)
