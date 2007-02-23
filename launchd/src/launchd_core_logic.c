@@ -2862,6 +2862,8 @@ limititem_update(job_t j, int w, rlim_t r)
 			return false;
 		}
 
+		SLIST_INSERT_HEAD(&j->limits, li, sle);
+
 		li->which = w;
 	}
 
