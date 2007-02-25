@@ -1237,15 +1237,24 @@ do_single_user_mode2(void)
 static void
 very_pid2_specific_bootstrap(bool sflag)
 {
-	struct timeval tvs, tve, tvd;
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
 	struct group *tfp_gr;
+	struct kevent kev;
+	int kq;
+
 
 	do_sysversion_sysctl();
 
 	do_single_user_mode(sflag);
 
-	assumes(gettimeofday(&tvs, NULL) != -1);
+	assumes((kq = kqueue()) != -1);
+
+	EV_SET(&kev, 0, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 90, 0);
+	assumes(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
+	assumes(signal(SIGTERM, SIG_IGN) != SIG_ERR);
+
+	EV_SET(&kev, SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
+	assumes(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
 
 	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
 		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
@@ -1339,20 +1348,14 @@ very_pid2_specific_bootstrap(bool sflag)
 
 	_vproc_set_global_on_demand(false);
 
-	assumes(gettimeofday(&tve, NULL) != -1);
-
-	timersub(&tve, &tvs, &tvd);
-
 	if (!path_check("/System/Library/LoginPlugins/BootCache.loginPlugin")) {
-		int remaining_sec = 60 - tvd.tv_sec;
-
-		if (remaining_sec > 0) {
-			sleep(remaining_sec);
-		}	
+		assumes(kevent(kq, NULL, 0, &kev, 1, NULL) == 1);
 
 		const char *bcc_stop_tool[] = { "BootCacheControl", "stop", NULL };
 		assumes(fwexec(bcc_stop_tool, true) != -1);
 	}
+
+	assumes(close(kq) != -1);
 }
 
 int
