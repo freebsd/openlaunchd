@@ -486,6 +486,9 @@ job_export2(job_t j, bool subjobs)
 		int i;
 
 		SLIST_FOREACH(sg, &j->sockets, sle) {
+			if (sg->junkfds) {
+				continue;
+			}
 			if ((tmp2 = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
 				for (i = 0; i < sg->fd_cnt; i++) {
 					if ((tmp3 = launch_data_new_fd(sg->fds[i]))) {
