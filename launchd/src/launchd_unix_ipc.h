@@ -37,6 +37,7 @@ struct conncb {
 extern char *sockpath;
 
 void ipc_open(int fd, job_t j);
+void ipc_close_all_with_job(job_t j);
 void ipc_close(struct conncb *c);
 void ipc_callback(void *, struct kevent *);
 void ipc_readmsg(launch_data_t msg, void *context);

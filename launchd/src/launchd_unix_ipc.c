@@ -238,6 +238,18 @@ static void set_user_env(launch_data_t obj, const char *key, void *context __att
 }
 
 void
+ipc_close_all_with_job(job_t j)
+{
+	struct conncb *ci, *cin;
+
+	SLIST_FOREACH_SAFE(ci, &connections, sle, cin) {
+		if (ci->j == j) {
+			ipc_close(ci);
+		}
+	}
+}
+
+void
 ipc_close_fds(launch_data_t o)
 {
 	size_t i;

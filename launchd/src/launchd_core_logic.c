@@ -633,6 +633,8 @@ job_remove(job_t j)
 		return;
 	}
 
+	ipc_close_all_with_job(j);
+
 	if (j->forced_peers_to_demand_mode) {
 		job_set_global_on_demand(j, false);
 	}
