@@ -1648,7 +1648,7 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
-	if (j->log_redirect_fd && !j->wait4pipe_eof) {
+	if (j->log_redirect_fd && (!j->wait4pipe_eof || j->mgr->shutting_down)) {
 		job_assumes(j, close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 	}
