@@ -53,13 +53,14 @@ main(int argc, char *argv[])
 {
 	struct kevent	kev;
 	Action          anAction = kActionStart;
-	int             ch, kq;
+	int             ch, r, kq = kqueue();
 
-	assert((kq = kqueue()) != -1);
+	assert(kq  != -1);
 
 	EV_SET(&kev, SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
-	assert(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
-	assert(signal(SIGTERM, SIG_IGN) != SIG_ERR);
+	r = kevent(kq, &kev, 1, NULL, 0, NULL);
+	assert(r != -1);
+	signal(SIGTERM, SIG_IGN);
 
 	while ((ch = getopt(argc, argv, "gvxirdDqn?")) != -1) {
 		switch (ch) {
@@ -158,7 +159,8 @@ main(int argc, char *argv[])
 			NULL, NULL,
 			kCFNotificationDeliverImmediately | kCFNotificationPostToAllSessions);
 
-	assert(kevent(kq, NULL, 0, &kev, 1, NULL) != -1);
+	r = kevent(kq, NULL, 0, &kev, 1, NULL);
+	assert(r != -1);
 	assert(kev.filter == EVFILT_SIGNAL && kev.ident == SIGTERM);
 
 	system_starter(kActionStop, NULL);

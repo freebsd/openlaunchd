@@ -12,6 +12,8 @@ ifeq ($(RC_ProjectName),launchd_libs)
 else
 	mkdir -p $(DSTROOT)/Library/StartupItems
 	chmod 755 $(DSTROOT)/Library/StartupItems
+	mkdir -p $(DSTROOT)/System/Library/StartupItems
+	chmod 755 $(DSTROOT)/System/Library/StartupItems
 	rm -rf $(DSTROOT)/usr/local/lib/system
 	cp $(OBJROOT)/src/launchd $(SYMROOT)
 	cp $(OBJROOT)/src/launchctl $(SYMROOT)
