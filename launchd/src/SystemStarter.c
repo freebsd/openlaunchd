@@ -24,12 +24,14 @@
 
 #include <IOKit/IOKitLib.h>
 #include <sys/types.h>
+#include <sys/event.h>
 #include <sys/stat.h>
 #include <paths.h>
 #include <unistd.h>
 #include <crt_externs.h>
 #include <fcntl.h>
 #include <syslog.h>
+#include <assert.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <NSSystemDirectories.h>
 #include "IPC.h"
@@ -44,15 +46,20 @@ bool gNoRunFlag = false;
 static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
 static void	displayErrorMessages(StartupContext aStartupContext);
-static void	doCFnote(void);
 static pid_t	fwexec(const char *const *argv, bool _wait);
 
 int 
 main(int argc, char *argv[])
 {
+	struct kevent	kev;
 	Action          anAction = kActionStart;
-	char           *aService = NULL;
-	int             ch;
+	int             ch, kq;
+
+	assert((kq = kqueue()) != -1);
+
+	EV_SET(&kev, SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
+	assert(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
+	assert(signal(SIGTERM, SIG_IGN) != SIG_ERR);
 
 	while ((ch = getopt(argc, argv, "gvxirdDqn?")) != -1) {
 		switch (ch) {
@@ -80,15 +87,18 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (argc > 2)
+	if (argc > 2) {
 		usage();
+	}
 
 	openlog(getprogname(), LOG_PID|LOG_CONS|(gDebugFlag ? LOG_PERROR : 0), LOG_DAEMON);
-	setlogmask(LOG_UPTO(LOG_NOTICE));
-	if (gVerboseFlag)
-		setlogmask(LOG_UPTO(LOG_INFO));
-	if (gDebugFlag)
+	if (gDebugFlag) {
 		setlogmask(LOG_UPTO(LOG_DEBUG));
+	} else if (gVerboseFlag) {
+		setlogmask(LOG_UPTO(LOG_INFO));
+	} else {
+		setlogmask(LOG_UPTO(LOG_NOTICE));
+	}
 
 	if (!gNoRunFlag && (getuid() != 0)) {
 		syslog(LOG_ERR, "must be root to run");
@@ -107,55 +117,53 @@ main(int argc, char *argv[])
 		}
 	}
 
-	atexit(doCFnote);
+	if (argc == 2) {
+		exit(system_starter(anAction, argv[1]));
+	}
 
 	unlink(kFixerPath);
 
-	if (argc == 2) {
-		aService = argv[1];
-	} else if (!gDebugFlag && anAction != kActionStop) {
-		const char *ipw_cmd[] = { "/usr/sbin/ipconfig", "waitall", NULL };
-		const char *adm_cmd[] = { "/sbin/autodiskmount", "-va", NULL };
-		mach_timespec_t w = { 600, 0 };
-		kern_return_t kr;
-
-		/* Too many old StartupItems had implicit dependancies on
-		 * "Network" via other StartupItems that are now no-ops.
-		 *
-		 * SystemStarter is not on the critical path for boot up,
-		 * so we'll stall here to deal with this legacy dependancy
-		 * problem.
-		 */
-
-		if ((kr = IOKitWaitQuiet(kIOMasterPortDefault, &w)) != kIOReturnSuccess) {
-			syslog(LOG_NOTICE, "IOKitWaitQuiet: %d\n", kr);
-		}
-
-		fwexec(ipw_cmd, true);
-		fwexec(adm_cmd, true);
-	}
-
-	int ssec = system_starter(anAction, aService);
+	const char *ipw_cmd[] = { "/usr/sbin/ipconfig", "waitall", NULL };
+	const char *adm_cmd[] = { "/sbin/autodiskmount", "-va", NULL };
+	mach_timespec_t w = { 600, 0 };
+	kern_return_t kr;
 	struct stat sb;
 
-	if (anAction == kActionStart && stat("/etc/rc.local", &sb) != -1) {
-		int wstatus;
-		pid_t rclp;
+	/*
+	 * Too many old StartupItems had implicit dependancies on "Network" via
+	 * other StartupItems that are now no-ops.
+	 *
+	 * SystemStarter is not on the critical path for boot up, so we'll
+	 * stall here to deal with this legacy dependancy problem.
+	 */
 
-		switch ((rclp = fork())) {
-		case -1:
-			break;
-		case 0:
-			execlp(_PATH_BSHELL, _PATH_BSHELL, "/etc/rc.local", NULL);
-			_exit(EXIT_FAILURE);
-			break;
-		default:
-			waitpid(rclp, &wstatus, 0);
-			break;
-		}
+	if ((kr = IOKitWaitQuiet(kIOMasterPortDefault, &w)) != kIOReturnSuccess) {
+		syslog(LOG_NOTICE, "IOKitWaitQuiet: %d\n", kr);
 	}
 
-	exit(ssec);
+	fwexec(ipw_cmd, true);
+	fwexec(adm_cmd, true);
+
+	system_starter(kActionStart, NULL);
+
+	if (stat("/etc/rc.local", &sb) != -1) {
+		const char *rc_local_cmd[] = { "_PATH_BSHELL", "/etc/rc.local", NULL };
+
+		fwexec(rc_local_cmd, true);
+	}
+
+	CFNotificationCenterPostNotificationWithOptions(
+			CFNotificationCenterGetDistributedCenter(),
+			CFSTR("com.apple.startupitems.completed"),
+			NULL, NULL,
+			kCFNotificationDeliverImmediately | kCFNotificationPostToAllSessions);
+
+	assert(kevent(kq, NULL, 0, &kev, 1, NULL) != -1);
+	assert(kev.filter == EVFILT_SIGNAL && kev.ident == SIGTERM);
+
+	system_starter(kActionStop, NULL);
+
+	exit(EXIT_SUCCESS);
 }
 
 
@@ -381,15 +389,6 @@ usage(void)
 		"\t-?: show this help\n",
 		getprogname());
 	exit(EXIT_FAILURE);
-}
-
-static void doCFnote(void)
-{
-	CFNotificationCenterPostNotificationWithOptions(
-			CFNotificationCenterGetDistributedCenter(),
-			CFSTR("com.apple.startupitems.completed"),
-			NULL, NULL,
-			kCFNotificationDeliverImmediately | kCFNotificationPostToAllSessions);
 }
 
 pid_t

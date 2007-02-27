@@ -1259,10 +1259,10 @@ very_pid2_specific_bootstrap(bool sflag)
 
 	EV_SET(&kev, 0, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 90, 0);
 	assumes(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
-	assumes(signal(SIGTERM, SIG_IGN) != SIG_ERR);
 
 	EV_SET(&kev, SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
 	assumes(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
+	assumes(signal(SIGTERM, SIG_IGN) != SIG_ERR);
 
 	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
 		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };

@@ -4,7 +4,5 @@
 . /etc/rc.common
 
 if [ -f /etc/rc.shutdown.local ]; then
-	sh /etc/rc.shutdown.local
+	exec sh /etc/rc.shutdown.local
 fi
-
-exec SystemStarter stop

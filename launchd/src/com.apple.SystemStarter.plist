@@ -6,7 +6,18 @@
 	<string>com.apple.SystemStarter</string>
 	<key>Program</key>
 	<string>/sbin/SystemStarter</string>
-	<key>RunAtLoad</key>
-	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>KeepAlive</key>
+		<dict>
+			<key>/etc/rc.local</key>
+			<true/>
+		</dict>
+	</dict>
+	<key>QueueDirectories</key>
+	<array>
+		<string>/Library/StartupItems</string>
+		<string>/System/Library/StartupItems</string>
+	</array>
 </dict>
 </plist>
