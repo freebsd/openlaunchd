@@ -20,8 +20,6 @@ fi
 
 if [ "$1" == "--list" ]
 then
-	echo smtp
-	echo fax-receive
 	cd /System/Library/LaunchDaemons 2>/dev/null
 	ls -1 | egrep '.plist$' | sed 's,.plist$,,g'
 	exit 0
@@ -37,74 +35,15 @@ then
 			exit 0
 		fi
 	fi
-	if [ "$2" = "smtp" ]
-	then
-		egrep '^MAILSERVER.*-YES-' /etc/hostconfig >/dev/null 2>&1
-		exit $? 
-	fi
-	if [ "$2" = "fax-receive" ]
-	then
-		egrep '^fax.*unknown.*on$' /etc/ttys >/dev/null 2>&1
-		exit $? 
-	fi
 	exit 1
 elif [ "$1" == "--test-if-available" ]
 then
 	[ -f /System/Library/LaunchDaemons/$2.plist ] && exit 0
-	[ "$2" = "smtp" ] && exit 0
-	[ "$2" = "fax-receive" ] && exit 0
-	exit 0
+	exit 1
 elif [ -f "/System/Library/LaunchDaemons/$1.plist" ]
 then
 	[ "$2" == start ] && launchctl load -w /System/Library/LaunchDaemons/$1.plist
 	[ "$2" == stop  ] && launchctl unload -w /System/Library/LaunchDaemons/$1.plist
-elif [ "$1" = "smtp" ]
-then
-	if [ $UID != 0 ]
-	then
-		echo "You must be root to run this option" >&2
-		exit 1
-	fi
-	TMPFILE=$(mktemp /var/run/xinetd.tmp.$$.XXXXXX)
-	cp -f /etc/hostconfig $TMPFILE
-	if [ "$2" == start ]
-	then
-		if grep -q MAILSERVER=-NO- /etc/hostconfig ; then
-			sed 's,^MAILSERVER=-NO-,MAILSERVER=-YES-,g' < $TMPFILE > /etc/hostconfig
-		fi
-		postfix start
-		postfix flush
-	elif [ "$2" == stop ]
-	then
-		if grep -q MAILSERVER=-YES- /etc/hostconfig ; then
-			sed 's,^MAILSERVER=-YES-,MAILSERVER=-NO-,g' < $TMPFILE > /etc/hostconfig
-		fi
-		postfix stop
-	else
-		echo "No such service command" >&2
-	fi
-	rm -f $TMPFILE
-elif [ "$1" = "fax-receive" ]
-then
-	if [ $UID != 0 ]
-	then
-		echo "You must be root to run this option" >&2
-		exit 1
-	fi
-	TMPFILE=$(mktemp /var/run/xinetd.tmp.$$.XXXXXX)
-	cp -f /etc/ttys $TMPFILE
-	if [ "$2" == start ]
-	then
-		sed 's,^fax\(.*\)off$,fax\1on,g' < $TMPFILE > /etc/ttys
-		kill -HUP 1
-	elif [ "$2" == stop ]
-	then
-		sed 's,^fax\(.*\)on$,fax\1off,g' < $TMPFILE > /etc/ttys
-		kill -HUP 1
-	else
-		echo "No such service command" >&2
-	fi
-	rm -f $TMPFILE
 else
 	echo "No such service $1" >&2
 	exit 1
