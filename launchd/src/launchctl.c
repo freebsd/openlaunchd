@@ -141,6 +141,14 @@ static void do_bootroot_magic(void);
 static void do_single_user_mode(bool);
 static bool do_single_user_mode2(void);
 
+typedef enum {
+	BOOTCACHE_START = 1,
+	BOOTCACHE_TAG,
+	BOOTCACHE_STOP,
+} BootCache_action_t;
+
+static void do_BootCache_magic(BootCache_action_t what);
+
 static int bootstrap_cmd(int argc, char *const argv[]);
 static int load_and_unload_cmd(int argc, char *const argv[]);
 //static int reload_cmd(int argc, char *const argv[]);
@@ -1326,8 +1334,7 @@ very_pid2_specific_bootstrap(bool sflag)
 		assumes(fwexec(audit_tool, true) != -1);
 	}
 
-	const char *bcc_tool[] = { "BootCacheControl", "start", NULL };
-	assumes(fwexec(bcc_tool, true) != -1);
+	do_BootCache_magic(BOOTCACHE_START);
 
 	preheat_page_cache_hack();
 
@@ -1341,8 +1348,7 @@ very_pid2_specific_bootstrap(bool sflag)
 
 	assumes(load_and_unload_cmd(4, load_launchd_items) == 0);
 
-	const char *bcc_tag_tool[] = { "BootCacheControl", "tag", NULL };
-	assumes(fwexec(bcc_tag_tool, true) != -1);
+	do_BootCache_magic(BOOTCACHE_TAG);
 
 	do_bootroot_magic();
 
@@ -1351,11 +1357,33 @@ very_pid2_specific_bootstrap(bool sflag)
 	if (!path_check("/System/Library/LoginPlugins/BootCache.loginPlugin")) {
 		assumes(kevent(kq, NULL, 0, &kev, 1, NULL) == 1);
 
-		const char *bcc_stop_tool[] = { "BootCacheControl", "stop", NULL };
-		assumes(fwexec(bcc_stop_tool, true) != -1);
+		do_BootCache_magic(BOOTCACHE_STOP);
 	}
 
 	assumes(close(kq) != -1);
+}
+
+void
+do_BootCache_magic(BootCache_action_t what)
+{
+	const char *bcc_tool[] = { "BootCacheControl", "-f", "/var/db/BootCache.playlist", NULL, NULL };
+
+	switch (what) {
+	case BOOTCACHE_START:
+		bcc_tool[3] = "start";
+		break;
+	case BOOTCACHE_TAG:
+		bcc_tool[3] = "tag";
+		break;
+	case BOOTCACHE_STOP:
+		bcc_tool[3] = "stop";
+		break;
+	default:
+		assumes(false);
+		return;
+	}
+
+	assumes(fwexec(bcc_tool, true) != -1);
 }
 
 int
