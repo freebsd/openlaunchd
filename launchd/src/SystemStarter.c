@@ -163,6 +163,12 @@ main(int argc, char *argv[])
 	assert(r != -1);
 	assert(kev.filter == EVFILT_SIGNAL && kev.ident == SIGTERM);
 
+	if (stat("/etc/rc.shutdown.local", &sb) != -1) {
+		const char *rc_shutdown_local_cmd[] = { "_PATH_BSHELL", "/etc/rc.shutdown.local", NULL };
+
+		fwexec(rc_shutdown_local_cmd, true);
+	}
+
 	system_starter(kActionStop, NULL);
 
 	exit(EXIT_SUCCESS);

@@ -34,7 +34,7 @@ bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
 libexec_PROGRAMS = launchproxy
 
-sysconf_DATA = hostconfig rc.common rc.netboot rc.shutdown
+sysconf_DATA = hostconfig rc.common rc.netboot
 
 launchctl_CFLAGS = $(AM_CFLAGS) -I/System/Library/Frameworks/System.framework/PrivateHeaders
 launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit -weak_library /usr/lib/libedit.dylib

@@ -12,6 +12,8 @@
 		<dict>
 			<key>/etc/rc.local</key>
 			<true/>
+			<key>/etc/rc.shutdown.local</key>
+			<true/>
 		</dict>
 	</dict>
 	<key>QueueDirectories</key>
