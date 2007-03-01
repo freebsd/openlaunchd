@@ -393,8 +393,8 @@ log_kevent_struct(int level, struct kevent *kev)
 		break;
 	}
 
-	runtime_syslog(level, "KEVENT: ident = %s filter = %s flags = %s fflags = %s data = 0x%lx udata = %p",
-			ident_buf, filter_str, flags_buf, fflags_buf, kev->data, kev->udata);
+	runtime_syslog(level, "KEVENT: udata = %p data = 0x%lx ident = %s filter = %s flags = %s fflags = %s",
+			kev->udata, kev->data, ident_buf, filter_str, flags_buf, fflags_buf);
 }
 
 kern_return_t
