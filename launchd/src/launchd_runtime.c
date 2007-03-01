@@ -658,6 +658,7 @@ async_callback(void)
 	struct kevent kev;
 
 	if (launchd_assumes(kevent(asynckq, NULL, 0, &kev, 1, &timeout) == 1)) {
+		log_kevent_struct(LOG_DEBUG, &kev);
 		(*((kq_callback *)kev.udata))(kev.udata, &kev);
 	}
 }
