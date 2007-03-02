@@ -303,7 +303,7 @@ static void job_find_and_blame_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_reparent_hack(job_t j, const char *where);
 static void job_callback(void *obj, struct kevent *kev);
-static void job_callback_proc(job_t j, int fflags);
+static void job_callback_proc(job_t j, int flags, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static launch_data_t job_export2(job_t j, bool subjobs);
@@ -1661,7 +1661,16 @@ job_reap(job_t j)
 	}
 
 	if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
-		return;
+		/*
+		 * wait4() then kill() is still racy.
+		 * Then again, we never should have got here in the first place...
+		 */
+		if (kill(j->p, 0) == 0) {
+			job_log(j, LOG_DEBUG, "Working around 5020256");
+		}
+
+		status = 0;
+		memset(&ru, 0, sizeof(ru));
 	}
 
 	if (j->exit_timeout) {
@@ -1817,7 +1826,7 @@ job_kill(job_t j)
 }
 
 void
-job_callback_proc(job_t j, int fflags)
+job_callback_proc(job_t j, int flags, int fflags)
 {
 	if (fflags & NOTE_EXEC) {
 		job_log(j, LOG_DEBUG, "Called execve()");
@@ -1828,6 +1837,8 @@ job_callback_proc(job_t j, int fflags)
 	}
 
 	if (fflags & NOTE_EXIT) {
+		job_assumes(j, (flags & EV_ONESHOT));
+		job_assumes(j, (flags & EV_EOF));
 		job_reap(j);
 		job_dispatch(j, false);
 
@@ -1904,7 +1915,7 @@ job_callback(void *obj, struct kevent *kev)
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
-		return job_callback_proc(j, kev->fflags);
+		return job_callback_proc(j, kev->flags, kev->fflags);
 	case EVFILT_TIMER:
 		return job_callback_timer(j, (void *)kev->ident);
 	case EVFILT_VNODE:
