@@ -221,7 +221,6 @@ static void jobmgr_dispatch_all(jobmgr_t jm);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static void jobmgr_callback(void *obj, struct kevent *kev);
-static pid_t jobmgr_fork(jobmgr_t jm);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
 static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid);
 static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
@@ -1986,7 +1985,7 @@ job_start(job_t j)
 
 	time(&j->start_time);
 
-	switch (c = jobmgr_fork(j->mgr)) {
+	switch (c = runtime_fork(j->mgr->jm_port)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		job_assumes(j, close(execspair[0]) == 0);
@@ -3086,29 +3085,6 @@ job_active(job_t j)
 	}
 
 	return false;
-}
-
-pid_t
-jobmgr_fork(jobmgr_t jm)
-{
-	mach_port_t p = jm->jm_port;
-	pid_t r = -1;
-	int saved_errno;
-
-	jobmgr_assumes(jm, launchd_mport_make_send(p) == KERN_SUCCESS);
-	jobmgr_assumes(jm, launchd_set_bport(p) == KERN_SUCCESS);
-	jobmgr_assumes(jm, launchd_mport_deallocate(p) == KERN_SUCCESS);
-
-	r = fork();
-
-	saved_errno = errno;
-
-	if (r != 0) {
-		jobmgr_assumes(jm, launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
-	}
-
-	errno = saved_errno;
-	return r;
 }
 
 void

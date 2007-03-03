@@ -553,6 +553,30 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 	return errno;
 }
 
+pid_t
+runtime_fork(mach_port_t bsport)
+{
+	pid_t r = -1;
+	int saved_errno;
+
+	launchd_assumes(launchd_mport_make_send(bsport) == KERN_SUCCESS);
+	launchd_assumes(launchd_set_bport(bsport) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_deallocate(bsport) == KERN_SUCCESS);
+
+	r = fork();
+
+	saved_errno = errno;
+
+	if (r != 0) {
+		launchd_assumes(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
+	}
+
+	errno = saved_errno;
+
+	return r;
+}
+
+
 void
 runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to)
 {

@@ -71,6 +71,8 @@ const char *reboot_flags_to_C_names(unsigned int flags);
 
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 
+pid_t runtime_fork(mach_port_t bsport);
+
 void runtime_openlog(const char *ident, int logopt, int facility);
 void runtime_closelog(void);
 
