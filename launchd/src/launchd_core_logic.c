@@ -272,7 +272,7 @@ struct job_s {
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1;
+		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_per_user_bootstrap:1;
 	char label[0];
 };
 
@@ -1649,6 +1649,17 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
+	if (j->weird_per_user_bootstrap) {
+		mach_msg_size_t mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
+
+		if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
+			mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
+		}
+
+		job_assumes(j, runtime_add_mport(j->mgr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS);
+		j->weird_per_user_bootstrap = false;
+	}
+
 	if (j->log_redirect_fd && (!j->wait4pipe_eof || j->mgr->shutting_down)) {
 		job_assumes(j, close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
@@ -1985,7 +1996,7 @@ job_start(job_t j)
 
 	time(&j->start_time);
 
-	switch (c = runtime_fork(j->mgr->jm_port)) {
+	switch (c = runtime_fork(j->weird_per_user_bootstrap ? j->j_port : j->mgr->jm_port)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		job_assumes(j, close(execspair[0]) == 0);
@@ -3465,16 +3476,22 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
 
-	if (!jobmgr_assumes(jmr, runtime_add_mport(jmr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
-		goto out_bad;
-	}
-
 	jobmgr_assumes(jmr, (jmr->anonj = jobmgr_get_anonymous(jmr)) != NULL);
 
 	bootstrapper = job_new(jmr, "com.apple.launchctld", NULL, bootstrap_tool);
 
 	if (!jm) {
 		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
+	}
+
+	if (!jm && getuid() != 0) {
+		/* per-user bootstrap context is messy */
+		bootstrapper->weird_per_user_bootstrap = true;
+		jobmgr_assumes(jmr, job_setup_machport(bootstrapper));
+	} else {
+		if (!jobmgr_assumes(jmr, runtime_add_mport(jmr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
+			goto out_bad;
+		}
 	}
 
 	jobmgr_log(jmr, LOG_DEBUG, "Created job manager%s%s", jm ? " with parent: " : ".", jm ? jm->name : "");
