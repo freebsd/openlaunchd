@@ -1160,92 +1160,19 @@ launch_data_t launch_data_new_opaque(const void *o, size_t os)
 	return r;
 }
 
-static pid_t
-fexecv_as_user(const char *login, uid_t u, gid_t g, char *const argv[])
-{
-	int i, dtsz;
-	pid_t p;
-
-	if ((p = fork()) != 0)
-		return p;
-
-	chdir("/");
-
-	seteuid(0);
-	setegid(0);
-	setgid(g);
-	initgroups(login, g);
-	setuid(u);
-
-	dtsz = getdtablesize();
-
-	for (i = STDERR_FILENO + 1; i < dtsz; i++)
-		close(i);
-
-	execv(argv[0], argv);
-	_exit(EXIT_FAILURE);
-}
-
 void
-load_launchd_jobs_at_loginwindow_prompt(int flags, ...)
+load_launchd_jobs_at_loginwindow_prompt(int flags __attribute__((unused)), ...)
 {
-	char *largv[] = { "/bin/launchctl", "load", "-S", "LoginWindow",
-		"-D", "system", "-D", "local", "/etc/mach_init_per_login_session.d", NULL };
-	int wstatus;
-	pid_t p;
-
-	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS) {
-		largv[5] = "system";
-	}
-
-	if (__vproc_tag_loginwindow_context()) {
-		return;
-	}
-
-	if ((p = fexecv_as_user("root", 0, 0, largv)) == -1) {
-		return;
-	}
-
-	if (waitpid(p, &wstatus, 0) != p) {
-		return;
-	}
+	_vproc_move_subset_to_user("LoginWindow");
 }
 
 pid_t
-create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
+create_and_switch_to_per_session_launchd(const char *login __attribute__((unused)), int flags __attribute__((unused)), ...)
 {
-	char *largv[] = { "/bin/launchctl", "load", "-S", "Aqua", "-D", "all", "/etc/mach_init_per_user.d", NULL };
 	mach_port_t bezel_ui_server;
-	struct passwd *pwe;
 	struct stat sb;
-	int wstatus;
-	pid_t p;
-	uid_t u;
-	gid_t g;
 
-	if (_vproc_move_subset_to_user()) {
-		return -1;
-	}
-
-	if ((pwe = getpwnam(login)) == NULL)
-		return -1;
-
-	u = pwe->pw_uid;
-	g = pwe->pw_gid;
-
-	if (flags & LOAD_ONLY_SAFEMODE_LAUNCHAGENTS) {
-		largv[5] = "system";
-	}
-
-	if ((p = fexecv_as_user(login, u, g, largv)) == -1) {
-		return -1;
-	}
-
-	if (waitpid(p, &wstatus, 0) != p) {
-		return -1;
-	}
-
-	if (!(WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0)) {
+	if (_vproc_move_subset_to_user("Aqua")) {
 		return -1;
 	}
 
@@ -1254,7 +1181,7 @@ create_and_switch_to_per_session_launchd(const char *login, int flags, ...)
 #define BEZEL_UI_SERVICE "BezelUI"
 
 	if (!(stat(BEZEL_UI_PLIST, &sb) == 0 && S_ISREG(sb.st_mode))) {
-		if (bootstrap_create_server(bootstrap_port, BEZEL_UI_PATH, u, true, &bezel_ui_server) == BOOTSTRAP_SUCCESS) {
+		if (bootstrap_create_server(bootstrap_port, BEZEL_UI_PATH, 0, true, &bezel_ui_server) == BOOTSTRAP_SUCCESS) {
 			mach_port_t srv;
 
 			if (bootstrap_create_service(bezel_ui_server, BEZEL_UI_SERVICE, &srv) == BOOTSTRAP_SUCCESS) {

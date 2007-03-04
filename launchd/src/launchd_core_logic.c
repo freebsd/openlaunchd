@@ -211,7 +211,7 @@ struct jobmgr_s {
 #define jobmgr_assumes(jm, e)      \
 	                (__builtin_expect(!(e), 0) ? jobmgr_log_bug(jm, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
-static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag);
+static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
 static bool jobmgr_is_idle(jobmgr_t jm);
@@ -272,7 +272,7 @@ struct job_s {
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_per_user_bootstrap:1;
+		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1;
 	char label[0];
 };
 
@@ -1649,7 +1649,7 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
-	if (j->weird_per_user_bootstrap) {
+	if (j->weird_bootstrap) {
 		mach_msg_size_t mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
 
 		if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
@@ -1657,7 +1657,7 @@ job_reap(job_t j)
 		}
 
 		job_assumes(j, runtime_add_mport(j->mgr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS);
-		j->weird_per_user_bootstrap = false;
+		j->weird_bootstrap = false;
 	}
 
 	if (j->log_redirect_fd && (!j->wait4pipe_eof || j->mgr->shutting_down)) {
@@ -1996,7 +1996,7 @@ job_start(job_t j)
 
 	time(&j->start_time);
 
-	switch (c = runtime_fork(j->weird_per_user_bootstrap ? j->j_port : j->mgr->jm_port)) {
+	switch (c = runtime_fork(j->weird_bootstrap ? j->j_port : j->mgr->jm_port)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
 		job_assumes(j, close(execspair[0]) == 0);
@@ -3397,15 +3397,15 @@ job_uncork_fork(job_t j)
 }
 
 jobmgr_t 
-jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag)
+jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name)
 {
-	const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", NULL, NULL };
+	const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", "-S", name, NULL, NULL };
 	mach_msg_size_t mxmsgsz;
 	job_t bootstrapper = NULL;
 	jobmgr_t jmr;
 
 	if (sflag) {
-		bootstrap_tool[2] = "-s";
+		bootstrap_tool[4] = "-s";
 	}
 
 	launchd_assert(offsetof(struct jobmgr_s, kqjobmgr_callback) == 0);
@@ -3415,7 +3415,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 		return NULL;
 	}
 
-	jmr = calloc(1, sizeof(struct jobmgr_s) + 30);
+	jmr = calloc(1, sizeof(struct jobmgr_s) + (name ? (strlen(name) + 1) : 128));
 	
 	if (jmr == NULL) {
 		return NULL;
@@ -3423,7 +3423,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	TAILQ_INIT(&jmr->jobs);
 	jmr->kqjobmgr_callback = jobmgr_callback;
-	strcpy(jmr->name, "In-utero");
+	strcpy(jmr->name, name ? name : "Under construction");
 
 	jmr->req_port = requestorport;
 
@@ -3468,7 +3468,9 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 		goto out_bad;
 	}
 
-	sprintf(jmr->name, "%u", MACH_PORT_INDEX(jmr->jm_port));
+	if (!name) {
+		sprintf(jmr->name, "%u", MACH_PORT_INDEX(jmr->jm_port));
+	}
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
 	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
@@ -3478,17 +3480,20 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	jobmgr_assumes(jmr, (jmr->anonj = jobmgr_get_anonymous(jmr)) != NULL);
 
-	bootstrapper = job_new(jmr, "com.apple.launchctld", NULL, bootstrap_tool);
-
 	if (!jm) {
 		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
 	}
 
-	if (!jm && getuid() != 0) {
-		/* per-user bootstrap context is messy */
-		bootstrapper->weird_per_user_bootstrap = true;
-		jobmgr_assumes(jmr, job_setup_machport(bootstrapper));
-	} else {
+	if (name) {
+		/* no name implies: bootstrap_subset() where creating a "bootstrapper" makes no sense */
+		bootstrapper = job_new(jmr, "com.apple.launchctld", NULL, bootstrap_tool);
+		if (jm || getuid()) {
+			bootstrapper->weird_bootstrap = true;
+			jobmgr_assumes(jmr, job_setup_machport(bootstrapper));
+		}
+	}
+
+	if (!bootstrapper || !bootstrapper->weird_bootstrap) {
 		if (!jobmgr_assumes(jmr, runtime_add_mport(jmr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS)) {
 			goto out_bad;
 		}
@@ -3496,7 +3501,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	jobmgr_log(jmr, LOG_DEBUG, "Created job manager%s%s", jm ? " with parent: " : ".", jm ? jm->name : "");
 
-	if (!jm && jobmgr_assumes(jmr, bootstrapper != NULL)) {
+	if (bootstrapper) {
 		jobmgr_assumes(jmr, job_dispatch(bootstrapper, true) != NULL);
 	}
 
@@ -4586,7 +4591,7 @@ job_reparent_hack(job_t j, const char *where)
 }
 
 kern_return_t
-job_mig_move_subset_to_user(job_t j, mach_port_t target_subset)
+job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 {
 	mach_msg_type_number_t l2l_i, l2l_name_cnt = 0, l2l_port_cnt = 0;
 	name_array_t l2l_names = NULL;
@@ -4596,9 +4601,17 @@ job_mig_move_subset_to_user(job_t j, mach_port_t target_subset)
 	jobmgr_t jmr;
 
 	if (getuid() == 0) {
+		const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", "-S", session_type, NULL };
+		job_t bootstrapper;
+
 		j = job_mig_intran2(root_jobmgr, target_subset);
+		strcpy(j->mgr->name, session_type);
 		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
-		strcpy(j->mgr->name, "Aqua");
+
+		bootstrapper = job_new(j->mgr, "com.apple.launchctld", NULL, bootstrap_tool);
+		if (job_assumes(j, bootstrapper != NULL)) {
+			job_dispatch(bootstrapper, true);
+		}
 		return 0;
 	}
 
@@ -4613,12 +4626,10 @@ job_mig_move_subset_to_user(job_t j, mach_port_t target_subset)
 
 	launchd_assert(l2l_name_cnt == l2l_port_cnt);
 
-	if ((jmr = jobmgr_new(j->mgr, reqport, rcvright, false)) == NULL) {
+	if ((jmr = jobmgr_new(j->mgr, reqport, rcvright, false, session_type)) == NULL) {
 		kr = BOOTSTRAP_NO_MEMORY;
 		goto out;
 	}
-
-	strcpy(jmr->name, "Aqua");
 
 	for (l2l_i = 0; l2l_i < l2l_name_cnt; l2l_i++) {
 		struct machservice *ms;
@@ -4742,7 +4753,7 @@ job_mig_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if ((jmr = jobmgr_new(j->mgr, requestorport, MACH_PORT_NULL, false)) == NULL) {
+	if ((jmr = jobmgr_new(j->mgr, requestorport, MACH_PORT_NULL, false, NULL)) == NULL) {
 		if (requestorport == MACH_PORT_NULL) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
@@ -4917,5 +4928,5 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 void
 jobmgr_init(bool sflag)
 {
-	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag)) != NULL);
+	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag, getpid() == 1 ? "System" : "Background")) != NULL);
 }

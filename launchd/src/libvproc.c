@@ -47,7 +47,7 @@ _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 }
 
 vproc_err_t
-_vproc_move_subset_to_user(void)
+_vproc_move_subset_to_user(char *session_type)
 {
 	kern_return_t kr = 1;
 	mach_port_t puc = 0, which_port = bootstrap_port;
@@ -56,7 +56,7 @@ _vproc_move_subset_to_user(void)
 		which_port = puc;
 	}
 
-	kr = vproc_mig_move_subset_to_user(which_port, bootstrap_port);
+	kr = vproc_mig_move_subset(which_port, bootstrap_port, session_type);
 
 	if (puc) {
 		mach_port_deallocate(mach_task_self(), puc);

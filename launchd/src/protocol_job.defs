@@ -142,6 +142,7 @@ routine lookup_per_user_context(
 		__wu		: uid_t;
 	out	__u_cont	: mach_port_t);
 
-routine move_subset_to_user(
+routine move_subset(
 		__bs_port	: job_t;
-		__target_port	: mach_port_t);
+		__target_port	: mach_port_t;
+		__sessiontype	: name_t);

@@ -57,7 +57,7 @@ vproc_err_t __vproc_tag_loginwindow_context(void);
 
 kern_return_t _vprocmgr_getsocket(name_t);
 
-vproc_err_t _vproc_move_subset_to_user(void);
+vproc_err_t _vproc_move_subset_to_user(char *session_type);
 
 void _vproc_logv(int pri, int err, const char *msg, va_list ap);
 

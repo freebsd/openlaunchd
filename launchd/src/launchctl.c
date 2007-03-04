@@ -250,8 +250,9 @@ main(int argc, char *const argv[])
 				}
 			}
 
-			if (i > 0)
+			if (i > 0) {
 				demux_cmd(i, argv2);
+			}
 
 			free(l);
 		}
@@ -1243,7 +1244,7 @@ do_single_user_mode2(void)
 }
 
 static void
-very_pid2_specific_bootstrap(bool sflag)
+system_specific_bootstrap(bool sflag)
 {
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
 	struct group *tfp_gr;
@@ -1340,7 +1341,7 @@ very_pid2_specific_bootstrap(bool sflag)
 
 	_vproc_set_global_on_demand(true);
 
-	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL, NULL };
+	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL };
 
 	if (is_safeboot()) {
 		load_launchd_items[2] = "system";
@@ -1387,18 +1388,61 @@ do_BootCache_magic(BootCache_action_t what)
 }
 
 int
-bootstrap_cmd(int argc, char *const argv[] __attribute__((unused)))
+bootstrap_cmd(int argc, char *const argv[])
 {
-	if (getuid() == 0) {
-		very_pid2_specific_bootstrap(argc == 2);
+	char *session_type = NULL;
+	bool sflag = false;
+	int ch;
+
+	while ((ch = getopt(argc, argv, "sS:")) != -1) {
+		switch (ch) {
+		case 's':
+			sflag = true;
+			break;
+		case 'S':
+			session_type = optarg;
+			break;
+		case '?':
+		default:
+			break;
+		}
+	}
+
+	optind = 1;
+	optreset = 1;
+
+	if (!session_type) {
+		fprintf(stderr, "usage: %s bootstrap [-s] -S <session-type>\n", getprogname());
+		return 1;
+	}
+
+	if (strcasecmp(session_type, "System") == 0) {
+		system_specific_bootstrap(sflag);
 	} else {
-		char *load_launchd_items[] = { "load", "-D", "all", "-S", "Background", NULL };
+		char *load_launchd_items[] = { "load", "-S", session_type, "-D", "all", NULL, NULL, NULL, NULL };
+		int the_argc = 5;
 
 		if (is_safeboot()) {
-			load_launchd_items[2] = "system";
+			load_launchd_items[4] = "system";
 		}
 
-		assumes(load_and_unload_cmd(5, load_launchd_items) == 0);
+		if (strcasecmp(session_type, "Background") == 0 || strcasecmp(session_type, "LoginWindow") == 0) {
+			load_launchd_items[4] = "system";
+			if (!is_safeboot()) {
+				load_launchd_items[5] = "-D";
+				load_launchd_items[6] = "local";
+				the_argc += 2;
+			}
+			if (strcasecmp(session_type, "LoginWindow") == 0) {
+				load_launchd_items[the_argc] = "/etc/mach_init_per_login_session.d";
+				the_argc += 1;
+			}
+		} else if (strcasecmp(session_type, "Aqua") == 0) {
+			load_launchd_items[5] = "/etc/mach_init_per_user.d";
+			the_argc += 1;
+		}
+
+		assumes(load_and_unload_cmd(the_argc, load_launchd_items) == 0);
 	}
 
 	return 0;
@@ -1416,8 +1460,9 @@ load_and_unload_cmd(int argc, char *const argv[])
 
 	memset(&lus, 0, sizeof(lus));
 
-	if (!strcmp(argv[0], "load"))
+	if (strcmp(argv[0], "load") == 0) {
 		lus.load = true;
+	}
 
 	while ((ch = getopt(argc, argv, "wFS:D:")) != -1) {
 		switch (ch) {
@@ -1431,20 +1476,20 @@ load_and_unload_cmd(int argc, char *const argv[])
 			lus.session_type = optarg;
 			break;
 		case 'D':
-			  if (strcasecmp(optarg, "all") == 0) {
-				  es |= NSAllDomainsMask;
-			  } else if (strcasecmp(optarg, "user") == 0) {
-				  es |= NSUserDomainMask;
-			  } else if (strcasecmp(optarg, "local") == 0) {
-				  es |= NSLocalDomainMask;
-			  } else if (strcasecmp(optarg, "network") == 0) {
-				  es |= NSNetworkDomainMask;
-			  } else if (strcasecmp(optarg, "system") == 0) {
-				  es |= NSSystemDomainMask;
-			  } else {
+			if (strcasecmp(optarg, "all") == 0) {
+				es |= NSAllDomainsMask;
+			} else if (strcasecmp(optarg, "user") == 0) {
+				es |= NSUserDomainMask;
+			} else if (strcasecmp(optarg, "local") == 0) {
+				es |= NSLocalDomainMask;
+			} else if (strcasecmp(optarg, "network") == 0) {
+				es |= NSNetworkDomainMask;
+			} else if (strcasecmp(optarg, "system") == 0) {
+				es |= NSSystemDomainMask;
+			} else {
 				badopts = true;
-			  }
-			  break;
+			}
+			break;
 		case '?':
 		default:
 			badopts = true;
@@ -1454,11 +1499,13 @@ load_and_unload_cmd(int argc, char *const argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (lus.session_type == NULL)
+	if (lus.session_type == NULL) {
 		es &= ~NSUserDomainMask;
+	}
 
-	if (argc == 0 && es == 0)
+	if (argc == 0 && es == 0) {
 		badopts = true;
+	}
 
 	if (badopts) {
 		fprintf(stderr, "usage: %s load [-wF] [-D <user|local|network|system|all>] paths...\n", getprogname());
@@ -1497,8 +1544,9 @@ load_and_unload_cmd(int argc, char *const argv[])
 		}
 	}
 
-	for (i = 0; i < (size_t)argc; i++)
+	for (i = 0; i < (size_t)argc; i++) {
 		readpath(argv[i], &lus);
+	}
 
 	if (launch_data_array_get_count(lus.pass0) == 0 &&
 			launch_data_array_get_count(lus.pass1) == 0 &&
