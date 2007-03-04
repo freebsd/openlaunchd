@@ -1189,7 +1189,8 @@ fexecv_as_user(const char *login, uid_t u, gid_t g, char *const argv[])
 void
 load_launchd_jobs_at_loginwindow_prompt(int flags, ...)
 {
-	char *largv[] = { "/bin/launchctl", "load", "-S", "LoginWindow", "-D", "all", "/etc/mach_init_per_login_session.d", NULL };
+	char *largv[] = { "/bin/launchctl", "load", "-S", "LoginWindow",
+		"-D", "system", "-D", "local", "/etc/mach_init_per_login_session.d", NULL };
 	int wstatus;
 	pid_t p;
 
