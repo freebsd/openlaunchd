@@ -27,6 +27,10 @@
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>
+#include <sys/types.h>
+#include <sys/syslog.h>
+#include <sys/stat.h>
+#include <pthread.h>
 
 #include "protocol_vproc.h"
 
@@ -98,6 +102,28 @@ bootstrap_check_in(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
 	return vproc_mig_check_in(bp, service_name, sp);
 }
+
+kern_return_t
+bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_user, mach_port_t *sp)
+{
+	struct stat sb;
+	kern_return_t kr;
+	mach_port_t puc;
+
+	if (!pthread_main_np() && (stat("/AppleInternal", &sb) != -1)) {
+		_vproc_log(LOG_WARNING, "Please review the comments in 4890134.");
+	}
+
+	if ((kr = vproc_mig_lookup_per_user_context(bp, target_user, &puc)) != 0) {
+		return kr;
+	}
+
+	kr = vproc_mig_look_up2(puc, service_name, sp, 0, 0);
+	mach_port_deallocate(mach_task_self(), puc);
+
+	return kr;
+}
+
 
 kern_return_t
 bootstrap_look_up(mach_port_t bp, name_t service_name, mach_port_t *sp)
