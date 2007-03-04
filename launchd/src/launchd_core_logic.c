@@ -4568,6 +4568,10 @@ job_reparent_hack(job_t j, const char *where)
 		return;
 	}
 
+	if (strcasecmp(j->mgr->name, where) == 0) {
+		return;
+	}
+
 	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
 		if (strcasecmp(jmi->name, where) == 0) {
 			break;
