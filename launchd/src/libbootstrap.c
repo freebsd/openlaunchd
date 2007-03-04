@@ -110,7 +110,7 @@ bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_use
 	kern_return_t kr;
 	mach_port_t puc;
 
-	if (!pthread_main_np() && (stat("/AppleInternal", &sb) != -1)) {
+	if (pthread_main_np() && (stat("/AppleInternal", &sb) != -1)) {
 		_vproc_log(LOG_WARNING, "Please review the comments in 4890134.");
 	}
 
