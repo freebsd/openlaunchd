@@ -20,6 +20,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+#include <sys/types.h>
 #include <sys/cdefs.h>
 #include <sys/syslog.h>
 #include <stdbool.h>
@@ -33,6 +34,8 @@ vproc_err_t _vproc_set_global_on_demand(bool val);
 
 void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
+
+vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type);
 
 #pragma GCC visibility pop
 

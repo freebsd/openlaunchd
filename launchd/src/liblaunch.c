@@ -40,6 +40,7 @@
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
+#include "libvproc_private.h"
 #include "libvproc_internal.h"
 
 /* __OSBogusByteSwap__() must not really exist in the symbol namespace
@@ -1163,7 +1164,7 @@ launch_data_t launch_data_new_opaque(const void *o, size_t os)
 void
 load_launchd_jobs_at_loginwindow_prompt(int flags __attribute__((unused)), ...)
 {
-	_vproc_move_subset_to_user("LoginWindow");
+	_vprocmgr_move_subset_to_user(geteuid() ? geteuid() : getuid(), "LoginWindow");
 }
 
 pid_t
@@ -1171,8 +1172,9 @@ create_and_switch_to_per_session_launchd(const char *login __attribute__((unused
 {
 	mach_port_t bezel_ui_server;
 	struct stat sb;
+	uid_t target_user = geteuid() ? geteuid() : getuid();
 
-	if (_vproc_move_subset_to_user("Aqua")) {
+	if (_vprocmgr_move_subset_to_user(target_user, "Aqua")) {
 		return -1;
 	}
 
@@ -1181,7 +1183,7 @@ create_and_switch_to_per_session_launchd(const char *login __attribute__((unused
 #define BEZEL_UI_SERVICE "BezelUI"
 
 	if (!(stat(BEZEL_UI_PLIST, &sb) == 0 && S_ISREG(sb.st_mode))) {
-		if (bootstrap_create_server(bootstrap_port, BEZEL_UI_PATH, 0, true, &bezel_ui_server) == BOOTSTRAP_SUCCESS) {
+		if (bootstrap_create_server(bootstrap_port, BEZEL_UI_PATH, target_user, true, &bezel_ui_server) == BOOTSTRAP_SUCCESS) {
 			mach_port_t srv;
 
 			if (bootstrap_create_service(bezel_ui_server, BEZEL_UI_SERVICE, &srv) == BOOTSTRAP_SUCCESS) {
