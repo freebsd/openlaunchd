@@ -11,14 +11,18 @@ if LIBS_ONLY
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
-liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c
+liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 
 liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c
+liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 
 $(srcdir)/libvproc.c:: protocol_vproc.h
 
 $(srcdir)/protocol_vprocUser.c:: protocol_vproc.h
+
+__version.c:
+	/Developer/Makefiles/bin/version.pl launchd_libs > $@
+
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/local/lib/system

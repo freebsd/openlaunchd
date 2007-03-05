@@ -57,20 +57,22 @@ ARFLAGS = cru
 liblaunch_a_AR = $(AR) $(ARFLAGS)
 liblaunch_a_LIBADD =
 am__liblaunch_a_SOURCES_DIST = liblaunch.c libvproc.c libbootstrap.c \
-	protocol_vprocUser.c
+	protocol_vprocUser.c __version.c
 @LIBS_ONLY_TRUE@am_liblaunch_a_OBJECTS = liblaunch.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	libvproc.$(OBJEXT) libbootstrap.$(OBJEXT) \
-@LIBS_ONLY_TRUE@	protocol_vprocUser.$(OBJEXT)
+@LIBS_ONLY_TRUE@	protocol_vprocUser.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	__version.$(OBJEXT)
 liblaunch_a_OBJECTS = $(am_liblaunch_a_OBJECTS)
 liblaunch_profile_a_AR = $(AR) $(ARFLAGS)
 liblaunch_profile_a_LIBADD =
 am__liblaunch_profile_a_SOURCES_DIST = liblaunch.c libvproc.c \
-	libbootstrap.c protocol_vprocUser.c
+	libbootstrap.c protocol_vprocUser.c __version.c
 @LIBS_ONLY_TRUE@am_liblaunch_profile_a_OBJECTS =  \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-liblaunch.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-libvproc.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-libbootstrap.$(OBJEXT) \
-@LIBS_ONLY_TRUE@	liblaunch_profile_a-protocol_vprocUser.$(OBJEXT)
+@LIBS_ONLY_TRUE@	liblaunch_profile_a-protocol_vprocUser.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	liblaunch_profile_a-__version.$(OBJEXT)
 liblaunch_profile_a_OBJECTS = $(am_liblaunch_profile_a_OBJECTS)
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(libexecdir)" \
 	"$(DESTDIR)$(sbindir)" "$(DESTDIR)$(sbindir)" \
@@ -231,9 +233,9 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h 
 
 @LIBS_ONLY_TRUE@noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
-@LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c
+@LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 @LIBS_ONLY_TRUE@liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
-@LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c
+@LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 @LIBS_ONLY_FALSE@sbin_SCRIPTS = service
 @LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc.common rc.netboot
 @LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -I/System/Library/Frameworks/System.framework/PrivateHeaders
@@ -423,6 +425,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-IPC.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-StartupItems.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-SystemStarter.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/__version.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl-launchctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-job_replyUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
@@ -436,6 +439,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libbootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-__version.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-libbootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-libvproc.Po@am__quote@
@@ -513,6 +517,20 @@ liblaunch_profile_a-protocol_vprocUser.obj: protocol_vprocUser.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='protocol_vprocUser.c' object='liblaunch_profile_a-protocol_vprocUser.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-protocol_vprocUser.obj `if test -f 'protocol_vprocUser.c'; then $(CYGPATH_W) 'protocol_vprocUser.c'; else $(CYGPATH_W) '$(srcdir)/protocol_vprocUser.c'; fi`
+
+liblaunch_profile_a-__version.o: __version.c
+@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -MT liblaunch_profile_a-__version.o -MD -MP -MF "$(DEPDIR)/liblaunch_profile_a-__version.Tpo" -c -o liblaunch_profile_a-__version.o `test -f '__version.c' || echo '$(srcdir)/'`__version.c; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/liblaunch_profile_a-__version.Tpo" "$(DEPDIR)/liblaunch_profile_a-__version.Po"; else rm -f "$(DEPDIR)/liblaunch_profile_a-__version.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='__version.c' object='liblaunch_profile_a-__version.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-__version.o `test -f '__version.c' || echo '$(srcdir)/'`__version.c
+
+liblaunch_profile_a-__version.obj: __version.c
+@am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -MT liblaunch_profile_a-__version.obj -MD -MP -MF "$(DEPDIR)/liblaunch_profile_a-__version.Tpo" -c -o liblaunch_profile_a-__version.obj `if test -f '__version.c'; then $(CYGPATH_W) '__version.c'; else $(CYGPATH_W) '$(srcdir)/__version.c'; fi`; \
+@am__fastdepCC_TRUE@	then mv -f "$(DEPDIR)/liblaunch_profile_a-__version.Tpo" "$(DEPDIR)/liblaunch_profile_a-__version.Po"; else rm -f "$(DEPDIR)/liblaunch_profile_a-__version.Tpo"; exit 1; fi
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='__version.c' object='liblaunch_profile_a-__version.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-__version.obj `if test -f '__version.c'; then $(CYGPATH_W) '__version.c'; else $(CYGPATH_W) '$(srcdir)/__version.c'; fi`
 
 SystemStarter-StartupItems.o: StartupItems.c
 @am__fastdepCC_TRUE@	if $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(SystemStarter_CFLAGS) $(CFLAGS) -MT SystemStarter-StartupItems.o -MD -MP -MF "$(DEPDIR)/SystemStarter-StartupItems.Tpo" -c -o SystemStarter-StartupItems.o `test -f 'StartupItems.c' || echo '$(srcdir)/'`StartupItems.c; \
@@ -1039,6 +1057,9 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_TRUE@$(srcdir)/libvproc.c:: protocol_vproc.h
 
 @LIBS_ONLY_TRUE@$(srcdir)/protocol_vprocUser.c:: protocol_vproc.h
+
+@LIBS_ONLY_TRUE@__version.c:
+@LIBS_ONLY_TRUE@	/Developer/Makefiles/bin/version.pl launchd_libs > $@
 
 @LIBS_ONLY_TRUE@install-data-hook:
 @LIBS_ONLY_TRUE@	mkdir -p $(DESTDIR)/usr/local/lib/system
