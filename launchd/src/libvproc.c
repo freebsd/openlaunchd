@@ -209,16 +209,6 @@ _vproc_get_last_exit_status(int *wstatus)
 	return (vproc_err_t)_vproc_get_last_exit_status;
 }
 
-vproc_err_t
-__vproc_tag_loginwindow_context(void)
-{
-	if (vproc_mig_set_integer(bootstrap_port, GSK_LOGINWINDOW_CONTEXT, 1) == 0) {
-		return NULL;
-	}
-
-	return (vproc_err_t)__vproc_tag_loginwindow_context;
-}
-
 void *
 reboot2(uint64_t flags)
 {

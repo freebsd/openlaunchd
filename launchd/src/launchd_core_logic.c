@@ -4217,9 +4217,6 @@ job_mig_set_integer(job_t j, get_set_int_key_t key, int64_t val)
 	}
 
 	switch (key) {
-	case GSK_LOGINWINDOW_CONTEXT:
-		strcpy(j->mgr->name, "LoginWindow");
-		break;
 	case GLOBAL_ON_DEMAND:
 		kr = job_set_global_on_demand(j, (bool)val) ? 0 : 1;
 		break;
