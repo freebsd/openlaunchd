@@ -3487,7 +3487,12 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	if (name) {
 		/* no name implies: bootstrap_subset() where creating a "bootstrapper" makes no sense */
 		bootstrapper = job_new(jmr, "com.apple.launchctld", NULL, bootstrap_tool);
-		if (jm || getuid()) {
+		if (jobmgr_assumes(jmr, bootstrapper != NULL) && (jm || getuid())) {
+			char buf[100];
+
+			/* <rdar://problem/5042202> launchd-201: can't ssh in with AFP OD account (hangs) */
+			snprintf(buf, sizeof(buf), "0x%X:0:0", getuid());
+			envitem_new(bootstrapper, "__CF_USER_TEXT_ENCODING", buf, false);
 			bootstrapper->weird_bootstrap = true;
 			jobmgr_assumes(jmr, job_setup_machport(bootstrapper));
 		}
