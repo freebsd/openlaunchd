@@ -4191,6 +4191,9 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	case VPROC_GSK_IS_NATIVE:
 		*outval = !j->anonymous;
 		break;
+	case VPROC_GSK_BASIC_KEEPALIVE:
+		*outval = !j->ondemand;
+		break;
 	case 0:
 		*outval = 0;
 		break;
@@ -4202,6 +4205,9 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	switch (inkey) {
 	case VPROC_GSK_GLOBAL_ON_DEMAND:
 		kr = job_set_global_on_demand(j, (bool)inval) ? 0 : 1;
+		break;
+	case VPROC_GSK_BASIC_KEEPALIVE:
+		j->ondemand = !inval;
 		break;
 	case 0:
 		break;

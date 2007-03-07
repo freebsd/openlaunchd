@@ -33,6 +33,7 @@ typedef enum {
 	VPROC_GSK_MGR_UID,
 	VPROC_GSK_MGR_PID,
 	VPROC_GSK_IS_NATIVE,
+	VPROC_GSK_BASIC_KEEPALIVE,
 } vproc_gsk_t;
 
 typedef void * vproc_err_t;
