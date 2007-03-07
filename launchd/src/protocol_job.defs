@@ -29,6 +29,7 @@ subsystem protocol_vproc 400;
 #include <mach/mach_types.defs>
 #include "launchd_mig_types.defs"
 import "libvproc_public.h";
+import "libvproc_private.h";
 import "libvproc_internal.h";
 
 type mach_port_move_send_array_t = array[] of mach_port_move_send_t
