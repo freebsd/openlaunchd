@@ -6,6 +6,7 @@
 int main(void)
 {
 	int64_t val;
+	bool is_native;
 	pid_t p;
 	uid_t u;
 
@@ -17,7 +18,10 @@ int main(void)
 	assert(vproc_swap_integer(NULL, VPROC_GSK_MGR_UID, NULL, &val) == NULL);
 	u = val;
 
-	fprintf(stdout, "UID = %u PID = %u\n", u, p);
+	assert(vproc_swap_integer(NULL, VPROC_GSK_IS_NATIVE, NULL, &val) == NULL);
+	is_native = val;
+
+	fprintf(stdout, "UID = %u PID = %u Native = %u\n", u, p, is_native);
 
 	return 0;
 }

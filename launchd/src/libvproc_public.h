@@ -32,6 +32,7 @@ typedef enum {
 	VPROC_GSK_GLOBAL_ON_DEMAND,
 	VPROC_GSK_MGR_UID,
 	VPROC_GSK_MGR_PID,
+	VPROC_GSK_IS_NATIVE,
 } vproc_gsk_t;
 
 typedef void * vproc_err_t;
