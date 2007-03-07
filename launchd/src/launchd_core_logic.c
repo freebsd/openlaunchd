@@ -4188,7 +4188,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	case VPROC_GSK_MGR_PID:
 		*outval = getpid();
 		break;
-	case VPROC_GSK_IS_NATIVE:
+	case VPROC_GSK_IS_MANAGED:
 		*outval = !j->anonymous;
 		break;
 	case VPROC_GSK_BASIC_KEEPALIVE:
@@ -4223,7 +4223,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		break;
 	case 0:
 		break;
-	case VPROC_GSK_IS_NATIVE:
+	case VPROC_GSK_IS_MANAGED:
 	case VPROC_GSK_LAST_EXIT_STATUS:
 	case VPROC_GSK_MGR_UID:
 	case VPROC_GSK_MGR_PID:

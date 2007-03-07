@@ -27,22 +27,10 @@ __BEGIN_DECLS
 
 #pragma GCC visibility push(default)
 
-typedef enum {
-	VPROC_GSK_LAST_EXIT_STATUS = 1,
-	VPROC_GSK_GLOBAL_ON_DEMAND,
-	VPROC_GSK_MGR_UID,
-	VPROC_GSK_MGR_PID,
-	VPROC_GSK_IS_NATIVE,
-	VPROC_GSK_BASIC_KEEPALIVE,
-	VPROC_GSK_START_INTERVAL,
-} vproc_gsk_t;
-
 typedef void * vproc_err_t;
 
 typedef void * vproc_t;
 typedef void * vprocmgr_t;
-
-vproc_err_t vproc_swap_integer(vproc_t vp, vproc_gsk_t key, int64_t *inval, int64_t *outval);
 
 const char *vproc_strerror(vproc_err_t r);
 
