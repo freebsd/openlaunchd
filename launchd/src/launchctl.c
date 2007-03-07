@@ -1355,11 +1355,9 @@ system_specific_bootstrap(bool sflag)
 
 	_vproc_set_global_on_demand(false);
 
-	if (!path_check("/System/Library/LoginPlugins/BootCache.loginPlugin")) {
-		assumes(kevent(kq, NULL, 0, &kev, 1, NULL) == 1);
+	assumes(kevent(kq, NULL, 0, &kev, 1, NULL) == 1);
 
-		do_BootCache_magic(BOOTCACHE_STOP);
-	}
+	do_BootCache_magic(BOOTCACHE_STOP);
 
 	assumes(close(kq) != -1);
 }
