@@ -278,8 +278,9 @@ demux_cmd(int argc, char *const argv[])
 	optreset = 1;
 
 	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
-		if (!strcmp(cmds[i].name, argv[0]))
+		if (!strcmp(cmds[i].name, argv[0])) {
 			return cmds[i].func(argc, argv);
+		}
 	}
 
 	fprintf(stderr, "%s: unknown subcommand \"%s\"\n", getprogname(), argv[0]);
@@ -349,10 +350,11 @@ print_launchd_env(launch_data_t obj, const char *key, void *context)
 	bool *is_csh = context;
 
 	/* XXX escape the double quotes */
-	if (*is_csh)
+	if (*is_csh) {
 		fprintf(stdout, "setenv %s \"%s\";\n", key, launch_data_get_string(obj));
-	else
+	} else {
 		fprintf(stdout, "%s=\"%s\"; export %s;\n", key, launch_data_get_string(obj), key);
+	}
 }
 
 void
@@ -360,8 +362,9 @@ print_key_value(launch_data_t obj, const char *key, void *context)
 {
 	const char *k = context;
 
-	if (!strcmp(key, k))
+	if (!strcmp(key, k)) {
 		fprintf(stdout, "%s\n", launch_data_get_string(obj));
+	}
 }
 
 int
@@ -373,8 +376,9 @@ getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
 	
 	if (!strcmp(argv[0], "export")) {
 		char *s = getenv("SHELL");
-		if (s)
+		if (s) {
 			is_csh = strstr(s, "csh") ? true : false;
+		}
 	} else if (argc != 2) {
 		fprintf(stderr, "%s usage: getenv <key>\n", getprogname());
 		return 1;
@@ -388,10 +392,11 @@ getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
 	launch_data_free(msg);
 
 	if (resp) {
-		if (!strcmp(argv[0], "export"))
+		if (!strcmp(argv[0], "export")) {
 			launch_data_dict_iterate(resp, print_launchd_env, &is_csh);
-		else
+		} else {
 			launch_data_dict_iterate(resp, print_key_value, k);
+		}
 		launch_data_free(resp);
 	} else {
 		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_GETUSERENVIRONMENT "\"): %s\n", strerror(errno));
@@ -423,8 +428,9 @@ unloadjob(launch_data_t job)
 		return;
 	}
 	if (LAUNCH_DATA_ERRNO == launch_data_get_type(resp)) {
-		if ((e = launch_data_get_errno(resp)))
+		if ((e = launch_data_get_errno(resp))) {
 			fprintf(stderr, "%s\n", strerror(e));
+		}
 	}
 	launch_data_free(resp);
 }
@@ -441,10 +447,11 @@ read_plist_file(const char *file, bool editondisk, bool load)
 	}
 
 	if (editondisk) {
-		if (load)
+		if (load) {
 			CFDictionaryRemoveValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED));
-		else
+		} else {
 			CFDictionarySetValue((CFMutableDictionaryRef)plist, CFSTR(LAUNCH_JOBKEY_DISABLED), kCFBooleanTrue);
+		}
 		WriteMyPropertyListToFile(plist, file);
 	}
 
@@ -471,8 +478,9 @@ delay_to_second_pass2(launch_data_t o, const char *key, void *context)
 		launch_data_dict_iterate(o, delay_to_second_pass2, context);
 		break;
 	case LAUNCH_DATA_ARRAY:
-		for (i = 0; i < launch_data_array_get_count(o); i++)
+		for (i = 0; i < launch_data_array_get_count(o); i++) {
 			delay_to_second_pass2(launch_data_array_get_index(o, i), NULL, context);
+		}
 		break;
 	default:
 		break;
@@ -486,8 +494,9 @@ delay_to_second_pass(launch_data_t o)
 
 	launch_data_t socks = launch_data_dict_lookup(o, LAUNCH_JOBKEY_SOCKETS);
 
-	if (NULL == socks)
+	if (NULL == socks) {
 		return false;
+	}
 
 	delay_to_second_pass2(socks, NULL, &res);
 
@@ -525,8 +534,9 @@ readfile(const char *what, struct load_unload_state *lus)
 
 		for (i = 0; i < c; i++) {
 			launch_data_t oai = launch_data_array_get_index(tmpa, i);
-			if (!strcasecmp(ourhostname, launch_data_get_string(oai)))
+			if (!strcasecmp(ourhostname, launch_data_get_string(oai))) {
 				goto out_bad;
+			}
 		}
 	}
 
@@ -535,12 +545,14 @@ readfile(const char *what, struct load_unload_state *lus)
 
 		for (i = 0; i < c; i++) {
 			launch_data_t oai = launch_data_array_get_index(tmpa, i);
-			if (!strcasecmp(ourhostname, launch_data_get_string(oai)))
+			if (!strcasecmp(ourhostname, launch_data_get_string(oai))) {
 				break;
+			}
 		}
 
-		if (i == c)
+		if (i == c) {
 			goto out_bad;
+		}
 	}
 
 	if (lus->session_type && !(tmpa = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE))) {
@@ -582,27 +594,33 @@ readfile(const char *what, struct load_unload_state *lus)
 		}
 	}
 
-	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED)))
+	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED))) {
 		job_disabled = launch_data_get_bool(tmpd);
+	}
 
-	if (lus->forceload)
+	if (lus->forceload) {
 		job_disabled = false;
+	}
 
-	if (job_disabled && lus->load)
+	if (job_disabled && lus->load) {
 		goto out_bad;
+	}
 
-	if (delay_to_second_pass(thejob))
+	if (delay_to_second_pass(thejob)) {
 		launch_data_array_append(lus->pass2, thejob);
-	else
+	} else {
 		launch_data_array_append(lus->pass1, thejob);
+	}
 
-	if (verbose)
+	if (verbose) {
 		fprintf(stdout, "Will load: %s\n", what);
+	}
 
 	return;
 out_bad:
-	if (verbose)
+	if (verbose) {
 		fprintf(stdout, "Ignored: %s\n", what);
+	}
 	launch_data_free(thejob);
 }
 
@@ -616,8 +634,9 @@ path_goodness_check(const char *path, bool forceload)
 		return false;
 	}
 
-	if (forceload)
+	if (forceload) {
 		return true;
+	}
 
 	if (sb.st_mode & (S_IWOTH|S_IWGRP)) {
 		fprintf(stderr, "%s: Dubious permissions on file (skipping): %s\n", getprogname(), path);
@@ -645,11 +664,13 @@ readpath(const char *what, struct load_unload_state *lus)
 	struct dirent *de;
 	DIR *d;
 
-	if (!path_goodness_check(what, lus->forceload))
+	if (!path_goodness_check(what, lus->forceload)) {
 		return;
+	}
 
-	if (stat(what, &sb) == -1)
+	if (stat(what, &sb) == -1) {
 		return;
+	}
 
 	if (S_ISREG(sb.st_mode)) {
 		readfile(what, lus);
@@ -660,12 +681,14 @@ readpath(const char *what, struct load_unload_state *lus)
 		}
 
 		while ((de = readdir(d))) {
-			if ((de->d_name[0] == '.'))
+			if ((de->d_name[0] == '.')) {
 				continue;
+			}
 			snprintf(buf, sizeof(buf), "%s/%s", what, de->d_name);
 
-			if (!path_goodness_check(buf, lus->forceload))
+			if (!path_goodness_check(buf, lus->forceload)) {
 				continue;
+			}
 
 			readfile(buf, lus);
 		}
@@ -738,8 +761,9 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 		}
 	}
 
-	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PASSIVE)))
+	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PASSIVE))) {
 		passive = launch_data_get_bool(val);
+	}
 
 	if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SECUREWITHKEY))) {
 		char secdir[] = LAUNCH_SECDIR, buf[1024];
@@ -772,8 +796,9 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 
 		strncpy(sun.sun_path, launch_data_get_string(val), sizeof(sun.sun_path));
 	
-		if ((sfd = _fd(socket(AF_UNIX, st, 0))) == -1)
+		if ((sfd = _fd(socket(AF_UNIX, st, 0))) == -1) {
 			return;
+		}
 
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PATHMODE))) {
 			sun_mode = (mode_t)launch_data_get_integer(val);
@@ -795,8 +820,7 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 			if (setm) {
 				chmod(sun.sun_path, sun_mode);
 			}
-			if ((st == SOCK_STREAM || st == SOCK_SEQPACKET)
-					&& listen(sfd, SOMAXCONN) == -1) {
+			if ((st == SOCK_STREAM || st == SOCK_SEQPACKET) && listen(sfd, SOMAXCONN) == -1) {
 				close(sfd);
 				return;
 			}
@@ -818,13 +842,16 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 		memset(&hints, 0, sizeof(hints));
 
 		hints.ai_socktype = st;
-		if (passive)
+		if (passive) {
 			hints.ai_flags |= AI_PASSIVE;
+		}
 
-		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_NODENAME)))
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_NODENAME))) {
 			node = launch_data_get_string(val);
-		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_MULTICASTGROUP)))
+		}
+		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_MULTICASTGROUP))) {
 			mgroup = launch_data_get_string(val);
+		}
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_SERVICENAME))) {
 			if (LAUNCH_DATA_INTEGER == launch_data_get_type(val)) {
 				sprintf(servnbuf, "%lld", launch_data_get_integer(val));
@@ -834,10 +861,11 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 			}
 		}
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_FAMILY))) {
-			if (!strcasecmp("IPv4", launch_data_get_string(val)))
+			if (!strcasecmp("IPv4", launch_data_get_string(val))) {
 				hints.ai_family = AF_INET;
-			else if (!strcasecmp("IPv6", launch_data_get_string(val)))
+			} else if (!strcasecmp("IPv6", launch_data_get_string(val))) {
 				hints.ai_family = AF_INET6;
+			}
 		}
 		if ((val = launch_data_dict_lookup(tmp, LAUNCH_JOBSOCKETKEY_PROTOCOL))) {
 			if (!strcasecmp("TCP", launch_data_get_string(val))) {
@@ -900,8 +928,7 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 				if (mgroup) {
 					do_mgroup_join(sfd, res->ai_family, res->ai_socktype, res->ai_protocol, mgroup);
 				}
-				if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET)
-						&& listen(sfd, SOMAXCONN) == -1) {
+				if ((res->ai_socktype == SOCK_STREAM || res->ai_socktype == SOCK_SEQPACKET) && listen(sfd, SOMAXCONN) == -1) {
 					fprintf(stderr, "listen(): %s\n", strerror(errno));
 					return;
 				}
@@ -914,12 +941,14 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 					}
 					if (NULL == rnames) {
 						rvs_fd = do_rendezvous_magic(res, serv);
-						if (rvs_fd)
+						if (rvs_fd) {
 							launch_data_array_append(rvs_fds, rvs_fd);
+						}
 					} else if (LAUNCH_DATA_STRING == launch_data_get_type(rnames)) {
 						rvs_fd = do_rendezvous_magic(res, launch_data_get_string(rnames));
-						if (rvs_fd)
+						if (rvs_fd) {
 							launch_data_array_append(rvs_fds, rvs_fd);
+						}
 					} else if (LAUNCH_DATA_ARRAY == launch_data_get_type(rnames)) {
 						size_t rn_i, rn_ac = launch_data_array_get_count(rnames);
 
@@ -927,8 +956,9 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 							launch_data_t rn_tmp = launch_data_array_get_index(rnames, rn_i);
 
 							rvs_fd = do_rendezvous_magic(res, launch_data_get_string(rn_tmp));
-							if (rvs_fd)
+							if (rvs_fd) {
 								launch_data_array_append(rvs_fds, rvs_fd);
+							}
 						}
 					}
 				}
@@ -1006,23 +1036,27 @@ do_rendezvous_magic(const struct addrinfo *res, const char *serv)
 	short port;
 	static int statres = 1;
 
-	if (1 == statres)
+	if (1 == statres) {
 		statres = stat("/usr/sbin/mDNSResponder", &sb);
+	}
 
-	if (-1 == statres)
+	if (-1 == statres) {
 		return NULL;
+	}
 
 	sprintf(rvs_buf, "_%s._%s.", serv, res->ai_socktype == SOCK_STREAM ? "tcp" : "udp");
 
-	if (res->ai_family == AF_INET)
+	if (res->ai_family == AF_INET) {
 		port = ((struct sockaddr_in *)res->ai_addr)->sin_port;
-	else
+	} else {
 		port = ((struct sockaddr_in6 *)res->ai_addr)->sin6_port;
+	}
 
 	error = DNSServiceRegister(&service, 0, 0, NULL, rvs_buf, NULL, NULL, port, 0, NULL, NULL, NULL);
 
-	if (error == kDNSServiceErr_NoError)
+	if (error == kDNSServiceErr_NoError) {
 		return launch_data_new_fd(DNSServiceRefSockFD(service));
+	}
 
 	fprintf(stderr, "DNSServiceRegister(\"%s\"): %d\n", serv, error);
 	return NULL;
@@ -1038,13 +1072,16 @@ CreateMyPropertyListFromFile(const char *posixfile)
 	CFURLRef          fileURL;
 
 	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)posixfile, strlen(posixfile), false);
-	if (!fileURL)
+	if (!fileURL) {
 		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", getprogname(), posixfile);
-	if (!CFURLCreateDataAndPropertiesFromResource(kCFAllocatorDefault, fileURL, &resourceData, NULL, NULL, &errorCode))
+	}
+	if (!CFURLCreateDataAndPropertiesFromResource(kCFAllocatorDefault, fileURL, &resourceData, NULL, NULL, &errorCode)) {
 		fprintf(stderr, "%s: CFURLCreateDataAndPropertiesFromResource(%s) failed: %d\n", getprogname(), posixfile, (int)errorCode);
+	}
 	propertyList = CFPropertyListCreateFromXMLData(kCFAllocatorDefault, resourceData, kCFPropertyListMutableContainers, &errorString);
-	if (!propertyList)
+	if (!propertyList) {
 		fprintf(stderr, "%s: propertyList is NULL\n", getprogname());
+	}
 
 	return propertyList;
 }
@@ -1057,13 +1094,16 @@ WriteMyPropertyListToFile(CFPropertyListRef plist, const char *posixfile)
 	SInt32		errorCode;
 
 	fileURL = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault, (const UInt8 *)posixfile, strlen(posixfile), false);
-	if (!fileURL)
+	if (!fileURL) {
 		fprintf(stderr, "%s: CFURLCreateFromFileSystemRepresentation(%s) failed\n", getprogname(), posixfile);
+	}
 	resourceData = CFPropertyListCreateXMLData(kCFAllocatorDefault, plist);
-	if (resourceData == NULL)
+	if (resourceData == NULL) {
 		fprintf(stderr, "%s: CFPropertyListCreateXMLData(%s) failed", getprogname(), posixfile);
-	if (!CFURLWriteDataAndPropertiesToResource(fileURL, resourceData, NULL, &errorCode))
+	}
+	if (!CFURLWriteDataAndPropertiesToResource(fileURL, resourceData, NULL, &errorCode)) {
 		fprintf(stderr, "%s: CFURLWriteDataAndPropertiesToResource(%s) failed: %d\n", getprogname(), posixfile, (int)errorCode);
+	}
 }
 
 void
@@ -1162,8 +1202,9 @@ help_cmd(int argc, char *const argv[])
 			cmdwidth = l;
 	}
 
-	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++)
+	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
 		fprintf(where, "\t%-*s\t%s\n", cmdwidth, cmds[i].name, cmds[i].desc);
+	}
 
 	return 0;
 }
@@ -1564,10 +1605,12 @@ load_and_unload_cmd(int argc, char *const argv[])
 		distill_jobs(lus.pass2);
 		submit_job_pass(lus.pass2);
 	} else {
-		for (i = 0; i < launch_data_array_get_count(lus.pass1); i++)
+		for (i = 0; i < launch_data_array_get_count(lus.pass1); i++) {
 			unloadjob(launch_data_array_get_index(lus.pass1, i));
-		for (i = 0; i < launch_data_array_get_count(lus.pass2); i++)
+		}
+		for (i = 0; i < launch_data_array_get_count(lus.pass2); i++) {
 			unloadjob(launch_data_array_get_index(lus.pass2, i));
+		}
 	}
 
 	return 0;
@@ -2762,18 +2805,21 @@ apply_sysctls_from_file(const char *thefile)
 		return;
 
 	while ((val = fgetln(sf, &ln_len))) {
-		if (ln_len == 0)
+		if (ln_len == 0) {
 			continue;
-		if (!assumes((tmpstr = malloc(ln_len + 1)) != NULL))
+		}
+		if (!assumes((tmpstr = malloc(ln_len + 1)) != NULL)) {
 			continue;
+		}
 		memcpy(tmpstr, val, ln_len);
 		tmpstr[ln_len] = 0;
 		val = tmpstr;
 
 		while (*val && isspace(*val))
 			val++;
-		if (*val == '\0' || *val == '#')
+		if (*val == '\0' || *val == '#') {
 			goto skip_sysctl_tool;
+		}
 		sysctl_tool[2] = val;
 		assumes(fwexec(sysctl_tool, true) != -1);
 skip_sysctl_tool:
@@ -2799,8 +2845,9 @@ do_sysversion_sysctl(void)
 		return;
 	}
 
-	if (buf[0] != '\0')
+	if (buf[0] != '\0') {
 		return;
+	}
 
 	versdict = _CFCopySystemVersionDictionary();
 	buildvers = CFDictionaryGetValue(versdict, _kCFSystemVersionBuildVersionKey);
