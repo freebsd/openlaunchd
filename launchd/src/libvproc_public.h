@@ -34,6 +34,7 @@ typedef enum {
 	VPROC_GSK_MGR_PID,
 	VPROC_GSK_IS_NATIVE,
 	VPROC_GSK_BASIC_KEEPALIVE,
+	VPROC_GSK_START_INTERVAL,
 } vproc_gsk_t;
 
 typedef void * vproc_err_t;

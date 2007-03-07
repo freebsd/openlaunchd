@@ -4194,6 +4194,9 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	case VPROC_GSK_BASIC_KEEPALIVE:
 		*outval = !j->ondemand;
 		break;
+	case VPROC_GSK_START_INTERVAL:
+		*outval = j->start_interval;
+		break;
 	case 0:
 		*outval = 0;
 		break;
@@ -4208,6 +4211,15 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		break;
 	case VPROC_GSK_BASIC_KEEPALIVE:
 		j->ondemand = !inval;
+		break;
+	case VPROC_GSK_START_INTERVAL:
+		if ((unsigned int)inval > 0) {
+			j->start_interval = inval;
+			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, j) != -1);
+		} else if (j->start_interval) {
+			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+			j->start_interval = 0;
+		}
 		break;
 	case 0:
 		break;
