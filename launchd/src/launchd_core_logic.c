@@ -4170,7 +4170,7 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 }
 
 kern_return_t
-job_mig_get_integer(job_t j, get_set_int_key_t key, int64_t *val)
+job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inval, int64_t *outval)
 {
 	kern_return_t kr = 0;
 
@@ -4178,10 +4178,33 @@ job_mig_get_integer(job_t j, get_set_int_key_t key, int64_t *val)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	switch (key) {
-	case LAST_EXIT_STATUS:
-		*val = j->last_exit_status;
+	switch (outkey) {
+	case VPROC_GSK_LAST_EXIT_STATUS:
+		*outval = j->last_exit_status;
 		break;
+	case VPROC_GSK_MGR_UID:
+		*outval = getuid();
+		break;
+	case VPROC_GSK_MGR_PID:
+		*outval = getpid();
+		break;
+	case 0:
+		*outval = 0;
+		break;
+	default:
+		kr = 1;
+		break;
+	}
+
+	switch (inkey) {
+	case VPROC_GSK_GLOBAL_ON_DEMAND:
+		kr = job_set_global_on_demand(j, (bool)inval) ? 0 : 1;
+		break;
+	case 0:
+		break;
+	case VPROC_GSK_LAST_EXIT_STATUS:
+	case VPROC_GSK_MGR_UID:
+	case VPROC_GSK_MGR_PID:
 	default:
 		kr = 1;
 		break;
@@ -4210,27 +4233,6 @@ job_mig_reboot2(job_t j, uint64_t flags)
 	launchd_shutdown();
 
 	return 0;
-}
-
-kern_return_t
-job_mig_set_integer(job_t j, get_set_int_key_t key, int64_t val)
-{
-	kern_return_t kr = 0;
-
-	if (!launchd_assumes(j != NULL)) {
-		return BOOTSTRAP_NO_MEMORY;
-	}
-
-	switch (key) {
-	case GLOBAL_ON_DEMAND:
-		kr = job_set_global_on_demand(j, (bool)val) ? 0 : 1;
-		break;
-	default:
-		kr = 1;
-		break;
-	}
-
-	return kr;
 }
 
 kern_return_t

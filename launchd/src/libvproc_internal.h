@@ -28,10 +28,6 @@ typedef char * _internal_string_t;
 typedef char * logmsg_t;
 typedef mach_port_t vproc_mig_t;
 typedef integer_t binpref_t[8];
-typedef enum {
-	LAST_EXIT_STATUS = 1,
-	GLOBAL_ON_DEMAND,
-} get_set_int_key_t;
 
 #ifdef protocol_vproc_MSG_COUNT
 /* HACK */

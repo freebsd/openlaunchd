@@ -201,12 +201,24 @@ _vproc_get_last_exit_status(int *wstatus)
 {
 	int64_t val;
 
-	if (vproc_mig_get_integer(bootstrap_port, LAST_EXIT_STATUS, &val) == 0) {
+	if (vproc_swap_integer(NULL, VPROC_GSK_LAST_EXIT_STATUS, 0, &val) == 0) {
 		*wstatus = (int)val;
 		return NULL;
 	}
 
 	return (vproc_err_t)_vproc_get_last_exit_status;
+}
+
+vproc_err_t
+vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t *inval, int64_t *outval)
+{
+	int64_t dummyval = 0;
+
+	if (vproc_mig_swap_integer(bootstrap_port, inval ? key : 0, outval ? key : 0, inval ? *inval : 0, outval ? outval : &dummyval) == 0) {
+		return NULL;
+	}
+
+	return (vproc_err_t)vproc_swap_integer;
 }
 
 void *
@@ -242,7 +254,7 @@ _vproc_set_global_on_demand(bool state)
 {
 	int64_t val = state ? ~0 : 0;
 
-	if (vproc_mig_set_integer(bootstrap_port, GLOBAL_ON_DEMAND, val) == 0) {
+	if (vproc_swap_integer(NULL, VPROC_GSK_GLOBAL_ON_DEMAND, &val, NULL) == 0) {
 		return NULL;
 	}
 
