@@ -193,11 +193,16 @@ static void semaphoreitem_callback(job_t j, struct kevent *kev);
 static void semaphoreitem_watch(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
 
+#define IS_POWER_OF_TWO(v)	(!(v & (v - 1)) && v)
+#define ACTIVE_JOB_HASH_SIZE	32
+#define ACTIVE_JOB_HASH(x)	(IS_POWER_OF_TWO(ACTIVE_JOB_HASH_SIZE) ? (x & (ACTIVE_JOB_HASH_SIZE - 1)) : (x % ACTIVE_JOB_HASH_SIZE))
+
 struct jobmgr_s {
 	kq_callback kqjobmgr_callback;
 	SLIST_ENTRY(jobmgr_s) sle;
 	SLIST_HEAD(, jobmgr_s) submgrs;
-	TAILQ_HEAD(, job_s) jobs;
+	SLIST_HEAD(, job_s) jobs;
+	SLIST_HEAD(, job_s) active_jobs[ACTIVE_JOB_HASH_SIZE];
 	mach_port_t jm_port;
 	mach_port_t req_port;
 	jobmgr_t parentmgr;
@@ -230,7 +235,8 @@ static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, u
 
 struct job_s {
 	kq_callback kqjob_callback;
-	TAILQ_ENTRY(job_s) sle;
+	SLIST_ENTRY(job_s) sle;
+	SLIST_ENTRY(job_s) hash_sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	SLIST_HEAD(, envitem) global_env;
@@ -545,7 +551,7 @@ jobmgr_shutdown(jobmgr_t jm)
 		jobmgr_shutdown(jmi);
 	}
 
-	TAILQ_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		if (!job_active(ji)) {
 			job_remove(ji);
 		} else if (!ji->hopefully_exits_last) {
@@ -575,15 +581,15 @@ jobmgr_remove(jobmgr_t jm)
 	}
 
 	/* We should have one job left and it should be the anonymous job */
-	ji = TAILQ_FIRST(&jm->jobs);
+	ji = SLIST_FIRST(&jm->jobs);
 	if (!(jobmgr_assumes(jm, ji != NULL) && jobmgr_assumes(jm, ji == jm->anonj)
-				&& jobmgr_assumes(jm, TAILQ_NEXT(ji, sle) == NULL))) {
-		TAILQ_FOREACH(ji, &jm->jobs, sle) {
+				&& jobmgr_assumes(jm, SLIST_NEXT(ji, sle) == NULL))) {
+		SLIST_FOREACH(ji, &jm->jobs, sle) {
 			job_log(ji, LOG_ERR, "Still remaining at removal.");
 		}
 	}
 
-	while ((ji = TAILQ_FIRST(&jm->jobs))) {
+	while ((ji = SLIST_FIRST(&jm->jobs))) {
 		job_remove(ji);
 	}
 
@@ -707,7 +713,7 @@ job_remove(job_t j)
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 
 	if (job_assumes(j, j->mgr)) {
-		TAILQ_REMOVE(&j->mgr->jobs, j, sle);
+		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
 	}
 
 	job_log(j, LOG_DEBUG, "Removed");
@@ -998,7 +1004,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		j->argv[i] = NULL;
 	}
 
-	TAILQ_INSERT_TAIL(&jm->jobs, j, sle);
+	SLIST_INSERT_HEAD(&jm->jobs, j, sle);
 
 	job_log(j, LOG_DEBUG, "Conceived");
 
@@ -1518,7 +1524,7 @@ jobmgr_find(jobmgr_t jm, const char *label)
 		}
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		if (strcmp(ji->label, label) == 0) {
 			return ji;
 		}
@@ -1536,18 +1542,15 @@ job_mig_intran2(jobmgr_t jm, mach_port_t p)
 
 	if (jm->jm_port == p) {
 		struct ldcred ldc;
+		pid_t hashp;
 
 		runtime_get_caller_creds(&ldc);
 
-		TAILQ_FOREACH(ji, &jm->jobs, sle) {
+		hashp = ACTIVE_JOB_HASH(ldc.pid);
+
+		SLIST_FOREACH(ji, &jm->active_jobs[hashp], hash_sle) {
 			if (ji->p == ldc.pid) {
-				/* This is just a MRU perfomance hack */
-				TAILQ_REMOVE(&jm->jobs, ji, sle);
-				TAILQ_INSERT_HEAD(&jm->jobs, ji, sle);
 				return ji;
-			} else if (ji->p == 0) {
-				/* All the PIDs are at the front of the list */
-				break;
 			}
 		}
 		return jm->anonj;
@@ -1561,7 +1564,7 @@ job_mig_intran2(jobmgr_t jm, mach_port_t p)
 		}
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		if (ji->j_port == p) {
 			return ji;
 		}
@@ -1593,7 +1596,7 @@ jobmgr_find_by_service_port(jobmgr_t jm, mach_port_t p)
 		}
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (ms->port == p) {
 				return ji;
@@ -1619,7 +1622,7 @@ job_export_all2(jobmgr_t jm, launch_data_t where)
 		job_export_all2(jmi, where);
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		launch_data_t tmp;
 
 		if (jobmgr_assumes(jm, (tmp = job_export2(ji, false)) != NULL)) {
@@ -1688,10 +1691,7 @@ job_reap(job_t j)
 	}
 
 	total_children--;
-
-	/* Performance hack */
-	TAILQ_REMOVE(&j->mgr->jobs, j, sle);
-	TAILQ_INSERT_TAIL(&j->mgr->jobs, j, sle);
+	SLIST_REMOVE(&j->mgr->active_jobs[ACTIVE_JOB_HASH(j->p)], j, job_s, hash_sle);
 
 	job_assumes(j, gettimeofday(&tve, NULL) != -1);
 
@@ -1760,7 +1760,7 @@ jobmgr_dispatch_all(jobmgr_t jm)
 		jobmgr_dispatch_all(jmi);
 	}
 
-	TAILQ_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		job_dispatch(ji, false);
 	}
 }
@@ -2025,10 +2025,7 @@ job_start(job_t j)
 		break;
 	default:
 		total_children++;
-
-		/* Performance hack */
-		TAILQ_REMOVE(&j->mgr->jobs, j, sle);
-		TAILQ_INSERT_HEAD(&j->mgr->jobs, j, sle);
+		SLIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, hash_sle);
 
 		if (!j->legacy_mach_job) {
 			job_assumes(j, close(oepair[1]) != -1);
@@ -2137,7 +2134,7 @@ void jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
 		jobmgr_setup_env_from_other_jobs(jm->parentmgr);
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ei, &ji->global_env, sle) {
 			setenv(ei->key, ei->value, 1);
 		}
@@ -3303,7 +3300,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 		return jm;
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		if (ji->p && !ji->hopefully_exits_last) {
 			return jm;
 		}
@@ -3311,7 +3308,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 
 	jobmgr_log(jm, LOG_DEBUG, "Asking \"hopeful\" jobs to exit.");
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		job_stop(ji);
 	}
 
@@ -3368,7 +3365,7 @@ jobmgr_is_idle(jobmgr_t jm)
 		return false;
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		if (ji->p) {
 			return false;
 		}
@@ -3421,7 +3418,6 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 		return NULL;
 	}
 
-	TAILQ_INIT(&jmr->jobs);
 	jmr->kqjobmgr_callback = jobmgr_callback;
 	strcpy(jmr->name, name ? name : "Under construction");
 
@@ -3540,7 +3536,7 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 		jobmgr_delete_anything_with_port(jmi, port);
 	}
 
-	TAILQ_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		SLIST_FOREACH_SAFE(ms, &ji->machservices, sle, next_ms) {
 			if (ms->port == port) {
 				machservice_delete(ms);
@@ -3565,7 +3561,7 @@ jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t ta
 		jobmgr_assumes(jm, !check_parent);
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		if (target_pid && (ji->p != target_pid)) {
 			continue;
 		}
@@ -3728,7 +3724,7 @@ jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p)
 	}
 
 	/* We don't need the _SAFE version because we return after the job_dispatch() */
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (ms->port != p) {
 				continue;
@@ -3947,7 +3943,7 @@ jobmgr_dispatch_all_semaphores(jobmgr_t jm)
 		jobmgr_dispatch_all_semaphores(jmi);
 	}
 
-	TAILQ_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		if (!SLIST_EMPTY(&ji->semaphores)) {
 			job_dispatch(ji, false);
 		}
@@ -4313,7 +4309,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 	*up_cont = MACH_PORT_NULL;
 
-	TAILQ_FOREACH(ji, &root_jobmgr->jobs, sle) {
+	SLIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
 		if (ji->mach_uid != which_user) {
 			continue;
 		}
@@ -4538,7 +4534,7 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 
 	jm = j->mgr;
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (!ms->per_pid) {
 				cnt++;
@@ -4560,7 +4556,7 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 		goto out_bad;
 	}
 
-	TAILQ_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (!ms->per_pid) {
 				strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
@@ -4610,8 +4606,8 @@ job_reparent_hack(job_t j, const char *where)
 	}
 
 	if (job_assumes(j, jmi != NULL)) {
-		TAILQ_REMOVE(&j->mgr->jobs, j, sle);
-		TAILQ_INSERT_TAIL(&jmi->jobs, j, sle);
+		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
+		SLIST_INSERT_HEAD(&jmi->jobs, j, sle);
 		j->mgr = jmi;
 	}
 }
