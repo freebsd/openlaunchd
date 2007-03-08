@@ -29,6 +29,9 @@ install-data-hook:
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
+	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch.a.dSYM liblaunch.a
+	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch_debug.a.dSYM liblaunch.a
+	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch_profile.a.dSYM liblaunch_profile.a
 
 else
 

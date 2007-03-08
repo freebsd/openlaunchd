@@ -1066,6 +1066,9 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_TRUE@	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
 @LIBS_ONLY_TRUE@	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
+@LIBS_ONLY_TRUE@	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch.a.dSYM liblaunch.a
+@LIBS_ONLY_TRUE@	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch_debug.a.dSYM liblaunch.a
+@LIBS_ONLY_TRUE@	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch_profile.a.dSYM liblaunch_profile.a
 
 @LIBS_ONLY_FALSE@launchd_runtime.c:: notifyServer.h launchd_internal.h
 @LIBS_ONLY_FALSE@launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h
