@@ -80,12 +80,12 @@ Where to send the stdout of the program.
 Where to send the stderr of the program.
 .El
 .It Ar remove Ar job_label
-Remove the jobs from launchd by label.
+Remove the job from launchd by label.
 .It Ar start Ar job_label
-Start the specified jobs by label. The expected use of this subcommand is for
+Start the specified job by label. The expected use of this subcommand is for
 debugging and testing so that one can manually kick-start an on-demand server.
 .It Ar stop Ar job_label
-Stop the specified jobs by label. If a job is on-demand, launchd may immediately
+Stop the specified job by label. If a job is on-demand, launchd may immediately
 restart the job if launchd finds any criteria that is satisfied.
 Non-demand based jobs will always be restarted. Use of this subcommand is discouraged.
 Jobs should ideally idle timeout by themselves.
