@@ -92,7 +92,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
 #define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
-#define LAUNCHD_SIGKILL_TIMEOUT 5
+#define LAUNCHD_SIGKILL_TIMER 5
 
 extern char **environ;
 
@@ -1832,7 +1832,7 @@ job_kill(job_t j)
 	j->sent_sigkill = true;
 
 	job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
-				EV_ADD, NOTE_SECONDS, LAUNCHD_SIGKILL_TIMEOUT, j) != -1);
+				EV_ADD, NOTE_SECONDS, LAUNCHD_SIGKILL_TIMER, j) != -1);
 }
 
 void
@@ -1869,6 +1869,7 @@ job_callback_timer(job_t j, void *ident)
 
 			job_assumes(j, gettimeofday(&tve, NULL) != -1);
 			timersub(&tve, &j->sent_sigterm_time,  &tvd);
+			tvd.tv_sec -= j->exit_timeout;
 			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %lu seconds ago...", tvd.tv_sec);
 		} else {
 			job_force_sampletool(j);
@@ -3340,12 +3341,15 @@ jobmgr_log_stray_children(jobmgr_t jm)
 	for (i = 0; i < kp_cnt; i++) {
 		pid_t p_i = kp[i].kp_proc.p_pid;
 		pid_t pp_i = kp[i].kp_eproc.e_ppid;
+		const char *z = kp[i].kp_proc.p_stat == SZOMB ? "zombie " : "";
+		const char *n = kp[i].kp_proc.p_comm;
 
 		if (p_i == 0 || p_i == 1) {
 			continue;
 		}
 
-		jobmgr_log(jm, LOG_WARNING, "Stray process at shutdown: PID %u PPID %u %s", p_i, pp_i, kp[i].kp_proc.p_comm);
+		jobmgr_log(jm, LOG_WARNING, "Stray %sprocess at shutdown: PID %u PPID %u %s", z, p_i, pp_i, n);
+
 		/*
 		 * The kernel team requested that I not do this for Leopard.
 		 * jobmgr_assumes(jm, kill(p_i, SIGKILL) != -1);
