@@ -1299,7 +1299,7 @@ system_specific_bootstrap(bool sflag)
 
 	assumes((kq = kqueue()) != -1);
 
-	EV_SET(&kev, 0, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 90, 0);
+	EV_SET(&kev, 0, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, 60, 0);
 	assumes(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
 
 	EV_SET(&kev, SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
