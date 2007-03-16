@@ -2615,6 +2615,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 void
 semaphoreitem_callback(job_t j, struct kevent *kev)
 {
+	char invalidation_reason[100] = "";
 	struct semaphoreitem *si;
 
 	SLIST_FOREACH(si, &j->semaphores, sle) {
@@ -2637,8 +2638,28 @@ semaphoreitem_callback(job_t j, struct kevent *kev)
 		return;
 	}
 
-	if ((NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE) & kev->fflags) {
-		job_log(j, LOG_DEBUG, "Path invalidated: %s", si->what);
+	if (NOTE_DELETE & kev->fflags) {
+		strcat(invalidation_reason, "deleted");
+	}
+
+	if (NOTE_RENAME & kev->fflags) {
+		if (invalidation_reason[0]) {
+			strcat(invalidation_reason, "/renamed");
+		} else {
+			strcat(invalidation_reason, "renamed");
+		}
+	}
+
+	if (NOTE_REVOKE & kev->fflags) {
+		if (invalidation_reason[0]) {
+			strcat(invalidation_reason, "/revoked");
+		} else {
+			strcat(invalidation_reason, "revoked");
+		}
+	}
+
+	if (invalidation_reason[0]) {
+		job_log(j, LOG_DEBUG, "Path %s: %s", invalidation_reason, si->what);
 		job_assumes(j, close(si->fd) == 0);
 		si->fd = -1; /* this will get fixed in semaphoreitem_watch() */
 	}
