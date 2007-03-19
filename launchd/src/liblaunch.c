@@ -574,6 +574,8 @@ launchd_close(launch_t lh)
 	free(lh);
 }
 
+#define ROUND_TO_64BIT_WORD_SIZE(x)	((x + 7) & ~7)
+
 void
 launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, size_t *fdcnt)
 {
@@ -613,13 +615,13 @@ launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, siz
 		o_in_w->string_len = host2big(d->string_len);
 		*where = realloc(*where, *len + strlen(d->string) + 1);
 		memcpy(*where + *len, d->string, strlen(d->string) + 1);
-		*len += strlen(d->string) + 1;
+		*len += ROUND_TO_64BIT_WORD_SIZE(strlen(d->string) + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
 		o_in_w->opaque_size = host2big(d->opaque_size);
 		*where = realloc(*where, *len + d->opaque_size);
 		memcpy(*where + *len, d->opaque, d->opaque_size);
-		*len += d->opaque_size;
+		*len += ROUND_TO_64BIT_WORD_SIZE(d->opaque_size);
 		break;
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
@@ -671,7 +673,7 @@ launch_data_unpack(launch_t conn, size_t *data_offset, size_t *fdoffset)
 		}
 		r->string = conn->recvbuf + *data_offset;
 		r->string_len = tmpcnt;
-		*data_offset += tmpcnt + 1;
+		*data_offset += ROUND_TO_64BIT_WORD_SIZE(tmpcnt + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
 		tmpcnt = big2host(r->opaque_size);
@@ -681,7 +683,7 @@ launch_data_unpack(launch_t conn, size_t *data_offset, size_t *fdoffset)
 		}
 		r->opaque = conn->recvbuf + *data_offset;
 		r->opaque_size = tmpcnt;
-		*data_offset += tmpcnt;
+		*data_offset += ROUND_TO_64BIT_WORD_SIZE(tmpcnt);
 		break;
 	case LAUNCH_DATA_FD:
 		if (r->fd != -1) {
