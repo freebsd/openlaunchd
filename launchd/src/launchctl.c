@@ -1363,7 +1363,10 @@ system_specific_bootstrap(bool sflag)
 	empty_dir(_PATH_TMP, NULL);
 	remove(_PATH_NOLOGIN);
 
-	// XXX --> RMRF_ITEMS="/var/tmp/folders.*
+	if (path_check("/usr/libexec/dirhelper")) {
+		const char *dirhelper_tool[] = { "/usr/libexec/dirhelper", "-machineBoot", NULL };
+		assumes(fwexec(dirhelper_tool, true) != -1);
+	}
 
 	// 775 root:daemon /var/run/StartupItems
 
