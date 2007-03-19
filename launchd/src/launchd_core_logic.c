@@ -222,7 +222,7 @@ static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
 static bool jobmgr_is_idle(jobmgr_t jm);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
-static void jobmgr_dispatch_all(jobmgr_t jm);
+static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static void jobmgr_callback(void *obj, struct kevent *kev);
@@ -278,7 +278,7 @@ struct job_s {
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1;
+		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1;
 	char label[0];
 };
 
@@ -766,7 +766,7 @@ job_set_global_on_demand(job_t j, bool val)
 	}
 
 	if (j->mgr->global_on_demand_cnt == 0) {
-		jobmgr_dispatch_all(j->mgr);
+		jobmgr_dispatch_all(j->mgr, false);
 	}
 
 	return true;
@@ -1089,6 +1089,8 @@ job_import_bool(job_t j, const char *key, bool value)
 	case 'S':
 		if (strcasecmp(key, LAUNCH_JOBKEY_SESSIONCREATE) == 0) {
 			j->session_create = value;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTONMOUNT) == 0) {
+			j->start_on_mount = value;
 		}
 		break;
 	case 'l':
@@ -1751,17 +1753,17 @@ job_reap(job_t j)
 }
 
 void
-jobmgr_dispatch_all(jobmgr_t jm)
+jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack)
 {
 	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
-		jobmgr_dispatch_all(jmi);
+		jobmgr_dispatch_all(jmi, newmounthack);
 	}
 
 	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
-		job_dispatch(ji, false);
+		job_dispatch(ji, newmounthack ? ji->start_on_mount : false);
 	}
 }
 
@@ -1908,6 +1910,12 @@ jobmgr_callback(void *obj, struct kevent *kev)
 		default:
 			return (void)jobmgr_assumes(jm, false);
 		}
+		break;
+	case EVFILT_FS:
+		if (kev->fflags & VQ_MOUNT) {
+			jobmgr_dispatch_all(jm, true);
+		}
+		jobmgr_dispatch_all_semaphores(jm);
 		break;
 	case EVFILT_TIMER:
 		jobmgr_log(jm, LOG_NOTICE, "Still alive with %u children.", total_children);
@@ -3503,6 +3511,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	if (!jm) {
 		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
+		jobmgr_assumes(jmr, kevent_mod(0, EVFILT_FS, EV_ADD|EV_CLEAR, VQ_MOUNT|VQ_UNMOUNT|VQ_UPDATE, 0, jmr) != -1);
 	}
 
 	if (name) {

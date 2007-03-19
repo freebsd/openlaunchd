@@ -42,6 +42,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/socket.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
+#include <sys/fcntl.h>
 #include <bsm/libbsm.h>
 #include <malloc/malloc.h>
 #include <unistd.h>
@@ -887,6 +888,15 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		}
 
 		record_caller_creds(&bufRequest->Head);
+
+		/*
+		 * This is a total hack. We really need a bit in the kernel's proc
+		 * struct to declare our intent.
+		 */
+		static int no_hang_fd = -1;
+		if (no_hang_fd == -1) {
+			no_hang_fd = _fd(open("/dev/autofs_nowait", 0));
+		}
 
 		if (the_demux(&bufRequest->Head, &bufReply->Head) == FALSE) {
 			/* XXX - also gross */
