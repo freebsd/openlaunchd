@@ -315,7 +315,6 @@ static void job_callback(void *obj, struct kevent *kev);
 static void job_callback_proc(job_t j, int flags, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
-static launch_data_t job_export2(job_t j, bool subjobs);
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
 static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
@@ -430,12 +429,6 @@ job_stop(job_t j)
 
 launch_data_t
 job_export(job_t j)
-{
-	return job_export2(j, true);
-}
-
-launch_data_t
-job_export2(job_t j, bool subjobs)
 {
 	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 
@@ -1631,7 +1624,7 @@ job_export_all2(jobmgr_t jm, launch_data_t where)
 	SLIST_FOREACH(ji, &jm->jobs, sle) {
 		launch_data_t tmp;
 
-		if (jobmgr_assumes(jm, (tmp = job_export2(ji, false)) != NULL)) {
+		if (jobmgr_assumes(jm, (tmp = job_export(ji)) != NULL)) {
 			launch_data_dict_insert(where, tmp, ji->label);
 		}
 	}
@@ -3806,6 +3799,12 @@ job_get_bs(job_t j)
 	}
 
 	return NULL;
+}
+
+bool
+job_is_anonymous(job_t j)
+{
+	return j->anonymous;
 }
 
 pid_t

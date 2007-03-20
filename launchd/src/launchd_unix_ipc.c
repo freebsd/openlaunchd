@@ -344,7 +344,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 
 	if (data == NULL) {
 		if (!strcmp(cmd, LAUNCH_KEY_CHECKIN)) {
-			if (rmc->c->j) {
+			if (!job_is_anonymous(rmc->c->j)) {
 				resp = job_export(rmc->c->j);
 				job_checkin(rmc->c->j);
 			} else {
