@@ -47,6 +47,12 @@ vproc_err_t _vproc_set_global_on_demand(bool val);
 void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 
+#define VPROCMGR_SESSION_LOGINWINDOW	"LoginWindow"
+#define VPROCMGR_SESSION_BACKGROUND	"Background"
+#define VPROCMGR_SESSION_AQUA		"Aqua"
+#define VPROCMGR_SESSION_STANDARDIO	"StandardIO"
+#define VPROCMGR_SESSION_SYSTEM		"System"
+
 vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type);
 
 #pragma GCC visibility pop
