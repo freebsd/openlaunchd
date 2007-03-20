@@ -233,6 +233,8 @@ static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
 static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
+#define DO_RUSAGE_SUMATION 0
+
 struct job_s {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(job_s) sle;
@@ -244,7 +246,9 @@ struct job_s {
 	SLIST_HEAD(, limititem) limits;
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
+#if DO_RUSAGE_SUMATION
 	struct rusage ru;
+#endif
 	binpref_t j_binpref;
 	size_t j_binpref_cnt;
 	mach_port_t j_port;
@@ -1713,6 +1717,7 @@ job_reap(job_t j)
 		job_log(j, LOG_INFO, "Exited %f seconds after SIGTERM was sent", delta);
 	}
 
+#if DO_RUSAGE_SUMATION
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
 	timeradd(&ru.ru_stime, &j->ru.ru_stime, &j->ru.ru_stime);
 	j->ru.ru_maxrss += ru.ru_maxrss;
@@ -1729,6 +1734,7 @@ job_reap(job_t j)
 	j->ru.ru_nsignals += ru.ru_nsignals;
 	j->ru.ru_nvcsw += ru.ru_nvcsw;
 	j->ru.ru_nivcsw += ru.ru_nivcsw;
+#endif
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
 		job_log(j, LOG_WARNING, "exited with exit code: %d", WEXITSTATUS(status));
