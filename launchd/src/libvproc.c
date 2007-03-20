@@ -41,9 +41,10 @@
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
+		pid_array_t *pids, mach_msg_type_number_t *pidCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt)
 {
-	return vproc_mig_take_subset(bp, reqport, rcvright, service_names, service_namesCnt, ports, portCnt);
+	return vproc_mig_take_subset(bp, reqport, rcvright, service_names, service_namesCnt, pids, pidCnt, ports, portCnt);
 }
 
 vproc_err_t

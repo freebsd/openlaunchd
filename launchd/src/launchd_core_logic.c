@@ -206,7 +206,6 @@ struct jobmgr_s {
 	mach_port_t jm_port;
 	mach_port_t req_port;
 	jobmgr_t parentmgr;
-	job_t anonj;
 	int reboot_flags;
 	unsigned int global_on_demand_cnt;
 	unsigned int sent_stop_to_hopeful_jobs:1, shutting_down:1;
@@ -219,6 +218,7 @@ struct jobmgr_s {
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
+static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
 static bool jobmgr_is_idle(jobmgr_t jm);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
@@ -315,6 +315,7 @@ static void job_callback(void *obj, struct kevent *kev);
 static void job_callback_proc(job_t j, int flags, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
+static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid);
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
 static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
@@ -417,13 +418,16 @@ job_watch(job_t j)
 void
 job_stop(job_t j)
 {
-	if (j->p) {
-		job_assumes(j, kill(j->p, SIGTERM) != -1);
-		job_assumes(j, gettimeofday(&j->sent_sigterm_time, NULL) != -1);
-		if (j->exit_timeout) {
-			job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
-						EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
-		}
+	if (!j->p || j->anonymous) {
+		return;
+	}
+
+	job_assumes(j, kill(j->p, SIGTERM) != -1);
+	job_assumes(j, gettimeofday(&j->sent_sigterm_time, NULL) != -1);
+
+	if (j->exit_timeout) {
+		job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
+					EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
 	}
 }
 
@@ -577,16 +581,9 @@ jobmgr_remove(jobmgr_t jm)
 		}
 	}
 
-	/* We should have one job left and it should be the anonymous job */
-	ji = SLIST_FIRST(&jm->jobs);
-	if (!(jobmgr_assumes(jm, ji != NULL) && jobmgr_assumes(jm, ji == jm->anonj)
-				&& jobmgr_assumes(jm, SLIST_NEXT(ji, sle) == NULL))) {
-		SLIST_FOREACH(ji, &jm->jobs, sle) {
-			job_log(ji, LOG_ERR, "Still remaining at removal.");
-		}
-	}
-
 	while ((ji = SLIST_FIRST(&jm->jobs))) {
+		/* We should only have anonymous jobs left */
+		job_assumes(ji, ji->anonymous);
 		job_remove(ji);
 	}
 
@@ -624,7 +621,7 @@ job_remove(job_t j)
 	struct machservice *ms;
 	struct semaphoreitem *si;
 
-	if (j->p) {
+	if (j->p && !j->anonymous) {
 		job_log(j, LOG_DEBUG, "Removal pended until the job exits.");
 
 		if (!j->removal_pending) {
@@ -917,19 +914,28 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 }
 
 job_t
-jobmgr_get_anonymous(jobmgr_t jm)
+job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 {
-	char newlabel[1000], *procname = "unknown";
-	job_t jr;
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, anonpid };
+	char newlabel[1000];
+	struct kinfo_proc kp;
+	size_t len = sizeof(kp);
+	job_t jr = NULL;
 
-	if (jm->anonj) {
-		return jm->anonj;
+	if (!jobmgr_assumes(jm, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
+		return NULL;
 	}
 
-	snprintf(newlabel, sizeof(newlabel), "%u.anonymous", MACH_PORT_INDEX(jm->jm_port));
+	snprintf(newlabel, sizeof(newlabel), "anonymous-%u.%s", anonpid, kp.kp_proc.p_comm);
 
-	if ((jr = job_new(jm, newlabel, procname, NULL))) {
+	if (jobmgr_assumes(jm, (jr = job_new(jm, newlabel, kp.kp_proc.p_comm, NULL)) != NULL)) {
+		total_children++;
 		jr->anonymous = true;
+		jr->p = anonpid;
+		/* anonymous process reaping is messy */
+		SLIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, hash_sle);
+		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, root_jobmgr) != -1);
+		job_log(jr, LOG_DEBUG, "Created anonymously.");
 	}
 
 	return jr;
@@ -1552,7 +1558,7 @@ job_mig_intran2(jobmgr_t jm, mach_port_t p)
 				return ji;
 			}
 		}
-		return jm->anonj;
+		return job_new_anonymous(jm, ldc.pid);
 	}
 
 	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
@@ -1577,7 +1583,19 @@ job_mig_intran(mach_port_t p)
 {
 	job_t jr = job_mig_intran2(root_jobmgr, p);
 
-	launchd_assumes(jr != NULL);
+	if (!jobmgr_assumes(root_jobmgr, jr != NULL)) {
+		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, 0 };
+		struct kinfo_proc kp;
+		struct ldcred ldc;
+		size_t len = sizeof(kp);
+
+		runtime_get_caller_creds(&ldc);
+		mib[3] = ldc.pid;
+
+		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
+			jobmgr_log(root_jobmgr, LOG_ERR, "%s() was confused by PID %u: %s", __func__, ldc.pid, kp.kp_proc.p_comm);
+		}
+	}
 
 	return jr;
 }
@@ -1647,7 +1665,7 @@ job_reap(job_t j)
 {
 	struct timeval tve, tvd;
 	struct rusage ru;
-	int status;
+	int status = 0;
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
@@ -1672,7 +1690,7 @@ job_reap(job_t j)
 		j->forkfd = 0;
 	}
 
-	if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
+	if (!j->anonymous && !job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
 		/*
 		 * wait4() then kill() is still racy.
 		 * Then again, we never should have got here in the first place...
@@ -1681,7 +1699,6 @@ job_reap(job_t j)
 			job_log(j, LOG_DEBUG, "Working around 5020256");
 		}
 
-		status = 0;
 		memset(&ru, 0, sizeof(ru));
 	}
 
@@ -1828,6 +1845,10 @@ job_log_stdouterr(job_t j)
 void
 job_kill(job_t j)
 {
+	if (!j->p || j->anonymous) {
+		return;
+	}
+
 	job_assumes(j, kill(j->p, SIGKILL) != -1);
 
 	j->sent_sigkill = true;
@@ -1851,10 +1872,11 @@ job_callback_proc(job_t j, int flags, int fflags)
 		job_assumes(j, (flags & EV_ONESHOT));
 		job_assumes(j, (flags & EV_EOF));
 		job_reap(j);
-		job_dispatch(j, false);
 
-		if (launchd_assumes(root_jobmgr != NULL)) {
-			root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
+		if (j->anonymous) {
+			job_remove(j);
+		} else {
+			job_dispatch(j, false);
 		}
 	}
 }
@@ -1897,11 +1919,39 @@ job_callback_read(job_t j, int ident)
 }
 
 void
+jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
+{
+	jobmgr_t jmi;
+	job_t ji;
+
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		jobmgr_reap_bulk(jmi, kev);
+	}
+
+	SLIST_FOREACH(ji, &jm->active_jobs[ACTIVE_JOB_HASH(kev->ident)], hash_sle) {
+		if (ji->p != (pid_t)kev->ident) {
+			continue;
+		}
+		
+		kev->udata = ji;
+		job_callback(ji, kev);
+
+		break;
+	}
+}
+
+void
 jobmgr_callback(void *obj, struct kevent *kev)
 {
 	jobmgr_t jm = obj;
 
 	switch (kev->filter) {
+	case EVFILT_PROC:
+		jobmgr_reap_bulk(jm, kev);
+		if (launchd_assumes(root_jobmgr != NULL)) {
+			root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
+		}
+		break;
 	case EVFILT_SIGNAL:
 		switch (kev->ident) {
 		case SIGTERM:
@@ -3398,7 +3448,7 @@ jobmgr_is_idle(jobmgr_t jm)
 	}
 
 	SLIST_FOREACH(ji, &jm->jobs, sle) {
-		if (ji->p) {
+		if (ji->p && !ji->anonymous) {
 			return false;
 		}
 	}
@@ -3505,8 +3555,6 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
 		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
-
-	jobmgr_assumes(jmr, (jmr->anonj = jobmgr_get_anonymous(jmr)) != NULL);
 
 	if (!jm) {
 		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
@@ -4654,18 +4702,22 @@ job_reparent_hack(job_t j, const char *where)
 kern_return_t
 job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 {
-	mach_msg_type_number_t l2l_i, l2l_name_cnt = 0, l2l_port_cnt = 0;
+	mach_msg_type_number_t l2l_i, l2l_name_cnt = 0, l2l_port_cnt = 0, l2l_pid_cnt = 0;
 	name_array_t l2l_names = NULL;
+	pid_array_t l2l_pids = NULL;
 	mach_port_array_t l2l_ports = NULL;
 	mach_port_t reqport, rcvright;
 	kern_return_t kr;
 	jobmgr_t jmr;
+	job_t j2;
 
 	if (getuid() == 0) {
 		const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", "-S", session_type, NULL };
 		job_t bootstrapper;
 
-		j = job_mig_intran2(root_jobmgr, target_subset);
+		job_assumes(j, (j2 = job_mig_intran2(root_jobmgr, target_subset)) != NULL);
+		j = j2;
+		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
 		strcpy(j->mgr->name, session_type);
 		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
 
@@ -4677,7 +4729,9 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 	}
 
 	kr = _vproc_grab_subset(target_subset, &reqport,
-			&rcvright, &l2l_names, &l2l_name_cnt, &l2l_ports, &l2l_port_cnt);
+			&rcvright, &l2l_names, &l2l_name_cnt,
+			&l2l_pids, &l2l_pid_cnt,
+			&l2l_ports, &l2l_port_cnt);
 
 	if (job_assumes(j, kr == 0)) {
 		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
@@ -4686,6 +4740,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 	}
 
 	launchd_assert(l2l_name_cnt == l2l_port_cnt);
+	launchd_assert(l2l_name_cnt == l2l_pid_cnt);
 
 	if ((jmr = jobmgr_new(j->mgr, reqport, rcvright, false, session_type)) == NULL) {
 		kr = BOOTSTRAP_NO_MEMORY;
@@ -4694,8 +4749,20 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 	for (l2l_i = 0; l2l_i < l2l_name_cnt; l2l_i++) {
 		struct machservice *ms;
+		job_t j_for_service;
 
-		if ((ms = machservice_new(jmr->anonj, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
+		SLIST_FOREACH(j_for_service, &jmr->jobs, sle) {
+			if (j_for_service->p == l2l_pids[l2l_i]) {
+				break;
+			}
+		}
+
+		if (!j_for_service) {
+			j_for_service = job_new_anonymous(jmr, l2l_pids[l2l_i]);
+			jobmgr_assumes(jmr, j_for_service != NULL);
+		}
+
+		if ((ms = machservice_new(j_for_service, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
 			machservice_request_notifications(ms);
 		}
 	}
@@ -4709,6 +4776,9 @@ out:
 	if (l2l_ports) {
 		mig_deallocate((vm_address_t)l2l_ports, l2l_port_cnt * sizeof(l2l_ports[0]));
 	}
+	if (l2l_pids) {
+		mig_deallocate((vm_address_t)l2l_pids, l2l_pid_cnt * sizeof(l2l_pids[0]));
+	}
 
 	return kr;
 }
@@ -4716,13 +4786,16 @@ out:
 kern_return_t
 job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *servicenamesp, unsigned int *servicenames_cnt,
+		pid_array_t *pidsp, unsigned int *pids_cnt,
 		mach_port_array_t *portsp, unsigned int *ports_cnt)
 {
 	name_array_t service_names = NULL;
 	mach_port_array_t ports = NULL;
+	pid_array_t pids = NULL;
 	unsigned int cnt = 0, cnt2 = 0;
 	struct machservice *ms;
 	jobmgr_t jm;
+	job_t ji;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -4743,8 +4816,13 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	job_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
 
-	SLIST_FOREACH(ms, &j->machservices, sle) {
-		cnt++;
+	SLIST_FOREACH(ji, &j->mgr->jobs, sle) {
+		if (!ji->anonymous) {
+			continue;
+		}
+		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			cnt++;
+		}
 	}
 
 	mig_allocate((vm_address_t *)&service_names, cnt * sizeof(service_names[0]));
@@ -4757,19 +4835,31 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		goto out_bad;
 	}
 
-	SLIST_FOREACH(ms, &j->machservices, sle) {
-		strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
-		ports[cnt2] = machservice_port(ms);
-		/* Increment the send right by one so we can shutdown the jobmgr cleanly */
-		jobmgr_assumes(jm, (errno = mach_port_mod_refs(mach_task_self(), ports[cnt2], MACH_PORT_RIGHT_SEND, 1)) == 0);
-		cnt2++;
+	mig_allocate((vm_address_t *)&pids, cnt * sizeof(pids[0]));
+	if (!launchd_assumes(pids != NULL)) {
+		goto out_bad;
+	}
+
+	SLIST_FOREACH(ji, &j->mgr->jobs, sle) {
+		if (!ji->anonymous) {
+			continue;
+		}
+		SLIST_FOREACH(ms, &ji->machservices, sle) {
+			strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
+			ports[cnt2] = machservice_port(ms);
+			pids[cnt2] = ms->job->p;
+			/* Increment the send right by one so we can shutdown the jobmgr cleanly */
+			jobmgr_assumes(jm, (errno = mach_port_mod_refs(mach_task_self(), ports[cnt2], MACH_PORT_RIGHT_SEND, 1)) == 0);
+			cnt2++;
+		}
 	}
 
 	launchd_assumes(cnt == cnt2);
 
 	*servicenamesp = service_names;
 	*portsp = ports;
-	*servicenames_cnt = *ports_cnt = cnt;
+	*pidsp = pids;
+	*servicenames_cnt = *ports_cnt = *pids_cnt = cnt;
 
 	*reqport = jm->req_port;
 	*rcvright = jm->jm_port;
@@ -4784,6 +4874,9 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 out_bad:
 	if (service_names) {
 		mig_deallocate((vm_address_t)service_names, cnt * sizeof(service_names[0]));
+	}
+	if (pids) {
+		mig_deallocate((vm_address_t)pids, cnt * sizeof(pids[0]));
 	}
 	if (ports) {
 		mig_deallocate((vm_address_t)ports, cnt * sizeof(ports[0]));

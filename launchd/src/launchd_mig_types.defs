@@ -24,6 +24,7 @@
  */
 
 type pid_t			= integer_t;
+type pid_array_t		= ^array [] of pid_t;
 type uid_t			= integer_t;
 type gid_t			= integer_t;
 type vproc_gsk_t		= integer_t;

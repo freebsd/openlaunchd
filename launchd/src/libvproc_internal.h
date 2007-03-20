@@ -26,6 +26,7 @@
 
 typedef char * _internal_string_t;
 typedef char * logmsg_t;
+typedef pid_t * pid_array_t;
 typedef mach_port_t vproc_mig_t;
 typedef integer_t binpref_t[8];
 
@@ -46,6 +47,7 @@ typedef integer_t binpref_t[8];
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
+		pid_array_t *pids, mach_msg_type_number_t *pidCnt,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
 kern_return_t _vprocmgr_getsocket(name_t);

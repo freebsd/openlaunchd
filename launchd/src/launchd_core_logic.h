@@ -31,7 +31,6 @@ extern jobmgr_t root_jobmgr;
 void jobmgr_init(bool);
 jobmgr_t jobmgr_shutdown(jobmgr_t jm);
 void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
-job_t jobmgr_get_anonymous(jobmgr_t jm);
 job_t jobmgr_find(jobmgr_t jm, const char *label);
 jobmgr_t jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
 bool jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p);
