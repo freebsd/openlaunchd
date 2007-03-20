@@ -1411,6 +1411,10 @@ do_BootCache_magic(BootCache_action_t what)
 {
 	const char *bcc_tool[] = { "BootCacheControl", "-f", "/var/db/BootCache.playlist", NULL, NULL };
 
+	if (is_safeboot()) {
+		return;
+	}
+
 	switch (what) {
 	case BOOTCACHE_START:
 		bcc_tool[3] = "start";
