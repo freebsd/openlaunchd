@@ -235,10 +235,13 @@ static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, u
 
 #define DO_RUSAGE_SUMMATION 0
 
+#define AUTO_PICK_LEGACY_MACH_LABEL (const char *)(~0)
+
 struct job_s {
 	kq_callback kqjob_callback;
 	SLIST_ENTRY(job_s) sle;
-	SLIST_ENTRY(job_s) hash_sle;
+	SLIST_ENTRY(job_s) pid_hash_sle;
+	SLIST_ENTRY(job_s) label_hash_sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	SLIST_HEAD(, envitem) global_env;
@@ -283,8 +286,14 @@ struct job_s {
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1;
-	char label[0];
+	const char label[0];
 };
+
+#define LABEL_HASH_SIZE 53
+
+SLIST_HEAD(, job_s) label_hash[LABEL_HASH_SIZE];
+static size_t hash_label(const char *label);
+
 
 #define job_assumes(j, e)      \
 	                (__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
@@ -706,9 +715,8 @@ job_remove(job_t j)
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 
-	if (job_assumes(j, j->mgr)) {
-		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
-	}
+	SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
+	SLIST_REMOVE(&label_hash[hash_label(j->label)], j, job_s, label_hash_sle);
 
 	job_log(j, LOG_DEBUG, "Removed");
 
@@ -802,16 +810,12 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 {
 	const char **argv = (const char **)mach_cmd2argv(cmd);
 	job_t jr = NULL;
-	char buf[1000];
 
 	if (!job_assumes(j, argv != NULL)) {
 		goto out_bad;
 	}
 
-	/* preflight the string so we know how big it is */
-	snprintf(buf, sizeof(buf), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", basename((char *)argv[0]));
-
-	jr = job_new(j->mgr, buf, NULL, argv);
+	jr = job_new(j->mgr, AUTO_PICK_LEGACY_MACH_LABEL, NULL, argv);
 
 	free(argv);
 
@@ -819,8 +823,6 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 	if (!jr) {
 		goto out_bad;
 	}
-
-	snprintf(jr->label, strlen(jr->label) + 1, "%p.%s", jr, basename(jr->argv[0]));
 
 	jr->mach_uid = uid;
 	jr->ondemand = ond;
@@ -861,7 +863,7 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 	job_t jr;
 	size_t i;
 
-	if ((jr = jobmgr_find(root_jobmgr, label)) != NULL) {
+	if ((jr = job_find(label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	}
@@ -933,7 +935,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		jr->anonymous = true;
 		jr->p = anonpid;
 		/* anonymous process reaping is messy */
-		SLIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, hash_sle);
+		SLIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
 		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, root_jobmgr) != -1);
 		job_log(jr, LOG_DEBUG, "Created anonymously.");
 	}
@@ -945,6 +947,8 @@ job_t
 job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv)
 {
 	const char *const *argv_tmp = argv;
+	char auto_label[1000];
+	char *bn = NULL;
 	char *co;
 	int i, cc = 0;
 	job_t j;
@@ -961,13 +965,23 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		return NULL;
 	}
 
+	if (label == AUTO_PICK_LEGACY_MACH_LABEL) {
+		bn = basename((char *)argv[0]);
+		snprintf(auto_label, sizeof(auto_label), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", bn);
+		label = auto_label;
+	}
+
 	j = calloc(1, sizeof(struct job_s) + strlen(label) + 1);
 
 	if (!jobmgr_assumes(jm, j != NULL)) {
 		return NULL;
 	}
 
-	strcpy(j->label, label);
+	if (label == auto_label) {
+		snprintf((char *)j->label, strlen(label) + 1, "%p.%s", j, bn);
+	} else {
+		strcpy((char *)j->label, label);
+	}
 	j->kqjob_callback = job_callback;
 	j->mgr = jm;
 	j->min_run_time = LAUNCHD_MIN_JOB_RUN_TIME;
@@ -1008,6 +1022,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	}
 
 	SLIST_INSERT_HEAD(&jm->jobs, j, sle);
+	SLIST_INSERT_HEAD(&label_hash[hash_label(j->label)], j, label_hash_sle);
 
 	job_log(j, LOG_DEBUG, "Conceived");
 
@@ -1499,7 +1514,7 @@ job_import2(launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	if ((j = jobmgr_find(root_jobmgr, label)) != NULL) {
+	if ((j = job_find(label)) != NULL) {
 		errno = EEXIST;
 		return NULL;
 	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
@@ -1518,18 +1533,11 @@ job_import2(launch_data_t pload)
 }
 
 job_t 
-jobmgr_find(jobmgr_t jm, const char *label)
+job_find(const char *label)
 {
-	jobmgr_t jmi;
 	job_t ji;
 
-	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
-		if ((ji = jobmgr_find(jmi, label))) {
-			return ji;
-		}
-	}
-
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	SLIST_FOREACH(ji, &label_hash[hash_label(label)], label_hash_sle) {
 		if (strcmp(ji->label, label) == 0) {
 			return ji;
 		}
@@ -1553,7 +1561,7 @@ job_mig_intran2(jobmgr_t jm, mach_port_t p)
 
 		hashp = ACTIVE_JOB_HASH(ldc.pid);
 
-		SLIST_FOREACH(ji, &jm->active_jobs[hashp], hash_sle) {
+		SLIST_FOREACH(ji, &jm->active_jobs[hashp], pid_hash_sle) {
 			if (ji->p == ldc.pid) {
 				return ji;
 			}
@@ -1707,7 +1715,7 @@ job_reap(job_t j)
 	}
 
 	total_children--;
-	SLIST_REMOVE(&j->mgr->active_jobs[ACTIVE_JOB_HASH(j->p)], j, job_s, hash_sle);
+	SLIST_REMOVE(&j->mgr->active_jobs[ACTIVE_JOB_HASH(j->p)], j, job_s, pid_hash_sle);
 
 	job_assumes(j, gettimeofday(&tve, NULL) != -1);
 
@@ -1928,7 +1936,7 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 		jobmgr_reap_bulk(jmi, kev);
 	}
 
-	SLIST_FOREACH(ji, &jm->active_jobs[ACTIVE_JOB_HASH(kev->ident)], hash_sle) {
+	SLIST_FOREACH(ji, &jm->active_jobs[ACTIVE_JOB_HASH(kev->ident)], pid_hash_sle) {
 		if (ji->p != (pid_t)kev->ident) {
 			continue;
 		}
@@ -1936,6 +1944,7 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 		kev->udata = ji;
 		job_callback(ji, kev);
 
+		/* A given PID exists only once per jobmgr_t */
 		break;
 	}
 }
@@ -2083,7 +2092,7 @@ job_start(job_t j)
 		break;
 	default:
 		total_children++;
-		SLIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, hash_sle);
+		SLIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, pid_hash_sle);
 
 		if (!j->legacy_mach_job) {
 			job_assumes(j, close(oepair[1]) != -1);
@@ -3562,8 +3571,11 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	}
 
 	if (name) {
+		char thelabel[1000];
+
+		snprintf(thelabel, sizeof(thelabel), "com.apple.launchctl.%s", name);
 		/* no name implies: bootstrap_subset() where creating a "bootstrapper" makes no sense */
-		bootstrapper = job_new(jmr, "com.apple.launchctld", NULL, bootstrap_tool);
+		bootstrapper = job_new(jmr, thelabel, NULL, bootstrap_tool);
 		if (jobmgr_assumes(jmr, bootstrapper != NULL) && (jm || getuid())) {
 			char buf[100];
 
@@ -4713,7 +4725,10 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 	if (getuid() == 0) {
 		const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", "-S", session_type, NULL };
+		char thelabel[1000];
 		job_t bootstrapper;
+
+		snprintf(thelabel, sizeof(thelabel), "com.apple.launchctl.%s", session_type);
 
 		job_assumes(j, (j2 = job_mig_intran2(root_jobmgr, target_subset)) != NULL);
 		j = j2;
@@ -4721,7 +4736,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		strcpy(j->mgr->name, session_type);
 		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
 
-		bootstrapper = job_new(j->mgr, "com.apple.launchctld", NULL, bootstrap_tool);
+		bootstrapper = job_new(j->mgr, thelabel, NULL, bootstrap_tool);
 		if (job_assumes(j, bootstrapper != NULL)) {
 			job_dispatch(bootstrapper, true);
 		}
@@ -5083,4 +5098,20 @@ void
 jobmgr_init(bool sflag)
 {
 	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag, getpid() == 1 ? "System" : "Background")) != NULL);
+}
+
+size_t
+hash_label(const char *label)
+{
+	size_t c, r = 5381;
+
+	/* djb2
+	 * This algorithm was first reported by Dan Bernstein many years ago in comp.lang.c
+	 */
+
+	while ((c = *label++)) {
+		r = ((r << 5) + r) + c; /* hash*33 + c */
+	}
+
+	return r % LABEL_HASH_SIZE;
 }
