@@ -4396,6 +4396,10 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	if (getpid() != 1) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
 	runtime_get_caller_creds(&ldc);
 
 	if (ldc.euid || ldc.uid) {
