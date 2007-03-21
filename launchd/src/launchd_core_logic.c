@@ -233,7 +233,7 @@ static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
 static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
-#define DO_RUSAGE_SUMATION 0
+#define DO_RUSAGE_SUMMATION 0
 
 struct job_s {
 	kq_callback kqjob_callback;
@@ -246,7 +246,7 @@ struct job_s {
 	SLIST_HEAD(, limititem) limits;
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
-#if DO_RUSAGE_SUMATION
+#if DO_RUSAGE_SUMMATION
 	struct rusage ru;
 #endif
 	binpref_t j_binpref;
@@ -1727,7 +1727,7 @@ job_reap(job_t j)
 		job_log(j, LOG_INFO, "Exited %f seconds after SIGTERM was sent", delta);
 	}
 
-#if DO_RUSAGE_SUMATION
+#if DO_RUSAGE_SUMMATION
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
 	timeradd(&ru.ru_stime, &j->ru.ru_stime, &j->ru.ru_stime);
 	j->ru.ru_maxrss += ru.ru_maxrss;
