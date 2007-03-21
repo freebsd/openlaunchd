@@ -2095,7 +2095,7 @@ job_start(job_t j)
 			job_assumes(j, close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
-		if (kevent_mod(c, EVFILT_PROC, EV_ADD, /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT, 0, j) == -1) {
+		if (kevent_mod(c, EVFILT_PROC, EV_ADD, /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT, 0, root_jobmgr ? root_jobmgr : j->mgr) == -1) {
 			job_log_error(j, LOG_ERR, "kevent()");
 			job_reap(j);
 		} else {
