@@ -971,7 +971,8 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 	size_t i, j;
 
 	if (!(debug_shutdown_hangs && getpid() == 1)) {
-		return vsyslog(priority, message, args);
+		vsyslog(priority, message, args);
+		return closelog();
 	}
 
 	if (shutdown_start.tv_sec == 0) {
