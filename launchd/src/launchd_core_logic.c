@@ -3172,10 +3172,6 @@ job_active(job_t j)
 {
 	struct machservice *ms;
 
-	if (j->anonymous) {
-		return true;
-	}
-
 	if (j->wait4pipe_eof && j->log_redirect_fd) {
 		return true;
 	}
