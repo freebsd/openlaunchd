@@ -956,7 +956,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		jr->p = anonpid;
 		/* anonymous process reaping is messy */
 		SLIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
-		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, root_jobmgr) != -1);
+		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXEC|NOTE_EXIT, 0, root_jobmgr) != -1);
 		job_log(jr, LOG_DEBUG, "Created anonymously.");
 	}
 
@@ -1880,6 +1880,10 @@ job_callback_proc(job_t j, int flags, int fflags)
 {
 	if (fflags & NOTE_EXEC) {
 		job_log(j, LOG_DEBUG, "Called execve()");
+		if (j->anonymous) {
+			job_reap(j);
+			job_remove(j);
+		}
 	}
 
 	if (fflags & NOTE_FORK) {
