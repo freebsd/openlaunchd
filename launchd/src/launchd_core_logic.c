@@ -105,8 +105,10 @@ struct machservice {
 	SLIST_ENTRY(machservice) name_hash_sle;
 	SLIST_ENTRY(machservice) port_hash_sle;
 	job_t			job;
+	uint64_t		bad_perf_cnt;
+	unsigned int		gen_num;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1, debug_on_close:1, per_pid:1;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, per_user_hack:1, debug_on_close:1, per_pid:1;
 	const char		name[0];
 };
 
@@ -276,6 +278,8 @@ struct job_s {
 	char *groupname;
 	char *stdoutpath;
 	char *stderrpath;
+	struct machservice *lastlookup;
+	unsigned int lastlookup_gennum;
 	pid_t p;
 	int argc;
 	int last_exit_status;
@@ -295,7 +299,8 @@ struct job_s {
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1;
+		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
+		     per_user:1;
 	const char label[0];
 };
 
@@ -3203,6 +3208,7 @@ machservice_resetport(job_t j, struct machservice *ms)
 	SLIST_REMOVE(&port_hash[HASH_PORT(ms->port)], ms, machservice, port_hash_sle);
 	job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+	ms->gen_num++;
 	job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS);
 	job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS);
 	SLIST_INSERT_HEAD(&port_hash[HASH_PORT(ms->port)], ms, port_hash_sle);
@@ -4405,13 +4411,16 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 	*up_cont = MACH_PORT_NULL;
 
 	SLIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
+		if (!ji->per_user) {
+			continue;
+		}
 		if (ji->mach_uid != which_user) {
 			continue;
 		}
 		if (SLIST_EMPTY(&ji->machservices)) {
 			continue;
 		}
-		if (!SLIST_FIRST(&ji->machservices)->must_match_uid) {
+		if (!SLIST_FIRST(&ji->machservices)->per_user_hack) {
 			continue;
 		}
 		break;
@@ -4430,13 +4439,14 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		}
 
 		ji->mach_uid = which_user;
+		ji->per_user = true;
 
 		if ((ms = machservice_new(ji, lbuf, up_cont, false)) == NULL) {
 			job_remove(ji);
 			return BOOTSTRAP_NO_MEMORY;
 		}
 
-		ms->must_match_uid = true;
+		ms->per_user_hack = true;
 		ms->hide = true;
 
 		ji = job_dispatch(ji, false);
@@ -4502,7 +4512,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 	runtime_get_caller_creds(&ldc);
 
 #if 0
-	job_log(j, LOG_NOTICE, "bootstrap_register() is deprecated. PID: %u Service: %s", ldc.pid, servicename);
+	job_log(j, LOG_APPLEONLY, "bootstrap_register() is deprecated. Service: %s", servicename);
 #endif
 
 	job_log(j, LOG_DEBUG, "%sMach service registration attempt: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
@@ -4550,6 +4560,7 @@ job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_ms
 {
 	struct machservice *ms;
 	struct ldcred ldc;
+	kern_return_t kr;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -4569,24 +4580,36 @@ job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_ms
 
 	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
 		ms = NULL;
-	} else if (ms && ms->must_match_uid) {
+	} else if (ms && ms->per_user_hack) {
 		ms = NULL;
 	}
 
 	if (ms) {
 		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
 		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
+#if 0
+		/* After Leopard ships, we should enable this */
+		if (j->lastlookup == ms && j->lastlookup_gennum == ms->gen_num && !j->per_user) {
+			ms->bad_perf_cnt++;
+			job_log(j, LOG_APPLEONLY, "Performance opportunity: Number of bootstrap_lookup(... \"%s\" ...) calls that should have been cached: %llu",
+					servicename, ms->bad_perf_cnt);
+		}
+		j->lastlookup = ms;
+		j->lastlookup_gennum = ms->gen_num;
+#endif
 		*serviceportp = machservice_port(ms);
 		*ptype = MACH_MSG_TYPE_COPY_SEND;
-		return BOOTSTRAP_SUCCESS;
+		kr = BOOTSTRAP_SUCCESS;
 	} else if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && (inherited_bootstrap_port != MACH_PORT_NULL)) {
 		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
 		*ptype = MACH_MSG_TYPE_MOVE_SEND;
-		return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
+		kr = bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
 	} else {
 		job_log(j, LOG_DEBUG, "%sMach service lookup failed: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
-		return BOOTSTRAP_UNKNOWN_SERVICE;
+		kr = BOOTSTRAP_UNKNOWN_SERVICE;
 	}
+
+	return kr;
 }
 
 kern_return_t

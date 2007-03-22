@@ -964,13 +964,25 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
 	static struct timeval shutdown_start = { 0, 0 };
+	static int apple_internal_logging = 1;
 	struct timeval tvnow, tvd;
+	struct stat sb;
 	int saved_errno = errno;
 	char newmsg[10000];
 	double float_time;
 	size_t i, j;
 
+	if (apple_internal_logging == 1) {
+		apple_internal_logging = stat("/AppleInternal", &sb);
+	}
+
 	if (!(debug_shutdown_hangs && getpid() == 1)) {
+		if (priority == LOG_APPLEONLY) {
+			if (apple_internal_logging == -1) {
+				return;
+			}
+			priority = LOG_NOTICE;
+		}
 		vsyslog(priority, message, args);
 		return closelog();
 	}

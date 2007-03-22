@@ -76,6 +76,8 @@ pid_t runtime_fork(mach_port_t bsport);
 void runtime_openlog(const char *ident, int logopt, int facility);
 void runtime_closelog(void);
 
+#define LOG_APPLEONLY 0x4141504c /* AAPL in hex */
+
 int runtime_setlogmask(int maskpri);
 void runtime_syslog(int priority, const char *message, ...) __attribute__((format(printf, 2, 3)));
 void runtime_vsyslog(int priority, const char *message, va_list args) __attribute__((format(printf, 2, 0)));
