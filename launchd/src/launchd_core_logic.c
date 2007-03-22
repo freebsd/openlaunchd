@@ -469,6 +469,9 @@ job_export(job_t j)
 	if ((tmp = launch_data_new_string(j->label))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LABEL);
 	}
+	if ((tmp = launch_data_new_string(j->mgr->name))) {
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE);
+	}
 	if ((tmp = launch_data_new_bool(j->ondemand))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_ONDEMAND);
 	}
