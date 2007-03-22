@@ -1881,8 +1881,8 @@ job_callback_proc(job_t j, int flags, int fflags)
 	if (fflags & NOTE_EXEC) {
 		job_log(j, LOG_DEBUG, "Called execve()");
 		if (j->anonymous) {
-			job_reap(j);
-			job_remove(j);
+			flags |= EV_EOF|EV_ONESHOT;
+			fflags |= NOTE_EXIT;
 		}
 	}
 
