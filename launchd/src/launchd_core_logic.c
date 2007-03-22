@@ -100,10 +100,11 @@ mach_port_t inherited_bootstrap_port;
 
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
+	SLIST_ENTRY(machservice) hash_sle;
 	job_t			job;
 	mach_port_name_t	port;
 	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1, debug_on_close:1, per_pid:1;
-	char			name[0];
+	const char		name[0];
 };
 
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
@@ -112,7 +113,7 @@ static void machservice_resetport(job_t j, struct machservice *ms);
 static struct machservice *machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_local);
 static void machservice_ignore(job_t j, struct machservice *ms);
 static void machservice_watch(job_t j, struct machservice *ms);
-static void machservice_delete(struct machservice *);
+static void machservice_delete(job_t j, struct machservice *);
 static void machservice_request_notifications(struct machservice *);
 static mach_port_t machservice_port(struct machservice *);
 static job_t machservice_job(struct machservice *);
@@ -196,6 +197,7 @@ static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
 #define IS_POWER_OF_TWO(v)	(!(v & (v - 1)) && v)
 #define ACTIVE_JOB_HASH_SIZE	32
 #define ACTIVE_JOB_HASH(x)	(IS_POWER_OF_TWO(ACTIVE_JOB_HASH_SIZE) ? (x & (ACTIVE_JOB_HASH_SIZE - 1)) : (x % ACTIVE_JOB_HASH_SIZE))
+#define MACHSERVICE_HASH_SIZE	37
 
 struct jobmgr_s {
 	kq_callback kqjobmgr_callback;
@@ -203,6 +205,7 @@ struct jobmgr_s {
 	SLIST_HEAD(, jobmgr_s) submgrs;
 	SLIST_HEAD(, job_s) jobs;
 	SLIST_HEAD(, job_s) active_jobs[ACTIVE_JOB_HASH_SIZE];
+	SLIST_HEAD(, machservice) ms_hash[MACHSERVICE_HASH_SIZE];
 	mach_port_t jm_port;
 	mach_port_t req_port;
 	jobmgr_t parentmgr;
@@ -292,7 +295,8 @@ struct job_s {
 #define LABEL_HASH_SIZE 53
 
 SLIST_HEAD(, job_s) label_hash[LABEL_HASH_SIZE];
-static size_t hash_label(const char *label);
+static size_t hash_label(const char *label) __attribute__((pure));
+static size_t hash_ms(const char *msstr) __attribute__((pure));
 
 
 #define job_assumes(j, e)      \
@@ -366,6 +370,7 @@ static bool cronemu_min(struct tm *wtm, int min);
 static unsigned int total_children;
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
+static size_t our_strhash(const char *s) __attribute__((pure));
 jobmgr_t root_jobmgr;
 
 void
@@ -679,7 +684,7 @@ job_remove(job_t j)
 		limititem_delete(j, li);
 	}
 	while ((ms = SLIST_FIRST(&j->machservices))) {
-		machservice_delete(ms);
+		machservice_delete(j, ms);
 	}
 	while ((si = SLIST_FIRST(&j->semaphores))) {
 		semaphoreitem_delete(j, si);
@@ -3213,7 +3218,7 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_lo
 		return NULL;
 	}
 
-	strcpy(ms->name, name);
+	strcpy((char *)ms->name, name);
 	ms->job = j;
 	ms->per_pid = pid_local;
 
@@ -3233,6 +3238,7 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_lo
 	}
 
 	SLIST_INSERT_HEAD(&j->machservices, ms, sle);
+	SLIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(ms->name)], ms, hash_sle);
 
 	job_log(j, LOG_INFO, "Mach service added: %s", name);
 
@@ -3632,7 +3638,7 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		SLIST_FOREACH_SAFE(ms, &ji->machservices, sle, next_ms) {
 			if (ms->port == port) {
-				machservice_delete(ms);
+				machservice_delete(ji, ms);
 			}
 		}
 	}
@@ -3648,21 +3654,15 @@ struct machservice *
 jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid)
 {
 	struct machservice *ms;
-	job_t ji;
 
 	if (target_pid) {
 		jobmgr_assumes(jm, !check_parent);
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
-		if (target_pid && (ji->p != target_pid)) {
-			continue;
-		}
-		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			if ((target_pid && ms->per_pid) || (!target_pid && !ms->per_pid)) {
-				if (strcmp(name, ms->name) == 0) {
-					return ms;
-				}
+	SLIST_FOREACH(ms, &jm->ms_hash[hash_ms(name)], hash_sle) {
+		if ((target_pid && ms->per_pid && ms->job->p == target_pid) || (!target_pid && !ms->per_pid)) {
+			if (strcmp(name, ms->name) == 0) {
+				return ms;
 			}
 		}
 	}
@@ -3709,22 +3709,23 @@ machservice_name(struct machservice *ms)
 }
 
 void
-machservice_delete(struct machservice *ms)
+machservice_delete(job_t j, struct machservice *ms)
 {
 	if (ms->debug_on_close) {
-		job_log(ms->job, LOG_NOTICE, "About to enter kernel debugger because of Mach port: 0x%x", ms->port);
-		job_assumes(ms->job, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
+		job_log(j, LOG_NOTICE, "About to enter kernel debugger because of Mach port: 0x%x", ms->port);
+		job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
 	}
 
-	if (ms->recv && job_assumes(ms->job, !ms->isActive)) {
-		job_assumes(ms->job, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
+	if (ms->recv && job_assumes(j, !ms->isActive)) {
+		job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	}
 
-	job_assumes(ms->job, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 
-	job_log(ms->job, LOG_INFO, "Mach service deleted: %s", ms->name);
+	job_log(j, LOG_INFO, "Mach service deleted: %s", ms->name);
 
-	SLIST_REMOVE(&ms->job->machservices, ms, machservice, sle);
+	SLIST_REMOVE(&j->machservices, ms, machservice, sle);
+	SLIST_REMOVE(&j->mgr->ms_hash[hash_ms(ms->name)], ms, machservice, hash_sle);
 
 	free(ms);
 }
@@ -4538,8 +4539,8 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 			job_log(j, LOG_DEBUG, "Mach service registration failed. Already active: %s", servicename);
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
-		job_checkin(machservice_job(ms));
-		machservice_delete(ms);
+		job_checkin(j);
+		machservice_delete(j, ms);
 	}
 
 	if (serviceport != MACH_PORT_NULL) {
@@ -4709,9 +4710,19 @@ job_reparent_hack(job_t j, const char *where)
 	}
 
 	if (job_assumes(j, jmi != NULL)) {
+		struct machservice *msi;
+
+		SLIST_FOREACH(msi, &j->machservices, sle) {
+			SLIST_REMOVE(&j->mgr->ms_hash[hash_ms(msi->name)], msi, machservice, hash_sle);
+		}
+
 		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
 		SLIST_INSERT_HEAD(&jmi->jobs, j, sle);
 		j->mgr = jmi;
+
+		SLIST_FOREACH(msi, &j->machservices, sle) {
+			SLIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(msi->name)], msi, hash_sle);
+		}
 	}
 }
 
@@ -5105,7 +5116,7 @@ jobmgr_init(bool sflag)
 }
 
 size_t
-hash_label(const char *label)
+our_strhash(const char *s)
 {
 	size_t c, r = 5381;
 
@@ -5113,9 +5124,21 @@ hash_label(const char *label)
 	 * This algorithm was first reported by Dan Bernstein many years ago in comp.lang.c
 	 */
 
-	while ((c = *label++)) {
+	while ((c = *s++)) {
 		r = ((r << 5) + r) + c; /* hash*33 + c */
 	}
 
-	return r % LABEL_HASH_SIZE;
+	return r;
+}
+
+size_t
+hash_label(const char *label)
+{
+	return our_strhash(label) % LABEL_HASH_SIZE;
+}
+
+size_t
+hash_ms(const char *msstr)
+{
+	return our_strhash(msstr) % MACHSERVICE_HASH_SIZE;
 }
