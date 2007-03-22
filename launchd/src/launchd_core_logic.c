@@ -212,7 +212,7 @@ struct jobmgr_s {
 	kq_callback kqjobmgr_callback;
 	SLIST_ENTRY(jobmgr_s) sle;
 	SLIST_HEAD(, jobmgr_s) submgrs;
-	SLIST_HEAD(, job_s) jobs;
+	LIST_HEAD(, job_s) jobs;
 	SLIST_HEAD(, job_s) active_jobs[ACTIVE_JOB_HASH_SIZE];
 	SLIST_HEAD(, machservice) ms_hash[MACHSERVICE_HASH_SIZE];
 	mach_port_t jm_port;
@@ -251,7 +251,7 @@ static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, u
 
 struct job_s {
 	kq_callback kqjob_callback;
-	SLIST_ENTRY(job_s) sle;
+	LIST_ENTRY(job_s) sle;
 	SLIST_ENTRY(job_s) pid_hash_sle;
 	SLIST_ENTRY(job_s) label_hash_sle;
 	SLIST_HEAD(, socketgroup) sockets;
@@ -581,7 +581,7 @@ jobmgr_shutdown(jobmgr_t jm)
 		jobmgr_shutdown(jmi);
 	}
 
-	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+	LIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		if (!job_active(ji)) {
 			job_remove(ji);
 		} else if (!ji->hopefully_exits_last) {
@@ -610,7 +610,7 @@ jobmgr_remove(jobmgr_t jm)
 		}
 	}
 
-	while ((ji = SLIST_FIRST(&jm->jobs))) {
+	while ((ji = LIST_FIRST(&jm->jobs))) {
 		/* We should only have anonymous jobs left */
 		job_assumes(ji, ji->anonymous);
 		job_remove(ji);
@@ -735,7 +735,7 @@ job_remove(job_t j)
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 
-	SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
+	LIST_REMOVE(j, sle);
 	SLIST_REMOVE(&label_hash[hash_label(j->label)], j, job_s, label_hash_sle);
 
 	job_log(j, LOG_DEBUG, "Removed");
@@ -1041,7 +1041,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		j->argv[i] = NULL;
 	}
 
-	SLIST_INSERT_HEAD(&jm->jobs, j, sle);
+	LIST_INSERT_HEAD(&jm->jobs, j, sle);
 	SLIST_INSERT_HEAD(&label_hash[hash_label(j->label)], j, label_hash_sle);
 
 	job_log(j, LOG_DEBUG, "Conceived");
@@ -1597,7 +1597,7 @@ job_mig_intran2(jobmgr_t jm, mach_port_t p)
 		}
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		if (ji->j_port == p) {
 			return ji;
 		}
@@ -1657,7 +1657,7 @@ job_export_all2(jobmgr_t jm, launch_data_t where)
 		job_export_all2(jmi, where);
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		launch_data_t tmp;
 
 		if (jobmgr_assumes(jm, (tmp = job_export(ji)) != NULL)) {
@@ -1796,7 +1796,7 @@ jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack)
 		jobmgr_dispatch_all(jmi, newmounthack);
 	}
 
-	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+	LIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		job_dispatch(ji, newmounthack ? ji->start_on_mount : false);
 	}
 }
@@ -2215,7 +2215,7 @@ void jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
 		jobmgr_setup_env_from_other_jobs(jm->parentmgr);
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ei, &ji->global_env, sle) {
 			setenv(ei->key, ei->value, 1);
 		}
@@ -3407,7 +3407,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 		return jm;
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		if (ji->p && !ji->hopefully_exits_last) {
 			return jm;
 		}
@@ -3415,7 +3415,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 
 	jobmgr_log(jm, LOG_DEBUG, "Asking \"hopeful\" jobs to exit.");
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		job_stop(ji);
 	}
 
@@ -3475,7 +3475,7 @@ jobmgr_is_idle(jobmgr_t jm)
 		return false;
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		if (ji->p && !ji->anonymous) {
 			return false;
 		}
@@ -4047,7 +4047,7 @@ jobmgr_dispatch_all_semaphores(jobmgr_t jm)
 		jobmgr_dispatch_all_semaphores(jmi);
 	}
 
-	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+	LIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 		if (!SLIST_EMPTY(&ji->semaphores)) {
 			job_dispatch(ji, false);
 		}
@@ -4417,7 +4417,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 	*up_cont = MACH_PORT_NULL;
 
-	SLIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
+	LIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
 		if (!ji->per_user) {
 			continue;
 		}
@@ -4659,7 +4659,7 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 
 	jm = j->mgr;
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (!ms->per_pid) {
 				cnt++;
@@ -4681,7 +4681,7 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 		goto out_bad;
 	}
 
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->jobs, sle) {
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
 			if (!ms->per_pid) {
 				strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
@@ -4737,8 +4737,8 @@ job_reparent_hack(job_t j, const char *where)
 			SLIST_REMOVE(&j->mgr->ms_hash[hash_ms(msi->name)], msi, machservice, name_hash_sle);
 		}
 
-		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
-		SLIST_INSERT_HEAD(&jmi->jobs, j, sle);
+		LIST_REMOVE(j, sle);
+		LIST_INSERT_HEAD(&jmi->jobs, j, sle);
 		j->mgr = jmi;
 
 		SLIST_FOREACH(msi, &j->machservices, sle) {
@@ -4802,7 +4802,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		struct machservice *ms;
 		job_t j_for_service;
 
-		SLIST_FOREACH(j_for_service, &jmr->jobs, sle) {
+		LIST_FOREACH(j_for_service, &jmr->jobs, sle) {
 			if (j_for_service->p == l2l_pids[l2l_i]) {
 				break;
 			}
@@ -4867,7 +4867,7 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	job_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
 
-	SLIST_FOREACH(ji, &j->mgr->jobs, sle) {
+	LIST_FOREACH(ji, &j->mgr->jobs, sle) {
 		if (!ji->anonymous) {
 			continue;
 		}
@@ -4891,7 +4891,7 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		goto out_bad;
 	}
 
-	SLIST_FOREACH(ji, &j->mgr->jobs, sle) {
+	LIST_FOREACH(ji, &j->mgr->jobs, sle) {
 		if (!ji->anonymous) {
 			continue;
 		}
