@@ -4575,16 +4575,16 @@ job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_ms
 
 	if (ms) {
 		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
-		job_log(j, LOG_DEBUG, "%sMach service lookup (by PID %d): %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 		*serviceportp = machservice_port(ms);
 		*ptype = MACH_MSG_TYPE_COPY_SEND;
 		return BOOTSTRAP_SUCCESS;
 	} else if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && (inherited_bootstrap_port != MACH_PORT_NULL)) {
-		job_log(j, LOG_DEBUG, "Mach service lookup (by PID %d) forwarded: %s", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
 		*ptype = MACH_MSG_TYPE_MOVE_SEND;
 		return bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
 	} else {
-		job_log(j, LOG_DEBUG, "%sMach service lookup (by PID %d) failed: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", ldc.pid, servicename);
+		job_log(j, LOG_DEBUG, "%sMach service lookup failed: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 }
