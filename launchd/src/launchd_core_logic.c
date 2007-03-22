@@ -4775,6 +4775,11 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		return 0;
 	}
 
+	if (getpid() != 1 && job_mig_intran2(root_jobmgr, target_subset)) {
+		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
+		return 0;
+	}
+
 	kr = _vproc_grab_subset(target_subset, &reqport,
 			&rcvright, &l2l_names, &l2l_name_cnt,
 			&l2l_pids, &l2l_pid_cnt,
