@@ -419,7 +419,7 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 			continue;
 		}
 		if (status.mps_msgcount) {
-			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, jobmgr_find_by_service_port(root_jobmgr, members[i]));
+			EV_SET(&kev, members[i], EVFILT_MACHPORT, 0, 0, 0, job_find_by_service_port(members[i]));
 #if 0
 			if (launchd_assumes(kev.udata != NULL)) {
 #endif
@@ -709,7 +709,7 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 {
 	/* This message is sent to us when a receive right is returned to us. */
 
-	if (!jobmgr_ack_port_destruction(root_jobmgr, rights)) {
+	if (!launchd_assumes(job_ack_port_destruction(rights))) {
 		launchd_assumes(launchd_mport_close_recv(rights) == KERN_SUCCESS);
 	}
 

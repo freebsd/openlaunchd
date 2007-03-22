@@ -32,13 +32,13 @@ void jobmgr_init(bool);
 jobmgr_t jobmgr_shutdown(jobmgr_t jm);
 void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
 jobmgr_t jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
-bool jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p);
-job_t jobmgr_find_by_service_port(jobmgr_t jm, mach_port_t p);
 
 launch_data_t job_export_all(void);
 
 job_t job_dispatch(job_t j, bool kickstart); /* returns j on success, NULL on job removal */
 job_t job_find(const char *label);
+job_t job_find_by_service_port(mach_port_t p);
+bool job_ack_port_destruction(mach_port_t p);
 bool job_active(job_t j);
 bool job_is_anonymous(job_t j);
 launch_data_t job_export(job_t j);

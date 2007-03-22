@@ -94,18 +94,26 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
 #define LAUNCHD_SIGKILL_TIMER 5
 
+#define IS_POWER_OF_TWO(v)	(!(v & (v - 1)) && v)
+
 extern char **environ;
 
 mach_port_t inherited_bootstrap_port;
 
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
-	SLIST_ENTRY(machservice) hash_sle;
+	SLIST_ENTRY(machservice) name_hash_sle;
+	SLIST_ENTRY(machservice) port_hash_sle;
 	job_t			job;
 	mach_port_name_t	port;
 	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, must_match_uid:1, debug_on_close:1, per_pid:1;
 	const char		name[0];
 };
+
+#define PORT_HASH_SIZE 32
+#define HASH_PORT(x)	(IS_POWER_OF_TWO(PORT_HASH_SIZE) ? (MACH_PORT_INDEX(x) & (PORT_HASH_SIZE - 1)) : (MACH_PORT_INDEX(x) % PORT_HASH_SIZE))
+
+SLIST_HEAD(, machservice) port_hash[PORT_HASH_SIZE];
 
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
 static void machservice_setup_options(launch_data_t obj, const char *key, void *context);
@@ -194,7 +202,6 @@ static void semaphoreitem_callback(job_t j, struct kevent *kev);
 static void semaphoreitem_watch(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
 
-#define IS_POWER_OF_TWO(v)	(!(v & (v - 1)) && v)
 #define ACTIVE_JOB_HASH_SIZE	32
 #define ACTIVE_JOB_HASH(x)	(IS_POWER_OF_TWO(ACTIVE_JOB_HASH_SIZE) ? (x & (ACTIVE_JOB_HASH_SIZE - 1)) : (x % ACTIVE_JOB_HASH_SIZE))
 #define MACHSERVICE_HASH_SIZE	37
@@ -1614,23 +1621,13 @@ job_mig_intran(mach_port_t p)
 }
 
 job_t
-jobmgr_find_by_service_port(jobmgr_t jm, mach_port_t p)
+job_find_by_service_port(mach_port_t p)
 {
 	struct machservice *ms;
-	jobmgr_t jmi;
-	job_t ji, jr;
 
-	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
-		if ((jr = jobmgr_find_by_service_port(jmi, p))) {
-			return jr;
-		}
-	}
-
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
-		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			if (ms->port == p) {
-				return ji;
-			}
+	SLIST_FOREACH(ms, &port_hash[HASH_PORT(p)], port_hash_sle) {
+		if (ms->port == p) {
+			return ms->job;
 		}
 	}
 
@@ -3203,10 +3200,12 @@ machservice_ignore(job_t j, struct machservice *ms)
 void
 machservice_resetport(job_t j, struct machservice *ms)
 {
+	SLIST_REMOVE(&port_hash[HASH_PORT(ms->port)], ms, machservice, port_hash_sle);
 	job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 	job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS);
 	job_assumes(j, launchd_mport_make_send(ms->port) == KERN_SUCCESS);
+	SLIST_INSERT_HEAD(&port_hash[HASH_PORT(ms->port)], ms, port_hash_sle);
 }
 
 struct machservice *
@@ -3238,7 +3237,8 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_lo
 	}
 
 	SLIST_INSERT_HEAD(&j->machservices, ms, sle);
-	SLIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(ms->name)], ms, hash_sle);
+	SLIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(ms->name)], ms, name_hash_sle);
+	SLIST_INSERT_HEAD(&port_hash[HASH_PORT(ms->port)], ms, port_hash_sle);
 
 	job_log(j, LOG_INFO, "Mach service added: %s", name);
 
@@ -3619,7 +3619,6 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 {
 	struct machservice *ms, *next_ms;
 	jobmgr_t jmi, jmn;
-	job_t ji, jn;
 
 	/* Mach ports, unlike Unix descriptors, are reference counted. In other
 	 * words, when some program hands us a second or subsequent send right
@@ -3631,16 +3630,16 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 	 * to use.
 	 */
 
-	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
-		jobmgr_delete_anything_with_port(jmi, port);
-	}
-
-	SLIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
-		SLIST_FOREACH_SAFE(ms, &ji->machservices, sle, next_ms) {
+	if (jm == root_jobmgr) {
+		SLIST_FOREACH_SAFE(ms, &port_hash[HASH_PORT(port)], port_hash_sle, next_ms) {
 			if (ms->port == port) {
-				machservice_delete(ji, ms);
+				machservice_delete(ms->job, ms);
 			}
 		}
+	}
+
+	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
+		jobmgr_delete_anything_with_port(jmi, port);
 	}
 
 	if (jm->req_port == port) {
@@ -3659,7 +3658,7 @@ jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t ta
 		jobmgr_assumes(jm, !check_parent);
 	}
 
-	SLIST_FOREACH(ms, &jm->ms_hash[hash_ms(name)], hash_sle) {
+	SLIST_FOREACH(ms, &jm->ms_hash[hash_ms(name)], name_hash_sle) {
 		if ((target_pid && ms->per_pid && ms->job->p == target_pid) || (!target_pid && !ms->per_pid)) {
 			if (strcmp(name, ms->name) == 0) {
 				return ms;
@@ -3725,7 +3724,8 @@ machservice_delete(job_t j, struct machservice *ms)
 	job_log(j, LOG_INFO, "Mach service deleted: %s", ms->name);
 
 	SLIST_REMOVE(&j->machservices, ms, machservice, sle);
-	SLIST_REMOVE(&j->mgr->ms_hash[hash_ms(ms->name)], ms, machservice, hash_sle);
+	SLIST_REMOVE(&j->mgr->ms_hash[hash_ms(ms->name)], ms, machservice, name_hash_sle);
+	SLIST_REMOVE(&port_hash[HASH_PORT(ms->port)], ms, machservice, port_hash_sle);
 
 	free(ms);
 }
@@ -3805,38 +3805,29 @@ job_checkin(job_t j)
 }
 
 bool
-jobmgr_ack_port_destruction(jobmgr_t jm, mach_port_t p)
+job_ack_port_destruction(mach_port_t p)
 {
-	struct machservice *ms = NULL;
-	jobmgr_t jmi;
-	job_t ji;
+	struct machservice *ms;
 
-	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
-		if (jobmgr_ack_port_destruction(jmi, p)) {
-			return true;
+	SLIST_FOREACH(ms, &port_hash[HASH_PORT(p)], port_hash_sle) {
+		if (ms->port == p) {
+			break;
 		}
 	}
 
-	/* We don't need the _SAFE version because we return after the job_dispatch() */
-	SLIST_FOREACH(ji, &jm->jobs, sle) {
-		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			if (ms->port != p) {
-				continue;
-			}
-
-			ms->isActive = false;
-
-			if (ms->reset) {
-				machservice_resetport(ji, ms);
-			}
-
-			job_log(ji, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
-			job_dispatch(ji, false);
-			return true;
-		}
+	if (!ms) {
+		return false;
 	}
 
-	return false;
+	ms->isActive = false;
+
+	if (ms->reset) {
+		machservice_resetport(ms->job, ms);
+	}
+
+	job_log(ms->job, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
+	job_dispatch(ms->job, false);
+	return true;
 }
 
 void
@@ -4713,7 +4704,7 @@ job_reparent_hack(job_t j, const char *where)
 		struct machservice *msi;
 
 		SLIST_FOREACH(msi, &j->machservices, sle) {
-			SLIST_REMOVE(&j->mgr->ms_hash[hash_ms(msi->name)], msi, machservice, hash_sle);
+			SLIST_REMOVE(&j->mgr->ms_hash[hash_ms(msi->name)], msi, machservice, name_hash_sle);
 		}
 
 		SLIST_REMOVE(&j->mgr->jobs, j, job_s, sle);
@@ -4721,7 +4712,7 @@ job_reparent_hack(job_t j, const char *where)
 		j->mgr = jmi;
 
 		SLIST_FOREACH(msi, &j->machservices, sle) {
-			SLIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(msi->name)], msi, hash_sle);
+			SLIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(msi->name)], msi, name_hash_sle);
 		}
 	}
 }
