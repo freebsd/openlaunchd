@@ -213,9 +213,38 @@ _vproc_get_last_exit_status(int *wstatus)
 vproc_err_t
 vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t *inval, int64_t *outval)
 {
+	static int64_t cached_pid = -1;
+	static int64_t cached_is_managed = -1;
 	int64_t dummyval = 0;
 
+	switch (key) {
+	case VPROC_GSK_MGR_PID:
+		if (cached_pid != -1 && outval) {
+			*outval = cached_pid;
+			return NULL;
+		}
+		break;
+	case VPROC_GSK_IS_MANAGED:
+		if (cached_is_managed != -1 && outval) {
+			*outval = cached_is_managed;
+			return NULL;
+		}
+		break;
+	default:
+		break;
+	}
+
 	if (vproc_mig_swap_integer(bootstrap_port, inval ? key : 0, outval ? key : 0, inval ? *inval : 0, outval ? outval : &dummyval) == 0) {
+		switch (key) {
+		case VPROC_GSK_MGR_PID:
+			cached_pid = outval ? *outval : dummyval;
+			break;
+		case VPROC_GSK_IS_MANAGED:
+			cached_is_managed = outval ? *outval : dummyval;
+			break;
+		default:
+			break;
+		}
 		return NULL;
 	}
 

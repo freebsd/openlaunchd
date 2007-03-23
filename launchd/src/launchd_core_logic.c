@@ -4270,11 +4270,26 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 kern_return_t
 job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inval, int64_t *outval)
 {
+	const char *action;
 	kern_return_t kr = 0;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
+
+	if (inkey && outkey && !job_assumes(j, inkey == outkey)) {
+		return 1;
+	}
+
+	if (inkey && outkey) {
+		action = "Swapping";
+	} else if (inkey) {
+		action = "Setting";
+	} else {
+		action = "Getting";
+	}
+
+	job_log(j, LOG_DEBUG, "%s key: %u", action, inkey ? inkey : outkey);
 
 	switch (outkey) {
 	case VPROC_GSK_LAST_EXIT_STATUS:
@@ -4287,7 +4302,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		*outval = getpid();
 		break;
 	case VPROC_GSK_IS_MANAGED:
-		*outval = !j->anonymous;
+		*outval = j->anonymous ? 0 : 1;
 		break;
 	case VPROC_GSK_BASIC_KEEPALIVE:
 		*outval = !j->ondemand;
