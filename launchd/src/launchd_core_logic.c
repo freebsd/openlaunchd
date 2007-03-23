@@ -612,7 +612,9 @@ jobmgr_remove(jobmgr_t jm)
 
 	while ((ji = LIST_FIRST(&jm->jobs))) {
 		/* We should only have anonymous jobs left */
-		job_assumes(ji, ji->anonymous);
+		if (job_assumes(ji, ji->anonymous) && ji->p) {
+			job_reap(ji);
+		}
 		job_remove(ji);
 	}
 
