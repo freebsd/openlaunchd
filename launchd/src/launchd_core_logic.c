@@ -3404,7 +3404,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 	}
 
 	LIST_FOREACH(ji, &jm->jobs, sle) {
-		if (ji->p && !ji->hopefully_exits_last) {
+		if (ji->p && !ji->anonymous && !ji->hopefully_exits_last) {
 			return jm;
 		}
 	}
