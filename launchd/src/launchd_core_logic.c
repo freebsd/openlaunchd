@@ -184,6 +184,8 @@ typedef enum {
 	FAILED_EXIT,
 	PATH_EXISTS,
 	PATH_MISSING,
+	OTHER_JOB_ACTIVE,
+	OTHER_JOB_INACTIVE,
 	PATH_CHANGES,
 	DIR_NOT_EMPTY,
 	// FILESYSTEMTYPE_IS_MOUNTED,	/* for nfsiod, but maybe others */
@@ -200,6 +202,7 @@ static bool semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 static void semaphoreitem_delete(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_setup(launch_data_t obj, const char *key, void *context);
 static void semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context);
+static void semaphoreitem_setup_otherjobs(launch_data_t obj, const char *key, void *context);
 static void semaphoreitem_callback(job_t j, struct kevent *kev);
 static void semaphoreitem_watch(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
@@ -3111,6 +3114,7 @@ job_keepalive(job_t j)
 	SLIST_FOREACH(si, &j->semaphores, sle) {
 		bool wanted_state = false;
 		int qdir_file_cnt;
+		job_t other_j;
 
 		switch (si->why) {
 		case NETWORK_UP:
@@ -3127,6 +3131,16 @@ job_keepalive(job_t j)
 			if (good_exit == wanted_state) {
 				job_log(j, LOG_DEBUG, "KeepAlive: The exit state was %s.", wanted_state ? "successful" : "failure");
 				return true;
+			}
+			break;
+		case OTHER_JOB_ACTIVE:
+			wanted_state = true;
+		case OTHER_JOB_INACTIVE:
+			if ((other_j = job_find(si->what))) {
+				if ((bool)other_j->p == wanted_state) {
+					job_log(j, LOG_DEBUG, "KeepAlive: The following job is %s: %s", wanted_state ? "active" : "inactive", si->what);
+					return true;
+				}
 			}
 			break;
 		case PATH_EXISTS:
@@ -4005,6 +4019,17 @@ semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 }
 
 void
+semaphoreitem_setup_otherjobs(launch_data_t obj, const char *key, void *context)
+{
+	job_t j = context;
+	semaphore_reason_t why;
+
+	why = launch_data_get_bool(obj) ? OTHER_JOB_ACTIVE : OTHER_JOB_INACTIVE;
+
+	semaphoreitem_new(j, why, key);
+}
+
+void
 semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context)
 {
 	job_t j = context;
@@ -4031,6 +4056,9 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_PATHSTATE) == 0 &&
 			launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
 		launch_data_dict_iterate(obj, semaphoreitem_setup_paths, j);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_OTHERJOBSTATE) == 0 &&
+			launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
+		launch_data_dict_iterate(obj, semaphoreitem_setup_otherjobs, j);
 	}
 }
 
