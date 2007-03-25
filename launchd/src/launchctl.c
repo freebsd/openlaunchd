@@ -2621,7 +2621,9 @@ fwexec(const char *const *argv, bool _wait)
 	case -1:
 		break;
 	case 0:
-		setsid();
+		if (!_wait) {
+			setsid();
+		}
 		execvp(argv[0], (char *const *)argv);
 		_exit(EXIT_FAILURE);
 		break;
