@@ -945,11 +945,17 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, anonpid };
 	char newlabel[1000];
-	struct kinfo_proc kp;
+	struct kinfo_proc kp, ppid_kp;
 	size_t len = sizeof(kp);
 	job_t jr = NULL;
 
 	if (!jobmgr_assumes(jm, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
+		return NULL;
+	}
+
+	mib[3] = kp.kp_eproc.e_ppid;
+
+	if (!jobmgr_assumes(jm, sysctl(mib, 4, &ppid_kp, &len, NULL, 0) != -1)) {
 		return NULL;
 	}
 
@@ -962,7 +968,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		/* anonymous process reaping is messy */
 		LIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
 		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXEC|NOTE_EXIT, 0, root_jobmgr) != -1);
-		job_log(jr, LOG_DEBUG, "Created anonymously.");
+		job_log(jr, LOG_DEBUG, "Created anonymously by PPID %u: %s", kp.kp_eproc.e_ppid, ppid_kp.kp_proc.p_comm);
 	}
 
 	return jr;
