@@ -1753,13 +1753,10 @@ job_reap(job_t j)
 	}
 
 	if (j->sent_sigterm_time.tv_sec) {
-		double delta;
-
 		timersub(&tve, &j->sent_sigterm_time,  &tvd);
 
-		delta = (double)tvd.tv_sec + (double)tvd.tv_usec / (double)1000000;
-
-		job_log(j, LOG_INFO, "Exited %f seconds after SIGTERM was sent", delta);
+		job_log(j, LOG_INFO, "Exited %ld.%06d seconds after %s was sent",
+				tvd.tv_sec, tvd.tv_usec, signal_to_C_name(j->sent_sigkill ? SIGKILL : SIGTERM));
 	}
 
 #if DO_RUSAGE_SUMMATION

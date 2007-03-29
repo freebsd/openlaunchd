@@ -1001,13 +1001,13 @@ void
 runtime_vsyslog(int priority, const char *message, va_list args)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
-	static struct timeval shutdown_start = { 0, 0 };
+	static struct timeval shutdown_start;
+	static struct timeval prev_msg;
 	static int apple_internal_logging = 1;
-	struct timeval tvnow, tvd;
+	struct timeval tvnow, tvd_total, tvd_msg_delta;
 	struct stat sb;
 	int saved_errno = errno;
 	char newmsg[10000];
-	double float_time;
 	size_t i, j;
 
 	if (apple_internal_logging == 1) {
@@ -1052,10 +1052,14 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 		return;
 	}
 
-	timersub(&tvnow, &shutdown_start, &tvd);
+	timersub(&tvnow, &shutdown_start, &tvd_total);
+	timersub(&tvnow, &prev_msg, &tvd_msg_delta);
 
-	float_time = (double)tvd.tv_sec + (double)tvd.tv_usec / (double)1000000;
-	snprintf(newmsg, sizeof(newmsg), "%f\t", float_time);
+	prev_msg = tvnow;
+
+	snprintf(newmsg, sizeof(newmsg), "%3ld.%06d\t%ld.%06d\t",
+			tvd_total.tv_sec, tvd_total.tv_usec,
+			tvd_msg_delta.tv_sec, tvd_msg_delta.tv_usec);
 
 	for (i = 0, j = strlen(newmsg); message[i];) {
 		if (message[i] == '%' && message[i + 1] == 'm') {
