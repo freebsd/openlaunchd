@@ -1004,7 +1004,7 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 	static struct timeval shutdown_start;
 	static struct timeval prev_msg;
 	static int apple_internal_logging = 1;
-	struct timeval tvnow, tvd_total, tvd_msg_delta;
+	struct timeval tvnow, tvd_total, tvd_msg_delta = { 0, 0 };
 	struct stat sb;
 	int saved_errno = errno;
 	char newmsg[10000];
@@ -1053,7 +1053,10 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 	}
 
 	timersub(&tvnow, &shutdown_start, &tvd_total);
-	timersub(&tvnow, &prev_msg, &tvd_msg_delta);
+
+	if (prev_msg.tv_sec != 0) {
+		timersub(&tvnow, &prev_msg, &tvd_msg_delta);
+	}
 
 	prev_msg = tvnow;
 
