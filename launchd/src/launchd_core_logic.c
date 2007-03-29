@@ -947,6 +947,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	char newlabel[1000];
 	struct kinfo_proc kp, ppid_kp;
 	size_t len = sizeof(kp);
+	bool shutdown_state;
 	job_t jr = NULL;
 
 	if (!jobmgr_assumes(jm, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
@@ -961,6 +962,11 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 
 	snprintf(newlabel, sizeof(newlabel), "anonymous-%u.%s", anonpid, kp.kp_proc.p_comm);
 
+	/* A total hack: Normally, job_new() returns an error during shutdown, but anonymous jobs are special. */
+	if ((shutdown_state = jm->shutting_down)) {
+		jm->shutting_down = false;
+	}
+
 	if (jobmgr_assumes(jm, (jr = job_new(jm, newlabel, kp.kp_proc.p_comm, NULL)) != NULL)) {
 		total_children++;
 		jr->anonymous = true;
@@ -968,7 +974,15 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		/* anonymous process reaping is messy */
 		LIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
 		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXEC|NOTE_EXIT, 0, root_jobmgr) != -1);
+		if (shutdown_state) {
+			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time. Blame PID %u: %s",
+				kp.kp_eproc.e_ppid, ppid_kp.kp_proc.p_comm);
+		}
 		job_log(jr, LOG_DEBUG, "Created anonymously by PPID %u: %s", kp.kp_eproc.e_ppid, ppid_kp.kp_proc.p_comm);
+	}
+
+	if (shutdown_state) {
+		jm->shutting_down = true;
 	}
 
 	return jr;
