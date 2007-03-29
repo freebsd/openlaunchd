@@ -71,12 +71,17 @@ static mach_port_t launchd_internal_port;
 static int mainkq;
 static int asynckq;
 
+#define BULK_KEV_MAX 100
+static struct kevent *bulk_kev;
+static int bulk_kev_i;
+static int bulk_kev_cnt;
+
 static pthread_t kqueue_demand_thread;
 static pthread_t demand_thread;
 
 static void *mport_demand_loop(void *arg);
 static void *kqueue_demand_loop(void *arg);
-static void log_kevent_struct(int level, struct kevent *kev);
+static void log_kevent_struct(int level, struct kevent *kev, int indx);
 
 static void async_callback(void);
 static kq_callback kqasync_callback = (kq_callback)async_callback;
@@ -234,7 +239,7 @@ signal_to_C_name(unsigned int sig)
 }
 
 void
-log_kevent_struct(int level, struct kevent *kev)
+log_kevent_struct(int level, struct kevent *kev, int indx)
 {
 	const char *filter_str;
 	char ident_buf[100];
@@ -394,8 +399,8 @@ log_kevent_struct(int level, struct kevent *kev)
 		break;
 	}
 
-	runtime_syslog(level, "KEVENT: udata = %p data = 0x%lx ident = %s filter = %s flags = %s fflags = %s",
-			kev->udata, kev->data, ident_buf, filter_str, flags_buf, fflags_buf);
+	runtime_syslog(level, "KEVENT[%d]: udata = %p data = 0x%lx ident = %s filter = %s flags = %s fflags = %s",
+			indx, kev->udata, kev->data, ident_buf, filter_str, flags_buf, fflags_buf);
 }
 
 kern_return_t
@@ -423,7 +428,7 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 #if 0
 			if (launchd_assumes(kev.udata != NULL)) {
 #endif
-				log_kevent_struct(LOG_DEBUG, &kev);
+				log_kevent_struct(LOG_DEBUG, &kev, 0);
 				(*((kq_callback *)kev.udata))(kev.udata, &kev);
 #if 0
 			} else {
@@ -461,25 +466,36 @@ kern_return_t
 x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 {
 	struct timespec ts = { 0, 0 };
-	struct kevent kev;
-	int kevr;
+	struct kevent kev[BULK_KEV_MAX];
+	int i;
 
-	launchd_assumes((kevr = kevent(fd, NULL, 0, &kev, 1, &ts)) != -1);
+	bulk_kev = kev;
 
-	if (kevr == 1) {
+	launchd_assumes((bulk_kev_cnt = kevent(fd, NULL, 0, kev, BULK_KEV_MAX, &ts)) != -1);
+
+	if (bulk_kev_cnt > 0) {
 #if 0
 		Dl_info dli;
 
 		if (launchd_assumes(malloc_size(kev.udata) || dladdr(kev.udata, &dli))) {
 #endif
-			log_kevent_struct(LOG_DEBUG, &kev);
-			(*((kq_callback *)kev.udata))(kev.udata, &kev);
+		for (i = 0; i < bulk_kev_cnt; i++) {
+			log_kevent_struct(LOG_DEBUG, &kev[i], i);
+		}
+		for (i = 0; i < bulk_kev_cnt; i++) {
+			bulk_kev_i = i;
+			if (kev[i].filter) {
+				(*((kq_callback *)kev[i].udata))(kev[i].udata, &kev[i]);
+			}
+		}
 #if 0
 		} else {
 			log_kevent_struct(LOG_ERR, &kev);
 		}
 #endif
 	}
+
+	bulk_kev = NULL;
 
 	return 0;
 }
@@ -683,7 +699,7 @@ async_callback(void)
 	struct kevent kev;
 
 	if (launchd_assumes(kevent(asynckq, NULL, 0, &kev, 1, &timeout) == 1)) {
-		log_kevent_struct(LOG_DEBUG, &kev);
+		log_kevent_struct(LOG_DEBUG, &kev, 0);
 		(*((kq_callback *)kev.udata))(kev.udata, &kev);
 	}
 }
@@ -923,6 +939,28 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			}
 		}
 	}
+}
+
+int
+runtime_close(int fd)
+{
+	int i;
+
+	if (bulk_kev) for (i = bulk_kev_i + 1; i < bulk_kev_cnt; i++) {
+		switch (bulk_kev[i].filter) {
+		case EVFILT_VNODE:
+		case EVFILT_WRITE:
+		case EVFILT_READ:
+			if ((int)bulk_kev[i].ident == fd) {
+				runtime_syslog(LOG_DEBUG, "Skipping kevent index: %d", i);
+				bulk_kev[i].filter = 0;
+			}
+		default:
+			break;
+		}
+	}
+
+	return close(fd);
 }
 
 static FILE *ourlogfile;

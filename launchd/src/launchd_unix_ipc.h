@@ -24,11 +24,11 @@
 
 #include "launchd_runtime.h"
 #include "launchd_core_logic.h"
-#include "launch_priv.h"
+#include "liblaunch_private.h"
 
 struct conncb {
 	kq_callback kqconn_callback;
-	SLIST_ENTRY(conncb) sle;
+	LIST_ENTRY(conncb) sle;
 	launch_t conn;
 	job_t j;
 	int disabled_batch:1, futureflags:31;

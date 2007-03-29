@@ -673,11 +673,11 @@ job_remove(job_t j)
 	}
 
 	if (!job_assumes(j, j->forkfd == 0)) {
-		job_assumes(j, close(j->forkfd) != -1);
+		job_assumes(j, runtime_close(j->forkfd) != -1);
 	}
 
 	if (!job_assumes(j, j->log_redirect_fd == 0)) {
-		job_assumes(j, close(j->log_redirect_fd) != -1);
+		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
 	}
 
 	if (j->j_port) {
@@ -1704,12 +1704,12 @@ job_reap(job_t j)
 	}
 
 	if (j->log_redirect_fd && (!j->wait4pipe_eof || j->mgr->shutting_down)) {
-		job_assumes(j, close(j->log_redirect_fd) != -1);
+		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 	}
 
 	if (j->forkfd) {
-		job_assumes(j, close(j->forkfd) != -1);
+		job_assumes(j, runtime_close(j->forkfd) != -1);
 		j->forkfd = 0;
 	}
 
@@ -1849,7 +1849,7 @@ job_log_stdouterr(job_t j)
 
 	if (rsz == 0) {
 		job_log(j, LOG_DEBUG, "Standard out/error pipe closed");
-		job_assumes(j, close(j->log_redirect_fd) != -1);
+		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 		job_dispatch(j, false);
 	} else if (job_assumes(j, rsz != -1)) {
@@ -2085,25 +2085,25 @@ job_start(job_t j)
 	switch (c = runtime_fork(j->weird_bootstrap ? j->j_port : j->mgr->jm_port)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
-		job_assumes(j, close(execspair[0]) == 0);
-		job_assumes(j, close(execspair[1]) == 0);
+		job_assumes(j, runtime_close(execspair[0]) == 0);
+		job_assumes(j, runtime_close(execspair[1]) == 0);
 		if (sipc) {
-			job_assumes(j, close(spair[0]) == 0);
-			job_assumes(j, close(spair[1]) == 0);
+			job_assumes(j, runtime_close(spair[0]) == 0);
+			job_assumes(j, runtime_close(spair[1]) == 0);
 		}
 		break;
 	case 0:
 		if (!j->legacy_mach_job) {
 			job_assumes(j, dup2(oepair[1], STDOUT_FILENO) != -1);
 			job_assumes(j, dup2(oepair[1], STDERR_FILENO) != -1);
-			job_assumes(j, close(oepair[1]) != -1);
+			job_assumes(j, runtime_close(oepair[1]) != -1);
 		}
-		job_assumes(j, close(execspair[0]) == 0);
+		job_assumes(j, runtime_close(execspair[0]) == 0);
 		/* wait for our parent to say they've attached a kevent to us */
 		read(_fd(execspair[1]), &c, sizeof(c));
 
 		if (sipc) {
-			job_assumes(j, close(spair[0]) == 0);
+			job_assumes(j, runtime_close(spair[0]) == 0);
 			snprintf(nbuf, sizeof(nbuf), "%d", spair[1]);
 			setenv(LAUNCHD_TRUSTED_FD_ENV, nbuf, 1);
 		}
@@ -2114,13 +2114,13 @@ job_start(job_t j)
 		LIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, pid_hash_sle);
 
 		if (!j->legacy_mach_job) {
-			job_assumes(j, close(oepair[1]) != -1);
+			job_assumes(j, runtime_close(oepair[1]) != -1);
 		}
 		j->p = c;
 		j->forkfd = _fd(execspair[0]);
-		job_assumes(j, close(execspair[1]) == 0);
+		job_assumes(j, runtime_close(execspair[1]) == 0);
 		if (sipc) {
-			job_assumes(j, close(spair[1]) == 0);
+			job_assumes(j, runtime_close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
 		if (kevent_mod(c, EVFILT_PROC, EV_ADD, /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT, 0, root_jobmgr ? root_jobmgr : j->mgr) == -1) {
@@ -2430,7 +2430,7 @@ job_setup_fd(job_t j, int target_fd, const char *path, int flags)
 	}
 
 	job_assumes(j, dup2(fd, target_fd) != -1);
-	job_assumes(j, close(fd) == 0);
+	job_assumes(j, runtime_close(fd) == 0);
 }
 
 int
@@ -2745,7 +2745,7 @@ semaphoreitem_callback(job_t j, struct kevent *kev)
 
 	if (invalidation_reason[0]) {
 		job_log(j, LOG_DEBUG, "Path %s: %s", invalidation_reason, si->what);
-		job_assumes(j, close(si->fd) == 0);
+		job_assumes(j, runtime_close(si->fd) == 0);
 		si->fd = -1; /* this will get fixed in semaphoreitem_watch() */
 	}
 
@@ -2873,7 +2873,7 @@ socketgroup_delete(job_t j, struct socketgroup *sg)
 	unsigned int i;
 
 	for (i = 0; i < sg->fd_cnt; i++)
-		job_assumes(j, close(sg->fds[i]) != -1);
+		job_assumes(j, runtime_close(sg->fds[i]) != -1);
 
 	SLIST_REMOVE(&j->sockets, sg, socketgroup, sle);
 
@@ -3148,7 +3148,7 @@ job_keepalive(job_t j)
 		case PATH_MISSING:
 			if ((bool)(stat(si->what, &sb) == 0) == wanted_state) {
 				if (si->fd != -1) {
-					job_assumes(j, close(si->fd) == 0);
+					job_assumes(j, runtime_close(si->fd) == 0);
 					si->fd = -1;
 				}
 				job_log(j, LOG_DEBUG, "KeepAlive: The following path %s: %s", wanted_state ? "exists" : "is missing", si->what);
@@ -3511,7 +3511,7 @@ job_uncork_fork(job_t j)
 	/* this unblocks the child and avoids a race
 	 * between the above fork() and the kevent_mod() */
 	job_assumes(j, write(j->forkfd, &c, sizeof(c)) == sizeof(c));
-	job_assumes(j, close(j->forkfd) != -1);
+	job_assumes(j, runtime_close(j->forkfd) != -1);
 	j->forkfd = 0;
 }
 
@@ -3570,8 +3570,8 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 			int dfd, lfd = strtol(trusted_fd, NULL, 10);
 
 			if ((dfd = dup(lfd)) >= 0) {
-				jobmgr_assumes(jmr, close(dfd) != -1);
-				jobmgr_assumes(jmr, close(lfd) != -1);
+				jobmgr_assumes(jmr, runtime_close(dfd) != -1);
+				jobmgr_assumes(jmr, runtime_close(lfd) != -1);
 			}
 
 			unsetenv(LAUNCHD_TRUSTED_FD_ENV);
@@ -3970,11 +3970,11 @@ out:
 
 	if (logfile_fd != -1) {
 		job_assumes(j, fcntl(logfile_fd, F_FULLFSYNC, 0) != -1);
-		job_assumes(j, close(logfile_fd) != -1);
+		job_assumes(j, runtime_close(logfile_fd) != -1);
 	}
 
 	if (console_fd != -1) {
-		job_assumes(j, close(console_fd) != -1);
+		job_assumes(j, runtime_close(console_fd) != -1);
 	}
 
 	job_log(j, LOG_DEBUG, "Finished sampling.");
@@ -4012,7 +4012,7 @@ semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 	SLIST_REMOVE(&j->semaphores, si, semaphoreitem, sle);
 
 	if (si->fd != -1) {
-		job_assumes(j, close(si->fd) != -1);
+		job_assumes(j, runtime_close(si->fd) != -1);
 	}
 
 	free(si);

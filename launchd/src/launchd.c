@@ -304,13 +304,13 @@ testfd_or_openfd(int fd, const char *path, int flags)
 	int tmpfd;
 
 	if (-1 != (tmpfd = dup(fd))) {
-		launchd_assumes(close(tmpfd) == 0);
+		launchd_assumes(runtime_close(tmpfd) == 0);
 	} else {
 		if (-1 == (tmpfd = open(path, flags | O_NOCTTY, DEFFILEMODE))) {
 			runtime_syslog(LOG_ERR, "open(\"%s\", ...): %m", path);
 		} else if (tmpfd != fd) {
 			launchd_assumes(dup2(tmpfd, fd) != -1);
-			launchd_assumes(close(tmpfd) == 0);
+			launchd_assumes(runtime_close(tmpfd) == 0);
 		}
 	}
 }
@@ -386,7 +386,7 @@ monitor_networking_state(void)
 	kev_req.kev_class = KEV_NETWORK_CLASS;
 
 	if (!launchd_assumes(ioctl(pfs, SIOCSKEVFILT, &kev_req) != -1)) {
-		close(pfs);
+		runtime_close(pfs);
 		return;
 	}
 

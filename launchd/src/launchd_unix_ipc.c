@@ -47,15 +47,15 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <paths.h>
 #include <string.h>
 
-#include "launch.h"
-#include "launch_priv.h"
+#include "liblaunch_public.h"
+#include "liblaunch_private.h"
 #include "launchd.h"
 #include "launchd_runtime.h"
 #include "launchd_core_logic.h"
 
 extern char **environ;
 
-static SLIST_HEAD(, conncb) connections = { NULL };
+static LIST_HEAD(, conncb) connections;
 
 static launch_data_t adjust_rlimits(launch_data_t in);
 
@@ -171,7 +171,7 @@ ipc_server_init(void)
 
 out_bad:
 	if (!ipc_inited && fd != -1) {
-		launchd_assumes(close(fd) == 0);
+		launchd_assumes(runtime_close(fd) == 0);
 	}
 }
 
@@ -185,7 +185,7 @@ ipc_open(int fd, job_t j)
 	c->kqconn_callback = ipc_callback;
 	c->conn = launchd_fdopen(fd);
 	c->j = j;
-	SLIST_INSERT_HEAD(&connections, c, sle);
+	LIST_INSERT_HEAD(&connections, c, sle);
 	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
 
@@ -242,7 +242,7 @@ ipc_close_all_with_job(job_t j)
 {
 	struct conncb *ci, *cin;
 
-	SLIST_FOREACH_SAFE(ci, &connections, sle, cin) {
+	LIST_FOREACH_SAFE(ci, &connections, sle, cin) {
 		if (ci->j == j) {
 			ipc_close(ci);
 		}
@@ -264,7 +264,7 @@ ipc_close_fds(launch_data_t o)
 		break;
 	case LAUNCH_DATA_FD:
 		if (launch_data_get_fd(o) != -1) {
-			launchd_assumes(close(launch_data_get_fd(o)) == 0);
+			launchd_assumes(runtime_close(launch_data_get_fd(o)) == 0);
 		}
 		break;
 	default:
@@ -457,8 +457,8 @@ ipc_close(struct conncb *c)
 {
 	batch_job_enable(true, c);
 
-	SLIST_REMOVE(&connections, c, conncb, sle);
-	launchd_close(c->conn);
+	LIST_REMOVE(c, sle);
+	launchd_close(c->conn, runtime_close);
 	free(c);
 }
 

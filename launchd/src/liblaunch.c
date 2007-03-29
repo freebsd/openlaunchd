@@ -210,7 +210,7 @@ launch_client_init(void)
 	return;
 out_bad:
 	if (_lc->l)
-		launchd_close(_lc->l);
+		launchd_close(_lc->l, close);
 	else if (lfd != -1)
 		close(lfd);
 	if (_lc)
@@ -560,7 +560,7 @@ out_bad:
 }
 
 void
-launchd_close(launch_t lh)
+launchd_close(launch_t lh, typeof(close) closefunc)
 {
 	if (lh->sendbuf)
 		free(lh->sendbuf);
@@ -570,7 +570,7 @@ launchd_close(launch_t lh)
 		free(lh->recvbuf);
 	if (lh->recvfds)
 		free(lh->recvfds);
-	close(lh->fd);
+	closefunc(lh->fd);
 	free(lh);
 }
 
