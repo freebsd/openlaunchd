@@ -981,7 +981,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	char auto_label[1000];
 	char *bn = NULL;
 	char *co;
-	int i, cc = 0;
+	int minlabel_len, i, cc = 0;
 	job_t j;
 
 	launchd_assert(offsetof(struct job_s, kqjob_callback) == 0);
@@ -1002,7 +1002,13 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		label = auto_label;
 	}
 
-	j = calloc(1, sizeof(struct job_s) + strlen(label) + 1);
+	/* This is so we can do gross things later. See NOTE_EXEC for anonymous jobs */
+	minlabel_len = strlen(label);
+	if (minlabel_len < MAXCOMLEN) {
+		minlabel_len = MAXCOMLEN;
+	}
+
+	j = calloc(1, sizeof(struct job_s) + minlabel_len + 1);
 
 	if (!jobmgr_assumes(jm, j != NULL)) {
 		return NULL;
@@ -1889,11 +1895,21 @@ job_kill(job_t j)
 void
 job_callback_proc(job_t j, int flags, int fflags)
 {
-	if (fflags & NOTE_EXEC) {
-		job_log(j, LOG_DEBUG, "Called execve()");
-		if (j->anonymous) {
-			flags |= EV_EOF|EV_ONESHOT;
-			fflags |= NOTE_EXIT;
+	if ((fflags & NOTE_EXEC) && j->anonymous) {
+		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, j->p };
+		struct kinfo_proc kp;
+		size_t len = sizeof(kp);
+
+		if (job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
+			char newlabel[1000];
+
+			snprintf(newlabel, sizeof(newlabel), "anonymous-%u.%s", j->p, kp.kp_proc.p_comm);
+
+			job_log(j, LOG_DEBUG, "Program changed. Updating the label to: %s", newlabel);
+
+			LIST_REMOVE(j, label_hash_sle);
+			strcpy((char *)j->label, newlabel);
+			LIST_INSERT_HEAD(&label_hash[hash_label(j->label)], j, label_hash_sle);
 		}
 	}
 
