@@ -1794,10 +1794,6 @@ job_reap(job_t j)
 		}
 	}
 
-	if (!j->checkedin && (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices))) {
-		job_log(j, LOG_WARNING, "Failed to check-in!");
-	}
-
 	j->last_exit_status = status;
 	j->sent_sigkill = false;
 	j->p = 0;
