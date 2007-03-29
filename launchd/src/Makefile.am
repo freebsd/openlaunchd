@@ -11,9 +11,10 @@ if LIBS_ONLY
 
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
+liblaunch_a_CFLAGS = -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
 liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 
-liblaunch_profile_a_CFLAGS = -pg $(AM_CFLAGS)
+liblaunch_profile_a_CFLAGS = -pg -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
 liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 
 $(srcdir)/libvproc.c:: protocol_vproc.h
@@ -29,9 +30,6 @@ install-data-hook:
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system
 	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
-	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch.a.dSYM liblaunch.a
-	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch_debug.a.dSYM liblaunch.a
-	dsymutil --out=$(DESTDIR)/usr/local/lib/system/liblaunch_profile.a.dSYM liblaunch_profile.a
 
 else
 
