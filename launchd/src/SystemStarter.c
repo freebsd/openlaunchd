@@ -46,7 +46,7 @@ bool gNoRunFlag = false;
 static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
 static void	displayErrorMessages(StartupContext aStartupContext);
-static pid_t	fwexec(const char *const *argv, bool _wait);
+static pid_t	fwexec(const char *cmd, ...) __attribute__((sentinel));
 
 int 
 main(int argc, char *argv[])
@@ -124,8 +124,6 @@ main(int argc, char *argv[])
 
 	unlink(kFixerPath);
 
-	const char *ipw_cmd[] = { "/usr/sbin/ipconfig", "waitall", NULL };
-	const char *adm_cmd[] = { "/sbin/autodiskmount", "-va", NULL };
 	mach_timespec_t w = { 600, 0 };
 	kern_return_t kr;
 	struct stat sb;
@@ -142,15 +140,13 @@ main(int argc, char *argv[])
 		syslog(LOG_NOTICE, "IOKitWaitQuiet: %d\n", kr);
 	}
 
-	fwexec(ipw_cmd, true);
-	fwexec(adm_cmd, true);
+	fwexec("/usr/sbin/ipconfig", "waitall", NULL);
+	fwexec("/sbin/autodiskmount", "-va", NULL);
 
 	system_starter(kActionStart, NULL);
 
 	if (stat("/etc/rc.local", &sb) != -1) {
-		const char *rc_local_cmd[] = { _PATH_BSHELL, "/etc/rc.local", NULL };
-
-		fwexec(rc_local_cmd, true);
+		fwexec(_PATH_BSHELL, "/etc/rc.local", NULL);
 	}
 
 	CFNotificationCenterPostNotificationWithOptions(
@@ -164,9 +160,7 @@ main(int argc, char *argv[])
 	assert(kev.filter == EVFILT_SIGNAL && kev.ident == SIGTERM);
 
 	if (stat("/etc/rc.shutdown.local", &sb) != -1) {
-		const char *rc_shutdown_local_cmd[] = { _PATH_BSHELL, "/etc/rc.shutdown.local", NULL };
-
-		fwexec(rc_shutdown_local_cmd, true);
+		fwexec(_PATH_BSHELL, "/etc/rc.shutdown.local", NULL);
 	}
 
 	system_starter(kActionStop, NULL);
@@ -400,10 +394,18 @@ usage(void)
 }
 
 pid_t
-fwexec(const char *const *argv, bool _wait)
+fwexec(const char *cmd, ...)
 {
-	int wstatus;
+	const char *argv[100] = { cmd };
+	va_list ap;
+	int wstatus, i = 1;
 	pid_t p;
+
+	va_start(ap, cmd);
+	do {
+		argv[i] = va_arg(ap, char *);
+	} while (argv[i++]);
+	va_end(ap);
 
 	switch ((p = fork())) {
 	case -1:
@@ -413,8 +415,6 @@ fwexec(const char *const *argv, bool _wait)
 		_exit(EXIT_FAILURE);
 		break;
 	default:
-		if (!_wait)
-			return p;
 		if (waitpid(p, &wstatus, 0) == -1) {
 			return -1;
 		} else if (WIFEXITED(wstatus)) {
