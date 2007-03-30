@@ -148,7 +148,7 @@ main(int argc, char *argv[])
 	system_starter(kActionStart, NULL);
 
 	if (stat("/etc/rc.local", &sb) != -1) {
-		const char *rc_local_cmd[] = { "_PATH_BSHELL", "/etc/rc.local", NULL };
+		const char *rc_local_cmd[] = { _PATH_BSHELL, "/etc/rc.local", NULL };
 
 		fwexec(rc_local_cmd, true);
 	}
@@ -164,7 +164,7 @@ main(int argc, char *argv[])
 	assert(kev.filter == EVFILT_SIGNAL && kev.ident == SIGTERM);
 
 	if (stat("/etc/rc.shutdown.local", &sb) != -1) {
-		const char *rc_shutdown_local_cmd[] = { "_PATH_BSHELL", "/etc/rc.shutdown.local", NULL };
+		const char *rc_shutdown_local_cmd[] = { _PATH_BSHELL, "/etc/rc.shutdown.local", NULL };
 
 		fwexec(rc_shutdown_local_cmd, true);
 	}
@@ -409,7 +409,6 @@ fwexec(const char *const *argv, bool _wait)
 	case -1:
 		return -1;
 	case 0:
-		setsid();
 		execvp(argv[0], (char *const *)argv);
 		_exit(EXIT_FAILURE);
 		break;
