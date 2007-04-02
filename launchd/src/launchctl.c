@@ -1380,6 +1380,51 @@ system_specific_bootstrap(bool sflag)
 
 	assumes(load_and_unload_cmd(4, load_launchd_items) == 0);
 
+	/*
+	 * 5066316
+	 *
+	 * We need to revisit this after Leopard ships.
+	 *
+	 * I want a plist defined knob for jobs to give advisory hints that
+	 * will "hopefully" serialize bootstrap. Reasons for doing so include
+	 * pragmatic performance optimizations and attempts to workaround bugs
+	 * in jobs. My current thought is something like what follows.
+	 *
+	 * The BootCache would switch to launchd and add this to the plist:
+	 *
+	 * <key>HopefullyStartsSerially<key>
+	 * <dict>
+	 * 	<key>ReadyTimeout</key>
+	 * 	<integer>2</integer>
+	 * </dict>
+	 *
+	 * And kextd would add the following:
+	 *
+	 * <key>HopefullyStartsSerially<key>
+	 * <dict>
+	 * 	<key>ReadyTimeout</key>
+	 * 	<integer>5</integer>
+	 * 	<key>HopefullyStartsAfter</key>
+	 * 	<string>com.apple.BootCache.daemon</string>
+	 * </dict>
+	 *
+	 *
+	 * Then both the BootCache and kextd could call something like:
+	 *
+	 * vproc_declare_ready_state();
+	 *
+	 * To tell launchd to short circuit the readiness timeout and let the
+	 * next wave of jobs start.
+	 *
+	 * Yes, this mechanism smells a lot like SystemStarter, rc.d and
+	 * friends. I think as long as we document that artificial
+	 * serialization is only advisory and not guaranteed, we should be
+	 * fine. Remember: IPC is the preferred way to serialize operations.
+	 *
+	 */
+	mach_timespec_t w = { 5, 0 };
+	IOKitWaitQuiet(kIOMasterPortDefault, &w);
+
 	do_BootCache_magic(BOOTCACHE_TAG);
 
 	do_bootroot_magic();

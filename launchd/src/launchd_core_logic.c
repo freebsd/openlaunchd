@@ -3112,7 +3112,13 @@ job_keepalive(job_t j)
 	struct stat sb;
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
 
-	if (j->mgr->global_on_demand_cnt > 0) {
+	/*
+	 * 5066316
+	 *
+	 * We definitely need to revisit this after Leopard ships. Please see
+	 * launchctl.c for the other half of this hack.
+	 */
+	if (j->mgr->global_on_demand_cnt > 0 && strcmp(j->label, "com.apple.kextd") != 0) {
 		return false;
 	}
 
