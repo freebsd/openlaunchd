@@ -1288,7 +1288,6 @@ static void
 system_specific_bootstrap(bool sflag)
 {
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
-	struct group *tfp_gr;
 	struct kevent kev;
 	int kq;
 
@@ -1305,18 +1304,6 @@ system_specific_bootstrap(bool sflag)
 	EV_SET(&kev, SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
 	assumes(kevent(kq, &kev, 1, NULL, 0, NULL) != -1);
 	assumes(signal(SIGTERM, SIG_IGN) != SIG_ERR);
-
-	if (assumes((tfp_gr = getgrnam("procview")) != NULL)) {
-		int tfp_r_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_READ_GROUP };
-		gid_t tfp_r_gid = tfp_gr->gr_gid;
-		assumes(sysctl(tfp_r_mib, 3, NULL, NULL, &tfp_r_gid, sizeof(tfp_r_gid)) != -1);
-	}
-
-	if (assumes((tfp_gr = getgrnam("procmod")) != NULL)) {
-		int tfp_rw_mib[3] = { CTL_KERN, KERN_TFP, KERN_TFP_RW_GROUP };
-		gid_t tfp_rw_gid = tfp_gr->gr_gid;
-		assumes(sysctl(tfp_rw_mib, 3, NULL, NULL, &tfp_rw_gid, sizeof(tfp_rw_gid)) != -1);
-	}
 
 	assumes(sysctl(hnmib, 2, NULL, NULL, "localhost", sizeof("localhost")) != -1);
 
