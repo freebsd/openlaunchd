@@ -2723,7 +2723,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 	}
 
 	job_log(j, LOG_DEBUG, "Watching Vnode: %d", si->fd);
-	job_assumes(j, kevent_mod(si->fd, EVFILT_VNODE, EV_ADD|EV_CLEAR, fflags, 0, j) != -1);
+	job_assumes(j, kevent_mod(si->fd, EVFILT_VNODE, EV_ADD, fflags, 0, j) != -1);
 }
 
 void
@@ -3627,7 +3627,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	if (!jm) {
 		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
-		jobmgr_assumes(jmr, kevent_mod(0, EVFILT_FS, EV_ADD|EV_CLEAR, VQ_MOUNT|VQ_UNMOUNT|VQ_UPDATE, 0, jmr) != -1);
+		jobmgr_assumes(jmr, kevent_mod(0, EVFILT_FS, EV_ADD, VQ_MOUNT|VQ_UNMOUNT|VQ_UPDATE, 0, jmr) != -1);
 	}
 
 	if (name) {

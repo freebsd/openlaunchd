@@ -264,9 +264,9 @@ log_kevent_struct(int level, struct kevent *kev, int indx)
 		else FLAGIF(EV_DELETE)
 		else FLAGIF(EV_ENABLE)
 		else FLAGIF(EV_DISABLE)
-		else FLAGIF(EV_ONESHOT)
 		else FLAGIF(EV_CLEAR)
 		else FLAGIF(EV_EOF)
+		else FLAGIF(EV_ONESHOT)
 		else FLAGIF(EV_ERROR)
 		else {
 			flags_off += sprintf(flags_off, "0x%x", flags);
@@ -677,6 +677,8 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 {
 	struct kevent kev;
 	int q = mainkq;
+
+	flags |= EV_CLEAR;
 
 	if (EVFILT_TIMER == filter || EVFILT_VNODE == filter) {
 		q = asynckq;
