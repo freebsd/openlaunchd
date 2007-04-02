@@ -576,7 +576,7 @@ jobmgr_shutdown(jobmgr_t jm)
 	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
-	jobmgr_log(jm, LOG_DEBUG, "Beginning job manager shutdown");
+	jobmgr_log(jm, LOG_DEBUG, "Beginning job manager shutdown with flags: %s", reboot_flags_to_C_names(jm->reboot_flags));
 
 	jm->shutting_down = true;
 
@@ -4408,7 +4408,10 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 kern_return_t
 job_mig_reboot2(job_t j, uint64_t flags)
 {
+	char who_started_the_reboot[2048] = "";
+	struct kinfo_proc kp;
 	struct ldcred ldc;
+	pid_t pid_to_log;
 
 	if (getpid() != 1) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
@@ -4420,9 +4423,24 @@ job_mig_reboot2(job_t j, uint64_t flags)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
+	for (pid_to_log = ldc.pid; pid_to_log; pid_to_log = kp.kp_eproc.e_ppid) {
+		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid_to_log };
+		size_t who_offset, len = sizeof(kp);
+
+		if (!job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
+			return 1;
+		}
+
+		who_offset = strlen(who_started_the_reboot);
+		snprintf(who_started_the_reboot + who_offset, sizeof(who_started_the_reboot) - who_offset,
+				" %s[%u]%s", kp.kp_proc.p_comm, pid_to_log, kp.kp_eproc.e_ppid ? " ->" : "");
+	}
+
 	root_jobmgr->reboot_flags = (int)flags;
 
 	launchd_shutdown();
+
+	job_log(j, LOG_DEBUG, "reboot2() initiated by:%s", who_started_the_reboot);
 
 	return 0;
 }
