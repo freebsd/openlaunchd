@@ -1811,7 +1811,7 @@ job_reap(job_t j)
 
 	if (j->hopefully_exits_first) {
 		j->mgr->hopefully_first_cnt--;
-	} else if (!j->hopefully_exits_last) {
+	} else if (!j->anonymous && !j->hopefully_exits_last) {
 		j->mgr->normal_active_cnt--;
 	}
 	j->last_exit_status = status;
@@ -3465,6 +3465,10 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 	}
 
 	if (jm->hopefully_first_cnt) {
+		return jm;
+	}
+
+	if (jm->parentmgr && jm->parentmgr->shutting_down && jm->parentmgr->hopefully_first_cnt) {
 		return jm;
 	}
 
