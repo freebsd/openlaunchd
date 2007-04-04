@@ -236,7 +236,6 @@ static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t t
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
 static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
-static bool jobmgr_is_idle(jobmgr_t jm);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
@@ -3458,12 +3457,6 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 
 	jobmgr_log(jm, LOG_DEBUG, "Garbage collecting.");
 
-	if (jobmgr_is_idle(jm)) {
-		jobmgr_log_stray_children(jm);
-		jobmgr_remove(jm);
-		return NULL;
-	}
-
 	if (jm->hopefully_first_cnt) {
 		return jm;
 	}
@@ -3484,30 +3477,39 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 		}
 
 		jm->sent_stop_to_normal_jobs = true;
-		return jm;
 	}
 
 	if (jm->normal_active_cnt) {
 		return jm;
 	}
 
-	if (jm->sent_stop_to_hopefully_last_jobs) {
+	if (!jm->sent_stop_to_hopefully_last_jobs) {
+		jobmgr_log(jm, LOG_DEBUG, "Asking \"hopefully last\" jobs to exit.");
+
+		LIST_FOREACH(ji, &jm->jobs, sle) {
+			if (ji->p && ji->anonymous) {
+				continue;
+			} else if (ji->p && job_assumes(ji, ji->hopefully_exits_last)) {
+				job_stop(ji);
+			}
+		}
+
+		jm->sent_stop_to_hopefully_last_jobs = true;
+	}
+
+	if (!SLIST_EMPTY(&jm->submgrs)) {
 		return jm;
 	}
 
-	jobmgr_log(jm, LOG_DEBUG, "Asking \"hopefully last\" jobs to exit.");
-
 	LIST_FOREACH(ji, &jm->jobs, sle) {
-		if (ji->p && ji->anonymous) {
-			continue;
-		} else if (ji->p && job_assumes(ji, ji->hopefully_exits_last)) {
-			job_stop(ji);
+		if (!ji->anonymous) {
+			return jm;
 		}
 	}
 
-	jm->sent_stop_to_hopefully_last_jobs = true;
-
-	return jm;
+	jobmgr_log_stray_children(jm);
+	jobmgr_remove(jm);
+	return NULL;
 }
 
 void
@@ -3550,24 +3552,6 @@ jobmgr_log_stray_children(jobmgr_t jm)
 
 out:
 	free(kp);
-}
-
-bool
-jobmgr_is_idle(jobmgr_t jm)
-{
-	job_t ji;
-
-	if (!SLIST_EMPTY(&jm->submgrs)) {
-		return false;
-	}
-
-	LIST_FOREACH(ji, &jm->jobs, sle) {
-		if (ji->p && !ji->anonymous) {
-			return false;
-		}
-	}
-
-	return true;
 }
 
 jobmgr_t 
