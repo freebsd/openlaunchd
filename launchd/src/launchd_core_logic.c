@@ -223,7 +223,9 @@ struct jobmgr_s {
 	jobmgr_t parentmgr;
 	int reboot_flags;
 	unsigned int global_on_demand_cnt;
-	unsigned int sent_stop_to_hopeful_jobs:1, shutting_down:1;
+	unsigned int hopefully_first_cnt;
+	unsigned int normal_active_cnt;
+	unsigned int sent_stop_to_normal_jobs:1, sent_stop_to_hopefully_last_jobs:1, shutting_down:1;
 	char name[0];
 };
 
@@ -303,7 +305,7 @@ struct job_s {
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
-		     per_user:1;
+		     per_user:1, hopefully_exits_first:1;
 	const char label[0];
 };
 
@@ -574,7 +576,7 @@ jobmgr_t
 jobmgr_shutdown(jobmgr_t jm)
 {
 	jobmgr_t jmi, jmn;
-	job_t ji, jn;
+	job_t ji;
 
 	jobmgr_log(jm, LOG_DEBUG, "Beginning job manager shutdown with flags: %s", reboot_flags_to_C_names(jm->reboot_flags));
 
@@ -584,11 +586,11 @@ jobmgr_shutdown(jobmgr_t jm)
 		jobmgr_shutdown(jmi);
 	}
 
-	LIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
-		if (!job_active(ji)) {
-			job_remove(ji);
-		} else if (!ji->hopefully_exits_last) {
-			job_stop(ji);
+	if (jm->hopefully_first_cnt) {
+		LIST_FOREACH(ji, &jm->jobs, sle) {
+			if (ji->p && ji->hopefully_exits_first) {
+				job_stop(ji);
+			}
 		}
 	}
 
@@ -974,7 +976,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		/* anonymous process reaping is messy */
 		LIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
 		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXEC|NOTE_EXIT, 0, root_jobmgr) != -1);
-		if (shutdown_state) {
+		if (shutdown_state && jm->hopefully_first_cnt == 0) {
 			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time. Blame PID %u: %s",
 				kp.kp_eproc.e_ppid, ppid_kp.kp_proc.p_comm);
 		}
@@ -1152,6 +1154,8 @@ job_import_bool(job_t j, const char *key, bool value)
 	case 'H':
 		if (strcasecmp(key, LAUNCH_JOBKEY_HOPEFULLYEXITSLAST) == 0) {
 			j->hopefully_exits_last = value;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_HOPEFULLYEXITSFIRST) == 0) {
+			j->hopefully_exits_first = value;
 		}
 		break;
 	case 's':
@@ -1805,6 +1809,11 @@ job_reap(job_t j)
 		}
 	}
 
+	if (j->hopefully_exits_first) {
+		j->mgr->hopefully_first_cnt--;
+	} else if (!j->hopefully_exits_last) {
+		j->mgr->normal_active_cnt--;
+	}
 	j->last_exit_status = status;
 	j->sent_sigkill = false;
 	j->p = 0;
@@ -2146,6 +2155,11 @@ job_start(job_t j)
 			job_assumes(j, runtime_close(oepair[1]) != -1);
 		}
 		j->p = c;
+		if (j->hopefully_exits_first) {
+			j->mgr->hopefully_first_cnt++;
+		} else if (!j->hopefully_exits_last) {
+			j->mgr->normal_active_cnt++;
+		}
 		j->forkfd = _fd(execspair[0]);
 		job_assumes(j, runtime_close(execspair[1]) == 0);
 		if (sipc) {
@@ -3236,7 +3250,7 @@ job_active(job_t j)
 	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (ms->isActive) {
+		if (ms->recv && ms->isActive) {
 			return true;
 		}
 	}
@@ -3432,7 +3446,7 @@ jobmgr_t
 jobmgr_do_garbage_collection(jobmgr_t jm)
 {
 	jobmgr_t jmi, jmn;
-	job_t ji;
+	job_t ji, jn;
 
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
 		jobmgr_do_garbage_collection(jmi);
@@ -3450,23 +3464,44 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 		return NULL;
 	}
 
-	if (jm->sent_stop_to_hopeful_jobs) {
+	if (jm->hopefully_first_cnt) {
 		return jm;
 	}
 
+	if (!jm->sent_stop_to_normal_jobs) {
+		jobmgr_log(jm, LOG_DEBUG, "Asking \"normal\" jobs to exit.");
+
+		LIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
+			if (!job_active(ji)) {
+				job_remove(ji);
+			} else if (!ji->hopefully_exits_last) {
+				job_stop(ji);
+			}
+		}
+
+		jm->sent_stop_to_normal_jobs = true;
+		return jm;
+	}
+
+	if (jm->normal_active_cnt) {
+		return jm;
+	}
+
+	if (jm->sent_stop_to_hopefully_last_jobs) {
+		return jm;
+	}
+
+	jobmgr_log(jm, LOG_DEBUG, "Asking \"hopefully last\" jobs to exit.");
+
 	LIST_FOREACH(ji, &jm->jobs, sle) {
-		if (ji->p && !ji->anonymous && !ji->hopefully_exits_last) {
-			return jm;
+		if (ji->p && ji->anonymous) {
+			continue;
+		} else if (ji->p && job_assumes(ji, ji->hopefully_exits_last)) {
+			job_stop(ji);
 		}
 	}
 
-	jobmgr_log(jm, LOG_DEBUG, "Asking \"hopeful\" jobs to exit.");
-
-	LIST_FOREACH(ji, &jm->jobs, sle) {
-		job_stop(ji);
-	}
-
-	jm->sent_stop_to_hopeful_jobs = true;
+	jm->sent_stop_to_hopefully_last_jobs = true;
 
 	return jm;
 }

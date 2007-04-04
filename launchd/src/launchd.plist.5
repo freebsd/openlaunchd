@@ -273,12 +273,18 @@ performed automatically by the system.
 This optional key specifies what
 .Xr nice 3
 value should be applied to the daemon.
+.It Sy HopefullyExitsFirst <boolean>
+This optional key causes programs to exit earlier during system shutdown.
+This key exists because some jobs do more than flush buffers and exit like
+they're supposed to. The use of this key should be considered a
+temporary solution until the software can be changed to only flush dirty buffers
+and then exit.
 .It Sy HopefullyExitsLast <boolean>
-This optional key causes programs to exit in a second wave during system
-shutdown. This key exists because some jobs don't reference count their
-clients, and therefore do not know when it is safe to exit. The use of this key
-should be considered a temporary solution until the software can be changed to
-properly reference count clients.
+This optional key causes programs to exit later during system shutdown. This
+key exists because some jobs don't reference count their clients, and therefore
+do not know when it is safe to exit. The use of this key should be considered a
+temporary solution until the software can be changed to properly reference
+count clients.
 .It Sy LowPriorityIO <boolean>
 This optional key specifies whether the kernel should consider this daemon to be low priority when doing file system I/O.
 .It Sy LaunchOnlyOnce <boolean>
