@@ -40,6 +40,8 @@
 
 static mach_port_t get_root_bootstrap_port(void);
 
+static int64_t cached_pid = -1;
+
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
@@ -73,6 +75,8 @@ _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type)
 	} else if (puc) {
 		mach_port_deallocate(mach_task_self(), puc);
 	}
+
+	cached_pid = -1;
 
 	return kr == 0 ? NULL : (vproc_err_t)_vprocmgr_move_subset_to_user;
 }
@@ -224,7 +228,6 @@ _vproc_get_last_exit_status(int *wstatus)
 vproc_err_t
 vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t *inval, int64_t *outval)
 {
-	static int64_t cached_pid = -1;
 	static int64_t cached_is_managed = -1;
 	int64_t dummyval = 0;
 
