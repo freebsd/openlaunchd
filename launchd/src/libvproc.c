@@ -38,6 +38,8 @@
 
 #include "reboot2.h"
 
+static mach_port_t get_root_bootstrap_port(void);
+
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
@@ -52,14 +54,23 @@ _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type)
 {
 	kern_return_t kr = 1;
 	mach_port_t puc = 0, which_port = bootstrap_port;
+	bool is_bkgd = (strcmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0);
 
-	if (target_user && vproc_mig_lookup_per_user_context(bootstrap_port, target_user, &puc) == 0) {
+	if (target_user && vproc_mig_lookup_per_user_context(get_root_bootstrap_port(), target_user, &puc) == 0) {
 		which_port = puc;
 	}
 
-	kr = vproc_mig_move_subset(which_port, bootstrap_port, session_type);
+	if (is_bkgd) {
+		kr = 0;
+	} else {
+		kr = vproc_mig_move_subset(which_port, bootstrap_port, session_type);
+	}
 
-	if (puc) {
+	if (puc && is_bkgd) {
+		task_set_bootstrap_port(mach_task_self(), puc);
+		mach_port_deallocate(mach_task_self(), bootstrap_port);
+		bootstrap_port = puc;
+	} else if (puc) {
 		mach_port_deallocate(mach_task_self(), puc);
 	}
 
@@ -251,8 +262,8 @@ vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t 
 	return (vproc_err_t)vproc_swap_integer;
 }
 
-void *
-reboot2(uint64_t flags)
+mach_port_t
+get_root_bootstrap_port(void)
 {
 	mach_port_t parent_port = 0;
 	mach_port_t previous_port = 0;
@@ -266,16 +277,21 @@ reboot2(uint64_t flags)
 		}
 
 		if (bootstrap_parent(previous_port, &parent_port) != 0) {
-			goto out_bad;
+			return MACH_PORT_NULL;
 		}
 
 	} while (parent_port != previous_port);
 
-	if (vproc_mig_reboot2(parent_port, flags) == 0) {
+	return parent_port;
+}
+
+void *
+reboot2(uint64_t flags)
+{
+	if (vproc_mig_reboot2(get_root_bootstrap_port(), flags) == 0) {
 		return NULL;
 	}
 
-out_bad:
 	return reboot2;
 }
 
