@@ -130,7 +130,11 @@ routine swap_integer(
 		__inval		: int64_t;
 	out	__outval	: int64_t);
 
-skip;
+routine set_service_policy(
+		__bs_port	: job_t;
+		__target_pid	: pid_t;
+		__flags		: uint64_t;
+		__service	: name_t);
 
 simpleroutine log(
 		__bs_port	: job_t;

@@ -69,6 +69,12 @@ bootstrap_parent(mach_port_t bp, mach_port_t *parent_port)
 }
 
 kern_return_t
+bootstrap_set_policy(mach_port_t bp, pid_t target_pid, uint64_t flags, const char *target_service)
+{
+	return vproc_mig_set_service_policy(bp, target_pid, flags, target_service ? (char *)target_service : "");
+}
+
+kern_return_t
 bootstrap_register(mach_port_t bp, name_t service_name, mach_port_t sp)
 {
 	return bootstrap_register2(bp, service_name, sp, 0);

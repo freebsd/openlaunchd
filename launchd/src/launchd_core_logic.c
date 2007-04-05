@@ -100,6 +100,17 @@ extern char **environ;
 
 mach_port_t inherited_bootstrap_port;
 
+struct mspolicy {
+	SLIST_ENTRY(mspolicy) sle;
+	unsigned int		allow:1, per_pid:1;
+	const char		name[0];
+};
+
+static bool mspolicy_new(job_t j, const char *name, bool allow, bool pid_local);
+static void mspolicy_setup(launch_data_t obj, const char *key, void *context);
+static bool mspolicy_check(job_t j, const char *name, bool pid_local);
+static void mspolicy_delete(job_t j, struct mspolicy *msp);
+
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
 	LIST_ENTRY(machservice) name_hash_sle;
@@ -239,8 +250,8 @@ static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
-static job_t jobmgr_find_by_pid(jobmgr_t jm, pid_t p);
-static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
+static job_t jobmgr_find_by_pid(jobmgr_t jm, pid_t p, bool create_anon);
+static job_t job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static void jobmgr_callback(void *obj, struct kevent *kev);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
@@ -264,6 +275,7 @@ struct job_s {
 	SLIST_HEAD(, envitem) global_env;
 	SLIST_HEAD(, envitem) env;
 	SLIST_HEAD(, limititem) limits;
+	SLIST_HEAD(, mspolicy) mspolicies;
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
 #if DO_RUSAGE_SUMMATION
@@ -305,7 +317,7 @@ struct job_s {
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
-		     per_user:1, hopefully_exits_first:1;
+		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1;
 	const char label[0];
 };
 
@@ -617,9 +629,7 @@ jobmgr_remove(jobmgr_t jm)
 
 	while ((ji = LIST_FIRST(&jm->jobs))) {
 		/* We should only have anonymous jobs left */
-		if (job_assumes(ji, ji->anonymous) && ji->p) {
-			job_reap(ji);
-		}
+		job_assumes(ji, ji->anonymous);
 		job_remove(ji);
 	}
 
@@ -651,13 +661,16 @@ void
 job_remove(job_t j)
 {
 	struct calendarinterval *ci;
-	struct socketgroup *sg;
-	struct limititem *li;
-	struct envitem *ei;
-	struct machservice *ms;
 	struct semaphoreitem *si;
+	struct socketgroup *sg;
+	struct machservice *ms;
+	struct limititem *li;
+	struct mspolicy *msp;
+	struct envitem *ei;
 
-	if (j->p && !j->anonymous) {
+	if (j->p && j->anonymous) {
+		job_reap(j);
+	} else if (j->p) {
 		job_log(j, LOG_DEBUG, "Removal pended until the job exits.");
 
 		if (!j->removal_pending) {
@@ -690,6 +703,9 @@ job_remove(job_t j)
 		job_assumes(j, launchd_mport_deallocate(j->wait_reply_port) == KERN_SUCCESS);
 	}
 
+	while ((msp = SLIST_FIRST(&j->mspolicies))) {
+		mspolicy_delete(j, msp);
+	}
 	while ((sg = SLIST_FIRST(&j->sockets))) {
 		socketgroup_delete(j, sg);
 	}
@@ -1412,6 +1428,8 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 	case 'M':
 		if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICES) == 0) {
 			launch_data_dict_iterate(value, machservice_setup, j);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACHSERVICELOOKUPPOLICIES) == 0) {
+			launch_data_dict_iterate(value, mspolicy_setup, j);
 		}
 		break;
 	default:
@@ -1603,7 +1621,7 @@ job_find(const char *label)
 }
 
 job_t
-jobmgr_find_by_pid(jobmgr_t jm, pid_t p)
+jobmgr_find_by_pid(jobmgr_t jm, pid_t p, bool create_anon)
 {
 	job_t ji = NULL;
 
@@ -1613,34 +1631,35 @@ jobmgr_find_by_pid(jobmgr_t jm, pid_t p)
 		}
 	}
 
-	return ji;
+	if (ji) {
+		return ji;
+	} else if (create_anon) {
+		return job_new_anonymous(jm, p);
+	} else {
+		return NULL;
+	}
 }
 
 job_t 
-job_mig_intran2(jobmgr_t jm, mach_port_t p)
+job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid)
 {
-	struct ldcred ldc;
 	jobmgr_t jmi;
 	job_t ji;
 
-	if (jm->jm_port == p) {
-		runtime_get_caller_creds(&ldc);
-
-		ji = jobmgr_find_by_pid(jm, ldc.pid);
-
-		return ji ? ji : job_new_anonymous(jm, ldc.pid);
+	if (jm->jm_port == mport) {
+		return jobmgr_find_by_pid(jm, upid, true);
 	}
 
 	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
 		job_t jr;
 
-		if ((jr = job_mig_intran2(jmi, p))) {
+		if ((jr = job_mig_intran2(jmi, mport, upid))) {
 			return jr;
 		}
 	}
 
 	LIST_FOREACH(ji, &jm->jobs, sle) {
-		if (ji->j_port == p) {
+		if (ji->j_port == mport) {
 			return ji;
 		}
 	}
@@ -1651,15 +1670,18 @@ job_mig_intran2(jobmgr_t jm, mach_port_t p)
 job_t 
 job_mig_intran(mach_port_t p)
 {
-	job_t jr = job_mig_intran2(root_jobmgr, p);
+	struct ldcred ldc;
+	job_t jr;
+
+	runtime_get_caller_creds(&ldc);
+
+	jr = job_mig_intran2(root_jobmgr, p, ldc.pid);
 
 	if (!jobmgr_assumes(root_jobmgr, jr != NULL)) {
 		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, 0 };
 		struct kinfo_proc kp;
-		struct ldcred ldc;
 		size_t len = sizeof(kp);
 
-		runtime_get_caller_creds(&ldc);
 		mib[3] = ldc.pid;
 
 		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
@@ -2000,7 +2022,7 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 		jobmgr_reap_bulk(jmi, kev);
 	}
 
-	if ((j = jobmgr_find_by_pid(jm, kev->ident))) {
+	if ((j = jobmgr_find_by_pid(jm, kev->ident, false))) {
 		kev->udata = j;
 		job_callback(j, kev);
 	}
@@ -4697,6 +4719,11 @@ job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_ms
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
+	if (!mspolicy_check(j, servicename, flags & BOOTSTRAP_PER_PID_SERVICE)) {
+		job_log(j, LOG_NOTICE, "Policy denied Mach service lookup: %s", servicename);
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
 	if (flags & BOOTSTRAP_PER_PID_SERVICE) {
 		ms = jobmgr_lookup_service(j->mgr, servicename, false, target_pid);
 	} else {
@@ -4884,7 +4911,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 		snprintf(thelabel, sizeof(thelabel), "com.apple.launchctl.%s", session_type);
 
-		job_assumes(j, (j2 = job_mig_intran2(root_jobmgr, target_subset)) != NULL);
+		job_assumes(j, (j2 = job_mig_intran(target_subset)) != NULL);
 		j = j2;
 		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
 		strcpy(j->mgr->name, session_type);
@@ -4897,7 +4924,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		return 0;
 	}
 
-	if (getpid() != 1 && job_mig_intran2(root_jobmgr, target_subset)) {
+	if (getpid() != 1 && job_mig_intran(target_subset)) {
 		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
 		return 0;
 	}
@@ -5164,6 +5191,34 @@ job_mig_uncork_fork(job_t j)
 }
 
 kern_return_t
+job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t target_service)
+{
+	job_t target_j;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (!job_assumes(j, (target_j = jobmgr_find_by_pid(j->mgr, target_pid, true)) != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (SLIST_EMPTY(&j->mspolicies)) {
+		job_log(j, LOG_DEBUG, "Setting policy on job \"%s\" for Mach service: %s", target_j->label, target_service);
+		if (target_service[0]) {
+			job_assumes(j, mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE));
+		} else {
+			target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
+		}
+	} else {
+		job_log(j, LOG_WARNING, "Jobs that have policies assigned to them may not set policies.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	return 0;
+}
+
+kern_return_t
 job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
 		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
 		binpref_t bin_pref, uint32_t binpref_cnt, pid_t *child_pid, mach_port_t *obsvr_port)
@@ -5285,4 +5340,67 @@ size_t
 hash_ms(const char *msstr)
 {
 	return our_strhash(msstr) % MACHSERVICE_HASH_SIZE;
+}
+
+bool
+mspolicy_new(job_t j, const char *name, bool allow, bool pid_local)
+{
+	struct mspolicy *msp;
+
+	SLIST_FOREACH(msp, &j->mspolicies, sle) {
+		if (msp->per_pid != pid_local) {
+			continue;
+		} else if (strcmp(msp->name, name) == 0) {
+			return false;
+		}
+	}
+
+	if ((msp = calloc(1, sizeof(struct mspolicy) + strlen(name) + 1)) == NULL) {
+		return false;
+	}
+
+	strcpy((char *)msp->name, name);
+	msp->per_pid = pid_local;
+
+	SLIST_INSERT_HEAD(&j->mspolicies, msp, sle);
+
+	return true;
+}
+
+void
+mspolicy_setup(launch_data_t obj, const char *key, void *context)
+{
+	job_t j = context;
+
+	if (launch_data_get_type(obj) != LAUNCH_DATA_BOOL) {
+		job_log(j, LOG_WARNING, "Invalid object type for Mach service policy key: %s", key);
+		return;
+	}
+
+	job_assumes(j, mspolicy_new(j, key, launch_data_get_bool(obj), false));
+}
+
+bool
+mspolicy_check(job_t j, const char *name, bool pid_local)
+{
+	struct mspolicy *mspi;
+
+	SLIST_FOREACH(mspi, &j->mspolicies, sle) {
+		if (mspi->per_pid != pid_local) {
+			continue;
+		} else if (strcmp(mspi->name, name) != 0) {
+			continue;
+		}
+		return mspi->allow;
+	}
+
+	return !j->deny_unknown_mslookups;
+}
+
+void
+mspolicy_delete(job_t j, struct mspolicy *msp)
+{
+	SLIST_REMOVE(&j->mspolicies, msp, mspolicy, sle);
+
+	free(msp);
 }
