@@ -52,6 +52,12 @@ _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
 }
 
 vproc_err_t
+_vproc_post_fork_ping(void)
+{
+	return vproc_mig_post_fork_ping(bootstrap_port, mach_task_self()) == 0 ? NULL : _vproc_post_fork_ping;
+}
+
+vproc_err_t
 _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type)
 {
 	kern_return_t kr = 1;

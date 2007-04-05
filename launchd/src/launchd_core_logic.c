@@ -352,6 +352,7 @@ static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
 static void job_postfork_become_user(job_t j);
 static void job_find_and_blame_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
+static void job_setup_exception_port(job_t j, task_t target_task);
 static void job_reparent_hack(job_t j, const char *where);
 static void job_callback(void *obj, struct kevent *kev);
 static void job_callback_proc(job_t j, int flags, int fflags);
@@ -400,6 +401,8 @@ static unsigned int total_children;
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 static size_t our_strhash(const char *s) __attribute__((pure));
+static mach_port_t the_exception_server;
+
 jobmgr_t root_jobmgr;
 
 void
@@ -2153,6 +2156,9 @@ job_start(job_t j)
 		}
 		break;
 	case 0:
+		if (_vproc_post_fork_ping()) {
+			_exit(EXIT_FAILURE);
+		}
 		if (!j->legacy_mach_job) {
 			job_assumes(j, dup2(oepair[1], STDOUT_FILENO) != -1);
 			job_assumes(j, dup2(oepair[1], STDERR_FILENO) != -1);
@@ -3359,15 +3365,14 @@ machservice_status(struct machservice *ms)
 }
 
 void
-machservice_setup_options(launch_data_t obj, const char *key, void *context)
+job_setup_exception_port(job_t j, task_t target_task)
 {
-	struct machservice *ms = context;
-	mach_port_t mhp = mach_host_self();
-	mach_port_t mts = mach_task_self();
 	thread_state_flavor_t f = 0;
 	exception_mask_t em;
-	int which_port;
-	bool b;
+
+	if (!the_exception_server) {
+		return;
+	}
 
 #if defined (__ppc__)
 	f = PPC_THREAD_STATE64;
@@ -3380,6 +3385,19 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 #else
 	em = EXC_MASK_RPC_ALERT;
 #endif
+
+	job_assumes(j, task_set_exception_ports(target_task, em, the_exception_server,
+				EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+
+}
+
+void
+machservice_setup_options(launch_data_t obj, const char *key, void *context)
+{
+	struct machservice *ms = context;
+	mach_port_t mhp = mach_host_self();
+	int which_port;
+	bool b;
 
 	if (!job_assumes(ms->job, mhp != MACH_PORT_NULL)) {
 		return;
@@ -3399,7 +3417,7 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 				job_log(ms->job, LOG_WARNING, "Tried to set a reserved task special port: %d", which_port);
 				break;
 			default:
-				job_assumes(ms->job, (errno = task_set_special_port(mts, which_port, ms->port)) == KERN_SUCCESS);
+				job_assumes(ms->job, (errno = task_set_special_port(mach_task_self(), which_port, ms->port)) == KERN_SUCCESS);
 				break;
 			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
@@ -3418,20 +3436,22 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
 			ms->hide = b;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
-			job_assumes(ms->job, task_set_exception_ports(mts, em, ms->port,
-						EXCEPTION_STATE_IDENTITY, f) == KERN_SUCCESS);
+			if (!the_exception_server) {
+				the_exception_server = ms->port;
+			} else {
+				job_log(ms->job, LOG_WARNING, "The exception server is already claimed!");
+			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 			ms->kUNCServer = b;
 			job_assumes(ms->job, host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
 		}
 		break;
 	case LAUNCH_DATA_DICTIONARY:
-#ifdef MACH_EXCEPTION_CODES
-		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
-			job_assumes(ms->job, task_set_exception_ports(mts, em, ms->port,
-						EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+		if (!the_exception_server) {
+			the_exception_server = ms->port;
+		} else {
+			job_log(ms->job, LOG_WARNING, "The exception server is already claimed!");
 		}
-#endif
 		break;
 	default:
 		break;
@@ -4455,6 +4475,22 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	}
 
 	return kr;
+}
+
+kern_return_t
+job_mig_post_fork_ping(job_t j, task_t child_task)
+{
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	job_log(j, LOG_DEBUG, "Post fork ping.");
+
+	job_setup_exception_port(j, child_task);
+
+	job_assumes(j, launchd_mport_deallocate(child_task) == KERN_SUCCESS);
+
+	return 0;
 }
 
 kern_return_t

@@ -41,7 +41,7 @@ skip;
 
 skip; /* parent */
 
-skip;
+skip; /* post_fork_ping */
 
 skip; /* info */
 

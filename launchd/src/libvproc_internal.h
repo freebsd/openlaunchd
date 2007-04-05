@@ -39,6 +39,8 @@ typedef integer_t binpref_t[8];
 
 #pragma GCC visibility push(default)
 
+vproc_err_t _vproc_post_fork_ping(void);
+
 #define SPAWN_HAS_PATH			0x0001
 #define SPAWN_HAS_WDIR			0x0002
 #define SPAWN_HAS_UMASK			0x0004

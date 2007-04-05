@@ -74,7 +74,9 @@ routine parent(
 		__bs_port	: job_t;
 	out	__parent_port	: mach_port_send_t);
 
-skip; /* last used in 10.4 */
+routine post_fork_ping(
+		__bs_port	: job_t;
+		__task_port	: task_t);
 
 routine info(
 		__bs_port	: job_t;
