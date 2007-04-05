@@ -239,6 +239,7 @@ static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
+static job_t jobmgr_find_by_pid(jobmgr_t jm, pid_t p);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t p);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static void jobmgr_callback(void *obj, struct kevent *kev);
@@ -1601,26 +1602,33 @@ job_find(const char *label)
 	return NULL;
 }
 
+job_t
+jobmgr_find_by_pid(jobmgr_t jm, pid_t p)
+{
+	job_t ji = NULL;
+
+	LIST_FOREACH(ji, &jm->active_jobs[ACTIVE_JOB_HASH(p)], pid_hash_sle) {
+		if (ji->p == p) {
+			break;
+		}
+	}
+
+	return ji;
+}
+
 job_t 
 job_mig_intran2(jobmgr_t jm, mach_port_t p)
 {
-	job_t ji;
+	struct ldcred ldc;
 	jobmgr_t jmi;
+	job_t ji;
 
 	if (jm->jm_port == p) {
-		struct ldcred ldc;
-		pid_t hashp;
-
 		runtime_get_caller_creds(&ldc);
 
-		hashp = ACTIVE_JOB_HASH(ldc.pid);
+		ji = jobmgr_find_by_pid(jm, ldc.pid);
 
-		LIST_FOREACH(ji, &jm->active_jobs[hashp], pid_hash_sle) {
-			if (ji->p == ldc.pid) {
-				return ji;
-			}
-		}
-		return job_new_anonymous(jm, ldc.pid);
+		return ji ? ji : job_new_anonymous(jm, ldc.pid);
 	}
 
 	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
@@ -1986,22 +1994,15 @@ void
 jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 {
 	jobmgr_t jmi;
-	job_t ji;
+	job_t j;
 
 	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
 		jobmgr_reap_bulk(jmi, kev);
 	}
 
-	LIST_FOREACH(ji, &jm->active_jobs[ACTIVE_JOB_HASH(kev->ident)], pid_hash_sle) {
-		if (ji->p != (pid_t)kev->ident) {
-			continue;
-		}
-		
-		kev->udata = ji;
-		job_callback(ji, kev);
-
-		/* A given PID exists only once per jobmgr_t */
-		break;
+	if ((j = jobmgr_find_by_pid(jm, kev->ident))) {
+		kev->udata = j;
+		job_callback(j, kev);
 	}
 }
 
