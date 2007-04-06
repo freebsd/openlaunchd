@@ -1016,7 +1016,8 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	char auto_label[1000];
 	char *bn = NULL;
 	char *co;
-	int minlabel_len, i, cc = 0;
+	size_t minlabel_len;
+	int i, cc = 0;
 	job_t j;
 
 	launchd_assert(offsetof(struct job_s, kqjob_callback) == 0);
@@ -1038,9 +1039,10 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	}
 
 	/* This is so we can do gross things later. See NOTE_EXEC for anonymous jobs */
+#define MAX_ANONYMOUS_LABEL_LEN (sizeof("anonymous-100000.") + MAXCOMLEN)
 	minlabel_len = strlen(label);
-	if (minlabel_len < MAXCOMLEN) {
-		minlabel_len = MAXCOMLEN;
+	if (minlabel_len < MAX_ANONYMOUS_LABEL_LEN) {
+		minlabel_len = MAX_ANONYMOUS_LABEL_LEN;
 	}
 
 	j = calloc(1, sizeof(struct job_s) + minlabel_len + 1);
