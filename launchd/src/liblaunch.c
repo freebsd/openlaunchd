@@ -347,7 +347,7 @@ bool
 launch_data_array_set_index(launch_data_t where, launch_data_t what, size_t ind)
 {
 	if ((ind + 1) >= where->_array_cnt) {
-		where->_array = realloc(where->_array, (ind + 1) * sizeof(launch_data_t));
+		where->_array = reallocf(where->_array, (ind + 1) * sizeof(launch_data_t));
 		memset(where->_array + where->_array_cnt, 0, (ind + 1 - where->_array_cnt) * sizeof(launch_data_t));
 		where->_array_cnt = ind + 1;
 	}
@@ -582,7 +582,7 @@ launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, siz
 	launch_data_t o_in_w;
 	size_t i;
 
-	*where = realloc(*where, *len + sizeof(struct _launch_data));
+	*where = reallocf(*where, *len + sizeof(struct _launch_data));
 
 	o_in_w = *where + *len;
 	memset(o_in_w, 0, sizeof(struct _launch_data));
@@ -606,27 +606,27 @@ launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, siz
 	case LAUNCH_DATA_FD:
 		o_in_w->fd = host2big(d->fd);
 		if (d->fd != -1) {
-			*fd_where = realloc(*fd_where, (*fdcnt + 1) * sizeof(int));
+			*fd_where = reallocf(*fd_where, (*fdcnt + 1) * sizeof(int));
 			(*fd_where)[*fdcnt] = d->fd;
 			(*fdcnt)++;
 		}
 		break;
 	case LAUNCH_DATA_STRING:
 		o_in_w->string_len = host2big(d->string_len);
-		*where = realloc(*where, *len + strlen(d->string) + 1);
+		*where = reallocf(*where, ROUND_TO_64BIT_WORD_SIZE(*len + strlen(d->string) + 1));
 		memcpy(*where + *len, d->string, strlen(d->string) + 1);
 		*len += ROUND_TO_64BIT_WORD_SIZE(strlen(d->string) + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
 		o_in_w->opaque_size = host2big(d->opaque_size);
-		*where = realloc(*where, *len + d->opaque_size);
+		*where = reallocf(*where, ROUND_TO_64BIT_WORD_SIZE(*len + d->opaque_size));
 		memcpy(*where + *len, d->opaque, d->opaque_size);
 		*len += ROUND_TO_64BIT_WORD_SIZE(d->opaque_size);
 		break;
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
 		o_in_w->_array_cnt = host2big(d->_array_cnt);
-		*where = realloc(*where, *len + (d->_array_cnt * sizeof(uint64_t)));
+		*where = reallocf(*where, *len + (d->_array_cnt * sizeof(uint64_t)));
 		memset(*where + *len, 0, d->_array_cnt * sizeof(uint64_t));
 		*len += d->_array_cnt * sizeof(uint64_t);
 
@@ -920,7 +920,7 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
         mh.msg_iov = &iov;
         mh.msg_iovlen = 1;
 
-	lh->recvbuf = realloc(lh->recvbuf, lh->recvlen + 8*1024);
+	lh->recvbuf = reallocf(lh->recvbuf, lh->recvlen + 8*1024);
 
 	iov.iov_base = lh->recvbuf + lh->recvlen;
 	iov.iov_len = 8*1024;
@@ -939,7 +939,7 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
 	}
 	lh->recvlen += r;
 	if (mh.msg_controllen > 0) {
-		lh->recvfds = realloc(lh->recvfds, lh->recvfdcnt * sizeof(int) + mh.msg_controllen - sizeof(struct cmsghdr));
+		lh->recvfds = reallocf(lh->recvfds, lh->recvfdcnt * sizeof(int) + mh.msg_controllen - sizeof(struct cmsghdr));
 		memcpy(lh->recvfds + lh->recvfdcnt, CMSG_DATA(cm), mh.msg_controllen - sizeof(struct cmsghdr));
 		lh->recvfdcnt += (mh.msg_controllen - sizeof(struct cmsghdr)) / sizeof(int);
 	}
