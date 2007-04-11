@@ -1752,7 +1752,7 @@ job_reap(job_t j)
 {
 	struct timeval tve, tvd;
 	struct rusage ru;
-	int status = 0;
+	int status;
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
@@ -1778,13 +1778,9 @@ job_reap(job_t j)
 	}
 
 	if (!j->anonymous && !job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
-		/*
-		 * wait4() then kill() is still racy.
-		 * Then again, we never should have got here in the first place...
-		 */
-		if (kill(j->p, 0) == 0) {
-			job_log(j, LOG_DEBUG, "Working around 5020256");
-		}
+		job_log(j, LOG_NOTICE, "Working around 5020256. Assuming the job crashed.");
+
+		status = W_EXITCODE(0, SIGSEGV);
 
 		memset(&ru, 0, sizeof(ru));
 	}
