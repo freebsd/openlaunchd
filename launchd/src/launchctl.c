@@ -140,6 +140,7 @@ static void preheat_page_cache_hack(void);
 static void do_bootroot_magic(void);
 static void do_single_user_mode(bool);
 static bool do_single_user_mode2(void);
+static void read_launchd_conf(void);
 
 typedef enum {
 	BOOTCACHE_START = 1,
@@ -285,6 +286,39 @@ demux_cmd(int argc, char *const argv[])
 
 	fprintf(stderr, "%s: unknown subcommand \"%s\"\n", getprogname(), argv[0]);
 	return 1;
+}
+
+void
+read_launchd_conf(void)
+{
+	FILE *f = fopen("/etc/launchd.conf", "r");
+	char s[1000], *c, *av[100];
+	size_t len, i;
+
+	if (!(f = fopen("/etc/launchd.conf", "r"))) {
+		return;
+	}
+
+	while ((c = fgets(s, sizeof(s), f))) {
+		len = strlen(c);
+		if (len && c[len - 1] == '\n') {
+			c[len - 1] = '\0';
+		}
+
+		i = 0;
+
+		while ((av[i] = strsep(&c, " \t"))) {
+			if (*(av[i]) != '\0') {
+				i++;
+			}
+		}
+
+		if (i > 0) {
+			demux_cmd(i, av);
+		}
+	}
+
+	fclose(f);
 }
 
 int
@@ -1331,6 +1365,8 @@ system_specific_bootstrap(bool sflag)
 	} else {
 		do_potential_fsck();
 	}
+
+	read_launchd_conf();
 
 	if (path_check("/var/account/acct")) {
 		assumes(acct("/var/account/acct") != -1);
