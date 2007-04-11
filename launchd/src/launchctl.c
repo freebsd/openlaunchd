@@ -291,9 +291,9 @@ demux_cmd(int argc, char *const argv[])
 void
 read_launchd_conf(void)
 {
-	FILE *f = fopen("/etc/launchd.conf", "r");
 	char s[1000], *c, *av[100];
 	size_t len, i;
+	FILE *f;
 
 	if (!(f = fopen("/etc/launchd.conf", "r"))) {
 		return;
