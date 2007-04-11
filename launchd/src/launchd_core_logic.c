@@ -2342,9 +2342,11 @@ void
 job_postfork_become_user(job_t j)
 {
 	char loginname[2000];
+	char tmpdirpath[PATH_MAX];
 	char shellpath[PATH_MAX];
 	char homedir[PATH_MAX];
 	struct passwd *pwe;
+	size_t r;
 	gid_t desired_gid = -1;
 	uid_t desired_uid = -1;
 
@@ -2417,6 +2419,12 @@ job_postfork_become_user(job_t j)
 
 	if (!job_assumes(j, setuid(desired_uid) != -1)) {
 		_exit(EXIT_FAILURE);
+	}
+
+	r = confstr(_CS_DARWIN_USER_TEMP_DIR, tmpdirpath, sizeof(tmpdirpath));
+
+	if (r > 0 && r < sizeof(tmpdirpath)) {
+		setenv("TMPDIR", tmpdirpath, 0);
 	}
 
 	setenv("SHELL", shellpath, 0);
