@@ -1777,7 +1777,10 @@ job_reap(job_t j)
 		j->forkfd = 0;
 	}
 
-	if (!j->anonymous && !job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
+	if (j->anonymous) {
+		status = 0;
+		memset(&ru, 0, sizeof(ru));
+	} else if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
 		job_log(j, LOG_NOTICE, "Working around 5020256. Assuming the job crashed.");
 
 		status = W_EXITCODE(0, SIGSEGV);
@@ -3295,7 +3298,9 @@ job_active(job_t j)
 void
 machservice_watch(job_t j, struct machservice *ms)
 {
-	job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
+	if (job_assumes(j, ms->recv)) {
+		job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
+	}
 }
 
 void
