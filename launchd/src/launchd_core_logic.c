@@ -371,6 +371,7 @@ static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
+static void job_set_exeception_port(job_t j, mach_port_t port);
 static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
 
 
@@ -3397,9 +3398,27 @@ job_setup_exception_port(job_t j, task_t target_task)
 	em = EXC_MASK_RPC_ALERT;
 #endif
 
-	job_assumes(j, task_set_exception_ports(target_task, em, the_exception_server,
-				EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+	if (target_task) {
+		job_assumes(j, task_set_exception_ports(target_task, em, the_exception_server,
+					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+	} else if (getpid() == 1) {
+		mach_port_t mhp = mach_host_self();
+		job_assumes(j, host_set_exception_ports(mhp, em, the_exception_server,
+					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+		job_assumes(j, launchd_mport_deallocate(mhp) == KERN_SUCCESS);
+	}
 
+}
+
+void
+job_set_exeception_port(job_t j, mach_port_t port)
+{
+	if (!the_exception_server) {
+		the_exception_server = port;
+		job_setup_exception_port(j, 0);
+	} else {
+		job_log(j, LOG_WARNING, "The exception server is already claimed!");
+	}
 }
 
 void
@@ -3447,22 +3466,14 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HIDEUNTILCHECKIN) == 0) {
 			ms->hide = b;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER) == 0) {
-			if (!the_exception_server) {
-				the_exception_server = ms->port;
-			} else {
-				job_log(ms->job, LOG_WARNING, "The exception server is already claimed!");
-			}
+			job_set_exeception_port(ms->job, ms->port);
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 			ms->kUNCServer = b;
 			job_assumes(ms->job, host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
 		}
 		break;
 	case LAUNCH_DATA_DICTIONARY:
-		if (!the_exception_server) {
-			the_exception_server = ms->port;
-		} else {
-			job_log(ms->job, LOG_WARNING, "The exception server is already claimed!");
-		}
+		job_set_exeception_port(ms->job, ms->port);
 		break;
 	default:
 		break;
