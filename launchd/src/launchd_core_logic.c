@@ -3380,7 +3380,6 @@ void
 job_setup_exception_port(job_t j, task_t target_task)
 {
 	thread_state_flavor_t f = 0;
-	exception_mask_t em;
 
 	if (!the_exception_server) {
 		return;
@@ -3392,18 +3391,12 @@ job_setup_exception_port(job_t j, task_t target_task)
 	f = x86_THREAD_STATE;
 #endif
 
-#if defined(EXC_MASK_CRASH)
-	em = EXC_MASK_CRASH;
-#else
-	em = EXC_MASK_RPC_ALERT;
-#endif
-
 	if (target_task) {
-		job_assumes(j, task_set_exception_ports(target_task, em, the_exception_server,
+		job_assumes(j, task_set_exception_ports(target_task, EXC_MASK_CRASH, the_exception_server,
 					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
 	} else if (getpid() == 1) {
 		mach_port_t mhp = mach_host_self();
-		job_assumes(j, host_set_exception_ports(mhp, em, the_exception_server,
+		job_assumes(j, host_set_exception_ports(mhp, EXC_MASK_CRASH, the_exception_server,
 					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
 		job_assumes(j, launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 	}
