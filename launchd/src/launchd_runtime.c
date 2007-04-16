@@ -132,8 +132,8 @@ launchd_runtime_init(void)
 	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
 	pthread_attr_destroy(&attr);
 
-	openlog(getprogname(), LOG_PID|LOG_CONS, LOG_LAUNCHD);
-	setlogmask(LOG_UPTO(/* LOG_DEBUG */ LOG_NOTICE));
+	runtime_openlog(getprogname(), LOG_PID|LOG_CONS, LOG_LAUNCHD);
+	runtime_setlogmask(LOG_UPTO(/* LOG_DEBUG */ LOG_NOTICE));
 }
 
 void *

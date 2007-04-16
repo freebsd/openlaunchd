@@ -2121,15 +2121,12 @@ job_start(job_t j)
 		return;
 	}
 
-	job_log(j, LOG_DEBUG, "Starting");
-
 	j->sent_sigterm_time.tv_sec = 0;
 	j->sent_sigterm_time.tv_usec = 0;
 
 	if (!j->legacy_mach_job) {
 		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
 	}
-
 
 	j->checkedin = false;
 
@@ -2178,6 +2175,8 @@ job_start(job_t j)
 		job_start_child(j);
 		break;
 	default:
+		job_log(j, LOG_DEBUG, "Started as PID: %u", c);
+
 		total_children++;
 		LIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, pid_hash_sle);
 
@@ -3299,7 +3298,7 @@ job_active(job_t j)
 void
 machservice_watch(job_t j, struct machservice *ms)
 {
-	if (job_assumes(j, ms->recv)) {
+	if (ms->recv) {
 		job_assumes(j, runtime_add_mport(ms->port, NULL, 0) == KERN_SUCCESS);
 	}
 }
