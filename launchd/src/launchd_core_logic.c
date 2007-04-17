@@ -263,7 +263,7 @@ static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, u
 
 #define DO_RUSAGE_SUMMATION 0
 
-#define AUTO_PICK_LEGACY_MACH_LABEL (const char *)(~0)
+#define AUTO_PICK_LEGACY_LABEL (const char *)(~0)
 
 struct job_s {
 	kq_callback kqjob_callback;
@@ -863,7 +863,7 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 		goto out_bad;
 	}
 
-	jr = job_new(j->mgr, AUTO_PICK_LEGACY_MACH_LABEL, NULL, argv);
+	jr = job_new(j->mgr, AUTO_PICK_LEGACY_LABEL, NULL, argv);
 
 	free(argv);
 
@@ -967,7 +967,6 @@ job_t
 job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, anonpid };
-	char newlabel[1000];
 	struct kinfo_proc kp, ppid_kp;
 	size_t len = sizeof(kp);
 	bool shutdown_state;
@@ -983,14 +982,12 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		return NULL;
 	}
 
-	snprintf(newlabel, sizeof(newlabel), "anonymous-%u.%s", anonpid, kp.kp_proc.p_comm);
-
 	/* A total hack: Normally, job_new() returns an error during shutdown, but anonymous jobs are special. */
 	if ((shutdown_state = jm->shutting_down)) {
 		jm->shutting_down = false;
 	}
 
-	if (jobmgr_assumes(jm, (jr = job_new(jm, newlabel, kp.kp_proc.p_comm, NULL)) != NULL)) {
+	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, kp.kp_proc.p_comm, NULL)) != NULL)) {
 		total_children++;
 		jr->anonymous = true;
 		jr->p = anonpid;
@@ -1016,7 +1013,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 {
 	const char *const *argv_tmp = argv;
 	char auto_label[1000];
-	char *bn = NULL;
+	const char *bn = NULL;
 	char *co;
 	size_t minlabel_len;
 	int i, cc = 0;
@@ -1034,17 +1031,14 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		return NULL;
 	}
 
-	if (label == AUTO_PICK_LEGACY_MACH_LABEL) {
-		bn = basename((char *)argv[0]);
+	if (label == AUTO_PICK_LEGACY_LABEL) {
+		bn = prog ? prog : basename((char *)argv[0]); /* prog for auto labels is kp.kp_kproc.p_comm */
 		snprintf(auto_label, sizeof(auto_label), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", bn);
 		label = auto_label;
-	}
-
-	/* This is so we can do gross things later. See NOTE_EXEC for anonymous jobs */
-#define MAX_ANONYMOUS_LABEL_LEN (sizeof("anonymous-100000.") + MAXCOMLEN)
-	minlabel_len = strlen(label);
-	if (minlabel_len < MAX_ANONYMOUS_LABEL_LEN) {
-		minlabel_len = MAX_ANONYMOUS_LABEL_LEN;
+		/* This is so we can do gross things later. See NOTE_EXEC for anonymous jobs */
+		minlabel_len = strlen(label) + MAXCOMLEN;
+	} else {
+		minlabel_len = strlen(label);
 	}
 
 	j = calloc(1, sizeof(struct job_s) + minlabel_len + 1);
@@ -1954,7 +1948,7 @@ job_callback_proc(job_t j, int flags, int fflags)
 		if (job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
 			char newlabel[1000];
 
-			snprintf(newlabel, sizeof(newlabel), "anonymous-%u.%s", j->p, kp.kp_proc.p_comm);
+			snprintf(newlabel, sizeof(newlabel), "%p.%s", j, kp.kp_proc.p_comm);
 
 			job_log(j, LOG_DEBUG, "Program changed. Updating the label to: %s", newlabel);
 
