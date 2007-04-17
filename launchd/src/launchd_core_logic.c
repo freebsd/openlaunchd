@@ -403,6 +403,7 @@ static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 static size_t our_strhash(const char *s) __attribute__((pure));
 static mach_port_t the_exception_server;
+static bool did_first_per_user_launchd_BootCache_hack;
 
 jobmgr_t root_jobmgr;
 
@@ -2180,6 +2181,10 @@ job_start(job_t j)
 		total_children++;
 		LIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, pid_hash_sle);
 
+		if (j->per_user && !did_first_per_user_launchd_BootCache_hack) {
+			did_first_per_user_launchd_BootCache_hack = true;
+		}
+
 		if (!j->legacy_mach_job) {
 			job_assumes(j, runtime_close(oepair[1]) != -1);
 		}
@@ -2209,6 +2214,23 @@ job_start(job_t j)
 	}
 }
 
+static void
+do_first_per_user_launchd_hack(void)
+{
+	char *bcct_tool[] = { "/usr/sbin/BootCacheControl", "tag", NULL };
+	int dummystatus;
+	pid_t bcp;
+
+	if (launchd_assumes((bcp = vfork()) != -1)) {
+		if (bcp == 0) {
+			execve(bcct_tool[0], bcct_tool, environ);
+			_exit(EXIT_FAILURE);
+		} else {
+			launchd_assumes(waitpid(bcp, &dummystatus, 0) != -1);
+		}
+	}
+}
+
 void
 job_start_child(job_t j)
 {
@@ -2221,6 +2243,10 @@ job_start_child(job_t j)
 	short spflags = POSIX_SPAWN_SETEXEC;
 	size_t binpref_out_cnt = 0;
 	int i;
+
+	if (j->per_user && !did_first_per_user_launchd_BootCache_hack) {
+		do_first_per_user_launchd_hack();
+	}
 
 	job_assumes(j, posix_spawnattr_init(&spattr) == 0);
 
