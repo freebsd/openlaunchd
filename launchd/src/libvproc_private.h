@@ -37,6 +37,8 @@ typedef enum {
 	VPROC_GSK_IS_MANAGED,
 	VPROC_GSK_BASIC_KEEPALIVE,
 	VPROC_GSK_START_INTERVAL,
+	VPROC_GSK_IDLE_TIMEOUT,
+	VPROC_GSK_EXIT_TIMEOUT,
 } vproc_gsk_t;
 
 vproc_err_t vproc_swap_integer(vproc_t vp, vproc_gsk_t key, int64_t *inval, int64_t *outval);

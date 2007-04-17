@@ -4479,6 +4479,12 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	case VPROC_GSK_START_INTERVAL:
 		*outval = j->start_interval;
 		break;
+	case VPROC_GSK_IDLE_TIMEOUT:
+		*outval = j->timeout;
+		break;
+	case VPROC_GSK_EXIT_TIMEOUT:
+		*outval = j->exit_timeout;
+		break;
 	case 0:
 		*outval = 0;
 		break;
@@ -4501,6 +4507,16 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		} else if (j->start_interval) {
 			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 			j->start_interval = 0;
+		}
+		break;
+	case VPROC_GSK_IDLE_TIMEOUT:
+		if ((unsigned int)inval > 0) {
+			j->timeout = inval;
+		}
+		break;
+	case VPROC_GSK_EXIT_TIMEOUT:
+		if ((unsigned int)inval > 0) {
+			j->exit_timeout = inval;
 		}
 		break;
 	case 0:
