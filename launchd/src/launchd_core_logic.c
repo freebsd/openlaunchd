@@ -195,6 +195,8 @@ typedef enum {
 	FAILED_EXIT,
 	PATH_EXISTS,
 	PATH_MISSING,
+	OTHER_JOB_ENABLED,
+	OTHER_JOB_DISABLED,
 	OTHER_JOB_ACTIVE,
 	OTHER_JOB_INACTIVE,
 	PATH_CHANGES,
@@ -209,11 +211,16 @@ struct semaphoreitem {
 	char what[0];
 };
 
+struct semaphoreitem_dict_iter_context {
+	job_t j;
+	semaphore_reason_t why_true;
+	semaphore_reason_t why_false;
+};
+
 static bool semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what);
 static void semaphoreitem_delete(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_setup(launch_data_t obj, const char *key, void *context);
-static void semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context);
-static void semaphoreitem_setup_otherjobs(launch_data_t obj, const char *key, void *context);
+static void semaphoreitem_setup_dict_iter(launch_data_t obj, const char *key, void *context);
 static void semaphoreitem_callback(job_t j, struct kevent *kev);
 static void semaphoreitem_watch(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
@@ -3239,6 +3246,14 @@ job_keepalive(job_t j)
 				return true;
 			}
 			break;
+		case OTHER_JOB_ENABLED:
+			wanted_state = true;
+		case OTHER_JOB_DISABLED:
+			if ((bool)job_find(si->what) == wanted_state) {
+				job_log(j, LOG_DEBUG, "KeepAlive: The following job is %s: %s", wanted_state ? "enabled" : "disabled", si->what);
+				return true;
+			}
+			break;
 		case OTHER_JOB_ACTIVE:
 			wanted_state = true;
 		case OTHER_JOB_INACTIVE:
@@ -4154,46 +4169,56 @@ semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 }
 
 void
-semaphoreitem_setup_otherjobs(launch_data_t obj, const char *key, void *context)
+semaphoreitem_setup_dict_iter(launch_data_t obj, const char *key, void *context)
 {
-	job_t j = context;
+	struct semaphoreitem_dict_iter_context *sdic = context;
 	semaphore_reason_t why;
 
-	why = launch_data_get_bool(obj) ? OTHER_JOB_ACTIVE : OTHER_JOB_INACTIVE;
+	why = launch_data_get_bool(obj) ? sdic->why_true : sdic->why_false;
 
-	semaphoreitem_new(j, why, key);
-}
-
-void
-semaphoreitem_setup_paths(launch_data_t obj, const char *key, void *context)
-{
-	job_t j = context;
-	semaphore_reason_t why;
-
-	why = launch_data_get_bool(obj) ? PATH_EXISTS : PATH_MISSING;
-
-	semaphoreitem_new(j, why, key);
+	semaphoreitem_new(sdic->j, why, key);
 }
 
 void
 semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 {
+	struct semaphoreitem_dict_iter_context sdic = { context, 0, 0 };
 	job_t j = context;
 	semaphore_reason_t why;
 
-	if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_NETWORKSTATE) == 0) {
-		why = launch_data_get_bool(obj) ? NETWORK_UP : NETWORK_DOWN;
-		semaphoreitem_new(j, why, NULL);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_SUCCESSFULEXIT) == 0) {
-		why = launch_data_get_bool(obj) ? SUCCESSFUL_EXIT : FAILED_EXIT;
-		semaphoreitem_new(j, why, NULL);
-		j->runatload = true;
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_PATHSTATE) == 0 &&
-			launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
-		launch_data_dict_iterate(obj, semaphoreitem_setup_paths, j);
-	} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_OTHERJOBSTATE) == 0 &&
-			launch_data_get_type(obj) == LAUNCH_DATA_DICTIONARY) {
-		launch_data_dict_iterate(obj, semaphoreitem_setup_otherjobs, j);
+	switch (launch_data_get_type(obj)) {
+	case LAUNCH_DATA_BOOL:
+		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_NETWORKSTATE) == 0) {
+			why = launch_data_get_bool(obj) ? NETWORK_UP : NETWORK_DOWN;
+			semaphoreitem_new(j, why, NULL);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_SUCCESSFULEXIT) == 0) {
+			why = launch_data_get_bool(obj) ? SUCCESSFUL_EXIT : FAILED_EXIT;
+			semaphoreitem_new(j, why, NULL);
+			j->runatload = true;
+		} else {
+			job_assumes(j, false);
+		}
+		break;
+	case LAUNCH_DATA_DICTIONARY:
+		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_PATHSTATE) == 0) {
+			sdic.why_true = PATH_EXISTS;
+			sdic.why_false = PATH_MISSING;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_OTHERJOBACTIVE) == 0) {
+			sdic.why_true = OTHER_JOB_ACTIVE;
+			sdic.why_false = OTHER_JOB_INACTIVE;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_OTHERJOBENABLED) == 0) {
+			sdic.why_true = OTHER_JOB_ENABLED;
+			sdic.why_false = OTHER_JOB_DISABLED;
+		} else {
+			job_assumes(j, false);
+			break;
+		}
+
+		launch_data_dict_iterate(obj, semaphoreitem_setup_dict_iter, &sdic);
+		break;
+	default:
+		job_assumes(j, false);
+		break;
 	}
 }
 

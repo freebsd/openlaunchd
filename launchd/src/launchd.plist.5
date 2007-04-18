@@ -155,6 +155,11 @@ Each key in this dictionary is a file-system path. If the value of the key is
 true, then the job will be kept alive as long as the path exists.
 If false, the job will be kept alive in the inverse condition. The intent of this
 feature is that two or more jobs may create semaphores in the file-system namespace.
+.It Sy OtherJobEnabled <dictionary of booleans>
+Each key in this dictionary is the label of another job. If the value of the key is
+true, then this job is kept alive as long as that other job is enabled. Otherwise,
+if the value is false, then this job is kept alive as long as the other job is disabled.
+This feature should not be considered a substitute for the use of IPC.
 .El
 .It Sy RunAtLoad <boolean>
 This optional key is used to control whether your job is launched once at the time the job is loaded. The default is false.
