@@ -68,7 +68,10 @@ routine look_up2(
 		__target_pid	: pid_t;
 		__flags		: uint64_t);
 
-skip; /* last used in 10.4 */
+routine send_signal(
+		__bs_port	: job_t;
+		__label		: name_t;
+		__signal	: integer_t);
 
 routine parent(
 		__bs_port	: job_t;

@@ -4456,6 +4456,33 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 }
 
 kern_return_t
+job_mig_send_signal(job_t j, name_t targetlabel, int sig)
+{
+	struct ldcred ldc;
+	job_t otherj;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	runtime_get_caller_creds(&ldc);
+
+	if (ldc.euid != 0 && ldc.euid != getuid()) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	if (!(otherj = job_find(targetlabel))) {
+		return BOOTSTRAP_UNKNOWN_SERVICE;
+	}
+
+	if (otherj->p) {
+		job_assumes(j, kill(otherj->p, sig) != -1);
+	}
+
+	return 0;
+}
+
+kern_return_t
 job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inval, int64_t *outval)
 {
 	const char *action;

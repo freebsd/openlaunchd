@@ -46,6 +46,8 @@ vproc_err_t vproc_swap_integer(vproc_t vp, vproc_gsk_t key, int64_t *inval, int6
 vproc_err_t _vproc_get_last_exit_status(int *wstatus);
 vproc_err_t _vproc_set_global_on_demand(bool val);
 
+vproc_err_t _vproc_send_signal_by_label(const char *label, int sig);
+
 void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 

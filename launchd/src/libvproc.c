@@ -232,6 +232,16 @@ _vproc_get_last_exit_status(int *wstatus)
 }
 
 vproc_err_t
+_vproc_send_signal_by_label(const char *label, int sig)
+{
+	if (vproc_mig_send_signal(bootstrap_port, (char *)label, sig) == 0) {
+		return NULL;
+	}
+
+	return _vproc_send_signal_by_label;
+}
+
+vproc_err_t
 vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t *inval, int64_t *outval)
 {
 	static int64_t cached_is_managed = -1;
