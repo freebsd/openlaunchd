@@ -995,12 +995,18 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, kp.kp_proc.p_comm, NULL)) != NULL)) {
+		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT;
+
+#ifdef NOTE_REAP
+		proc_fflags |= NOTE_REAP;
+#endif
+
 		total_children++;
 		jr->anonymous = true;
 		jr->p = anonpid;
 		/* anonymous process reaping is messy */
 		LIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
-		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, NOTE_EXEC|NOTE_EXIT, 0, root_jobmgr) != -1);
+		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) != -1);
 		if (shutdown_state && jm->hopefully_first_cnt == 0) {
 			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time. Blame PID %u: %s",
 				kp.kp_eproc.e_ppid, ppid_kp.kp_proc.p_comm);
@@ -1977,9 +1983,15 @@ job_callback_proc(job_t j, int flags, int fflags)
 		if (j->anonymous) {
 			job_remove(j);
 		} else {
-			job_dispatch(j, false);
+			j = job_dispatch(j, false);
 		}
 	}
+
+#ifdef NOTE_REAP
+	if (j && (fflags & NOTE_REAP)) {
+		job_assumes(j, j->p == 0);
+	}
+#endif
 }
 
 void
@@ -2102,6 +2114,11 @@ job_start(job_t j)
 	pid_t c;
 	bool sipc = false;
 	time_t td;
+	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT;
+
+#ifdef NOTE_REAP
+	proc_fflags |= NOTE_REAP;
+#endif
 
 	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
@@ -2201,11 +2218,10 @@ job_start(job_t j)
 			job_assumes(j, runtime_close(spair[1]) == 0);
 			ipc_open(_fd(spair[0]), j);
 		}
-		if (kevent_mod(c, EVFILT_PROC, EV_ADD, /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT, 0, root_jobmgr ? root_jobmgr : j->mgr) == -1) {
-			job_log_error(j, LOG_ERR, "kevent()");
-			job_reap(j);
-		} else {
+		if (job_assumes(j, kevent_mod(c, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr ? root_jobmgr : j->mgr) != -1)) {
 			job_ignore(j);
+		} else {
+			job_reap(j);
 		}
 
 		if (!j->stall_before_exec) {
