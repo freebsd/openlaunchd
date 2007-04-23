@@ -8,7 +8,7 @@
 	<string>/sbin/SystemStarter</string>
 	<key>KeepAlive</key>
 	<dict>
-		<key>KeepAlive</key>
+		<key>PathState</key>
 		<dict>
 			<key>/etc/rc.local</key>
 			<true/>
