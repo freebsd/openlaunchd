@@ -37,6 +37,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pwd.h>
+#include <assert.h>
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
@@ -138,8 +139,8 @@ struct _launch {
 	int	fd;
 };
 
-static void launch_data_pack(launch_data_t, void **, size_t *, int **, size_t *);
-static launch_data_t launch_data_unpack(launch_t, size_t *, size_t *);
+static size_t launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t *fdslotsleft);
+static launch_data_t launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t *data_offset, size_t *fdoffset);
 static launch_data_t launch_data_array_pop_first(launch_data_t where);
 static int _fd(int fd);
 static void launch_client_init(void);
@@ -576,17 +577,17 @@ launchd_close(launch_t lh, typeof(close) closefunc)
 
 #define ROUND_TO_64BIT_WORD_SIZE(x)	((x + 7) & ~7)
 
-void
-launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, size_t *fdcnt)
+size_t
+launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t *fd_cnt)
 {
-	launch_data_t o_in_w;
-	size_t i;
+	launch_data_t o_in_w = where;
+	size_t i, rsz, total_data_len = sizeof(struct _launch_data);
 
-	*where = reallocf(*where, *len + sizeof(struct _launch_data));
+	if (total_data_len > len) {
+		return 0;
+	}
 
-	o_in_w = *where + *len;
-	memset(o_in_w, 0, sizeof(struct _launch_data));
-	*len += sizeof(struct _launch_data);
+	where += total_data_len;
 
 	o_in_w->type = host2big(d->type);
 
@@ -605,46 +606,62 @@ launch_data_pack(launch_data_t d, void **where, size_t *len, int **fd_where, siz
 		break;
 	case LAUNCH_DATA_FD:
 		o_in_w->fd = host2big(d->fd);
-		if (d->fd != -1) {
-			*fd_where = reallocf(*fd_where, (*fdcnt + 1) * sizeof(int));
-			(*fd_where)[*fdcnt] = d->fd;
-			(*fdcnt)++;
+		if (!fd_where) {
+			return 0;
+		} else if (d->fd != -1) {
+			fd_where[*fd_cnt] = d->fd;
+			(*fd_cnt)++;
 		}
 		break;
 	case LAUNCH_DATA_STRING:
 		o_in_w->string_len = host2big(d->string_len);
-		*where = reallocf(*where, ROUND_TO_64BIT_WORD_SIZE(*len + strlen(d->string) + 1));
-		memcpy(*where + *len, d->string, strlen(d->string) + 1);
-		*len += ROUND_TO_64BIT_WORD_SIZE(strlen(d->string) + 1);
+		total_data_len += ROUND_TO_64BIT_WORD_SIZE(strlen(d->string) + 1);
+		if (total_data_len > len) {
+			return 0;
+		}
+		memcpy(where, d->string, strlen(d->string) + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
 		o_in_w->opaque_size = host2big(d->opaque_size);
-		*where = reallocf(*where, ROUND_TO_64BIT_WORD_SIZE(*len + d->opaque_size));
-		memcpy(*where + *len, d->opaque, d->opaque_size);
-		*len += ROUND_TO_64BIT_WORD_SIZE(d->opaque_size);
+		total_data_len += ROUND_TO_64BIT_WORD_SIZE(d->opaque_size);
+		if (total_data_len > len) {
+			return 0;
+		}
+		memcpy(where, d->opaque, d->opaque_size);
 		break;
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
 		o_in_w->_array_cnt = host2big(d->_array_cnt);
-		*where = reallocf(*where, *len + (d->_array_cnt * sizeof(uint64_t)));
-		memset(*where + *len, 0, d->_array_cnt * sizeof(uint64_t));
-		*len += d->_array_cnt * sizeof(uint64_t);
+		total_data_len += d->_array_cnt * sizeof(uint64_t);
+		if (total_data_len > len) {
+			return 0;
+		}
 
-		for (i = 0; i < d->_array_cnt; i++)
-			launch_data_pack(d->_array[i], where, len, fd_where, fdcnt);
+		where += d->_array_cnt * sizeof(uint64_t);
+
+		for (i = 0; i < d->_array_cnt; i++) {
+			rsz = launch_data_pack(d->_array[i], where, len - total_data_len, fd_where, fd_cnt);
+			if (rsz == 0) {
+				return 0;
+			}
+			where += rsz;
+			total_data_len += rsz;
+		}
 		break;
 	default:
 		break;
 	}
+
+	return total_data_len;
 }
 
 launch_data_t
-launch_data_unpack(launch_t conn, size_t *data_offset, size_t *fdoffset)
+launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t *data_offset, size_t *fdoffset)
 {
-	launch_data_t r = conn->recvbuf + *data_offset;
+	launch_data_t r = data + *data_offset;
 	size_t i, tmpcnt;
 
-	if ((conn->recvlen - *data_offset) < sizeof(struct _launch_data))
+	if ((data_size - *data_offset) < sizeof(struct _launch_data))
 		return NULL;
 	*data_offset += sizeof(struct _launch_data);
 
@@ -652,14 +669,14 @@ launch_data_unpack(launch_t conn, size_t *data_offset, size_t *fdoffset)
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
 		tmpcnt = big2host(r->_array_cnt);
-		if ((conn->recvlen - *data_offset) < (tmpcnt * sizeof(uint64_t))) {
+		if ((data_size - *data_offset) < (tmpcnt * sizeof(uint64_t))) {
 			errno = EAGAIN;
 			return NULL;
 		}
-		r->_array = conn->recvbuf + *data_offset;
+		r->_array = data + *data_offset;
 		*data_offset += tmpcnt * sizeof(uint64_t);
 		for (i = 0; i < tmpcnt; i++) {
-			r->_array[i] = launch_data_unpack(conn, data_offset, fdoffset);
+			r->_array[i] = launch_data_unpack(data, data_size, fds, fd_cnt, data_offset, fdoffset);
 			if (r->_array[i] == NULL)
 				return NULL;
 		}
@@ -667,27 +684,27 @@ launch_data_unpack(launch_t conn, size_t *data_offset, size_t *fdoffset)
 		break;
 	case LAUNCH_DATA_STRING:
 		tmpcnt = big2host(r->string_len);
-		if ((conn->recvlen - *data_offset) < (tmpcnt + 1)) {
+		if ((data_size - *data_offset) < (tmpcnt + 1)) {
 			errno = EAGAIN;
 			return NULL;
 		}
-		r->string = conn->recvbuf + *data_offset;
+		r->string = data + *data_offset;
 		r->string_len = tmpcnt;
 		*data_offset += ROUND_TO_64BIT_WORD_SIZE(tmpcnt + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
 		tmpcnt = big2host(r->opaque_size);
-		if ((conn->recvlen - *data_offset) < tmpcnt) {
+		if ((data_size - *data_offset) < tmpcnt) {
 			errno = EAGAIN;
 			return NULL;
 		}
-		r->opaque = conn->recvbuf + *data_offset;
+		r->opaque = data + *data_offset;
 		r->opaque_size = tmpcnt;
 		*data_offset += ROUND_TO_64BIT_WORD_SIZE(tmpcnt);
 		break;
 	case LAUNCH_DATA_FD:
-		if (r->fd != -1) {
-			r->fd = _fd(conn->recvfds[*fdoffset]);
+		if (r->fd != -1 && fd_cnt > *fdoffset) {
+			r->fd = _fd(fds[*fdoffset]);
 			*fdoffset += 1;
 		}
 		break;
@@ -726,12 +743,30 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 
 	memset(&mh, 0, sizeof(mh));
 
+	/* confirm that the next hack works */
+	assert((d && lh->sendlen == 0) || (!d && lh->sendlen));
+
 	if (d) {
-		uint64_t msglen = lh->sendlen;
+		size_t fd_slots_used = 0;
+		size_t good_enough_size = 10 * 1024 * 1024;
+		uint64_t msglen;
 
-		launch_data_pack(d, &lh->sendbuf, &lh->sendlen, &lh->sendfds, &lh->sendfdcnt);
+		/* hack, see the above assert to verify "correctness" */
+		free(lh->sendbuf);
+		lh->sendbuf = malloc(good_enough_size);
+		free(lh->sendfds);
+		lh->sendfds = malloc(4 * 1024);
 
-		msglen = (lh->sendlen - msglen) + sizeof(struct launch_msg_header);
+		lh->sendlen = launch_data_pack(d, lh->sendbuf, good_enough_size, lh->sendfds, &fd_slots_used);
+
+		if (lh->sendlen == 0) {
+			errno = ENOMEM;
+			return -1;
+		}
+
+		lh->sendfdcnt = fd_slots_used;
+
+		msglen = lh->sendlen + sizeof(struct launch_msg_header); /* type promotion to make the host2big() macro work right */
 		lmh.len = host2big(msglen);
 		lmh.magic = host2big(LAUNCH_MSG_HEADER_MAGIC);
 
@@ -966,7 +1001,7 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
 			goto need_more_data;
 		}
 
-		if ((rmsg = launch_data_unpack(lh, &data_offset, &fd_offset)) == NULL) {
+		if ((rmsg = launch_data_unpack(lh->recvbuf, lh->recvlen, lh->recvfds, lh->recvfdcnt, &data_offset, &fd_offset)) == NULL) {
 			errno = EBADRPC;
 			goto out_bad;
 		}
