@@ -134,7 +134,7 @@ static void machservice_resetport(job_t j, struct machservice *ms);
 static struct machservice *machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_local);
 static void machservice_ignore(job_t j, struct machservice *ms);
 static void machservice_watch(job_t j, struct machservice *ms);
-static void machservice_delete(job_t j, struct machservice *);
+static void machservice_delete(job_t j, struct machservice *, bool port_died);
 static void machservice_request_notifications(struct machservice *);
 static mach_port_t machservice_port(struct machservice *);
 static job_t machservice_job(struct machservice *);
@@ -734,7 +734,7 @@ job_remove(job_t j)
 		limititem_delete(j, li);
 	}
 	while ((ms = SLIST_FIRST(&j->machservices))) {
-		machservice_delete(j, ms);
+		machservice_delete(j, ms, false);
 	}
 	while ((si = SLIST_FIRST(&j->semaphores))) {
 		semaphoreitem_delete(j, si);
@@ -3824,7 +3824,7 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 	if (jm == root_jobmgr) {
 		LIST_FOREACH_SAFE(ms, &port_hash[HASH_PORT(port)], port_hash_sle, next_ms) {
 			if (ms->port == port) {
-				machservice_delete(ms->job, ms);
+				machservice_delete(ms->job, ms, true);
 			}
 		}
 	}
@@ -3834,6 +3834,7 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 	}
 
 	if (jm->req_port == port) {
+		jobmgr_log(jm, LOG_DEBUG, "Request port died: 0x%x", port);
 		return jobmgr_shutdown(jm);
 	}
 
@@ -3899,7 +3900,7 @@ machservice_name(struct machservice *ms)
 }
 
 void
-machservice_delete(job_t j, struct machservice *ms)
+machservice_delete(job_t j, struct machservice *ms, bool port_died)
 {
 	if (ms->debug_on_close) {
 		job_log(j, LOG_NOTICE, "About to enter kernel debugger because of Mach port: 0x%x", ms->port);
@@ -3912,7 +3913,7 @@ machservice_delete(job_t j, struct machservice *ms)
 
 	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 
-	job_log(j, LOG_INFO, "Mach service deleted: %s", ms->name);
+	job_log(j, LOG_INFO, "Mach service deleted%s: %s", port_died ? " (port died)" : "", ms->name);
 
 	SLIST_REMOVE(&j->machservices, ms, machservice, sle);
 	LIST_REMOVE(ms, name_hash_sle);
@@ -4842,7 +4843,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
 		job_checkin(j);
-		machservice_delete(j, ms);
+		machservice_delete(j, ms, false);
 	}
 
 	if (serviceport != MACH_PORT_NULL) {
