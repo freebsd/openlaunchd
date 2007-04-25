@@ -24,6 +24,7 @@
 #include <sys/cdefs.h>
 #include <sys/syslog.h>
 #include <stdbool.h>
+#include <launch.h>
 
 __BEGIN_DECLS
 
@@ -39,9 +40,11 @@ typedef enum {
 	VPROC_GSK_START_INTERVAL,
 	VPROC_GSK_IDLE_TIMEOUT,
 	VPROC_GSK_EXIT_TIMEOUT,
+	VPROC_GSK_ENVIRONMENT,
 } vproc_gsk_t;
 
 vproc_err_t vproc_swap_integer(vproc_t vp, vproc_gsk_t key, int64_t *inval, int64_t *outval);
+vproc_err_t vproc_swap_complex(vproc_t vp, vproc_gsk_t key, launch_data_t inval, launch_data_t *outval);
 
 vproc_err_t _vproc_get_last_exit_status(int *wstatus);
 vproc_err_t _vproc_set_global_on_demand(bool val);

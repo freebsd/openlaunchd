@@ -33,6 +33,7 @@
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
+#include "liblaunch_internal.h"
 
 #include "protocol_vproc.h"
 
@@ -57,9 +58,16 @@ _vproc_post_fork_ping(void)
 	return vproc_mig_post_fork_ping(bootstrap_port, mach_task_self()) == 0 ? NULL : _vproc_post_fork_ping;
 }
 
+static void
+setup_env_hack(const launch_data_t obj, const char *key, void *context __attribute__((unused)))
+{
+	setenv(key, launch_data_get_string(obj), 1);
+}
+
 vproc_err_t
 _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type)
 {
+	launch_data_t output_obj;
 	kern_return_t kr = 1;
 	mach_port_t puc = 0, which_port = bootstrap_port;
 	bool is_bkgd = (strcmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0);
@@ -84,7 +92,18 @@ _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type)
 
 	cached_pid = -1;
 
-	return kr == 0 ? NULL : (vproc_err_t)_vprocmgr_move_subset_to_user;
+	if (kr) {
+		return (vproc_err_t)_vprocmgr_move_subset_to_user;
+	}
+
+	if (vproc_swap_complex(NULL, VPROC_GSK_ENVIRONMENT, NULL, &output_obj) == NULL) {
+		if (launch_data_get_type(output_obj) == LAUNCH_DATA_DICTIONARY) {
+			launch_data_dict_iterate(output_obj, setup_env_hack, NULL);
+			launch_data_free(output_obj);
+		}
+	}
+
+	return NULL;
 }
 
 
@@ -302,6 +321,55 @@ get_root_bootstrap_port(void)
 	} while (parent_port != previous_port);
 
 	return parent_port;
+}
+
+vproc_err_t
+vproc_swap_complex(vproc_t vp __attribute__((unused)), vproc_gsk_t key, launch_data_t inval, launch_data_t *outval)
+{
+	size_t data_offset = 0, good_enough_size = 10*1024*1024;
+	mach_msg_type_number_t indata_cnt = 0, outdata_cnt;
+	vm_offset_t indata = 0, outdata = 0;
+	launch_data_t out_obj;
+	void *rval = vproc_swap_complex;
+	void *buf = NULL;
+
+	if (inval) {
+		if (!(buf = malloc(good_enough_size))) {
+			goto out;
+		}
+
+		if ((indata_cnt = launch_data_pack(inval, buf, good_enough_size, NULL, NULL)) == 0) {
+			goto out;
+		}
+
+		indata = (vm_offset_t)buf;
+	}
+
+	if (vproc_mig_swap_complex(bootstrap_port, inval ? key : 0, outval ? key : 0, indata, indata_cnt, &outdata, &outdata_cnt) != 0) {
+		goto out;
+	}
+
+	if (outval) {
+		if (!(out_obj = launch_data_unpack((void *)outdata, outdata_cnt, NULL, 0, &data_offset, NULL))) {
+			goto out;
+		}
+
+		if (!(*outval = launch_data_copy(out_obj))) {
+			goto out;
+		}
+	}
+
+	rval = NULL;
+out:
+	if (buf) {
+		free(buf);
+	}
+
+	if (outdata) {
+		mig_deallocate(outdata, outdata_cnt);
+	}
+
+	return rval;
 }
 
 void *

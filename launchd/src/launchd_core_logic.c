@@ -75,6 +75,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
+#include "liblaunch_internal.h"
 #include "libbootstrap_public.h"
 #include "libbootstrap_private.h"
 #include "libvproc_public.h"
@@ -262,6 +263,7 @@ static job_t job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 static void jobmgr_callback(void *obj, struct kevent *kev);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
+static void jobmgr_export_env_from_other_jobs(jobmgr_t jm, launch_data_t dict);
 static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid);
 static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
@@ -2326,7 +2328,38 @@ job_start_child(job_t j)
 	_exit(EXIT_FAILURE);
 }
 
-void jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
+void
+jobmgr_export_env_from_other_jobs(jobmgr_t jm, launch_data_t dict)
+{
+	launch_data_t tmp;
+	struct envitem *ei;
+	job_t ji;
+
+	if (jm->parentmgr) {
+		jobmgr_export_env_from_other_jobs(jm->parentmgr, dict);
+	} else {
+		char **tmpenviron = environ;
+		for (; *tmpenviron; tmpenviron++) {
+			char envkey[1024];
+			launch_data_t s = launch_data_alloc(LAUNCH_DATA_STRING);
+			launch_data_set_string(s, strchr(*tmpenviron, '=') + 1);
+			strncpy(envkey, *tmpenviron, sizeof(envkey));
+			*(strchr(envkey, '=')) = '\0';
+			launch_data_dict_insert(dict, s, envkey);
+		}
+	}
+
+	LIST_FOREACH(ji, &jm->jobs, sle) {
+		SLIST_FOREACH(ei, &ji->global_env, sle) {
+			if ((tmp = launch_data_new_string(ei->value))) {
+				launch_data_dict_insert(dict, tmp, ei->key);
+			}
+		}
+	}
+}
+
+void
+jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
 {
 	struct envitem *ei;
 	job_t ji;
@@ -4500,6 +4533,76 @@ job_mig_send_signal(job_t j, name_t targetlabel, int sig)
 }
 
 kern_return_t
+job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
+		vm_offset_t inval, mach_msg_type_number_t invalCnt,
+		vm_offset_t *outval, mach_msg_type_number_t *outvalCnt) 
+{
+	const char *action;
+	launch_data_t input_obj, output_obj;
+	size_t data_offset = 0;
+
+	*outvalCnt = 10 * 1024 * 1024;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (inkey && outkey && !job_assumes(j, inkey == outkey)) {
+		return 1;
+	}
+
+	if (inkey && outkey) {
+		action = "Swapping";
+	} else if (inkey) {
+		action = "Setting";
+	} else {
+		action = "Getting";
+	}
+
+	job_log(j, LOG_DEBUG, "%s key: %u", action, inkey ? inkey : outkey);
+
+	if (invalCnt && !job_assumes(j, (input_obj = launch_data_unpack((void *)inval, invalCnt, NULL, 0, &data_offset, NULL)) != NULL)) {
+		return 1;
+	}
+
+	switch (outkey) {
+	case VPROC_GSK_ENVIRONMENT:
+		mig_allocate(outval, *outvalCnt);
+		if (!job_assumes(j, *outval != 0)) {
+			return 1;
+		}
+		if (job_assumes(j, (output_obj = launch_data_alloc(LAUNCH_DATA_DICTIONARY)))) {
+			jobmgr_export_env_from_other_jobs(j->mgr, output_obj);
+		}
+		if (!job_assumes(j, launch_data_pack(output_obj, (void *)*outval, *outvalCnt, NULL, NULL) != 0)) {
+			mig_deallocate(*outval, *outvalCnt);
+			return 1;
+		}
+		break;
+	case 0:
+		*outval = 0;
+		*outvalCnt = 0;
+		break;
+	default:
+		return 1;
+	}
+
+	if (invalCnt) switch (inkey) {
+	case VPROC_GSK_ENVIRONMENT:
+		job_assumes(j, false);
+		break;
+	case 0:
+		break;
+	default:
+		return 1;
+	}
+
+	mig_deallocate(inval, invalCnt);
+
+	return 0;
+}
+
+kern_return_t
 job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inval, int64_t *outval)
 {
 	const char *action;
@@ -4584,10 +4687,6 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		break;
 	case 0:
 		break;
-	case VPROC_GSK_IS_MANAGED:
-	case VPROC_GSK_LAST_EXIT_STATUS:
-	case VPROC_GSK_MGR_UID:
-	case VPROC_GSK_MGR_PID:
 	default:
 		kr = 1;
 		break;

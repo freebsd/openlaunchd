@@ -21,6 +21,7 @@
 #include "config.h"
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
+#include "liblaunch_internal.h"
 
 #include <mach/mach.h>
 #include <libkern/OSByteOrder.h>
@@ -139,8 +140,6 @@ struct _launch {
 	int	fd;
 };
 
-static size_t launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t *fdslotsleft);
-static launch_data_t launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t *data_offset, size_t *fdoffset);
 static launch_data_t launch_data_array_pop_first(launch_data_t where);
 static int _fd(int fd);
 static void launch_client_init(void);

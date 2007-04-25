@@ -156,3 +156,10 @@ routine move_subset(
 		__bs_port	: job_t;
 		__target_port	: mach_port_t;
 		__sessiontype	: name_t);
+
+routine swap_complex(
+		__bs_port	: job_t;
+		__inkey		: vproc_gsk_t;
+		__outkey	: vproc_gsk_t;
+		__inval		: pointer_t;
+	out	__outval	: pointer_t, dealloc);
