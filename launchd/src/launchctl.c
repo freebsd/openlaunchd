@@ -2849,6 +2849,10 @@ apply_sysctls_from_file(const char *thefile)
 		tmpstr[ln_len] = 0;
 		val = tmpstr;
 
+		if (val[ln_len - 1] == '\n' || val[ln_len - 1] == '\r') {
+			val[ln_len - 1] = '\0';
+		}
+
 		while (*val && isspace(*val))
 			val++;
 		if (*val == '\0' || *val == '#') {
