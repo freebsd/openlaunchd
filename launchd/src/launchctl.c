@@ -402,9 +402,9 @@ print_key_value(launch_data_t obj, const char *key, void *context)
 }
 
 int
-getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
+getenv_and_export_cmd(int argc, char *const argv[])
 {
-	launch_data_t resp, msg;
+	launch_data_t resp;
 	bool is_csh = false;
 	char *k;
 	
@@ -420,21 +420,18 @@ getenv_and_export_cmd(int argc, char *const argv[] __attribute__((unused)))
 
 	k = argv[1];
 
-	msg = launch_data_new_string(LAUNCH_KEY_GETUSERENVIRONMENT);
-
-	resp = launch_msg(msg);
-	launch_data_free(msg);
-
-	if (resp) {
+	if (vproc_swap_complex(NULL, VPROC_GSK_ENVIRONMENT, NULL, &resp) == NULL) {
 		if (!strcmp(argv[0], "export")) {
 			launch_data_dict_iterate(resp, print_launchd_env, &is_csh);
 		} else {
 			launch_data_dict_iterate(resp, print_key_value, k);
 		}
 		launch_data_free(resp);
+		return 0;
 	} else {
-		fprintf(stderr, "launch_msg(\"" LAUNCH_KEY_GETUSERENVIRONMENT "\"): %s\n", strerror(errno));
+		return 1;
 	}
+
 	return 0;
 }
 
@@ -1932,7 +1929,7 @@ print_obj(launch_data_t obj, const char *key, void *context __attribute__((unuse
 }
 
 int
-list_cmd(int argc, char *const argv[])
+list_cmd(int argc, char *const argv[] __attribute__((unused)))
 {
 	launch_data_t resp, msg;
 	int r = 0;
@@ -1943,8 +1940,13 @@ list_cmd(int argc, char *const argv[])
 	} else if (argc == 2) {
 		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 		launch_data_dict_insert(msg, launch_data_new_string(argv[1]), LAUNCH_KEY_GETJOB);
+	} else if (vproc_swap_complex(NULL, VPROC_GSK_ALLJOBS, NULL, &resp) == NULL) {
+		fprintf(stdout, "PID\tStatus\tLabel\n");
+		launch_data_dict_iterate(resp, print_jobs, NULL);
+		launch_data_free(resp);
+		return 0;
 	} else {
-		msg = launch_data_new_string(LAUNCH_KEY_GETJOBS);
+		return 1;
 	}
 
 	resp = launch_msg(msg);
@@ -1954,12 +1956,7 @@ list_cmd(int argc, char *const argv[])
 		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
 	} else if (launch_data_get_type(resp) == LAUNCH_DATA_DICTIONARY) {
-		if (argc == 1) {
-			fprintf(stdout, "PID\tStatus\tLabel\n");
-			launch_data_dict_iterate(resp, print_jobs, NULL);
-		} else {
-			print_obj(resp, NULL, NULL);
-		}
+		print_obj(resp, NULL, NULL);
 	} else {
 		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
 		r = 1;
@@ -2022,10 +2019,9 @@ fyi_cmd(int argc, char *const argv[])
 int
 logupdate_cmd(int argc, char *const argv[])
 {
-	launch_data_t resp, msg;
-	int e, i, j, r = 0, m = 0;
+	int64_t inval, outval;
+	int i, j, m = 0;
 	bool badargs = false, maskmode = false, onlymode = false, levelmode = false;
-	const char *whichcmd = LAUNCH_KEY_SETLOGMASK;
 	static const struct {
 		const char *name;
 		int level;
@@ -2080,9 +2076,7 @@ logupdate_cmd(int argc, char *const argv[])
 		}
 		if (j == logtblsz)
 			badargs = true;
-	} else if (argc == 1) {
-		whichcmd = LAUNCH_KEY_GETLOGMASK;
-	} else {
+	} else if (argc != 1) {
 		badargs = true;
 	}
 
@@ -2091,41 +2085,21 @@ logupdate_cmd(int argc, char *const argv[])
 		return 1;
 	}
 
-	if (whichcmd == LAUNCH_KEY_SETLOGMASK) {
-		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-		launch_data_dict_insert(msg, launch_data_new_integer(m), whichcmd);
-	} else {
-		msg = launch_data_new_string(whichcmd);
-	}
+	inval = m;
 
-	resp = launch_msg(msg);
-	launch_data_free(msg);
-
-	if (resp == NULL) {
-		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
-		return 1;
-	} else if (launch_data_get_type(resp) == LAUNCH_DATA_ERRNO) {
-		if ((e = launch_data_get_errno(resp))) {
-			fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], strerror(e));
-			r = 1;
-		}
-	} else if (launch_data_get_type(resp) == LAUNCH_DATA_INTEGER) {
-		if (whichcmd == LAUNCH_KEY_GETLOGMASK) {
-			m = launch_data_get_integer(resp);
+	if (vproc_swap_integer(NULL, VPROC_GSK_GLOBAL_LOG_MASK, argc != 1 ? &inval : NULL, &outval) == NULL) {
+		if (argc == 1) {
 			for (j = 0; j < logtblsz; j++) {
-				if (m & LOG_MASK(logtbl[j].level))
+				if (outval & LOG_MASK(logtbl[j].level)) {
 					fprintf(stdout, "%s ", logtbl[j].name);
+				}
 			}
 			fprintf(stdout, "\n");
 		}
+		return 0;
 	} else {
-		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
-		r = 1;
+		return 1;
 	}
-
-	launch_data_free(resp);
-
-	return r;
 }
 
 static const struct {
@@ -2292,11 +2266,10 @@ limit_cmd(int argc __attribute__((unused)), char *const argv[])
 int
 umask_cmd(int argc, char *const argv[])
 {
-	launch_data_t resp, msg;
 	bool badargs = false;
 	char *endptr;
 	long m = 0;
-	int r = 0;
+	int64_t inval, outval;
 
 	if (argc == 2) {
 		m = strtol(argv[1], &endptr, 8);
@@ -2309,32 +2282,16 @@ umask_cmd(int argc, char *const argv[])
 		return 1;
 	}
 
+	inval = m;
 
-	if (argc == 1) {
-		msg = launch_data_new_string(LAUNCH_KEY_GETUMASK);
+	if (vproc_swap_integer(NULL, VPROC_GSK_GLOBAL_UMASK, argc == 2 ? &inval : NULL, &outval) == NULL) {
+		if (argc == 1) {
+			fprintf(stdout, "%o\n", (unsigned int)outval);
+		}
+		return 0;
 	} else {
-		msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-		launch_data_dict_insert(msg, launch_data_new_integer(m), LAUNCH_KEY_SETUMASK);
-	}
-	resp = launch_msg(msg);
-	launch_data_free(msg);
-
-	if (resp == NULL) {
-		fprintf(stderr, "launch_msg(): %s\n", strerror(errno));
 		return 1;
-	} else if (launch_data_get_type(resp) == LAUNCH_DATA_STRING) {
-		fprintf(stderr, "%s %s error: %s\n", getprogname(), argv[0], launch_data_get_string(resp));
-		r = 1;
-	} else if (launch_data_get_type(resp) != LAUNCH_DATA_INTEGER) {
-		fprintf(stderr, "%s %s returned unknown response\n", getprogname(), argv[0]);
-		r = 1;
-	} else if (argc == 1) {
-		fprintf(stdout, "%o\n", (unsigned int)launch_data_get_integer(resp));
 	}
-
-	launch_data_free(resp);
-
-	return r;
 }
 
 int

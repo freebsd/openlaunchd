@@ -605,9 +605,7 @@ launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t
 		break;
 	case LAUNCH_DATA_FD:
 		o_in_w->fd = host2big(d->fd);
-		if (!fd_where) {
-			return 0;
-		} else if (d->fd != -1) {
+		if (fd_where && d->fd != -1) {
 			fd_where[*fd_cnt] = d->fd;
 			(*fd_cnt)++;
 		}
@@ -896,6 +894,12 @@ launch_data_t
 launch_msg_internal(launch_data_t d)
 {
 	launch_data_t resp = NULL;
+
+	if (d && (launch_data_get_type(d) == LAUNCH_DATA_STRING)
+			&& (strcmp(launch_data_get_string(d), LAUNCH_KEY_GETJOBS) == 0)
+			&& vproc_swap_complex(NULL, VPROC_GSK_ALLJOBS, NULL, &resp) == NULL) {
+		return resp;
+	}
 
 	pthread_once(&_lc_once, launch_client_init);
 

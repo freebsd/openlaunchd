@@ -4540,8 +4540,7 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 	const char *action;
 	launch_data_t input_obj, output_obj;
 	size_t data_offset = 0;
-
-	*outvalCnt = 10 * 1024 * 1024;
+	size_t packed_size;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -4561,30 +4560,45 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 
 	job_log(j, LOG_DEBUG, "%s key: %u", action, inkey ? inkey : outkey);
 
-	if (invalCnt && !job_assumes(j, (input_obj = launch_data_unpack((void *)inval, invalCnt, NULL, 0, &data_offset, NULL)) != NULL)) {
+	*outvalCnt = 20 * 1024 * 1024;
+	mig_allocate(outval, *outvalCnt);
+	if (!job_assumes(j, *outval != 0)) {
 		return 1;
+	}
+
+	if (invalCnt && !job_assumes(j, (input_obj = launch_data_unpack((void *)inval, invalCnt, NULL, 0, &data_offset, NULL)) != NULL)) {
+		goto out_bad;
 	}
 
 	switch (outkey) {
 	case VPROC_GSK_ENVIRONMENT:
-		mig_allocate(outval, *outvalCnt);
-		if (!job_assumes(j, *outval != 0)) {
-			return 1;
+		if (!job_assumes(j, (output_obj = launch_data_alloc(LAUNCH_DATA_DICTIONARY)))) {
+			goto out_bad;
 		}
-		if (job_assumes(j, (output_obj = launch_data_alloc(LAUNCH_DATA_DICTIONARY)))) {
-			jobmgr_export_env_from_other_jobs(j->mgr, output_obj);
-		}
+		jobmgr_export_env_from_other_jobs(j->mgr, output_obj);
 		if (!job_assumes(j, launch_data_pack(output_obj, (void *)*outval, *outvalCnt, NULL, NULL) != 0)) {
-			mig_deallocate(*outval, *outvalCnt);
-			return 1;
+			goto out_bad;
 		}
+		launch_data_free(output_obj);
+		break;
+	case VPROC_GSK_ALLJOBS:
+		if (!job_assumes(j, (output_obj = job_export_all()) != NULL)) {
+			goto out_bad;
+		}
+		ipc_revoke_fds(output_obj);
+		packed_size = launch_data_pack(output_obj, (void *)*outval, *outvalCnt, NULL, NULL);
+		if (!job_assumes(j, packed_size != 0)) {
+			goto out_bad;
+		}
+		launch_data_free(output_obj);
 		break;
 	case 0:
+		mig_deallocate(*outval, *outvalCnt);
 		*outval = 0;
 		*outvalCnt = 0;
 		break;
 	default:
-		return 1;
+		goto out_bad;
 	}
 
 	if (invalCnt) switch (inkey) {
@@ -4594,12 +4608,18 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 	case 0:
 		break;
 	default:
-		return 1;
+		goto out_bad;
 	}
 
 	mig_deallocate(inval, invalCnt);
 
 	return 0;
+
+out_bad:
+	if (*outval) {
+		mig_deallocate(*outval, *outvalCnt);
+	}
+	return 1;
 }
 
 kern_return_t
@@ -4607,6 +4627,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 {
 	const char *action;
 	kern_return_t kr = 0;
+	int oldmask;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -4651,6 +4672,16 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	case VPROC_GSK_EXIT_TIMEOUT:
 		*outval = j->exit_timeout;
 		break;
+	case VPROC_GSK_GLOBAL_LOG_MASK:
+		oldmask = runtime_setlogmask(LOG_UPTO(LOG_DEBUG));
+		*outval = oldmask;
+		runtime_setlogmask(oldmask);
+		break;
+	case VPROC_GSK_GLOBAL_UMASK:
+		oldmask = umask(0);
+		*outval = oldmask;
+		umask(oldmask);
+		break;
 	case 0:
 		*outval = 0;
 		break;
@@ -4684,6 +4715,12 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		if ((unsigned int)inval > 0) {
 			j->exit_timeout = inval;
 		}
+		break;
+	case VPROC_GSK_GLOBAL_LOG_MASK:
+		runtime_setlogmask(inval);
+		break;
+	case VPROC_GSK_GLOBAL_UMASK:
+		umask(inval);
 		break;
 	case 0:
 		break;

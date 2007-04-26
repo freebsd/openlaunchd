@@ -361,25 +361,6 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			ipc_revoke_fds(resp);
 		} else if (!strcmp(cmd, LAUNCH_KEY_GETRESOURCELIMITS)) {
 			resp = adjust_rlimits(NULL);
-		} else if (!strcmp(cmd, LAUNCH_KEY_GETUSERENVIRONMENT)) {
-			char **tmpenviron = environ;
-			resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-			for (; *tmpenviron; tmpenviron++) {
-				char envkey[1024];
-				launch_data_t s = launch_data_alloc(LAUNCH_DATA_STRING);
-				launch_data_set_string(s, strchr(*tmpenviron, '=') + 1);
-				strncpy(envkey, *tmpenviron, sizeof(envkey));
-				*(strchr(envkey, '=')) = '\0';
-				launch_data_dict_insert(resp, s, envkey);
-			}
-		} else if (!strcmp(cmd, LAUNCH_KEY_GETLOGMASK)) {
-			int oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
-			resp = launch_data_new_integer(oldmask);
-			setlogmask(oldmask);
-		} else if (!strcmp(cmd, LAUNCH_KEY_GETUMASK)) {
-			mode_t oldmask = umask(0);
-			resp = launch_data_new_integer(oldmask);
-			umask(oldmask);
 		} else if (!strcmp(cmd, LAUNCH_KEY_GETRUSAGESELF)) {
 			struct rusage rusage;
 			getrusage(RUSAGE_SELF, &rusage);
@@ -434,16 +415,6 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			resp = job_export(j);
 			ipc_revoke_fds(resp);
 		}
-	} else if (!strcmp(cmd, LAUNCH_KEY_GETJOBWITHHANDLES)) {
-		if ((j = job_find(launch_data_get_string(data))) == NULL) {
-			resp = launch_data_new_errno(errno);
-		} else {
-			resp = job_export(j);
-		}
-	} else if (!strcmp(cmd, LAUNCH_KEY_SETLOGMASK)) {
-		resp = launch_data_new_integer(setlogmask(launch_data_get_integer(data)));
-	} else if (!strcmp(cmd, LAUNCH_KEY_SETUMASK)) {
-		resp = launch_data_new_integer(umask(launch_data_get_integer(data)));
 	} else if (!strcmp(cmd, LAUNCH_KEY_BATCHCONTROL)) {
 		batch_job_enable(launch_data_get_bool(data), rmc->c);
 		resp = launch_data_new_errno(0);

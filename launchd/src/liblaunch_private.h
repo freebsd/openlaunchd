@@ -29,17 +29,12 @@
 
 __BEGIN_DECLS
 
-#define LAUNCH_KEY_GETUSERENVIRONMENT	"GetUserEnvironment"
 #define LAUNCH_KEY_SETUSERENVIRONMENT	"SetUserEnvironment"
 #define LAUNCH_KEY_UNSETUSERENVIRONMENT	"UnsetUserEnvironment"
 #define LAUNCH_KEY_SHUTDOWN		"Shutdown"
 #define LAUNCH_KEY_SINGLEUSER		"SingleUser"
 #define LAUNCH_KEY_GETRESOURCELIMITS	"GetResourceLimits"
 #define LAUNCH_KEY_SETRESOURCELIMITS	"SetResourceLimits"
-#define LAUNCH_KEY_SETLOGMASK		"SetLogMask"
-#define LAUNCH_KEY_GETLOGMASK		"GetLogMask"
-#define LAUNCH_KEY_SETUMASK		"SetUmask"
-#define LAUNCH_KEY_GETUMASK		"GetUmask"
 #define LAUNCH_KEY_GETRUSAGESELF	"GetResourceUsageSelf"
 #define LAUNCH_KEY_GETRUSAGECHILDREN	"GetResourceUsageChildren"
 
