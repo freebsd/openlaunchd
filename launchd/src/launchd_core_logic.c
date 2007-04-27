@@ -5240,22 +5240,13 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 	}
 
 	for (l2l_i = 0; l2l_i < l2l_name_cnt; l2l_i++) {
+		job_t j_for_service = jobmgr_find_by_pid(jmr, l2l_pids[l2l_i], true);
 		struct machservice *ms;
-		job_t j_for_service;
 
-		LIST_FOREACH(j_for_service, &jmr->jobs, sle) {
-			if (j_for_service->p == l2l_pids[l2l_i]) {
-				break;
+		if (jobmgr_assumes(jmr, j_for_service != NULL)) {
+			if ((ms = machservice_new(j_for_service, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
+				machservice_request_notifications(ms);
 			}
-		}
-
-		if (!j_for_service) {
-			j_for_service = job_new_anonymous(jmr, l2l_pids[l2l_i]);
-			jobmgr_assumes(jmr, j_for_service != NULL);
-		}
-
-		if ((ms = machservice_new(j_for_service, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
-			machservice_request_notifications(ms);
 		}
 	}
 
