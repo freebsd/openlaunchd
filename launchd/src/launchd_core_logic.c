@@ -5191,8 +5191,8 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 	pid_array_t l2l_pids = NULL;
 	mach_port_array_t l2l_ports = NULL;
 	mach_port_t reqport, rcvright;
-	kern_return_t kr;
-	jobmgr_t jmr;
+	kern_return_t kr = 1;
+	jobmgr_t jmr = NULL;
 	job_t j2;
 
 	if (getuid() == 0) {
@@ -5243,10 +5243,12 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		job_t j_for_service = jobmgr_find_by_pid(jmr, l2l_pids[l2l_i], true);
 		struct machservice *ms;
 
-		if (jobmgr_assumes(jmr, j_for_service != NULL)) {
-			if ((ms = machservice_new(j_for_service, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
-				machservice_request_notifications(ms);
-			}
+		if (!jobmgr_assumes(jmr, j_for_service != NULL)) {
+			goto out;
+		}
+
+		if ((ms = machservice_new(j_for_service, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
+			machservice_request_notifications(ms);
 		}
 	}
 
@@ -5261,6 +5263,9 @@ out:
 	}
 	if (l2l_pids) {
 		mig_deallocate((vm_address_t)l2l_pids, l2l_pid_cnt * sizeof(l2l_pids[0]));
+	}
+	if (kr && jmr) {
+		jobmgr_shutdown(jmr);
 	}
 
 	return kr;
