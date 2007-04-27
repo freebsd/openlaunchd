@@ -1237,6 +1237,7 @@ job_import_bool(job_t j, const char *key, bool value)
 		}
 		break;
 	default:
+		job_log(j, LOG_WARNING, "Unknown key for boolean: %s", key);
 		break;
 	}
 }
@@ -1315,6 +1316,7 @@ job_import_string(job_t j, const char *key, const char *value)
 		}
 		break;
 	default:
+		job_log(j, LOG_WARNING, "Unknown key for string: %s", key);
 		break;
 	}
 
@@ -1383,6 +1385,7 @@ job_import_integer(job_t j, const char *key, long long value)
 		}
 		break;
 	default:
+		job_log(j, LOG_WARNING, "Unknown key for integer: %s", key);
 		break;
 	}
 }
@@ -1449,6 +1452,7 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 		}
 		break;
 	default:
+		job_log(j, LOG_WARNING, "Unknown key for dictionary: %s", key);
 		break;
 	}
 }
@@ -1509,6 +1513,7 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 		}
 		break;
 	default:
+		job_log(j, LOG_WARNING, "Unknown key for array: %s", key);
 		break;
 	}
 }
