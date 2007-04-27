@@ -5206,35 +5206,29 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		j = j2;
 		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
 		strcpy(j->mgr->name, session_type);
-		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
 
 		bootstrapper = job_new(j->mgr, thelabel, NULL, bootstrap_tool);
 		if (job_assumes(j, bootstrapper != NULL)) {
 			job_dispatch(bootstrapper, true);
 		}
-		return 0;
+
+		kr = 0;
+		goto out;
 	}
 
 	if (getpid() != 1 && job_mig_intran(target_subset)) {
-		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
-		return 0;
+		kr = 0;
+		goto out;
 	}
 
-	kr = _vproc_grab_subset(target_subset, &reqport,
-			&rcvright, &l2l_names, &l2l_name_cnt,
-			&l2l_pids, &l2l_pid_cnt,
-			&l2l_ports, &l2l_port_cnt);
-
-	if (job_assumes(j, kr == 0)) {
-		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
-	} else {
+	if (!job_assumes(j, (kr = _vproc_grab_subset(target_subset, &reqport, &rcvright, &l2l_names, &l2l_name_cnt, &l2l_pids, &l2l_pid_cnt, &l2l_ports, &l2l_port_cnt)) == 0)) {
 		goto out;
 	}
 
 	launchd_assert(l2l_name_cnt == l2l_port_cnt);
 	launchd_assert(l2l_name_cnt == l2l_pid_cnt);
 
-	if ((jmr = jobmgr_new(j->mgr, reqport, rcvright, false, session_type)) == NULL) {
+	if (!job_assumes(j, (jmr = jobmgr_new(j->mgr, reqport, rcvright, false, session_type)) != NULL)) {
 		kr = BOOTSTRAP_NO_MEMORY;
 		goto out;
 	}
@@ -5244,6 +5238,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		struct machservice *ms;
 
 		if (!jobmgr_assumes(jmr, j_for_service != NULL)) {
+			kr = BOOTSTRAP_NO_MEMORY;
 			goto out;
 		}
 
@@ -5264,7 +5259,10 @@ out:
 	if (l2l_pids) {
 		mig_deallocate((vm_address_t)l2l_pids, l2l_pid_cnt * sizeof(l2l_pids[0]));
 	}
-	if (kr && jmr) {
+
+	if (kr == 0) {
+		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
+	} else if (jmr) {
 		jobmgr_shutdown(jmr);
 	}
 
