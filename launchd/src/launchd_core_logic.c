@@ -997,11 +997,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, kp.kp_proc.p_comm, NULL)) != NULL)) {
-		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT;
-
-#ifdef NOTE_REAP
-		proc_fflags |= NOTE_REAP;
-#endif
+		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT|NOTE_REAP;
 
 		total_children++;
 		jr->anonymous = true;
@@ -1983,22 +1979,22 @@ job_callback_proc(job_t j, int flags, int fflags)
 	}
 
 	if (fflags & NOTE_EXIT) {
-		job_assumes(j, (flags & EV_ONESHOT));
-		job_assumes(j, (flags & EV_EOF));
 		job_reap(j);
 
 		if (j->anonymous) {
 			job_remove(j);
+			j = NULL;
 		} else {
 			j = job_dispatch(j, false);
 		}
 	}
 
-#ifdef NOTE_REAP
 	if (j && (fflags & NOTE_REAP)) {
+		job_assumes(j, flags & EV_ONESHOT);
+		job_assumes(j, flags & EV_EOF);
+
 		job_assumes(j, j->p == 0);
 	}
-#endif
 }
 
 void
@@ -2121,11 +2117,7 @@ job_start(job_t j)
 	pid_t c;
 	bool sipc = false;
 	time_t td;
-	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT;
-
-#ifdef NOTE_REAP
-	proc_fflags |= NOTE_REAP;
-#endif
+	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT|NOTE_REAP;
 
 	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
