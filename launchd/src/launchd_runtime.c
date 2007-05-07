@@ -261,6 +261,7 @@ log_kevent_struct(int level, struct kevent *kev, int indx)
 		}
 
 		FLAGIF(EV_ADD)
+		else FLAGIF(EV_RECEIPT)
 		else FLAGIF(EV_DELETE)
 		else FLAGIF(EV_ENABLE)
 		else FLAGIF(EV_DISABLE)
@@ -325,8 +326,10 @@ log_kevent_struct(int level, struct kevent *kev, int indx)
 			}
 
 			FFLAGIF(NOTE_EXIT)
+			else FFLAGIF(NOTE_REAP)
 			else FFLAGIF(NOTE_FORK)
 			else FFLAGIF(NOTE_EXEC)
+			else FFLAGIF(NOTE_SIGNAL)
 			else FFLAGIF(NOTE_TRACK)
 			else FFLAGIF(NOTE_TRACKERR)
 			else FFLAGIF(NOTE_CHILD)
