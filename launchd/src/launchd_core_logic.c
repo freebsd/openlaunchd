@@ -931,7 +931,7 @@ job_new_spawn(job_t j, const char *label, const char *path, const char *workingd
 		return NULL;
 	}
 
-	job_reparent_hack(jr, "Aqua");
+	job_reparent_hack(jr, NULL);
 
 	if (getpid() == 1) {
 		struct ldcred ldc;
@@ -5155,7 +5155,14 @@ job_reparent_hack(job_t j, const char *where)
 {
 	jobmgr_t jmi = NULL;
 
-	if (strcasecmp(where, "Aqua") != 0 && strcasecmp(where, "LoginWindow") != 0) {
+	/* NULL is only passed for our custom API for LaunchServices. If that is the case, we do magic. */
+	if (where == NULL) {
+		if (strcasecmp(j->mgr->name, "LoginWindow") == 0) {
+			where = "LoginWindow";
+		} else {
+			where = "Aqua";
+		}
+	} else if (strcasecmp(where, "Aqua") != 0 && strcasecmp(where, "LoginWindow") != 0) {
 		return;
 	}
 
