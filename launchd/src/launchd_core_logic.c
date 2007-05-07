@@ -1460,6 +1460,12 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 	const char *str;
 
 	switch (key[0]) {
+	case 'p':
+	case 'P':
+		if (strcasecmp(key, LAUNCH_JOBKEY_PROGRAMARGUMENTS) == 0) {
+			return;
+		}
+		break;
 	case 'l':
 	case 'L':
 		if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOHOSTS) == 0) {
