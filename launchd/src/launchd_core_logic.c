@@ -1877,6 +1877,10 @@ jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack)
 	jobmgr_t jmi, jmn;
 	job_t ji, jn;
 
+	if (jm->shutting_down) {
+		return;
+	}
+
 	SLIST_FOREACH_SAFE(jmi, &jm->submgrs, sle, jmn) {
 		jobmgr_dispatch_all(jmi, newmounthack);
 	}
@@ -3949,6 +3953,10 @@ machservice_delete(job_t j, struct machservice *ms, bool port_died)
 	}
 
 	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
+
+	if (ms->port == the_exception_server) {
+		the_exception_server = 0;
+	}
 
 	job_log(j, LOG_INFO, "Mach service deleted%s: %s", port_died ? " (port died)" : "", ms->name);
 
