@@ -1670,7 +1670,8 @@ job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid)
 	job_t ji;
 
 	if (jm->jm_port == mport) {
-		return jobmgr_find_by_pid(jm, upid, true);
+		jobmgr_assumes(jm, (ji = jobmgr_find_by_pid(jm, upid, true)) != NULL);
+		return ji;
 	}
 
 	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
@@ -1708,7 +1709,7 @@ job_mig_intran(mach_port_t p)
 		mib[3] = ldc.pid;
 
 		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
-			jobmgr_log(root_jobmgr, LOG_ERR, "%s() was confused by PID %u: %s", __func__, ldc.pid, kp.kp_proc.p_comm);
+			jobmgr_log(root_jobmgr, LOG_ERR, "%s() was confused by PID %u UID %u EUID %u Mach Port 0x%x: %s", __func__, ldc.pid, ldc.uid, ldc.euid, p, kp.kp_proc.p_comm);
 		}
 	}
 
@@ -5226,7 +5227,8 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		goto out;
 	}
 
-	if (getpid() != 1 && job_mig_intran(target_subset)) {
+	/* We call job_mig_intran2 because job_mig_intran logs on failure */
+	if (getpid() != 1 && job_mig_intran2(root_jobmgr, target_subset, getpid())) {
 		kr = 0;
 		goto out;
 	}
