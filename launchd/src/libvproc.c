@@ -103,7 +103,7 @@ _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type)
 		}
 	}
 
-	return NULL;
+	return _vproc_post_fork_ping();
 }
 
 
