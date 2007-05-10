@@ -3068,6 +3068,7 @@ socketgroup_ignore(job_t j, struct socketgroup *sg)
 void
 socketgroup_watch(job_t j, struct socketgroup *sg)
 {
+	struct kevent kev[sg->fd_cnt];
 	char buf[10000];
 	unsigned int i, buf_off = 0;
 
@@ -3081,7 +3082,15 @@ socketgroup_watch(job_t j, struct socketgroup *sg)
 	job_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
 
 	for (i = 0; i < sg->fd_cnt; i++) {
-		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j) != -1);
+		EV_SET(&kev[i], sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j);
+	}
+
+	job_assumes(j, kevent_bulk_mod(kev, sg->fd_cnt) != -1);
+
+	for (i = 0; i < sg->fd_cnt; i++) {
+		job_assumes(j, kev[i].flags & EV_ERROR);
+		errno = kev[i].data;
+		job_assumes(j, kev[i].data == 0);
 	}
 }
 

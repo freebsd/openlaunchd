@@ -676,6 +676,18 @@ launchd_mport_deallocate(mach_port_t name)
 }
 
 int
+kevent_bulk_mod(struct kevent *kev, size_t kev_cnt)
+{
+	size_t i;
+
+	for (i = 0; i < kev_cnt; i++) {
+		kev[i].flags |= EV_CLEAR|EV_RECEIPT;
+	}
+
+	return kevent(mainkq, kev, kev_cnt, kev, kev_cnt, NULL);
+}
+
+int
 kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
