@@ -3045,28 +3045,8 @@ socketgroup_delete(job_t j, struct socketgroup *sg)
 	free(sg);
 }
 
-void
-socketgroup_ignore(job_t j, struct socketgroup *sg)
-{
-	char buf[10000];
-	unsigned int i, buf_off = 0;
-
-	if (sg->junkfds) {
-		return;
-	}
-
-	for (i = 0; i < sg->fd_cnt; i++)
-		buf_off += snprintf(buf + buf_off, sizeof(buf) - buf_off, " %d", sg->fds[i]);
-
-	job_log(j, LOG_DEBUG, "Ignoring Sockets:%s", buf);
-
-	for (i = 0; i < sg->fd_cnt; i++) {
-		job_assumes(j, kevent_mod(sg->fds[i], EVFILT_READ, EV_DELETE, 0, 0, NULL) != -1);
-	}
-}
-
-void
-socketgroup_watch(job_t j, struct socketgroup *sg)
+static void
+socketgroup_kevent_mod(job_t j, struct socketgroup *sg, bool do_add)
 {
 	struct kevent kev[sg->fd_cnt];
 	char buf[10000];
@@ -3076,14 +3056,12 @@ socketgroup_watch(job_t j, struct socketgroup *sg)
 		return;
 	}
 
-	for (i = 0; i < sg->fd_cnt; i++)
-		buf_off += snprintf(buf + buf_off, sizeof(buf) - buf_off, " %d", sg->fds[i]);
-
-	job_log(j, LOG_DEBUG, "Watching sockets:%s", buf);
-
 	for (i = 0; i < sg->fd_cnt; i++) {
-		EV_SET(&kev[i], sg->fds[i], EVFILT_READ, EV_ADD, 0, 0, j);
+		EV_SET(&kev[i], sg->fds[i], EVFILT_READ, do_add ? EV_ADD : EV_DELETE, 0, 0, j);
+		buf_off += snprintf(buf + buf_off, sizeof(buf) - buf_off, " %d", sg->fds[i]);
 	}
+
+	job_log(j, LOG_DEBUG, "%s Sockets:%s", do_add ? "Watching" : "Ignoring", buf);
 
 	job_assumes(j, kevent_bulk_mod(kev, sg->fd_cnt) != -1);
 
@@ -3092,6 +3070,18 @@ socketgroup_watch(job_t j, struct socketgroup *sg)
 		errno = kev[i].data;
 		job_assumes(j, kev[i].data == 0);
 	}
+}
+
+void
+socketgroup_ignore(job_t j, struct socketgroup *sg)
+{
+	socketgroup_kevent_mod(j, sg, false);
+}
+
+void
+socketgroup_watch(job_t j, struct socketgroup *sg)
+{
+	socketgroup_kevent_mod(j, sg, true);
 }
 
 void
