@@ -1159,47 +1159,64 @@ job_import_bulk(launch_data_t pload)
 void
 job_import_bool(job_t j, const char *key, bool value)
 {
+	bool found_key = false;
+
 	switch (key[0]) {
 	case 'k':
 	case 'K':
 		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
 			j->ondemand = !value;
+			found_key = true;
 		}
 		break;
 	case 'o':
 	case 'O':
 		if (strcasecmp(key, LAUNCH_JOBKEY_ONDEMAND) == 0) {
 			j->ondemand = value;
+			found_key = true;
 		}
 		break;
 	case 'd':
 	case 'D':
 		if (strcasecmp(key, LAUNCH_JOBKEY_DEBUG) == 0) {
 			j->debug = value;
+			found_key = true;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_DISABLED) == 0) {
+			job_assumes(j, !value);
+			found_key = true;
 		}
 		break;
 	case 'h':
 	case 'H':
 		if (strcasecmp(key, LAUNCH_JOBKEY_HOPEFULLYEXITSLAST) == 0) {
 			j->hopefully_exits_last = value;
+			found_key = true;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_HOPEFULLYEXITSFIRST) == 0) {
 			j->hopefully_exits_first = value;
+			found_key = true;
 		}
 		break;
 	case 's':
 	case 'S':
 		if (strcasecmp(key, LAUNCH_JOBKEY_SESSIONCREATE) == 0) {
 			j->session_create = value;
+			found_key = true;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_STARTONMOUNT) == 0) {
 			j->start_on_mount = value;
+			found_key = true;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_SERVICEIPC) == 0) {
+			/* this only does something on Mac OS X 10.4 "Tiger" */
+			found_key = true;
 		}
 		break;
 	case 'l':
 	case 'L':
 		if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYIO) == 0) {
 			j->low_pri_io = value;
+			found_key = true;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LAUNCHONLYONCE) == 0) {
 			j->only_once = value;
+			found_key = true;
 		}
 		break;
 	case 'i':
@@ -1210,31 +1227,39 @@ job_import_bool(job_t j, const char *key, bool value)
 				return;
 			}
 			j->no_init_groups = !value;
+			found_key = true;
 		}
 		break;
 	case 'r':
 	case 'R':
 		if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0) {
 			j->runatload = value;
+			found_key = true;
 		}
 		break;
 	case 'e':
 	case 'E':
 		if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0) {
 			j->globargv = value;
+			found_key = true;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_ENTERKERNELDEBUGGERBEFOREKILL) == 0) {
 			j->debug_before_kill = value;
+			found_key = true;
 		}
 		break;
 	case 'w':
 	case 'W':
 		if (strcasecmp(key, LAUNCH_JOBKEY_WAITFORDEBUGGER) == 0) {
 			j->wait4debugger = value;
+			found_key = true;
 		}
 		break;
 	default:
-		job_log(j, LOG_WARNING, "Unknown key for boolean: %s", key);
 		break;
+	}
+
+	if (!found_key) {
+		job_log(j, LOG_WARNING, "Unknown key for boolean: %s", key);
 	}
 }
 
