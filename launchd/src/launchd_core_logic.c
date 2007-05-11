@@ -127,7 +127,7 @@ struct machservice {
 #define PORT_HASH_SIZE 32
 #define HASH_PORT(x)	(IS_POWER_OF_TWO(PORT_HASH_SIZE) ? (MACH_PORT_INDEX(x) & (PORT_HASH_SIZE - 1)) : (MACH_PORT_INDEX(x) % PORT_HASH_SIZE))
 
-LIST_HEAD(, machservice) port_hash[PORT_HASH_SIZE];
+static LIST_HEAD(, machservice) port_hash[PORT_HASH_SIZE];
 
 static void machservice_setup(launch_data_t obj, const char *key, void *context);
 static void machservice_setup_options(launch_data_t obj, const char *key, void *context);
@@ -332,7 +332,7 @@ struct job_s {
 
 #define LABEL_HASH_SIZE 53
 
-LIST_HEAD(, job_s) label_hash[LABEL_HASH_SIZE];
+static LIST_HEAD(, job_s) label_hash[LABEL_HASH_SIZE];
 static size_t hash_label(const char *label) __attribute__((pure));
 static size_t hash_ms(const char *msstr) __attribute__((pure));
 
