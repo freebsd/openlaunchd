@@ -1083,8 +1083,9 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		while (*argv_tmp++)
 			j->argc++;
 
-		for (i = 0; i < j->argc; i++)
+		for (i = 0; i < j->argc; i++) {
 			cc += strlen(argv[i]) + 1;
+		}
 
 		j->argv = malloc((j->argc + 1) * sizeof(char *) + cc);
 
@@ -2320,8 +2321,9 @@ job_start_child(job_t j)
 	} else if (j->argv) {
 		argv = alloca((j->argc + 2) * sizeof(char *));
 		argv[0] = file2exec;
-		for (i = 0; i < j->argc; i++)
+		for (i = 0; i < j->argc; i++) {
 			argv[i + 1] = j->argv[i];
+		}
 		argv[i + 1] = NULL;
 	} else {
 		argv = alloca(3 * sizeof(char *));
@@ -3061,8 +3063,9 @@ socketgroup_delete(job_t j, struct socketgroup *sg)
 {
 	unsigned int i;
 
-	for (i = 0; i < sg->fd_cnt; i++)
+	for (i = 0; i < sg->fd_cnt; i++) {
 		job_assumes(j, runtime_close(sg->fds[i]) != -1);
+	}
 
 	SLIST_REMOVE(&j->sockets, sg, socketgroup, sle);
 
