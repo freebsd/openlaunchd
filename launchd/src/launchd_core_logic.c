@@ -244,7 +244,7 @@ struct jobmgr_s {
 	unsigned int global_on_demand_cnt;
 	unsigned int hopefully_first_cnt;
 	unsigned int normal_active_cnt;
-	unsigned int sent_stop_to_normal_jobs:1, sent_stop_to_hopefully_last_jobs:1, shutting_down:1;
+	unsigned int sent_stop_to_normal_jobs:1, sent_stop_to_hopefully_last_jobs:1, shutting_down:1, session_initialized:1;
 	char name[0];
 };
 
@@ -258,6 +258,7 @@ static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
+static job_t jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag);
 static job_t jobmgr_find_by_pid(jobmgr_t jm, pid_t p, bool create_anon);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
@@ -3752,14 +3753,9 @@ job_uncork_fork(job_t j)
 jobmgr_t 
 jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name)
 {
-	const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", "-S", name, NULL, NULL };
 	mach_msg_size_t mxmsgsz;
 	job_t bootstrapper = NULL;
 	jobmgr_t jmr;
-
-	if (sflag) {
-		bootstrap_tool[4] = "-s";
-	}
 
 	launchd_assert(offsetof(struct jobmgr_s, kqjobmgr_callback) == 0);
 
@@ -3836,20 +3832,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	}
 
 	if (name) {
-		char thelabel[1000];
-
-		snprintf(thelabel, sizeof(thelabel), "com.apple.launchctl.%s", name);
-		/* no name implies: bootstrap_subset() where creating a "bootstrapper" makes no sense */
-		bootstrapper = job_new(jmr, thelabel, NULL, bootstrap_tool);
-		if (jobmgr_assumes(jmr, bootstrapper != NULL) && (jm || getuid())) {
-			char buf[100];
-
-			/* <rdar://problem/5042202> launchd-201: can't ssh in with AFP OD account (hangs) */
-			snprintf(buf, sizeof(buf), "0x%X:0:0", getuid());
-			envitem_new(bootstrapper, "__CF_USER_TEXT_ENCODING", buf, false);
-			bootstrapper->weird_bootstrap = true;
-			jobmgr_assumes(jmr, job_setup_machport(bootstrapper));
-		}
+		bootstrapper = jobmgr_init_session(jmr, name, sflag);
 	}
 
 	if (!bootstrapper || !bootstrapper->weird_bootstrap) {
@@ -3871,6 +3854,30 @@ out_bad:
 		jobmgr_remove(jmr);
 	}
 	return NULL;
+}
+
+job_t
+jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag)
+{
+	const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", "-S", session_type, sflag ? "-s" : NULL, NULL };
+	char thelabel[1000];
+	job_t bootstrapper;
+
+	snprintf(thelabel, sizeof(thelabel), "com.apple.launchctl.%s", session_type);
+	bootstrapper = job_new(jm, thelabel, NULL, bootstrap_tool);
+	if (jobmgr_assumes(jm, bootstrapper != NULL) && (jm->parentmgr || getuid())) {
+		char buf[100];
+
+		/* <rdar://problem/5042202> launchd-201: can't ssh in with AFP OD account (hangs) */
+		snprintf(buf, sizeof(buf), "0x%X:0:0", getuid());
+		envitem_new(bootstrapper, "__CF_USER_TEXT_ENCODING", buf, false);
+		bootstrapper->weird_bootstrap = true;
+		jobmgr_assumes(jm, job_setup_machport(bootstrapper));
+	}
+
+	jm->session_initialized = true;
+
+	return bootstrapper;
 }
 
 jobmgr_t
@@ -4871,18 +4878,17 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (getpid() != 1) {
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
+	job_log(j, LOG_DEBUG, "Looking up per user launchd for UID: %u", which_user);
 
 	runtime_get_caller_creds(&ldc);
 
-	if (ldc.euid || ldc.uid) {
-		which_user = ldc.euid ? ldc.euid : ldc.uid;
+	if (getpid() != 1) {
+		job_log(j, LOG_ERR, "Only PID 1 supports per user launchd lookups.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (which_user == 0) {
-		return BOOTSTRAP_NOT_PRIVILEGED;
+	if (ldc.euid || ldc.uid) {
+		which_user = ldc.euid ? ldc.euid : ldc.uid;
 	}
 
 	*up_cont = MACH_PORT_NULL;
@@ -4907,6 +4913,8 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		struct machservice *ms;
 		char lbuf[1024];
 
+		job_log(j, LOG_DEBUG, "Creating per user launchd job for UID: %u", which_user);
+
 		sprintf(lbuf, "com.apple.launchd.peruser.%u", which_user);
 
 		ji = job_new(root_jobmgr, lbuf, "/sbin/launchd", NULL);
@@ -4927,6 +4935,8 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		ms->hide = true;
 
 		ji = job_dispatch(ji, false);
+	} else {
+		job_log(j, LOG_DEBUG, "Per user launchd job found for UID: %u", which_user);
 	}
 
 	if (job_assumes(j, ji != NULL)) {
@@ -5238,37 +5248,45 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 	mach_port_array_t l2l_ports = NULL;
 	mach_port_t reqport, rcvright;
 	kern_return_t kr = 1;
+	struct ldcred ldc;
 	jobmgr_t jmr = NULL;
-	job_t j2;
 
-	if (getuid() == 0) {
-		const char *bootstrap_tool[] = { "/bin/launchctl", "bootstrap", "-S", session_type, NULL };
-		char thelabel[1000];
-		job_t bootstrapper;
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
-		snprintf(thelabel, sizeof(thelabel), "com.apple.launchctl.%s", session_type);
+	runtime_get_caller_creds(&ldc);
 
-		job_assumes(j, (j2 = job_mig_intran(target_subset)) != NULL);
-		j = j2;
+	if (target_subset == MACH_PORT_NULL) {
+		job_t j2;
+
+		if (j->mgr->session_initialized) {
+			job_log(j, LOG_ERR, "Tried to initialize an already setup session!");
+			kr = BOOTSTRAP_NOT_PRIVILEGED;
+			goto out;
+		}
+
 		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
 		strcpy(j->mgr->name, session_type);
 
-		bootstrapper = job_new(j->mgr, thelabel, NULL, bootstrap_tool);
-		if (job_assumes(j, bootstrapper != NULL)) {
-			job_dispatch(bootstrapper, true);
+		if (job_assumes(j, (j2 = jobmgr_init_session(j->mgr, session_type, false)))) {
+			job_assumes(j, job_dispatch(j2, true));
 		}
 
 		kr = 0;
 		goto out;
-	}
+	} else if (job_mig_intran2(root_jobmgr, target_subset, ldc.pid)) {
+		job_log(j, LOG_ERR, "Moving a session to ourself is bogus.");
 
-	/* We call job_mig_intran2 because job_mig_intran logs on failure */
-	if (getpid() != 1 && job_mig_intran2(root_jobmgr, target_subset, getpid())) {
-		kr = 0;
+		kr = BOOTSTRAP_NOT_PRIVILEGED;
 		goto out;
 	}
 
-	if (!job_assumes(j, (kr = _vproc_grab_subset(target_subset, &reqport, &rcvright, &l2l_names, &l2l_name_cnt, &l2l_pids, &l2l_pid_cnt, &l2l_ports, &l2l_port_cnt)) == 0)) {
+	job_log(j, LOG_DEBUG, "Move subset attempt: 0x%x", target_subset);
+
+	kr = _vproc_grab_subset(target_subset, &reqport, &rcvright, &l2l_names, &l2l_name_cnt, &l2l_pids, &l2l_pid_cnt, &l2l_ports, &l2l_port_cnt);
+
+	if (!job_assumes(j, kr == 0)) {
 		goto out;
 	}
 
@@ -5308,7 +5326,9 @@ out:
 	}
 
 	if (kr == 0) {
-		job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
+		if (target_subset) {
+			job_assumes(j, launchd_mport_deallocate(target_subset) == KERN_SUCCESS);
+		}
 	} else if (jmr) {
 		jobmgr_shutdown(jmr);
 	}

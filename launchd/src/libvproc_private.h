@@ -63,7 +63,7 @@ void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(print
 #define VPROCMGR_SESSION_STANDARDIO	"StandardIO"
 #define VPROCMGR_SESSION_SYSTEM		"System"
 
-vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, char *session_type);
+vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type);
 
 #pragma GCC visibility pop
 

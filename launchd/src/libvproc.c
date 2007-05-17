@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
+#include <syslog.h>
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -65,28 +66,70 @@ setup_env_hack(const launch_data_t obj, const char *key, void *context __attribu
 }
 
 vproc_err_t
-_vprocmgr_move_subset_to_user(uid_t target_user, char *session_type)
+_vprocmgr_init(const char *session_type)
+{
+	if (vproc_mig_move_subset(bootstrap_port, MACH_PORT_NULL, (char *)session_type) == 0) {
+		return NULL;
+	}
+
+	return (vproc_err_t)_vprocmgr_init;
+}
+
+vproc_err_t
+_vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 {
 	launch_data_t output_obj;
 	kern_return_t kr = 1;
-	mach_port_t puc = 0, which_port = bootstrap_port;
+	mach_port_t puc = 0, rootbs = get_root_bootstrap_port();
 	bool is_bkgd = (strcmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0);
+	int64_t ldpid, lduid;
 
-	if (target_user && vproc_mig_lookup_per_user_context(get_root_bootstrap_port(), target_user, &puc) == 0) {
-		which_port = puc;
+	if (vproc_swap_integer(NULL, VPROC_GSK_MGR_PID, 0, &ldpid) != 0) {
+		return (vproc_err_t)_vprocmgr_move_subset_to_user;
+	}
+
+	if (vproc_swap_integer(NULL, VPROC_GSK_MGR_UID, 0, &lduid) != 0) {
+		return (vproc_err_t)_vprocmgr_move_subset_to_user;
+	}
+
+	if (target_user == 0) {
+		if (ldpid == 1 && rootbs != bootstrap_port) {
+			return _vprocmgr_init(session_type);
+		}
+
+		task_set_bootstrap_port(mach_task_self(), rootbs);
+		mach_port_deallocate(mach_task_self(), bootstrap_port);
+		bootstrap_port = rootbs;
+
+		return NULL;
+	}
+
+	if (ldpid != 1) {
+		if (lduid == getuid()) {
+			return NULL;
+		}
+		/*
+		 * Not all sessions can be moved.
+		 * We should clean up this mess someday.
+		 */
+		return (vproc_err_t)_vprocmgr_move_subset_to_user;
+	}
+
+	if (vproc_mig_lookup_per_user_context(rootbs, target_user, &puc) != 0) {
+		return (vproc_err_t)_vprocmgr_move_subset_to_user;
 	}
 
 	if (is_bkgd) {
 		kr = 0;
 	} else {
-		kr = vproc_mig_move_subset(which_port, bootstrap_port, session_type);
+		kr = vproc_mig_move_subset(puc, bootstrap_port, (char *)session_type);
 	}
 
-	if (puc && is_bkgd) {
+	if (is_bkgd) {
 		task_set_bootstrap_port(mach_task_self(), puc);
 		mach_port_deallocate(mach_task_self(), bootstrap_port);
 		bootstrap_port = puc;
-	} else if (puc) {
+	} else {
 		mach_port_deallocate(mach_task_self(), puc);
 	}
 
@@ -308,7 +351,9 @@ get_root_bootstrap_port(void)
 
 	do {
 		if (previous_port) {
-			mach_port_deallocate(mach_task_self(), previous_port);
+			if (previous_port != bootstrap_port) {
+				mach_port_deallocate(mach_task_self(), previous_port);
+			}
 			previous_port = parent_port;
 		} else {
 			previous_port = bootstrap_port;

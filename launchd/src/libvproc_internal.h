@@ -39,6 +39,7 @@ typedef integer_t binpref_t[8];
 
 #pragma GCC visibility push(default)
 
+vproc_err_t _vprocmgr_init(const char *session_type);
 vproc_err_t _vproc_post_fork_ping(void);
 
 #define SPAWN_HAS_PATH			0x0001

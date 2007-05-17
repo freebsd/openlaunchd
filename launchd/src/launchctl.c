@@ -1929,7 +1929,7 @@ print_obj(launch_data_t obj, const char *key, void *context __attribute__((unuse
 }
 
 int
-list_cmd(int argc, char *const argv[] __attribute__((unused)))
+list_cmd(int argc, char *const argv[])
 {
 	launch_data_t resp, msg;
 	int r = 0;

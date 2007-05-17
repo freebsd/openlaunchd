@@ -1204,7 +1204,7 @@ launch_data_t launch_data_new_opaque(const void *o, size_t os)
 void
 load_launchd_jobs_at_loginwindow_prompt(int flags __attribute__((unused)), ...)
 {
-	_vprocmgr_move_subset_to_user(geteuid() ? geteuid() : getuid(), "LoginWindow");
+	_vprocmgr_init("LoginWindow");
 }
 
 pid_t
