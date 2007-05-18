@@ -1495,7 +1495,7 @@ do_BootCache_magic(BootCache_action_t what)
 		return;
 	}
 
-	assumes(fwexec(bcc_tool, true) != -1);
+	fwexec(bcc_tool, true);
 }
 
 int
