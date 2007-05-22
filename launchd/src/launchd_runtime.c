@@ -693,10 +693,18 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 	struct kevent kev;
 	int q = mainkq;
 
-	flags |= EV_CLEAR;
-
-	if (EVFILT_TIMER == filter || EVFILT_VNODE == filter) {
+	switch (filter) {
+	case EVFILT_READ:
+	case EVFILT_WRITE:
+		break;
+	case EVFILT_TIMER:
+	case EVFILT_VNODE:
+	case EVFILT_FS:
 		q = asynckq;
+		/* fall through */
+	default:
+		flags |= EV_CLEAR;
+		break;
 	}
 
 	if (flags & EV_ADD && !launchd_assumes(udata != NULL)) {
