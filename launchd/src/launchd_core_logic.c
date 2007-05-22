@@ -4587,9 +4587,16 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 	launch_data_t input_obj, output_obj;
 	size_t data_offset = 0;
 	size_t packed_size;
+	struct ldcred ldc;
+
+	runtime_get_caller_creds(&ldc);
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (inkey && ldc.euid && ldc.euid != getuid()) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	if (inkey && outkey && !job_assumes(j, inkey == outkey)) {
@@ -4673,10 +4680,17 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 {
 	const char *action;
 	kern_return_t kr = 0;
+	struct ldcred ldc;
 	int oldmask;
+
+	runtime_get_caller_creds(&ldc);
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (inkey && ldc.euid && ldc.euid != getuid()) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	if (inkey && outkey && !job_assumes(j, inkey == outkey)) {
