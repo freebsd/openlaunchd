@@ -107,7 +107,8 @@ struct mspolicy {
 	const char		name[0];
 };
 
-static bool mspolicy_new(job_t j, const char *name, bool allow, bool pid_local);
+static bool mspolicy_new(job_t j, const char *name, bool allow, bool pid_local, bool skip_check);
+static bool mspolicy_copy(job_t j_to, job_t j_from);
 static void mspolicy_setup(launch_data_t obj, const char *key, void *context);
 static bool mspolicy_check(job_t j, const char *name, bool pid_local);
 static void mspolicy_delete(job_t j, struct mspolicy *msp);
@@ -977,19 +978,28 @@ job_t
 job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, anonpid };
-	struct kinfo_proc kp, ppid_kp;
+	struct kinfo_proc kp;
 	size_t len = sizeof(kp);
 	bool shutdown_state;
-	job_t jr = NULL;
+	job_t jp = NULL, jr = NULL;
 
 	if (!jobmgr_assumes(jm, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
 		return NULL;
 	}
 
-	mib[3] = kp.kp_eproc.e_ppid;
-
-	if (!jobmgr_assumes(jm, sysctl(mib, 4, &ppid_kp, &len, NULL, 0) != -1)) {
-		return NULL;
+	switch (kp.kp_eproc.e_ppid) {
+	case 0:
+		/* the kernel */
+		break;
+	case 1:
+		if (getpid() != 1) {
+			break;
+		}
+		/* fall through */
+	default:
+		jp = jobmgr_find_by_pid(jm, kp.kp_eproc.e_ppid, true);
+		jobmgr_assumes(jm, jp != NULL);
+		break;
 	}
 
 	/* A total hack: Normally, job_new() returns an error during shutdown, but anonymous jobs are special. */
@@ -1003,14 +1013,20 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		total_children++;
 		jr->anonymous = true;
 		jr->p = anonpid;
+
 		/* anonymous process reaping is messy */
 		LIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
 		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) != -1);
-		if (shutdown_state && jm->hopefully_first_cnt == 0) {
-			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time. Blame PID %u: %s",
-				kp.kp_eproc.e_ppid, ppid_kp.kp_proc.p_comm);
+
+		if (jp) {
+			job_assumes(jr, mspolicy_copy(jr, jp));
 		}
-		job_log(jr, LOG_DEBUG, "Created anonymously by PPID %u: %s", kp.kp_eproc.e_ppid, ppid_kp.kp_proc.p_comm);
+
+		if (shutdown_state && jm->hopefully_first_cnt == 0) {
+			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time.");
+		}
+
+		job_log(jr, LOG_DEBUG, "Created anonymously by PPID %u%s%s", kp.kp_eproc.e_ppid, jp ? ": " : "", jp ? jp->label : "");
 	}
 
 	if (shutdown_state) {
@@ -5572,7 +5588,7 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 	if (SLIST_EMPTY(&j->mspolicies)) {
 		job_log(j, LOG_DEBUG, "Setting policy on job \"%s\" for Mach service: %s", target_j->label, target_service);
 		if (target_service[0]) {
-			job_assumes(j, mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE));
+			job_assumes(j, mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE, false));
 		} else {
 			target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
 		}
@@ -5709,11 +5725,25 @@ hash_ms(const char *msstr)
 }
 
 bool
-mspolicy_new(job_t j, const char *name, bool allow, bool pid_local)
+mspolicy_copy(job_t j_to, job_t j_from)
 {
 	struct mspolicy *msp;
 
-	SLIST_FOREACH(msp, &j->mspolicies, sle) {
+	SLIST_FOREACH(msp, &j_from->mspolicies, sle) {
+		if (!mspolicy_new(j_to, msp->name, msp->allow, msp->per_pid, true)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool
+mspolicy_new(job_t j, const char *name, bool allow, bool pid_local, bool skip_check)
+{
+	struct mspolicy *msp;
+
+	if (!skip_check) SLIST_FOREACH(msp, &j->mspolicies, sle) {
 		if (msp->per_pid != pid_local) {
 			continue;
 		} else if (strcmp(msp->name, name) == 0) {
@@ -5727,6 +5757,7 @@ mspolicy_new(job_t j, const char *name, bool allow, bool pid_local)
 
 	strcpy((char *)msp->name, name);
 	msp->per_pid = pid_local;
+	msp->allow = allow;
 
 	SLIST_INSERT_HEAD(&j->mspolicies, msp, sle);
 
@@ -5743,7 +5774,7 @@ mspolicy_setup(launch_data_t obj, const char *key, void *context)
 		return;
 	}
 
-	job_assumes(j, mspolicy_new(j, key, launch_data_get_bool(obj), false));
+	job_assumes(j, mspolicy_new(j, key, launch_data_get_bool(obj), false, false));
 }
 
 bool
