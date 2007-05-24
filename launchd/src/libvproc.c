@@ -45,12 +45,31 @@ static mach_port_t get_root_bootstrap_port(void);
 static int64_t cached_pid = -1;
 
 kern_return_t
-_vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
-		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
-		pid_array_t *pids, mach_msg_type_number_t *pidCnt,
+_vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright, launch_data_t *outval,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt)
 {
-	return vproc_mig_take_subset(bp, reqport, rcvright, service_names, service_namesCnt, pids, pidCnt, ports, portCnt);
+	mach_msg_type_number_t outdata_cnt;
+	vm_offset_t outdata = 0;
+	size_t data_offset = 0;
+	launch_data_t out_obj;
+	kern_return_t kr;
+
+	if ((kr = vproc_mig_take_subset(bp, reqport, rcvright, &outdata, &outdata_cnt, ports, portCnt))) {
+		goto out;
+	}
+
+	if ((out_obj = launch_data_unpack((void *)outdata, outdata_cnt, NULL, 0, &data_offset, NULL))) {
+		*outval = launch_data_copy(out_obj);
+	} else {
+		kr = 1;
+	}
+
+out:
+	if (outdata) {
+		mig_deallocate(outdata, outdata_cnt);
+	}
+
+	return kr;
 }
 
 vproc_err_t

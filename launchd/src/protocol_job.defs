@@ -100,8 +100,7 @@ routine take_subset(
 		__bs_port	: job_t;
 	out	__bs_reqport	: mach_port_move_send_t;
 	out	__bs_rcvright	: mach_port_move_receive_t;
-	out	__service_names	: name_array_t, dealloc;
-	out	__service_pids	: pid_array_t, dealloc;
+	out	__outdata	: pointer_t, dealloc;
 	out	__service_ports	: mach_port_move_send_array_t, dealloc);
 
 routine getsocket(

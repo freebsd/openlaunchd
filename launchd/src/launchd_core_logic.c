@@ -95,6 +95,11 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
 #define LAUNCHD_SIGKILL_TIMER 5
 
+
+#define TAKE_SUBSET_NAME	"TakeSubsetName"
+#define TAKE_SUBSET_PID		"TakeSubsetPID"
+#define TAKE_SUBSET_PERPID	"TakeSubsetPerPID"
+
 #define IS_POWER_OF_TWO(v)	(!(v & (v - 1)) && v)
 
 extern char **environ;
@@ -5272,12 +5277,11 @@ job_reparent_hack(job_t j, const char *where)
 kern_return_t
 job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 {
-	mach_msg_type_number_t l2l_i, l2l_name_cnt = 0, l2l_port_cnt = 0, l2l_pid_cnt = 0;
-	name_array_t l2l_names = NULL;
-	pid_array_t l2l_pids = NULL;
+	mach_msg_type_number_t l2l_i, l2l_port_cnt = 0;
 	mach_port_array_t l2l_ports = NULL;
 	mach_port_t reqport, rcvright;
 	kern_return_t kr = 1;
+	launch_data_t out_obj_array = NULL;
 	struct ldcred ldc;
 	jobmgr_t jmr = NULL;
 
@@ -5314,30 +5318,45 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 	job_log(j, LOG_DEBUG, "Move subset attempt: 0x%x", target_subset);
 
-	kr = _vproc_grab_subset(target_subset, &reqport, &rcvright, &l2l_names, &l2l_name_cnt, &l2l_pids, &l2l_pid_cnt, &l2l_ports, &l2l_port_cnt);
+	kr = _vproc_grab_subset(target_subset, &reqport, &rcvright, &out_obj_array, &l2l_ports, &l2l_port_cnt);
+
+	job_log(j, LOG_NOTICE, "@@@@@ kr == 0x%x", kr);
 
 	if (!job_assumes(j, kr == 0)) {
 		goto out;
 	}
 
-	launchd_assert(l2l_name_cnt == l2l_port_cnt);
-	launchd_assert(l2l_name_cnt == l2l_pid_cnt);
+	launchd_assert(launch_data_array_get_count(out_obj_array) == l2l_port_cnt);
 
 	if (!job_assumes(j, (jmr = jobmgr_new(j->mgr, reqport, rcvright, false, session_type)) != NULL)) {
 		kr = BOOTSTRAP_NO_MEMORY;
 		goto out;
 	}
 
-	for (l2l_i = 0; l2l_i < l2l_name_cnt; l2l_i++) {
-		job_t j_for_service = jobmgr_find_by_pid(jmr, l2l_pids[l2l_i], true);
+	for (l2l_i = 0; l2l_i < l2l_port_cnt; l2l_i++) {
+		launch_data_t tmp, obj_at_idx;
 		struct machservice *ms;
+		job_t j_for_service;
+		const char *serv_name;
+		pid_t target_pid;
+		bool serv_perpid;
+
+		job_assumes(j, obj_at_idx = launch_data_array_get_index(out_obj_array, l2l_i));
+		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_PID));
+		job_assumes(j, target_pid = launch_data_get_integer(tmp));
+		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_PERPID));
+		job_assumes(j, serv_perpid = launch_data_get_bool(tmp));
+		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_NAME));
+		job_assumes(j, serv_name = launch_data_get_string(tmp));
+
+		j_for_service = jobmgr_find_by_pid(jmr, target_pid, true);
 
 		if (!jobmgr_assumes(jmr, j_for_service != NULL)) {
 			kr = BOOTSTRAP_NO_MEMORY;
 			goto out;
 		}
 
-		if ((ms = machservice_new(j_for_service, l2l_names[l2l_i], &l2l_ports[l2l_i], false))) {
+		if ((ms = machservice_new(j_for_service, serv_name, &l2l_ports[l2l_i], serv_perpid))) {
 			machservice_request_notifications(ms);
 		}
 	}
@@ -5345,14 +5364,12 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 	kr = 0;
 
 out:
-	if (l2l_names) {
-		mig_deallocate((vm_address_t)l2l_names, l2l_name_cnt * sizeof(l2l_names[0]));
+	if (out_obj_array) {
+		launch_data_free(out_obj_array);
 	}
+
 	if (l2l_ports) {
 		mig_deallocate((vm_address_t)l2l_ports, l2l_port_cnt * sizeof(l2l_ports[0]));
-	}
-	if (l2l_pids) {
-		mig_deallocate((vm_address_t)l2l_pids, l2l_pid_cnt * sizeof(l2l_pids[0]));
 	}
 
 	if (kr == 0) {
@@ -5368,14 +5385,13 @@ out:
 
 kern_return_t
 job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
-		name_array_t *servicenamesp, unsigned int *servicenames_cnt,
-		pid_array_t *pidsp, unsigned int *pids_cnt,
+		vm_offset_t *outdata, mach_msg_type_number_t *outdataCnt,
 		mach_port_array_t *portsp, unsigned int *ports_cnt)
 {
-	name_array_t service_names = NULL;
+	launch_data_t tmp_obj, tmp_dict, outdata_obj_array = NULL;
 	mach_port_array_t ports = NULL;
-	pid_array_t pids = NULL;
 	unsigned int cnt = 0, cnt2 = 0;
+	size_t packed_size;
 	struct machservice *ms;
 	jobmgr_t jm;
 	job_t ji;
@@ -5399,6 +5415,17 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	job_log(j, LOG_DEBUG, "Transferring sub-bootstrap to the per session launchd.");
 
+	outdata_obj_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	if (!job_assumes(j, outdata_obj_array)) {
+		goto out_bad;
+	}
+
+	*outdataCnt = 20 * 1024 * 1024;
+	mig_allocate(outdata, *outdataCnt);
+	if (!job_assumes(j, *outdata != 0)) {
+		return 1;
+	}
+
 	LIST_FOREACH(ji, &j->mgr->jobs, sle) {
 		if (!ji->anonymous) {
 			continue;
@@ -5408,18 +5435,8 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		}
 	}
 
-	mig_allocate((vm_address_t *)&service_names, cnt * sizeof(service_names[0]));
-	if (!launchd_assumes(service_names != NULL)) {
-		goto out_bad;
-	}
-
 	mig_allocate((vm_address_t *)&ports, cnt * sizeof(ports[0]));
 	if (!launchd_assumes(ports != NULL)) {
-		goto out_bad;
-	}
-
-	mig_allocate((vm_address_t *)&pids, cnt * sizeof(pids[0]));
-	if (!launchd_assumes(pids != NULL)) {
 		goto out_bad;
 	}
 
@@ -5427,10 +5444,34 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		if (!ji->anonymous) {
 			continue;
 		}
+
 		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
+			if (job_assumes(j, (tmp_dict = launch_data_alloc(LAUNCH_DATA_DICTIONARY)))) {
+				job_assumes(j, launch_data_array_set_index(outdata_obj_array, tmp_dict, cnt2));
+			} else {
+				goto out_bad;
+			}
+
+			if (job_assumes(j, (tmp_obj = launch_data_new_string(machservice_name(ms))))) {
+				job_assumes(j, launch_data_dict_insert(tmp_dict, tmp_obj, TAKE_SUBSET_NAME));
+			} else {
+				goto out_bad;
+			}
+
+			if (job_assumes(j, (tmp_obj = launch_data_new_integer((ms->job->p))))) {
+				job_assumes(j, launch_data_dict_insert(tmp_dict, tmp_obj, TAKE_SUBSET_PID));
+			} else {
+				goto out_bad;
+			}
+
+			if (job_assumes(j, (tmp_obj = launch_data_new_bool((ms->per_pid))))) {
+				job_assumes(j, launch_data_dict_insert(tmp_dict, tmp_obj, TAKE_SUBSET_PERPID));
+			} else {
+				goto out_bad;
+			}
+
 			ports[cnt2] = machservice_port(ms);
-			pids[cnt2] = ms->job->p;
+
 			/* Increment the send right by one so we can shutdown the jobmgr cleanly */
 			jobmgr_assumes(jm, (errno = mach_port_mod_refs(mach_task_self(), ports[cnt2], MACH_PORT_RIGHT_SEND, 1)) == 0);
 			cnt2++;
@@ -5439,10 +5480,15 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	launchd_assumes(cnt == cnt2);
 
-	*servicenamesp = service_names;
+	packed_size = launch_data_pack(outdata_obj_array, (void *)*outdata, *outdataCnt, NULL, NULL);
+	if (!job_assumes(j, packed_size != 0)) {
+		goto out_bad;
+	}
+
+	launch_data_free(outdata_obj_array);
+
 	*portsp = ports;
-	*pidsp = pids;
-	*servicenames_cnt = *ports_cnt = *pids_cnt = cnt;
+	*ports_cnt = cnt;
 
 	*reqport = jm->req_port;
 	*rcvright = jm->jm_port;
@@ -5455,11 +5501,11 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 	return BOOTSTRAP_SUCCESS;
 
 out_bad:
-	if (service_names) {
-		mig_deallocate((vm_address_t)service_names, cnt * sizeof(service_names[0]));
+	if (outdata_obj_array) {
+		launch_data_free(outdata_obj_array);
 	}
-	if (pids) {
-		mig_deallocate((vm_address_t)pids, cnt * sizeof(pids[0]));
+	if (*outdata) {
+		mig_deallocate(*outdata, *outdataCnt);
 	}
 	if (ports) {
 		mig_deallocate((vm_address_t)ports, cnt * sizeof(ports[0]));

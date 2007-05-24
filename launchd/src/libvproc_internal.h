@@ -22,6 +22,7 @@
 
 #include <mach/mach.h>
 #include <stdarg.h>
+#include "liblaunch_public.h"
 #include "libbootstrap_public.h"
 
 typedef char * _internal_string_t;
@@ -48,9 +49,7 @@ vproc_err_t _vproc_post_fork_ping(void);
 #define SPAWN_WANTS_WAIT4DEBUGGER	0x0008
 
 kern_return_t
-_vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
-		name_array_t *service_names, mach_msg_type_number_t *service_namesCnt,
-		pid_array_t *pids, mach_msg_type_number_t *pidCnt,
+_vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright, launch_data_t *outval,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
 kern_return_t _vprocmgr_getsocket(name_t);
