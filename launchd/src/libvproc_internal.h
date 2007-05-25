@@ -29,7 +29,6 @@ typedef char * _internal_string_t;
 typedef char * logmsg_t;
 typedef pid_t * pid_array_t;
 typedef mach_port_t vproc_mig_t;
-typedef integer_t binpref_t[8];
 
 #ifdef protocol_vproc_MSG_COUNT
 /* HACK */

@@ -172,75 +172,115 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 pid_t
 _spawn_via_launchd(const char *label, const char *const *argv, const struct spawn_via_launchd_attr *spawn_attrs, int struct_version)
 {
-	kern_return_t kr;
-	const char *const *tmpp;
-	size_t len, buf_len = strlen(label) + 1;
-	char *buf = strdup(label);
-	uint64_t flags = 0;
-	uint32_t argc = 0;
-	uint32_t envc = 0;
-	binpref_t bin_pref;
-	size_t binpref_cnt = 0, binpref_max = sizeof(bin_pref) / sizeof(bin_pref[0]);
-	pid_t p = -1;
-	mode_t u_mask = CMASK;
+	size_t i, good_enough_size = 10*1024*1024;
+	mach_msg_type_number_t indata_cnt = 0;
+	vm_offset_t indata = 0;
 	mach_port_t obsvr_port = MACH_PORT_NULL;
+	launch_data_t tmp, tmp_array, in_obj;
+	const char *const *tmpp;
+	kern_return_t kr = 1;
+	void *buf = NULL;
+	pid_t p = -1;
 
-	memset(&bin_pref, 0, sizeof(bin_pref));
-
-	for (tmpp = argv; *tmpp; tmpp++) {
-		argc++;
-		len = strlen(*tmpp) + 1;
-		buf = reallocf(buf, buf_len + len);
-		strcpy(buf + buf_len, *tmpp);
-		buf_len += len;
+	if ((in_obj = launch_data_alloc(LAUNCH_DATA_DICTIONARY)) == NULL) {
+		goto out;
 	}
 
-	if (spawn_attrs) switch (struct_version) {
-	case 1:
-		if (spawn_attrs->spawn_binpref) {
-			if (spawn_attrs->spawn_binpref_cnt < binpref_max) {
-				binpref_max = spawn_attrs->spawn_binpref_cnt;
-			}
+	if ((tmp = launch_data_new_string(label)) == NULL) {
+		goto out;
+	}
 
-			for (; binpref_cnt < binpref_max; binpref_cnt++) {
-				bin_pref[binpref_cnt] = spawn_attrs->spawn_binpref[binpref_cnt];
+	launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_LABEL);
+
+	if ((tmp_array = launch_data_alloc(LAUNCH_DATA_ARRAY)) == NULL) {
+		goto out;
+	}
+
+	for (i = 0; *argv; i++, argv++) {
+		tmp = launch_data_new_string(*argv);
+		if (tmp == NULL) {
+			goto out;
+		}
+
+		launch_data_array_set_index(tmp_array, tmp, i);
+	}
+
+	launch_data_dict_insert(in_obj, tmp_array, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
+
+	if (spawn_attrs) switch (struct_version) {
+	case 2:
+		if (spawn_attrs->spawn_quarantine) {
+			char qbuf[QTN_SERIALIZED_DATA_MAX];
+			size_t qbuf_sz = QTN_SERIALIZED_DATA_MAX;
+
+			if (qtn_proc_to_data(spawn_attrs->spawn_quarantine, qbuf, &qbuf_sz) == 0) {
+				tmp = launch_data_new_opaque(qbuf, qbuf_sz);
+				launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_QUARANTINEDATA);
 			}
 		}
 
+		if (spawn_attrs->spawn_seatbelt_profile) {
+			tmp = launch_data_new_string(spawn_attrs->spawn_seatbelt_profile);
+			launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_SANDBOXPROFILE);
+		}
+
+		if (spawn_attrs->spawn_seatbelt_flags) {
+			tmp = launch_data_new_integer(*spawn_attrs->spawn_seatbelt_flags);
+			launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_SANDBOXFLAGS);
+		}
+
+		/* fall through */
+	case 1:
+		if (spawn_attrs->spawn_binpref) {
+			tmp_array = launch_data_alloc(LAUNCH_DATA_ARRAY);
+			for (i = 0; i < spawn_attrs->spawn_binpref_cnt; i++) {
+				tmp = launch_data_new_integer(spawn_attrs->spawn_binpref[i]);
+				launch_data_array_set_index(tmp_array, tmp, i);
+			}
+			launch_data_dict_insert(in_obj, tmp_array, LAUNCH_JOBKEY_BINARYORDERPREFERENCE);
+		}
+		/* fall through */
 	case 0:
 		if (spawn_attrs->spawn_flags & SPAWN_VIA_LAUNCHD_STOPPED) {
-			flags |= SPAWN_WANTS_WAIT4DEBUGGER;
+			tmp = launch_data_new_bool(true);
+			launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_WAITFORDEBUGGER);
 		}
 
 		if (spawn_attrs->spawn_env) {
+			launch_data_t tmp_dict = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
+
 			for (tmpp = spawn_attrs->spawn_env; *tmpp; tmpp++) {
-				envc++;
-				len = strlen(*tmpp) + 1;
-				buf = reallocf(buf, buf_len + len);
-				strcpy(buf + buf_len, *tmpp);
-				buf_len += len;
+				char *eqoff, tmpstr[strlen(*tmpp) + 1];
+
+				strcpy(tmpstr, *tmpp);
+
+				eqoff = strchr(tmpstr, '=');
+
+				if (!eqoff) {
+					goto out;
+				}
+				
+				*eqoff = '\0';
+				
+				launch_data_dict_insert(tmp_dict, launch_data_new_string(eqoff + 1), tmpstr);
 			}
+
+			launch_data_dict_insert(in_obj, tmp_dict, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES);
 		}
 
 		if (spawn_attrs->spawn_path) {
-			flags |= SPAWN_HAS_PATH;
-			len = strlen(spawn_attrs->spawn_path) + 1;
-			buf = reallocf(buf, buf_len + len);
-			strcpy(buf + buf_len, spawn_attrs->spawn_path);
-			buf_len += len;
+			tmp = launch_data_new_string(spawn_attrs->spawn_path);
+			launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_PROGRAM);
 		}
 
 		if (spawn_attrs->spawn_chdir) {
-			flags |= SPAWN_HAS_WDIR;
-			len = strlen(spawn_attrs->spawn_chdir) + 1;
-			buf = reallocf(buf, buf_len + len);
-			strcpy(buf + buf_len, spawn_attrs->spawn_chdir);
-			buf_len += len;
+			tmp = launch_data_new_string(spawn_attrs->spawn_chdir);
+			launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_WORKINGDIRECTORY);
 		}
 
 		if (spawn_attrs->spawn_umask) {
-			flags |= SPAWN_HAS_UMASK;
-			u_mask = *spawn_attrs->spawn_umask;
+			tmp = launch_data_new_integer(*spawn_attrs->spawn_umask);
+			launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_UMASK);
 		}
 
 		break;
@@ -248,29 +288,44 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 		break;
 	}
 
-	kr = vproc_mig_spawn(bootstrap_port, buf, buf_len, argc, envc, flags, u_mask, bin_pref, binpref_cnt, &p, &obsvr_port);
+	if (!(buf = malloc(good_enough_size))) {
+		goto out;
+	}
+
+	if ((indata_cnt = launch_data_pack(in_obj, buf, good_enough_size, NULL, NULL)) == 0) {
+		goto out;
+	}
+
+	indata = (vm_offset_t)buf;
+
+	kr = vproc_mig_spawn(bootstrap_port, indata, indata_cnt, &p, &obsvr_port);
 
 	if (kr == VPROC_ERR_TRY_PER_USER) {
 		mach_port_t puc;
 
 		if (vproc_mig_lookup_per_user_context(bootstrap_port, 0, &puc) == 0) {
-			kr = vproc_mig_spawn(puc, buf, buf_len, argc, envc, flags, u_mask, bin_pref, binpref_cnt, &p, &obsvr_port);
+			kr = vproc_mig_spawn(puc, indata, indata_cnt, &p, &obsvr_port);
 			mach_port_deallocate(mach_task_self(), puc);
 		}
 	}
 
-	free(buf);
+out:
+	if (in_obj) {
+		launch_data_free(in_obj);
+	}
 
-	if (kr == BOOTSTRAP_SUCCESS) {
+	if (buf) {
+		free(buf);
+	}
+
+	switch (kr) {
+	case BOOTSTRAP_SUCCESS:
 		if (spawn_attrs && spawn_attrs->spawn_observer_port) {
 			*spawn_attrs->spawn_observer_port = obsvr_port;
 		} else {
 			mach_port_deallocate(mach_task_self(), obsvr_port);
 		}
 		return p;
-	}
-
-	switch (kr) {
 	case BOOTSTRAP_NOT_PRIVILEGED:
 		errno = EPERM; break;
 	case BOOTSTRAP_NO_MEMORY:
@@ -278,6 +333,7 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	default:
 		errno = EINVAL; break;
 	}
+
 	return -1;
 }
 

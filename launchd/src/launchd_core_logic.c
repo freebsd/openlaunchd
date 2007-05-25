@@ -72,6 +72,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <ctype.h>
 #include <glob.h>
 #include <spawn.h>
+#include <sandbox.h>
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -194,6 +195,7 @@ struct limititem {
 static bool limititem_update(job_t j, int w, rlim_t r);
 static void limititem_delete(job_t j, struct limititem *li);
 static void limititem_setup(launch_data_t obj, const char *key, void *context);
+static void seatbelt_setup_flags(launch_data_t obj, const char *key, void *context);
 
 typedef enum {
 	NETWORK_UP = 1,
@@ -297,7 +299,7 @@ struct job_s {
 #if DO_RUSAGE_SUMMATION
 	struct rusage ru;
 #endif
-	binpref_t j_binpref;
+	cpu_type_t *j_binpref;
 	size_t j_binpref_cnt;
 	mach_port_t j_port;
 	mach_port_t wait_reply_port;
@@ -313,6 +315,10 @@ struct job_s {
 	char *stderrpath;
 	struct machservice *lastlookup;
 	unsigned int lastlookup_gennum;
+	char *seatbelt_profile;
+	uint64_t seatbelt_flags;
+	void *quarantine_data;
+	size_t quarantine_data_sz;
 	pid_t p;
 	int argc;
 	int last_exit_status;
@@ -354,6 +360,7 @@ static void job_import_string(job_t j, const char *key, const char *value);
 static void job_import_integer(job_t j, const char *key, long long value);
 static void job_import_dictionary(job_t j, const char *key, launch_data_t value);
 static void job_import_array(job_t j, const char *key, launch_data_t value);
+static void job_import_opaque(job_t j, const char *key, launch_data_t value);
 static bool job_set_global_on_demand(job_t j, bool val);
 static void job_watch(job_t j);
 static void job_ignore(job_t j);
@@ -376,7 +383,6 @@ static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid);
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
-static job_t job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
 static const char *job_prog(job_t j);
 static pid_t job_get_pid(job_t j);
@@ -773,6 +779,12 @@ job_remove(job_t j)
 	if (j->stderrpath) {
 		free(j->stderrpath);
 	}
+	if (j->seatbelt_profile) {
+		free(j->seatbelt_profile);
+	}
+	if (j->quarantine_data) {
+		free(j->quarantine_data);
+	}
 	if (j->start_interval) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 	}
@@ -919,64 +931,6 @@ job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus)
 	*waitstatus = j->last_exit_status;
 
 	return 0;
-}
-
-job_t 
-job_new_spawn(job_t j, const char *label, const char *path, const char *workingdir, const char *const *argv, const char *const *env, mode_t *u_mask, bool w4d)
-{
-	job_t jr;
-	size_t i;
-
-	if ((jr = job_find(label)) != NULL) {
-		errno = EEXIST;
-		return NULL;
-	}
-
-	jr = job_new(j->mgr, label, path, argv);
-
-	if (!jr) {
-		return NULL;
-	}
-
-	job_reparent_hack(jr, NULL);
-
-	if (getpid() == 1) {
-		struct ldcred ldc;
-
-		runtime_get_caller_creds(&ldc);
-		jr->mach_uid = ldc.uid;
-	}
-
-	jr->unload_at_exit = true;
-	jr->wait4pipe_eof = true;
-	jr->stall_before_exec = w4d;
-
-	if (workingdir) {
-		jr->workingdir = strdup(workingdir);
-	}
-
-	if (u_mask) {
-		jr->mask = *u_mask;
-		jr->setmask = true;
-	}
-
-	if (env) for (i = 0; env[i]; i++) {
-		char *eqoff, tmpstr[strlen(env[i]) + 1];
-
-		strcpy(tmpstr, env[i]);
-
-		eqoff = strchr(tmpstr, '=');
-
-		if (!eqoff) {
-			job_log(jr, LOG_WARNING, "Environmental variable missing '=' separator: %s", tmpstr);
-			continue;
-		}
-
-		*eqoff = '\0';
-		envitem_new(jr, tmpstr, eqoff + 1, false);
-	}
-
-	return jr;
 }
 
 job_t
@@ -1357,6 +1311,8 @@ job_import_string(job_t j, const char *key, const char *value)
 			where2put = &j->stdoutpath;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDERRORPATH) == 0) {
 			where2put = &j->stderrpath;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXPROFILE) == 0) {
+			where2put = &j->seatbelt_profile;
 		}
 		break;
 	default:
@@ -1426,10 +1382,33 @@ job_import_integer(job_t j, const char *key, long long value)
 			if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j)) {
 				job_log_error(j, LOG_ERR, "adding kevent timer");
 			}
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXFLAGS) == 0) {
+			j->seatbelt_flags = value;
 		}
+
 		break;
 	default:
 		job_log(j, LOG_WARNING, "Unknown key for integer: %s", key);
+		break;
+	}
+}
+
+void
+job_import_opaque(job_t j, const char *key, launch_data_t value)
+{
+	switch (key[0]) {
+	case 'q':
+	case 'Q':
+		if (strcasecmp(key, LAUNCH_JOBKEY_QUARANTINEDATA) == 0) {
+			size_t tmpsz = launch_data_get_opaque_size(value);
+
+			if (job_assumes(j, j->quarantine_data = malloc(tmpsz))) {
+				memcpy(j->quarantine_data, launch_data_get_opaque(value), tmpsz);
+				j->quarantine_data_sz = tmpsz;
+			}
+		}
+		break;
+	default:
 		break;
 	}
 }
@@ -1477,6 +1456,8 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 			calendarinterval_new_from_obj(j, value);
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SOFTRESOURCELIMITS) == 0) {
 			launch_data_dict_iterate(value, limititem_setup, j);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXFLAGS) == 0) {
+			launch_data_dict_iterate(value, seatbelt_setup_flags, j);
 		}
 		break;
 	case 'h':
@@ -1552,6 +1533,13 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 	case 'B':
 		if (strcasecmp(key, LAUNCH_JOBKEY_BONJOURFDS) == 0) {
 			socketgroup_setup(value, LAUNCH_JOBKEY_BONJOURFDS, j);
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_BINARYORDERPREFERENCE) == 0) {
+			if (job_assumes(j, j->j_binpref = malloc(value_cnt * sizeof(*j->j_binpref)))) {
+				j->j_binpref_cnt = value_cnt;
+				for (i = 0; i < value_cnt; i++) {
+					j->j_binpref[i] = launch_data_get_integer(launch_data_array_get_index(value, i));
+				}
+			}
 		}
 		break;
 	case 's':
@@ -1595,6 +1583,9 @@ job_import_keys(launch_data_t obj, const char *key, void *context)
 		break;
 	case LAUNCH_DATA_ARRAY:
 		job_import_array(j, key, obj);
+		break;
+	case LAUNCH_DATA_OPAQUE:
+		job_import_opaque(j, key, obj);
 		break;
 	default:
 		job_log(j, LOG_WARNING, "Unknown value type '%d' for key: %s", kind, key);
@@ -2374,6 +2365,27 @@ job_start_child(job_t j)
 		signal(i, SIG_DFL);
 	}
 
+	if (j->quarantine_data) {
+		qtn_proc_t qp;
+
+		if (job_assumes(j, qp = qtn_proc_alloc())) {
+			if (job_assumes(j, qtn_proc_init_with_data(qp, j->quarantine_data, j->quarantine_data_sz) == 0)) {
+				job_assumes(j, qtn_proc_apply_to_self(qp) == 0);
+			}
+		}
+	}
+
+	if (j->seatbelt_profile) {
+		char *seatbelt_err_buf = NULL;
+
+		if (!job_assumes(j, sandbox_init(j->seatbelt_profile, j->seatbelt_flags, &seatbelt_err_buf) != -1)) {
+			if (seatbelt_err_buf) {
+				job_log(j, LOG_ERR, "Sandbox failed to init: %s", seatbelt_err_buf);
+			}
+			goto out_bad;
+		}
+	}
+
 	if (j->prog) {
 		errno = posix_spawn(&junk_pid, j->inetcompat ? file2exec : j->prog, NULL, &spattr, (char *const*)argv, environ);
 		job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", j->prog);
@@ -2382,6 +2394,7 @@ job_start_child(job_t j)
 		job_log_error(j, LOG_ERR, "posix_spawnp(\"%s\", ...)", argv[0]);
 	}
 
+out_bad:
 	_exit(EXIT_FAILURE);
 }
 
@@ -3228,6 +3241,25 @@ limititem_delete(job_t j, struct limititem *li)
 	SLIST_REMOVE(&j->limits, li, limititem, sle);
 
 	free(li);
+}
+
+void
+seatbelt_setup_flags(launch_data_t obj, const char *key, void *context)
+{
+	job_t j = context;
+
+	if (launch_data_get_type(obj) != LAUNCH_DATA_BOOL) {
+		job_log(j, LOG_WARNING, "Sandbox flag value must be boolean: %s", key);
+		return;
+	}
+
+	if (launch_data_get_bool(obj) == false) {
+		return;
+	}
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOX_NAMED) == 0) {
+		j->seatbelt_flags |= SANDBOX_NAMED;
+	}
 }
 
 void
@@ -5320,8 +5352,6 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 	kr = _vproc_grab_subset(target_subset, &reqport, &rcvright, &out_obj_array, &l2l_ports, &l2l_port_cnt);
 
-	job_log(j, LOG_NOTICE, "@@@@@ kr == 0x%x", kr);
-
 	if (!job_assumes(j, kr == 0)) {
 		goto out;
 	}
@@ -5343,11 +5373,11 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 		job_assumes(j, obj_at_idx = launch_data_array_get_index(out_obj_array, l2l_i));
 		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_PID));
-		job_assumes(j, target_pid = launch_data_get_integer(tmp));
+		target_pid = launch_data_get_integer(tmp);
 		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_PERPID));
-		job_assumes(j, serv_perpid = launch_data_get_bool(tmp));
+		serv_perpid = launch_data_get_bool(tmp);
 		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_NAME));
-		job_assumes(j, serv_name = launch_data_get_string(tmp));
+		serv_name = launch_data_get_string(tmp);
 
 		j_for_service = jobmgr_find_by_pid(jmr, target_pid, true);
 
@@ -5647,19 +5677,12 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 }
 
 kern_return_t
-job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbuf_cnt,
-		uint32_t argc, uint32_t envc, uint64_t flags, uint16_t mig_umask,
-		binpref_t bin_pref, uint32_t binpref_cnt, pid_t *child_pid, mach_port_t *obsvr_port)
+job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid_t *child_pid, mach_port_t *obsvr_port)
 {
-	job_t jr;
-	size_t offset = 0;
-	char *tmpp;
-	const char **argv = NULL, **env = NULL;
-	const char *label = NULL;
-	const char *path = NULL;
-	const char *workingdir = NULL;
-	size_t argv_i = 0, env_i = 0;
+	launch_data_t input_obj = NULL;
+	size_t data_offset = 0;
 	struct ldcred ldc;
+	job_t jr;
 
 	runtime_get_caller_creds(&ldc);
 
@@ -5672,38 +5695,15 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
-	argv = alloca((argc + 1) * sizeof(char *));
-	memset(argv, 0, (argc + 1) * sizeof(char *));
-
-	if (envc > 0) {
-		env = alloca((envc + 1) * sizeof(char *));
-		memset(env, 0, (envc + 1) * sizeof(char *));
+	if (indataCnt == 0) {
+		return 1;
 	}
 
-	while (offset < charbuf_cnt) {
-		tmpp = charbuf + offset;
-		offset += strlen(tmpp) + 1;
-		if (!label) {
-			label = tmpp;
-		} else if (argc > 0) {
-			argv[argv_i] = tmpp;
-			argv_i++;
-			argc--;
-		} else if (envc > 0) {
-			env[env_i] = tmpp;
-			env_i++;
-			envc--;
-		} else if (flags & SPAWN_HAS_PATH) {
-			path = tmpp;
-			flags &= ~SPAWN_HAS_PATH;
-		} else if (flags & SPAWN_HAS_WDIR) {
-			workingdir = tmpp;
-			flags &= ~SPAWN_HAS_WDIR;
-		}
+	if (!job_assumes(j, (input_obj = launch_data_unpack((void *)indata, indataCnt, NULL, 0, &data_offset, NULL)) != NULL)) {
+		return 1;
 	}
 
-	jr = job_new_spawn(j, label, path, workingdir, argv, env, flags & SPAWN_HAS_UMASK ? &mig_umask : NULL,
-			flags & SPAWN_WANTS_WAIT4DEBUGGER);
+	jr = job_import2(input_obj);
 
 	if (jr == NULL) switch (errno) {
 	case EEXIST:
@@ -5712,8 +5712,16 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	memcpy(jr->j_binpref, bin_pref, sizeof(jr->j_binpref));
-	jr->j_binpref_cnt = binpref_cnt;
+	job_reparent_hack(jr, NULL);
+
+	if (getpid() == 1) {
+		jr->mach_uid = ldc.uid;
+	}
+
+	jr->unload_at_exit = true;
+	jr->wait4pipe_eof = true;
+	jr->stall_before_exec = jr->wait4debugger;
+	jr->wait4debugger = false;
 
 	jr = job_dispatch(jr, true);
 
@@ -5726,12 +5734,12 @@ job_mig_spawn(job_t j, _internal_string_t charbuf, mach_msg_type_number_t charbu
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	job_log(j, LOG_INFO, "Spawned with flags:%s", flags & SPAWN_WANTS_WAIT4DEBUGGER ? " stopped": "");
+	job_log(j, LOG_INFO, "Spawned");
 
 	*child_pid = job_get_pid(jr);
 	*obsvr_port = jr->j_port;
 
-	mig_deallocate((vm_address_t)charbuf, charbuf_cnt);
+	mig_deallocate(indata, indataCnt);
 
 	return BOOTSTRAP_SUCCESS;
 }

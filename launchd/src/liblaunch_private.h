@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <launch.h>
 #include <unistd.h>
+#include <quarantine.h>
 
 #pragma GCC visibility push(default)
 
@@ -45,9 +46,15 @@ __BEGIN_DECLS
 #define LAUNCH_KEY_BATCHCONTROL		"BatchControl"
 #define LAUNCH_KEY_BATCHQUERY		"BatchQuery"
 
+#define LAUNCH_JOBKEY_QUARANTINEDATA	"QuarantineData"
+#define LAUNCH_JOBKEY_SANDBOXPROFILE	"SandboxProfile"
+#define LAUNCH_JOBKEY_SANDBOXFLAGS	"SandboxFlags"
+#define LAUNCH_JOBKEY_SANDBOX_NAMED	"Named"
+
 #define LAUNCH_JOBKEY_ENTERKERNELDEBUGGERBEFOREKILL	"EnterKernelDebuggerBeforeKill"
 #define LAUNCH_JOBKEY_PERJOBMACHSERVICES	"PerJobMachServices"
 #define LAUNCH_JOBKEY_SERVICEIPC		"ServiceIPC"
+#define LAUNCH_JOBKEY_BINARYORDERPREFERENCE	"BinaryOrderPreference"
 
 #define LAUNCH_JOBKEY_MACH_KUNCSERVER	"kUNCServer"
 #define LAUNCH_JOBKEY_MACH_EXCEPTIONSERVER	"ExceptionServer"
@@ -106,9 +113,12 @@ struct spawn_via_launchd_attr {
  	mach_port_t *		spawn_observer_port;
  	const cpu_type_t *	spawn_binpref;
 	size_t			spawn_binpref_cnt;
+	const qtn_proc_t	spawn_quarantine;
+	const char *		spawn_seatbelt_profile;
+	const uint64_t *	spawn_seatbelt_flags;
 };
 
-#define spawn_via_launchd(a, b, c) _spawn_via_launchd(a, b, c, 1)
+#define spawn_via_launchd(a, b, c) _spawn_via_launchd(a, b, c, 2)
 pid_t _spawn_via_launchd(
 		const char *label,
 		const char *const *argv,
