@@ -113,7 +113,7 @@ struct spawn_via_launchd_attr {
  	mach_port_t *		spawn_observer_port;
  	const cpu_type_t *	spawn_binpref;
 	size_t			spawn_binpref_cnt;
-	const qtn_proc_t	spawn_quarantine;
+	qtn_proc_t		spawn_quarantine;
 	const char *		spawn_seatbelt_profile;
 	const uint64_t *	spawn_seatbelt_flags;
 };
