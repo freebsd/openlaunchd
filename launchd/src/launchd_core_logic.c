@@ -260,6 +260,7 @@ struct jobmgr_s {
 	                (__builtin_expect(!(e), 0) ? jobmgr_log_bug(jm, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name);
+static job_t jobmgr_import2(jobmgr_t jm, launch_data_t pload);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
 static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
@@ -353,7 +354,6 @@ static size_t hash_ms(const char *msstr) __attribute__((pure));
 #define job_assumes(j, e)      \
 	                (__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
-static job_t job_import2(launch_data_t pload);
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
 static void job_import_bool(job_t j, const char *key, bool value);
 static void job_import_string(job_t j, const char *key, const char *value);
@@ -1098,7 +1098,7 @@ out_bad:
 job_t 
 job_import(launch_data_t pload)
 {
-	job_t j = job_import2(pload);
+	job_t j = jobmgr_import2(root_jobmgr, pload);
 
 	if (j == NULL) {
 		return NULL;
@@ -1117,7 +1117,7 @@ job_import_bulk(launch_data_t pload)
 	ja = alloca(c * sizeof(job_t ));
 
 	for (i = 0; i < c; i++) {
-		if ((ja[i] = job_import2(launch_data_array_get_index(pload, i)))) {
+		if ((ja[i] = jobmgr_import2(root_jobmgr, launch_data_array_get_index(pload, i)))) {
 			errno = 0;
 		}
 		launch_data_array_set_index(resp, launch_data_new_errno(errno), i);
@@ -1594,7 +1594,7 @@ job_import_keys(launch_data_t obj, const char *key, void *context)
 }
 
 job_t 
-job_import2(launch_data_t pload)
+jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 {
 	launch_data_t tmp, ldpa;
 	const char *label = NULL, *prog = NULL;
@@ -1654,13 +1654,13 @@ job_import2(launch_data_t pload)
 		return NULL;
 	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
 			(strtol(label, NULL, 10) != 0)) {
-		jobmgr_log(root_jobmgr, LOG_ERR, "Somebody attempted to use a reserved prefix for a label: %s", label);
+		jobmgr_log(jm, LOG_ERR, "Somebody attempted to use a reserved prefix for a label: %s", label);
 		/* the empty string, com.apple.launchd and number prefixes for labels are reserved */
 		errno = EINVAL;
 		return NULL;
 	}
 
-	if ((j = job_new(root_jobmgr, label, prog, argv))) {
+	if ((j = job_new(jm, label, prog, argv))) {
 		launch_data_dict_iterate(pload, job_import_keys, j);
 	}
 
@@ -5703,7 +5703,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return 1;
 	}
 
-	jr = job_import2(input_obj);
+	jr = jobmgr_import2(j->mgr, input_obj);
 
 	if (jr == NULL) switch (errno) {
 	case EEXIST:
