@@ -123,7 +123,7 @@ struct _launch_data {
 		mach_port_t mp;
 		int err;
 		long long number;
-		bool boolean;
+		uint32_t boolean; /* We'd use 'bool' but this struct needs to be used under Rosetta, and sizeof(bool) is different between PowerPC and Intel */
 		double float_num;
 	};
 };
