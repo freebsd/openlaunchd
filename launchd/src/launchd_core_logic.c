@@ -5327,9 +5327,27 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		job_t j2;
 
 		if (j->mgr->session_initialized) {
-			job_log(j, LOG_ERR, "Tried to initialize an already setup session!");
-			kr = BOOTSTRAP_NOT_PRIVILEGED;
-			goto out;
+			if (ldc.uid == 0 && getpid() == 1) {
+				if (strcmp(j->mgr->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
+					job_t ji, jn;
+
+					LIST_FOREACH_SAFE(ji, &j->mgr->jobs, sle, jn) {
+						if (!ji->anonymous) {
+							job_remove(ji);
+						}
+					}
+				} else if (strcmp(j->mgr->name, VPROCMGR_SESSION_AQUA) == 0) {
+					return 0;
+				} else {
+					job_log(j, LOG_ERR, "Tried to initialize an already setup session!");
+					kr = BOOTSTRAP_NOT_PRIVILEGED;
+					goto out;
+				}
+			} else {
+				job_log(j, LOG_ERR, "Tried to initialize an already setup session!");
+				kr = BOOTSTRAP_NOT_PRIVILEGED;
+				goto out;
+			}
 		}
 
 		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
