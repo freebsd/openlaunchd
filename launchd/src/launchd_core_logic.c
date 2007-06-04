@@ -340,7 +340,7 @@ struct job_s {
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
-		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1;
+		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1;
 	const char label[0];
 };
 
@@ -939,11 +939,21 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, anonpid };
 	struct kinfo_proc kp;
 	size_t len = sizeof(kp);
+	const char *zombie = NULL;
 	bool shutdown_state;
 	job_t jp = NULL, jr = NULL;
 
+	if (!jobmgr_assumes(jm, anonpid != 0)) {
+		return NULL;
+	}
+
 	if (!jobmgr_assumes(jm, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
 		return NULL;
+	}
+
+	if (kp.kp_proc.p_stat == SZOMB) {
+		jobmgr_log(jm, LOG_DEBUG, "Tried to create an anonymous job for zombie PID: %u", anonpid);
+		zombie = "zombie";
 	}
 
 	switch (kp.kp_eproc.e_ppid) {
@@ -966,7 +976,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		jm->shutting_down = false;
 	}
 
-	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, kp.kp_proc.p_comm, NULL)) != NULL)) {
+	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, zombie ? zombie : kp.kp_proc.p_comm, NULL)) != NULL)) {
 		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT|NOTE_REAP;
 
 		total_children++;
@@ -975,7 +985,11 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 
 		/* anonymous process reaping is messy */
 		LIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
-		job_assumes(jr, kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) != -1);
+
+		if (kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) == -1 && job_assumes(jr, errno == ESRCH)) {
+			/* zombies are weird */
+			jr->unload_at_mig_return = true;
+		}
 
 		if (jp) {
 			job_assumes(jr, mspolicy_copy(jr, jp));
@@ -985,7 +999,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time.");
 		}
 
-		job_log(jr, LOG_DEBUG, "Created anonymously by PPID %u%s%s", kp.kp_eproc.e_ppid, jp ? ": " : "", jp ? jp->label : "");
+		job_log(jr, LOG_DEBUG, "Created PID %u anonymously by PPID %u%s%s", anonpid, kp.kp_eproc.e_ppid, jp ? ": " : "", jp ? jp->label : "");
 	}
 
 	if (shutdown_state) {
@@ -1770,8 +1784,11 @@ job_find_by_service_port(mach_port_t p)
 }
 
 void
-job_mig_destructor(job_t j __attribute__((unused)))
+job_mig_destructor(job_t j)
 {
+	if (j->unload_at_mig_return) {
+		job_remove(j);
+	}
 }
 
 void
