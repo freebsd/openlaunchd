@@ -2887,12 +2887,14 @@ do_sysversion_sysctl(void)
 		return;
 	}
 
-	versdict = _CFCopySystemVersionDictionary();
-	buildvers = CFDictionaryGetValue(versdict, _kCFSystemVersionBuildVersionKey);
-	CFStringGetCString(buildvers, buf, sizeof(buf), kCFStringEncodingUTF8);
+	if (!assumes((versdict = _CFCopySystemVersionDictionary()))) {
+		return;
+	}
 
-	if (sysctl(mib, 2, NULL, 0, buf, strlen(buf) + 1) == -1) {
-		fprintf(stderr, "sysctl(): %s\n", strerror(errno));
+	if (assumes((buildvers = CFDictionaryGetValue(versdict, _kCFSystemVersionBuildVersionKey)))) {
+		CFStringGetCString(buildvers, buf, sizeof(buf), kCFStringEncodingUTF8);
+
+		assumes(sysctl(mib, 2, NULL, 0, buf, strlen(buf) + 1) != -1);
 	}
 
 	CFRelease(versdict);
