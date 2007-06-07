@@ -69,7 +69,6 @@ static mach_port_t ipc_port_set;
 static mach_port_t demand_port_set;
 static mach_port_t launchd_internal_port;
 static int mainkq;
-static int asynckq;
 
 #define BULK_KEV_MAX 100
 static struct kevent *bulk_kev;
@@ -82,9 +81,6 @@ static pthread_t demand_thread;
 static void *mport_demand_loop(void *arg);
 static void *kqueue_demand_loop(void *arg);
 static void log_kevent_struct(int level, struct kevent *kev, int indx);
-
-static void async_callback(void);
-static kq_callback kqasync_callback = (kq_callback)async_callback;
 
 static void record_caller_creds(mach_msg_header_t *mh);
 static void launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_reply_error_t *bufReply);
@@ -102,9 +98,6 @@ launchd_runtime_init(void)
 	pthread_attr_t attr;
 
 	launchd_assert((mainkq = kqueue()) != -1);
-	launchd_assert((asynckq = kqueue()) != -1);
-
-	launchd_assert(kevent_mod(asynckq, EVFILT_READ, EV_ADD, 0, 0, &kqasync_callback) != -1);
 
 	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &demand_port_set)) == KERN_SUCCESS);
 	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &ipc_port_set)) == KERN_SUCCESS);
@@ -691,17 +684,11 @@ int
 kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
-	int q = mainkq;
 
 	switch (filter) {
 	case EVFILT_READ:
 	case EVFILT_WRITE:
 		break;
-	case EVFILT_TIMER:
-	case EVFILT_VNODE:
-	case EVFILT_FS:
-		q = asynckq;
-		/* fall through */
 	default:
 		flags |= EV_CLEAR;
 		break;
@@ -714,25 +701,7 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 
 	EV_SET(&kev, ident, filter, flags, fflags, data, udata);
 
-	return kevent(q, &kev, 1, NULL, 0, NULL);
-}
-
-void
-async_callback(void)
-{
-	struct timespec timeout = { 0, 0 };
-	struct kevent kev;
-
-	if (launchd_assumes(kevent(asynckq, NULL, 0, &kev, 1, &timeout) == 1)) {
-		log_kevent_struct(LOG_DEBUG, &kev, 0);
-		(*((kq_callback *)kev.udata))(kev.udata, &kev);
-	}
-}
-
-void
-runtime_force_on_demand(bool b)
-{
-	launchd_assumes(kevent_mod(asynckq, EVFILT_READ, b ? EV_DISABLE : EV_ENABLE, 0, 0, &kqasync_callback) != -1);
+	return kevent(mainkq, &kev, 1, NULL, 0, NULL);
 }
 
 boolean_t

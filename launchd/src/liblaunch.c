@@ -1067,41 +1067,24 @@ launch_data_t launch_data_copy(launch_data_t o)
 	return r;
 }
 
-void launchd_batch_enable(bool val)
+void
+launchd_batch_enable(bool b)
 {
-	launch_data_t resp, tmp, msg;
+	int64_t val = b;
 
-	tmp = launch_data_alloc(LAUNCH_DATA_BOOL);
-	launch_data_set_bool(tmp, val);
-
-	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_BATCHCONTROL);
-
-	resp = launch_msg(msg);
-
-	launch_data_free(msg);
-
-	if (resp)
-		launch_data_free(resp);
+	vproc_swap_integer(NULL, VPROC_GSK_GLOBAL_ON_DEMAND, &val, NULL);
 }
 
-bool launchd_batch_query(void)
+bool
+launchd_batch_query(void)
 {
-	launch_data_t resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
-	bool rval = true;
+	int64_t val;
 
-	launch_data_set_string(msg, LAUNCH_KEY_BATCHQUERY);
-
-	resp = launch_msg(msg);
-
-	launch_data_free(msg);
-
-	if (resp) {
-		if (launch_data_get_type(resp) == LAUNCH_DATA_BOOL)
-			rval = launch_data_get_bool(resp);
-		launch_data_free(resp);
+	if (vproc_swap_integer(NULL, VPROC_GSK_GLOBAL_ON_DEMAND, NULL, &val) == NULL) {
+		return (bool)val;
 	}
-	return rval;
+
+	return false;
 }
 
 static int _fd(int fd)

@@ -31,7 +31,6 @@ struct conncb {
 	LIST_ENTRY(conncb) sle;
 	launch_t conn;
 	job_t j;
-	int disabled_batch:1, futureflags:31;
 };
 
 extern char *sockpath;

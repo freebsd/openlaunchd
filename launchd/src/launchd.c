@@ -102,7 +102,6 @@ static pid_t crash_pid;
 static bool shutdown_in_progress = false;
 bool debug_shutdown_hangs = false;
 bool network_up = false;
-int batch_disabler_count = 0;
 
 int
 main(int argc, char *const *argv)
@@ -312,24 +311,6 @@ testfd_or_openfd(int fd, const char *path, int flags)
 			launchd_assumes(dup2(tmpfd, fd) != -1);
 			launchd_assumes(runtime_close(tmpfd) == 0);
 		}
-	}
-}
-
-void
-batch_job_enable(bool e, struct conncb *c)
-{
-	if (e && c->disabled_batch) {
-		batch_disabler_count--;
-		c->disabled_batch = 0;
-		if (batch_disabler_count == 0) {
-			runtime_force_on_demand(false);
-		}
-	} else if (!e && !c->disabled_batch) {
-		if (batch_disabler_count == 0) {
-			runtime_force_on_demand(true);
-		}
-		batch_disabler_count++;
-		c->disabled_batch = 1;
 	}
 }
 

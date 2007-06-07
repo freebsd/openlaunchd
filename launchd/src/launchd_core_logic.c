@@ -335,7 +335,7 @@ struct job_s {
 	unsigned int start_interval;
 	unsigned int checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
-		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, runatload:1;
+		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, start_pending:1;
 	mode_t mask;
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
@@ -1224,7 +1224,10 @@ job_import_bool(job_t j, const char *key, bool value)
 	case 'r':
 	case 'R':
 		if (strcasecmp(key, LAUNCH_JOBKEY_RUNATLOAD) == 0) {
-			j->runatload = value;
+			if (value) {
+				/* We don't want value == false to change j->start_pending */
+				j->start_pending = true;
+			}
 			found_key = true;
 		}
 		break;
@@ -1942,7 +1945,11 @@ jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack)
 	}
 
 	LIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
-		job_dispatch(ji, newmounthack ? ji->start_on_mount : false);
+		if (newmounthack && ji->start_on_mount) {
+			ji->start_pending = true;
+		}
+
+		job_dispatch(ji, false);
 	}
 }
 
@@ -2067,8 +2074,11 @@ job_callback_proc(job_t j, int flags, int fflags)
 void
 job_callback_timer(job_t j, void *ident)
 {
-	if (j == ident || &j->start_interval == ident) {
+	if (j == ident) {
 		job_dispatch(j, true);
+	} else if (&j->start_interval == ident) {
+		j->start_pending = true;
+		job_dispatch(j, false);
 	} else if (&j->exit_timeout == ident) {
 		if (j->sent_sigkill) {
 			struct timeval tvd, tve;
@@ -2261,6 +2271,8 @@ job_start(job_t j)
 		break;
 	default:
 		job_log(j, LOG_DEBUG, "Started as PID: %u", c);
+
+		j->start_pending = false;
 
 		total_children++;
 		LIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, pid_hash_sle);
@@ -2994,13 +3006,44 @@ semaphoreitem_callback(job_t j, struct kevent *kev)
 
 	job_log(j, LOG_DEBUG, "Watch path modified: %s", si->what);
 
-	job_dispatch(j, si->why == PATH_CHANGES ? true : false);
+	if (si->why == PATH_CHANGES) {
+		j->start_pending = true;
+	}
+
+	job_dispatch(j, false);
+}
+
+static void
+calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void *context)
+{
+	struct tm *tmptm = context;
+	int64_t val;
+
+	if (LAUNCH_DATA_INTEGER != launch_data_get_type(obj)) {
+		/* hack to let caller know something went wrong */
+		tmptm->tm_sec = -1;
+		return;
+	}
+
+	val = launch_data_get_integer(obj);
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_CAL_MINUTE) == 0) {
+		tmptm->tm_min = val;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_HOUR) == 0) {
+		tmptm->tm_hour = val;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_DAY) == 0) {
+		tmptm->tm_mday = val;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_WEEKDAY) == 0) {
+		tmptm->tm_wday = val;
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_MONTH) == 0) {
+		tmptm->tm_mon = val;
+		tmptm->tm_mon -= 1; /* 4798263 cron compatibility */
+	}
 }
 
 bool
 calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 {
-	launch_data_t tmp_k;
 	struct tm tmptm;
 
 	memset(&tmptm, 0, sizeof(0));
@@ -3019,21 +3062,10 @@ calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 		return false;
 	}
 
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MINUTE))) {
-		tmptm.tm_min = launch_data_get_integer(tmp_k);
-	}
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_HOUR))) {
-		tmptm.tm_hour = launch_data_get_integer(tmp_k);
-	}
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_DAY))) {
-		tmptm.tm_mday = launch_data_get_integer(tmp_k);
-	}
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_WEEKDAY))) {
-		tmptm.tm_wday = launch_data_get_integer(tmp_k);
-	}
-	if ((tmp_k = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_CAL_MONTH))) {
-		tmptm.tm_mon = launch_data_get_integer(tmp_k);
-		tmptm.tm_mon -= 1; /* 4798263 cron compatibility */
+	launch_data_dict_iterate(obj, calendarinterval_new_from_obj_dict_walk, &tmptm);
+
+	if (tmptm.tm_sec == -1) {
+		return false;
 	}
 
 	return calendarinterval_new(j, &tmptm);
@@ -3080,7 +3112,8 @@ calendarinterval_callback(job_t j, void *ident)
 
 	if (job_assumes(j, ci != NULL)) {
 		calendarinterval_setalarm(j, ci);
-		job_dispatch(j, true);
+		j->start_pending = true;
+		job_dispatch(j, false);
 	}
 }
 
@@ -3355,7 +3388,7 @@ job_keepalive(job_t j)
 		return false;
 	}
 
-	if (j->runatload && j->start_time == 0) {
+	if (j->start_pending && j->start_time == 0) {
 		job_log(j, LOG_DEBUG, "KeepAlive check: job needs to run at least once.");
 		return true;
 	}
@@ -4360,7 +4393,7 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE_SUCCESSFULEXIT) == 0) {
 			why = launch_data_get_bool(obj) ? SUCCESSFUL_EXIT : FAILED_EXIT;
 			semaphoreitem_new(j, why, NULL);
-			j->runatload = true;
+			j->start_pending = true;
 		} else {
 			job_assumes(j, false);
 		}

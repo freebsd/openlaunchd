@@ -369,9 +369,6 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			struct rusage rusage;
 			getrusage(RUSAGE_CHILDREN, &rusage);
 			resp = launch_data_new_opaque(&rusage, sizeof(rusage));
-		} else if (!strcmp(cmd, LAUNCH_KEY_BATCHQUERY)) {
-			resp = launch_data_alloc(LAUNCH_DATA_BOOL);
-			launch_data_set_bool(resp, batch_disabler_count == 0);
 		}
 	} else if (!strcmp(cmd, LAUNCH_KEY_STARTJOB)) {
 		if ((j = job_find(launch_data_get_string(data))) != NULL) {
@@ -415,9 +412,6 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 			resp = job_export(j);
 			ipc_revoke_fds(resp);
 		}
-	} else if (!strcmp(cmd, LAUNCH_KEY_BATCHCONTROL)) {
-		batch_job_enable(launch_data_get_bool(data), rmc->c);
-		resp = launch_data_new_errno(0);
 	}
 
 	rmc->resp = resp;
@@ -426,8 +420,6 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 void
 ipc_close(struct conncb *c)
 {
-	batch_job_enable(true, c);
-
 	LIST_REMOVE(c, sle);
 	launchd_close(c->conn, runtime_close);
 	free(c);

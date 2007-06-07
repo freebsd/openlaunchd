@@ -61,7 +61,6 @@ void launchd_runtime(void) __attribute__((noreturn));
 
 int runtime_close(int fd);
 
-void runtime_force_on_demand(bool);
 void runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to);
 kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size);
 kern_return_t runtime_remove_mport(mach_port_t name);

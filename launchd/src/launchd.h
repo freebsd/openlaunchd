@@ -33,12 +33,9 @@ struct conncb;
 
 extern bool debug_shutdown_hangs;
 extern bool network_up;
-extern int batch_disabler_count;
 extern mach_port_t inherited_bootstrap_port;
 
 bool init_check_pid(pid_t);
-
-void batch_job_enable(bool e, struct conncb *c);
 
 launch_data_t launchd_setstdio(int d, launch_data_t o);
 void launchd_SessionCreate(void);
