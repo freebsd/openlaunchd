@@ -166,15 +166,21 @@ static void socketgroup_callback(job_t j);
 static void socketgroup_setup(launch_data_t obj, const char *key, void *context);
 
 struct calendarinterval {
+	LIST_ENTRY(calendarinterval) global_sle;
 	SLIST_ENTRY(calendarinterval) sle;
+	job_t job;
 	struct tm when;
+	time_t when_next;
 };
+
+static LIST_HEAD(, calendarinterval) sorted_calendar_events;
 
 static bool calendarinterval_new(job_t j, struct tm *w);
 static bool calendarinterval_new_from_obj(job_t j, launch_data_t obj);
 static void calendarinterval_delete(job_t j, struct calendarinterval *ci);
 static void calendarinterval_setalarm(job_t j, struct calendarinterval *ci);
-static void calendarinterval_callback(job_t j, void *ident);
+static void calendarinterval_callback(void);
+static void calendarinterval_sanity_check(void);
 
 struct envitem {
 	SLIST_ENTRY(envitem) sle;
@@ -1792,6 +1798,8 @@ job_mig_destructor(job_t j)
 	if (j->unload_at_mig_return) {
 		job_remove(j);
 	}
+
+	calendarinterval_sanity_check();
 }
 
 void
@@ -2097,7 +2105,7 @@ job_callback_timer(job_t j, void *ident)
 			job_kill(j);
 		}
 	} else {
-		calendarinterval_callback(j, ident);
+		job_assumes(j, false);
 	}
 }
 
@@ -2143,6 +2151,8 @@ jobmgr_callback(void *obj, struct kevent *kev)
 		switch (kev->ident) {
 		case SIGTERM:
 			return launchd_shutdown();
+		case SIGUSR1:
+			return calendarinterval_callback();
 		default:
 			return (void)jobmgr_assumes(jm, false);
 		}
@@ -2154,7 +2164,11 @@ jobmgr_callback(void *obj, struct kevent *kev)
 		jobmgr_dispatch_all_semaphores(jm);
 		break;
 	case EVFILT_TIMER:
-		jobmgr_log(jm, LOG_NOTICE, "Still alive with %u children.", total_children);
+		if (kev->ident == (uintptr_t)&sorted_calendar_events) {
+			calendarinterval_callback();
+		} else {
+			jobmgr_log(jm, LOG_NOTICE, "Still alive with %u children.", total_children);
+		}
 		break;
 	default:
 		return (void)jobmgr_assumes(jm, false);
@@ -2713,6 +2727,8 @@ dir_has_files(job_t j, const char *path)
 void
 calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 {
+	static time_t last_list_head_when;
+	struct calendarinterval *ci_iter, *ci_prev = NULL;
 	time_t later;
 
 	later = cronemu(ci->when.tm_mon, ci->when.tm_mday, ci->when.tm_hour, ci->when.tm_min);
@@ -2727,10 +2743,45 @@ calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 		}
 	}
 
-	if (-1 == kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, later, j)) {
-		job_log_error(j, LOG_ERR, "adding kevent alarm");
-	} else {
-		job_log(j, LOG_INFO, "scheduled to run again at %s", ctime(&later));
+	ci->when_next = later;
+
+	LIST_FOREACH(ci_iter, &sorted_calendar_events, global_sle) {
+		if (ci->when_next < ci_iter->when_next) {
+			LIST_INSERT_BEFORE(ci_iter, ci, global_sle);
+			break;
+		}
+
+		ci_prev = ci_iter;
+	}
+
+	if (ci_iter == NULL) {
+		/* ci must want to fire after every other timer, or there are no timers */
+
+		if (LIST_EMPTY(&sorted_calendar_events)) {
+			LIST_INSERT_HEAD(&sorted_calendar_events, ci, global_sle);
+		} else {
+			LIST_INSERT_AFTER(ci_prev, ci, global_sle);
+		}
+	}
+
+	if (last_list_head_when == LIST_FIRST(&sorted_calendar_events)->when_next) {
+		return;
+	}
+
+	last_list_head_when = LIST_FIRST(&sorted_calendar_events)->when_next;
+
+	if (job_assumes(j, kevent_mod((uintptr_t)&sorted_calendar_events, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, last_list_head_when, root_jobmgr) != -1)) {
+		char time_string[100];
+		size_t time_string_len;
+
+		ctime_r(&later, time_string);
+		time_string_len = strlen(time_string);
+
+		if (time_string_len && time_string[time_string_len - 1] == '\n') {
+			time_string[time_string_len - 1] = '\0';
+		}
+
+		job_log(j, LOG_INFO, "Scheduled to run again at %s", time_string);
 	}
 }
 
@@ -3081,9 +3132,10 @@ calendarinterval_new(job_t j, struct tm *w)
 	}
 
 	ci->when = *w;
+	ci->job = j;
 
 	SLIST_INSERT_HEAD(&j->cal_intervals, ci, sle);
-
+	
 	calendarinterval_setalarm(j, ci);
 
 	return true;
@@ -3092,26 +3144,39 @@ calendarinterval_new(job_t j, struct tm *w)
 void
 calendarinterval_delete(job_t j, struct calendarinterval *ci)
 {
-	job_assumes(j, kevent_mod((uintptr_t)ci, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
-
 	SLIST_REMOVE(&j->cal_intervals, ci, calendarinterval, sle);
+	LIST_REMOVE(ci, global_sle);
 
 	free(ci);
 }
 
 void
-calendarinterval_callback(job_t j, void *ident)
+calendarinterval_sanity_check(void)
 {
-	struct calendarinterval *ci;
+	struct calendarinterval *ci = LIST_FIRST(&sorted_calendar_events);
+	time_t now = time(NULL);
 
-	SLIST_FOREACH(ci, &j->cal_intervals, sle) {
-		if (ci == ident) {
+	if (ci && ci->when_next < now) {
+		jobmgr_assumes(root_jobmgr, kill(getpid(), SIGUSR1) != -1);
+	}
+}
+
+void
+calendarinterval_callback(void)
+{
+	struct calendarinterval *ci, *ci_next;
+	time_t now = time(NULL);
+
+	LIST_FOREACH_SAFE(ci, &sorted_calendar_events, global_sle, ci_next) {
+		job_t j = ci->job;
+
+		if (ci->when_next >= now) {
 			break;
 		}
-	}
 
-	if (job_assumes(j, ci != NULL)) {
+		LIST_REMOVE(ci, global_sle);
 		calendarinterval_setalarm(j, ci);
+
 		j->start_pending = true;
 		job_dispatch(j, false);
 	}
@@ -3931,6 +3996,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	if (!jm) {
 		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
+		jobmgr_assumes(jmr, kevent_mod(SIGUSR1, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
 		jobmgr_assumes(jmr, kevent_mod(0, EVFILT_FS, EV_ADD, VQ_MOUNT|VQ_UNMOUNT|VQ_UPDATE, 0, jmr) != -1);
 	}
 
