@@ -2727,9 +2727,8 @@ dir_has_files(job_t j, const char *path)
 void
 calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 {
-	static time_t last_list_head_when;
 	struct calendarinterval *ci_iter, *ci_prev = NULL;
-	time_t later;
+	time_t later, head_later;
 
 	later = cronemu(ci->when.tm_mon, ci->when.tm_mday, ci->when.tm_hour, ci->when.tm_min);
 
@@ -2764,13 +2763,12 @@ calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 		}
 	}
 
-	if (last_list_head_when == LIST_FIRST(&sorted_calendar_events)->when_next) {
-		return;
-	}
+	head_later = LIST_FIRST(&sorted_calendar_events)->when_next;
 
-	last_list_head_when = LIST_FIRST(&sorted_calendar_events)->when_next;
+	/* Workaround 5225889 */
+	kevent_mod((uintptr_t)&sorted_calendar_events, EVFILT_TIMER, EV_DELETE, 0, 0, root_jobmgr);
 
-	if (job_assumes(j, kevent_mod((uintptr_t)&sorted_calendar_events, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, last_list_head_when, root_jobmgr) != -1)) {
+	if (job_assumes(j, kevent_mod((uintptr_t)&sorted_calendar_events, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, head_later, root_jobmgr) != -1)) {
 		char time_string[100];
 		size_t time_string_len;
 
@@ -3156,7 +3154,7 @@ calendarinterval_sanity_check(void)
 	struct calendarinterval *ci = LIST_FIRST(&sorted_calendar_events);
 	time_t now = time(NULL);
 
-	if (ci && ci->when_next < now) {
+	if (ci && (ci->when_next < now)) {
 		jobmgr_assumes(root_jobmgr, kill(getpid(), SIGUSR1) != -1);
 	}
 }
@@ -3170,7 +3168,7 @@ calendarinterval_callback(void)
 	LIST_FOREACH_SAFE(ci, &sorted_calendar_events, global_sle, ci_next) {
 		job_t j = ci->job;
 
-		if (ci->when_next >= now) {
+		if (ci->when_next > now) {
 			break;
 		}
 
@@ -3453,8 +3451,8 @@ job_keepalive(job_t j)
 		return false;
 	}
 
-	if (j->start_pending && j->start_time == 0) {
-		job_log(j, LOG_DEBUG, "KeepAlive check: job needs to run at least once.");
+	if (j->start_pending) {
+		job_log(j, LOG_DEBUG, "KeepAlive check: Pent-up non-IPC launch criteria.");
 		return true;
 	}
 
