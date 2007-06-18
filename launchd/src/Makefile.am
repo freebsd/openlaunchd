@@ -33,8 +33,6 @@ install-data-hook:
 
 else
 
-sbin_SCRIPTS = service
-
 bin_PROGRAMS = launchctl wait4path
 sbin_PROGRAMS = launchd SystemStarter
 libexec_PROGRAMS = launchproxy
@@ -71,7 +69,7 @@ man1_MANS = wait4path.1 launchctl.1
 
 man5_MANS = launchd.plist.5 launchd.conf.5
 
-man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 service.8 launchproxy.8
+man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 launchproxy.8
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/libexec
