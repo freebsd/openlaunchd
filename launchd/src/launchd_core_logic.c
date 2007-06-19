@@ -791,6 +791,9 @@ job_remove(job_t j)
 	if (j->quarantine_data) {
 		free(j->quarantine_data);
 	}
+	if (j->j_binpref) {
+		free(j->j_binpref);
+	}
 	if (j->start_interval) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 	}
@@ -5277,7 +5280,7 @@ job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_ms
 		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
 		*ptype = MACH_MSG_TYPE_MOVE_SEND;
 		kr = bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
-	} else if (getpid() == 1 && j->anonymous && ldc.euid != 0 && strcasecmp(job_get_bs(j)->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
+	} else if (getpid() == 1 && j->anonymous && ldc.euid >= 500 && strcasecmp(job_get_bs(j)->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 		/*
 		 * 5240036 Should start background session when a lookup of CCacheServer occurs
 		 *
