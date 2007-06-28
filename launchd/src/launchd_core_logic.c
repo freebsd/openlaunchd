@@ -427,6 +427,7 @@ static bool cronemu_hour(struct tm *wtm, int hour, int min);
 static bool cronemu_min(struct tm *wtm, int min);
 
 static unsigned int total_children;
+static void ensure_root_bkgd_setup(void);
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 static size_t our_strhash(const char *s) __attribute__((pure));
@@ -434,6 +435,7 @@ static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
 
 jobmgr_t root_jobmgr;
+static jobmgr_t background_jobmgr;
 
 void
 job_ignore(job_t j)
@@ -672,6 +674,10 @@ jobmgr_remove(jobmgr_t jm)
 
 	if (jm->jm_port) {
 		jobmgr_assumes(jm, launchd_mport_close_recv(jm->jm_port) == KERN_SUCCESS);
+	}
+
+	if (jm == background_jobmgr) {
+		background_jobmgr = NULL;
 	}
 
 	if (jm->parentmgr) {
@@ -5052,6 +5058,21 @@ job_mig_log(job_t j, int pri, int err, logmsg_t msg)
 	return 0;
 }
 
+void
+ensure_root_bkgd_setup(void)
+{
+	if (background_jobmgr || getpid() != 1) {
+		return;
+	}
+
+	if (!jobmgr_assumes(root_jobmgr, (background_jobmgr = jobmgr_new(root_jobmgr, mach_task_self(), MACH_PORT_NULL, false, VPROCMGR_SESSION_BACKGROUND)) != NULL)) {
+		return;
+	}
+
+	background_jobmgr->req_port = 0;
+	jobmgr_assumes(root_jobmgr, launchd_mport_make_send(background_jobmgr->jm_port) == KERN_SUCCESS);
+}
+
 kern_return_t
 job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 {
@@ -5076,6 +5097,14 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 	}
 
 	*up_cont = MACH_PORT_NULL;
+
+	if (which_user == 0) {
+		ensure_root_bkgd_setup();
+
+		*up_cont = background_jobmgr->jm_port;
+
+		return 0;
+	}
 
 	LIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
 		if (!ji->per_user) {
@@ -5393,14 +5422,18 @@ job_reparent_hack(job_t j, const char *where)
 {
 	jobmgr_t jmi = NULL;
 
+	ensure_root_bkgd_setup();
+
 	/* NULL is only passed for our custom API for LaunchServices. If that is the case, we do magic. */
 	if (where == NULL) {
-		if (strcasecmp(j->mgr->name, "LoginWindow") == 0) {
-			where = "LoginWindow";
+		if (strcasecmp(j->mgr->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
+			where = VPROCMGR_SESSION_LOGINWINDOW;
 		} else {
-			where = "Aqua";
+			where = VPROCMGR_SESSION_AQUA;
 		}
-	} else if (strcasecmp(where, "Aqua") != 0 && strcasecmp(where, "LoginWindow") != 0) {
+	} else if (strcasecmp(where, VPROCMGR_SESSION_AQUA) != 0
+			&& strcasecmp(where, VPROCMGR_SESSION_LOGINWINDOW) != 0
+			&& strcasecmp(where, VPROCMGR_SESSION_BACKGROUND) != 0) {
 		return;
 	}
 
@@ -5461,6 +5494,13 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 							job_remove(ji);
 						}
 					}
+
+					ensure_root_bkgd_setup();
+
+					SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
+					j->mgr->parentmgr = background_jobmgr;
+					SLIST_INSERT_HEAD(&j->mgr->parentmgr->submgrs, j->mgr, sle);
+
 				} else if (strcmp(j->mgr->name, VPROCMGR_SESSION_AQUA) == 0) {
 					return 0;
 				} else {
@@ -5890,7 +5930,9 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 void
 jobmgr_init(bool sflag)
 {
-	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag, getpid() == 1 ? "System" : "Background")) != NULL);
+	const char *root_session_type = getpid() == 1 ? VPROCMGR_SESSION_SYSTEM : VPROCMGR_SESSION_BACKGROUND;
+
+	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag, root_session_type)) != NULL);
 }
 
 size_t
