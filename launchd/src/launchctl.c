@@ -2682,9 +2682,14 @@ do_potential_fsck(void)
 	}
 
 	if (!is_safeboot()) {
+#if 0
+		/* We have disabled this block for now. We need to revisit this optimization after Leopard. */
 		if (sfs.f_flags & MNT_JOURNALED) {
 			goto out;
-		} else if (fwexec(fsck_tool, true) != -1) {
+		}
+#endif
+
+		if (fwexec(fsck_tool, true) != -1) {
 			goto out;
 		}
 	}
