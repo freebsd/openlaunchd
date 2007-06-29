@@ -5621,6 +5621,9 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 	} else if (jobmgr_parent(jm) == NULL) {
 		job_log(j, LOG_ERR, "Root Mach bootstrap cannot be transferred.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
+	} else if (strcasecmp(jm->name, VPROCMGR_SESSION_AQUA) == 0) {
+		job_log(j, LOG_ERR, "Cannot transfer a setup GUI session.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	} else if (!j->anonymous) {
 		job_log(j, LOG_ERR, "Only the anonymous job can transfer Mach sub-bootstraps.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
