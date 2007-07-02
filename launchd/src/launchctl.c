@@ -22,6 +22,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
+#include <Security/Security.h>
+#include <Security/AuthSession.h>
 #include <IOKit/IOKitLib.h>
 #include <NSSystemDirectories.h>
 #include <mach/mach.h>
@@ -1551,6 +1553,10 @@ bootstrap_cmd(int argc, char *const argv[])
 		} else if (strcasecmp(session_type, "Aqua") == 0) {
 			load_launchd_items[5] = "/etc/mach_init_per_user.d";
 			the_argc += 1;
+		}
+
+		if (strcasecmp(session_type, "Background") == 0) {
+			assumes(SessionCreate(sessionKeepCurrentBootstrap, 0) == 0);
 		}
 
 		assumes(load_and_unload_cmd(the_argc, load_launchd_items) == 0);
