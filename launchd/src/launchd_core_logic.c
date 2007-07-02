@@ -1003,6 +1003,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 
 		if (kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) == -1 && job_assumes(jr, errno == ESRCH)) {
 			/* zombies are weird */
+			job_log(jr, LOG_ERR, "Failed to add kevent for PID %u. Will unload at MIG return.", jr->p);
 			jr->unload_at_mig_return = true;
 		}
 
@@ -1805,6 +1806,7 @@ void
 job_mig_destructor(job_t j)
 {
 	if (j->unload_at_mig_return) {
+		job_log(j, LOG_NOTICE, "Unloading PID %u at MIG return.", j->p);
 		job_remove(j);
 	}
 
