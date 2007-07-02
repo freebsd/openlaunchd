@@ -1559,7 +1559,7 @@ bootstrap_cmd(int argc, char *const argv[])
 			assumes(SessionCreate(sessionKeepCurrentBootstrap, 0) == 0);
 		}
 
-		assumes(load_and_unload_cmd(the_argc, load_launchd_items) == 0);
+		return load_and_unload_cmd(the_argc, load_launchd_items);
 	}
 
 	return 0;
