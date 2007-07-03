@@ -5433,10 +5433,6 @@ job_reparent_hack(job_t j, const char *where)
 		} else {
 			where = VPROCMGR_SESSION_AQUA;
 		}
-	} else if (strcasecmp(where, VPROCMGR_SESSION_AQUA) != 0
-			&& strcasecmp(where, VPROCMGR_SESSION_LOGINWINDOW) != 0
-			&& strcasecmp(where, VPROCMGR_SESSION_BACKGROUND) != 0) {
-		return;
 	}
 
 	if (strcasecmp(j->mgr->name, where) == 0) {
