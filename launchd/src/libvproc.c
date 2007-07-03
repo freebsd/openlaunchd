@@ -158,10 +158,13 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 		return (vproc_err_t)_vprocmgr_move_subset_to_user;
 	}
 
-	if (vproc_swap_complex(NULL, VPROC_GSK_ENVIRONMENT, NULL, &output_obj) == NULL) {
-		if (launch_data_get_type(output_obj) == LAUNCH_DATA_DICTIONARY) {
-			launch_data_dict_iterate(output_obj, setup_env_hack, NULL);
-			launch_data_free(output_obj);
+	/* XXX We need to give 'nohup' a better API after Leopard ships */
+	if (getprogname() && strcmp(getprogname(), "nohup") != 0) {
+		if (vproc_swap_complex(NULL, VPROC_GSK_ENVIRONMENT, NULL, &output_obj) == NULL) {
+			if (launch_data_get_type(output_obj) == LAUNCH_DATA_DICTIONARY) {
+				launch_data_dict_iterate(output_obj, setup_env_hack, NULL);
+				launch_data_free(output_obj);
+			}
 		}
 	}
 
