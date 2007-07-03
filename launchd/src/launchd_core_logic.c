@@ -5422,7 +5422,7 @@ out_bad:
 void
 job_reparent_hack(job_t j, const char *where)
 {
-	jobmgr_t jmi = NULL;
+	jobmgr_t jmi, jmi2;
 
 	ensure_root_bkgd_setup();
 
@@ -5445,10 +5445,18 @@ job_reparent_hack(job_t j, const char *where)
 
 	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
 		if (strcasecmp(jmi->name, where) == 0) {
-			break;
+			goto jm_found;
+		} else if (strcasecmp(jmi->name, VPROCMGR_SESSION_BACKGROUND) == 0 && getpid() == 1) {
+			SLIST_FOREACH(jmi2, &jmi->submgrs, sle) {
+				if (strcasecmp(jmi2->name, where) == 0) {
+					jmi = jmi2;
+					goto jm_found;
+				}
+			}
 		}
 	}
 
+jm_found:
 	if (job_assumes(j, jmi != NULL)) {
 		struct machservice *msi;
 
