@@ -2179,6 +2179,7 @@ jobmgr_callback(void *obj, struct kevent *kev)
 			calendarinterval_callback();
 		} else {
 			jobmgr_log(jm, LOG_NOTICE, "Still alive with %u children.", total_children);
+			runtime_closelog(); /* hack to flush logs */
 		}
 		break;
 	default:
