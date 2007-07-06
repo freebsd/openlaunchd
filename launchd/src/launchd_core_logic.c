@@ -1927,7 +1927,7 @@ job_reap(job_t j)
 #endif
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-		job_log(j, LOG_WARNING, "exited with exit code: %d", WEXITSTATUS(status));
+		job_log(j, LOG_WARNING, "Exited with exit code: %d", WEXITSTATUS(status));
 	}
 
 	if (WIFSIGNALED(status)) {
@@ -1999,6 +1999,17 @@ job_dispatch(job_t j, bool kickstart)
 	return j;
 }
 
+static void
+job_log_stdouterr2(job_t j, const char *msg, ...)
+{
+	struct runtime_syslog_attr attr = { j->label, j->label, j->mgr->name, LOG_NOTICE, getuid(), j->p, j->p };
+	va_list ap;
+
+	va_start(ap, msg);
+	runtime_vsyslog(&attr, msg, ap);
+	va_end(ap);
+}
+
 void
 job_log_stdouterr(job_t j)
 {
@@ -2023,7 +2034,7 @@ job_log_stdouterr(job_t j)
 
 		while ((msg = strsep(&bufindex, "\n\r"))) {
 			if (msg[0]) {
-				job_log(j, LOG_NOTICE, "Standard out/error: %s", msg);
+				job_log_stdouterr2(j, "%s", msg);
 			}
 		}
 	}
@@ -2850,10 +2861,10 @@ job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, c
 void
 job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 {
+	struct runtime_syslog_attr attr = { "com.apple.launchd", j->label, j->mgr->name, pri, getuid(), getpid(), j->p };
 	char *newmsg;
-	char *newlabel;
 	int oldmask = 0;
-	size_t i, o, jlabel_len = strlen(j->label), newmsgsz;
+	size_t newmsgsz;
 
 	/*
 	 * Hack: If bootstrap_port is set, we must be on the child side of a
@@ -2864,30 +2875,20 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 		return _vproc_logv(pri, err, msg, ap);
 	}
 
-	newlabel = alloca((jlabel_len + 1) * 2);
-	newmsgsz = (jlabel_len + 1) * 2 + strlen(msg) + 100;
+	newmsgsz = strlen(msg) + 200;
 	newmsg = alloca(newmsgsz);
 
-	for (i = 0, o = 0; i < jlabel_len; i++, o++) {
-		if (j->label[i] == '%') {
-			newlabel[o] = '%';
-			o++;
-		}
-		newlabel[o] = j->label[i];
-	}
-	newlabel[o] = '\0';
-
 	if (err) {
-		snprintf(newmsg, newmsgsz, "%s: %s: %s", newlabel, msg, strerror(err));
+		snprintf(newmsg, newmsgsz, "%s: %s", msg, strerror(err));
 	} else {
-		snprintf(newmsg, newmsgsz, "%s: %s", newlabel, msg);
+		snprintf(newmsg, newmsgsz, "%s", msg);
 	}
 
 	if (j->debug) {
 		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
 	}
 
-	jobmgr_logv(j->mgr, pri, 0, newmsg, ap);
+	runtime_vsyslog(&attr, newmsg, ap);
 
 	if (j->debug) {
 		setlogmask(oldmask);
@@ -2965,7 +2966,9 @@ jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap)
 	if (jm->parentmgr) {
 		jobmgr_logv(jm->parentmgr, pri, 0, newmsg, ap);
 	} else {
-		runtime_vsyslog(pri, newmsg, ap);
+		struct runtime_syslog_attr attr = { "com.apple.launchd", "com.apple.launchd", jm->name, pri, getuid(), getpid(), getpid() };
+
+		runtime_vsyslog(&attr, newmsg, ap);
 	}
 }
 
@@ -3985,9 +3988,11 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 			unsetenv(LAUNCHD_TRUSTED_FD_ENV);
 		}
 
-		inherited_bootstrap_port = bootstrap_port;
 		/* cut off the Libc cache, we don't want to deadlock against ourself */
+		inherited_bootstrap_port = bootstrap_port;
 		bootstrap_port = MACH_PORT_NULL;
+		launchd_assert(launchd_mport_notify_req(inherited_bootstrap_port, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS);
+
 		/* We set this explicitly as we start each child */
 		launchd_assert(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
 	} else if (!jobmgr_assumes(jmr, launchd_mport_create_recv(&jmr->jm_port) == KERN_SUCCESS)) {
@@ -4076,6 +4081,13 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 	 */
 
 	if (jm == root_jobmgr) {
+		if (port == inherited_bootstrap_port) {
+			launchd_assumes(launchd_mport_deallocate(port) == KERN_SUCCESS);
+			inherited_bootstrap_port = MACH_PORT_NULL;
+
+			return jobmgr_shutdown(jm);
+		}
+
 		LIST_FOREACH_SAFE(ms, &port_hash[HASH_PORT(port)], port_hash_sle, next_ms) {
 			if (ms->port == port) {
 				machservice_delete(ms->job, ms, true);
@@ -4755,6 +4767,42 @@ job_mig_send_signal(job_t j, name_t targetlabel, int sig)
 	}
 
 	return 0;
+}
+
+kern_return_t
+job_mig_log_forward(job_t j, vm_offset_t inval, mach_msg_type_number_t invalCnt)
+{
+	struct ldcred ldc;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (!job_assumes(j, j->per_user)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	runtime_get_caller_creds(&ldc);
+
+	return runtime_log_forward(ldc.euid, ldc.egid, inval, invalCnt);
+}
+
+kern_return_t
+job_mig_log_drain(job_t j, mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
+{
+	struct ldcred ldc;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	runtime_get_caller_creds(&ldc);
+
+	if (ldc.euid) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	return runtime_log_drain(srp, outval, outvalCnt);
 }
 
 kern_return_t

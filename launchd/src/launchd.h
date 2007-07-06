@@ -33,7 +33,6 @@ struct conncb;
 
 extern bool debug_shutdown_hangs;
 extern bool network_up;
-extern mach_port_t inherited_bootstrap_port;
 
 bool init_check_pid(pid_t);
 

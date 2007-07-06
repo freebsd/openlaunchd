@@ -23,6 +23,7 @@
 #include <sys/types.h>
 #include <sys/cdefs.h>
 #include <sys/syslog.h>
+#include <sys/time.h>
 #include <stdbool.h>
 #include <launch.h>
 
@@ -51,6 +52,10 @@ vproc_err_t vproc_swap_complex(vproc_t vp, vproc_gsk_t key, launch_data_t inval,
 
 vproc_err_t _vproc_get_last_exit_status(int *wstatus);
 vproc_err_t _vproc_set_global_on_demand(bool val);
+
+typedef void (*_vprocmgr_log_drain_callback_t)(struct timeval *when, pid_t from_pid, pid_t about_pid, uid_t sender_uid, gid_t sender_gid, int priority, const char *from_name, const char *about_name, const char *session_name, const char *msg);
+
+vproc_err_t _vprocmgr_log_drain(vproc_t vp, pthread_mutex_t *optional_mutex_around_callback, _vprocmgr_log_drain_callback_t func);
 
 vproc_err_t _vproc_send_signal_by_label(const char *label, int sig);
 

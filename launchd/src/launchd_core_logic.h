@@ -27,6 +27,7 @@ typedef struct job_s *job_t;
 typedef struct jobmgr_s *jobmgr_t;
 
 extern jobmgr_t root_jobmgr;
+extern mach_port_t inherited_bootstrap_port;
 
 void jobmgr_init(bool);
 jobmgr_t jobmgr_shutdown(jobmgr_t jm);

@@ -115,7 +115,7 @@ routine spawn(
 
 routine wait(
 		__bs_port	: job_t;
-	sreplyport		__rport	: mach_port_make_send_once_t;
+	sreplyport	__rport	: mach_port_make_send_once_t;
 	out	__waitval	: integer_t);
 
 routine uncork_fork(
@@ -156,3 +156,12 @@ routine swap_complex(
 		__outkey	: vproc_gsk_t;
 		__inval		: pointer_t;
 	out	__outval	: pointer_t, dealloc);
+
+routine log_drain(
+		__bs_port	: job_t;
+	sreplyport	__rport	: mach_port_make_send_once_t;
+	out	__outval	: pointer_t, dealloc);
+
+routine log_forward(
+		__bs_port	: job_t;
+		__inval		: pointer_t);

@@ -31,6 +31,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <pthread.h>
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -379,6 +380,55 @@ _vproc_send_signal_by_label(const char *label, int sig)
 	}
 
 	return _vproc_send_signal_by_label;
+}
+
+vproc_err_t
+_vprocmgr_log_forward(mach_port_t mp, void *data, size_t len)
+{
+	if (vproc_mig_log_forward(mp, (vm_offset_t)data, len) == 0) {
+		return NULL;
+	}
+
+	return _vprocmgr_log_forward;
+}
+
+vproc_err_t
+_vprocmgr_log_drain(vproc_t vp __attribute__((unused)), pthread_mutex_t *mutex, _vprocmgr_log_drain_callback_t func)
+{
+	mach_msg_type_number_t outdata_cnt;
+	vm_offset_t outdata = 0;
+	struct logmsg_s *lm;
+
+	if (!func) {
+		return _vprocmgr_log_drain;
+	}
+
+	if (vproc_mig_log_drain(bootstrap_port, &outdata, &outdata_cnt) != 0) {
+		return _vprocmgr_log_drain;
+	}
+
+	if (mutex) {
+		pthread_mutex_lock(mutex);
+	}
+
+	for (lm = (struct logmsg_s *)outdata; lm->obj_sz; lm = ((void *)lm + lm->obj_sz)) {
+		lm->from_name += (size_t)lm;
+		lm->about_name += (size_t)lm;
+		lm->msg += (size_t)lm;
+		lm->session_name += (size_t)lm;
+
+		func(&lm->when, lm->from_pid, lm->about_pid, lm->sender_uid, lm->sender_gid, lm->pri, lm->from_name, lm->about_name, lm->session_name, lm->msg);
+	}
+
+	if (mutex) {
+		pthread_mutex_unlock(mutex);
+	}
+
+	if (outdata) {
+		mig_deallocate(outdata, outdata_cnt);
+	}
+
+	return NULL;
 }
 
 vproc_err_t

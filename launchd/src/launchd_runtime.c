@@ -64,6 +64,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launch.h"
 #include "launchd.h"
 #include "launchd_core_logic.h"
+#include "libvproc_internal.h"
+#include "job_reply.h"
 
 static mach_port_t ipc_port_set;
 static mach_port_t demand_port_set;
@@ -90,6 +92,18 @@ static size_t mig_cb_table_sz;
 static timeout_callback runtime_idle_callback;
 static mach_msg_timeout_t runtime_idle_timeout;
 static audit_token_t *au_tok;
+
+
+static STAILQ_HEAD(, logmsg_s) logmsg_queue = STAILQ_HEAD_INITIALIZER(logmsg_queue);
+static size_t logmsg_queue_sz;
+static size_t logmsg_queue_cnt;
+static mach_port_t drain_reply_port;
+static void runtime_log_uncork_pending_drain(void);
+static kern_return_t runtime_log_pack(vm_offset_t *outval, mach_msg_type_number_t *outvalCnt);
+static void runtime_log_push(void);
+
+static bool logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg);
+static void logmsg_remove(struct logmsg_s *lm);
 
 void
 launchd_runtime_init(void)
@@ -773,9 +787,9 @@ do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
 	 * a receiver somewhere else on the system.
 	 */
 
-	if (name == inherited_bootstrap_port) {
+	if (name == drain_reply_port) {
 		launchd_assumes(launchd_mport_deallocate(name) == KERN_SUCCESS);
-		inherited_bootstrap_port = MACH_PORT_NULL;
+		drain_reply_port = MACH_PORT_NULL;
 	}
 
 	if (launchd_assumes(root_jobmgr != NULL)) {
@@ -856,6 +870,8 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 				to = runtime_idle_timeout;
 			}
 		}
+
+		runtime_log_push();
 
 		mr = mach_msg(&bufReply->Head, tmp_options, bufReply->Head.msgh_size,
 				msg_size, ipc_port_set, to, MACH_PORT_NULL);
@@ -973,26 +989,35 @@ runtime_closelog(void)
 	}
 }
 
+static int internal_mask_pri;
+
 int
 runtime_setlogmask(int maskpri)
 {
-	return setlogmask(maskpri);
+	internal_mask_pri = maskpri;
+
+	return internal_mask_pri;
 }
 
 void
-runtime_syslog(int priority, const char *message, ...)
+runtime_syslog(int pri, const char *message, ...)
 {
+	struct runtime_syslog_attr attr = {
+		"com.apple.launchd", "com.apple.launchd",
+		getpid() == 1 ? "System" : "Background",
+		pri, getuid(), getpid(), getpid()
+	};
 	va_list ap;
 
 	va_start(ap, message);
 
-	runtime_vsyslog(priority, message, ap);
+	runtime_vsyslog(&attr, message, ap);
 
 	va_end(ap);
 }
 
 void
-runtime_vsyslog(int priority, const char *message, va_list args)
+runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
 	static struct timeval shutdown_start;
@@ -1004,19 +1029,25 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 	char newmsg[10000];
 	size_t i, j;
 
+	if (!(LOG_MASK(attr->priority) & internal_mask_pri)) {
+		goto out;
+	}
+
 	if (apple_internal_logging == 1) {
 		apple_internal_logging = stat("/AppleInternal", &sb);
 	}
 
+
 	if (!(debug_shutdown_hangs && getpid() == 1)) {
-		if (priority == LOG_APPLEONLY) {
+		if (attr->priority == LOG_APPLEONLY) {
 			if (apple_internal_logging == -1) {
-				return;
+				goto out;
 			}
-			priority = LOG_NOTICE;
+			attr->priority = LOG_NOTICE;
 		}
-		vsyslog(priority, message, args);
-		return closelog();
+		vsnprintf(newmsg, sizeof(newmsg), message, args);
+		logmsg_add(attr, saved_errno, newmsg);
+		goto out;
 	}
 
 	if (shutdown_start.tv_sec == 0) {
@@ -1038,12 +1069,11 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 	pthread_mutex_unlock(&ourlock);
 
 	if (ourlogfile == NULL) {
-		syslog(LOG_ERR, "Couldn't open alternate log file!");
-		return vsyslog(priority, message, args);
+		goto out;
 	}
 
 	if (message == NULL) {
-		return;
+		goto out;
 	}
 
 	timersub(&tvnow, &shutdown_start, &tvd_total);
@@ -1074,4 +1104,190 @@ runtime_vsyslog(int priority, const char *message, va_list args)
 	strcpy(newmsg + j, "\n");
 
 	vfprintf(ourlogfile, newmsg, args);
+
+out:
+	runtime_log_uncork_pending_drain();
+}
+
+bool
+logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg)
+{
+	size_t lm_sz = sizeof(struct logmsg_s) + strlen(msg) + strlen(attr->from_name) + strlen(attr->about_name) + strlen(attr->session_name) + 4;
+	char *data_off;
+	struct logmsg_s *lm;
+
+#define ROUND_TO_64BIT_WORD_SIZE(x)     ((x + 7) & ~7)
+
+	/* we do this to make the unpacking for the log_drain cause unalignment faults */
+	lm_sz = ROUND_TO_64BIT_WORD_SIZE(lm_sz);
+
+	if (!(lm = calloc(1, lm_sz))) {
+		return false;
+	}
+
+	data_off = lm->data;
+
+	launchd_assumes(gettimeofday(&lm->when, NULL) != -1);
+	lm->from_pid = attr->from_pid;
+	lm->about_pid = attr->about_pid;
+	lm->err_num = err_num;
+	lm->pri = attr->priority;
+	lm->obj_sz = lm_sz;
+	lm->msg = data_off;
+	data_off += sprintf(data_off, "%s", msg) + 1;
+	lm->from_name = data_off;
+	data_off += sprintf(data_off, "%s", attr->from_name) + 1;
+	lm->about_name = data_off;
+	data_off += sprintf(data_off, "%s", attr->about_name) + 1;
+	lm->session_name = data_off;
+	data_off += sprintf(data_off, "%s", attr->session_name) + 1;
+
+	STAILQ_INSERT_TAIL(&logmsg_queue, lm, sqe);
+	logmsg_queue_sz += lm_sz;
+	logmsg_queue_cnt++;
+
+	return true;
+}
+
+void
+logmsg_remove(struct logmsg_s *lm)
+{
+	STAILQ_REMOVE(&logmsg_queue, lm, logmsg_s, sqe);
+	logmsg_queue_sz -= lm->obj_sz;
+	logmsg_queue_cnt--;
+
+	free(lm);
+}
+ 
+kern_return_t
+runtime_log_pack(vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
+{
+	struct logmsg_s *lm;
+	void *offset;
+
+	*outvalCnt = logmsg_queue_sz;
+
+	mig_allocate(outval, *outvalCnt);
+
+	if (*outval == 0) {
+		return 1;
+	}
+
+	offset = (void *)*outval;
+
+	while ((lm = STAILQ_FIRST(&logmsg_queue))) {
+		lm->from_name -= (size_t)lm;
+		lm->about_name -= (size_t)lm;
+		lm->msg -= (size_t)lm;
+		lm->session_name -= (size_t)lm;
+
+		memcpy(offset, lm, lm->obj_sz);
+		
+		offset += lm->obj_sz;
+
+		logmsg_remove(lm);
+	}
+
+	return 0;
+}
+
+void
+runtime_log_uncork_pending_drain(void)
+{
+	mach_msg_type_number_t outvalCnt;
+	vm_offset_t outval;
+
+	if (!drain_reply_port) {
+		return;
+	}
+
+	if (logmsg_queue_cnt == 0) {
+		return;
+	}
+
+	if (runtime_log_pack(&outval, &outvalCnt) != 0) {
+		return;
+	}
+
+	if (!launchd_assumes(job_mig_log_drain_reply(drain_reply_port, 0, outval, outvalCnt) == 0)) {
+		launchd_assumes(launchd_mport_deallocate(drain_reply_port) == KERN_SUCCESS);
+	}
+
+	drain_reply_port = MACH_PORT_NULL;
+
+	mig_deallocate(outval, outvalCnt);
+}
+
+void
+runtime_log_push(void)
+{
+	mach_msg_type_number_t outvalCnt;
+	vm_offset_t outval;
+
+	if (logmsg_queue_cnt == 0) {
+		launchd_assumes(STAILQ_EMPTY(&logmsg_queue));
+		return;
+	} else if (getpid() == 1) {
+		return;
+	}
+
+	if (runtime_log_pack(&outval, &outvalCnt) != 0) {
+		return;
+	}
+
+	launchd_assumes(_vprocmgr_log_forward(inherited_bootstrap_port, (void *)outval, outvalCnt) == NULL);
+
+	mig_deallocate(outval, outvalCnt);
+}
+
+kern_return_t
+runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mach_msg_type_number_t invalCnt)
+{
+	struct logmsg_s *lm, *lm_walk;
+	mach_msg_type_number_t data_left = invalCnt;
+
+	if (inval == 0) {
+		return 0;
+	}
+
+	for (lm_walk = (struct logmsg_s *)inval; (data_left > 0) && (lm_walk->obj_sz <= data_left); lm_walk = ((void *)lm_walk + lm_walk->obj_sz)) {
+		if (!launchd_assumes(lm = malloc(lm_walk->obj_sz))) {
+			continue;
+		}
+
+		memcpy(lm, lm_walk, lm_walk->obj_sz);
+		lm->sender_uid = forward_uid;
+		lm->sender_gid = forward_gid;
+
+		lm->from_name += (size_t)lm;
+		lm->about_name += (size_t)lm;
+		lm->msg += (size_t)lm;
+		lm->session_name += (size_t)lm;
+
+		STAILQ_INSERT_TAIL(&logmsg_queue, lm, sqe);
+		logmsg_queue_sz += lm->obj_sz;
+		logmsg_queue_cnt++;
+
+		data_left -= lm->obj_sz;
+	}
+
+	mig_deallocate(inval, invalCnt);
+
+	return 0;
+}
+
+kern_return_t
+runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
+{
+	if (logmsg_queue_cnt == 0) {
+		launchd_assumes(STAILQ_EMPTY(&logmsg_queue));
+		launchd_assumes(drain_reply_port == 0);
+
+		drain_reply_port = srp;
+		launchd_assumes(launchd_mport_notify_req(drain_reply_port, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS);
+
+		return MIG_NO_REPLY;
+	}
+
+	return runtime_log_pack(outval, outvalCnt);
 }

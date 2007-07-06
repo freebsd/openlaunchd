@@ -1,7 +1,7 @@
 #ifndef _VPROC_INTERNAL_H_
 #define _VPROC_INTERNAL_H_
 /*
- * Copyright (c) 2006 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2006-2007 Apple Inc. All rights reserved.
  *
  * @APPLE_APACHE_LICENSE_HEADER_START@
  * 
@@ -21,9 +21,12 @@
  */
 
 #include <mach/mach.h>
+#include <sys/queue.h>
+#include <sys/time.h>
 #include <stdarg.h>
 #include "liblaunch_public.h"
 #include "libbootstrap_public.h"
+#include "libvproc_public.h"
 
 typedef char * _internal_string_t;
 typedef char * logmsg_t;
@@ -53,7 +56,28 @@ _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright, 
 
 kern_return_t _vprocmgr_getsocket(name_t);
 
+
+struct logmsg_s {
+	STAILQ_ENTRY(logmsg_s) sqe;
+	struct timeval when;
+	pid_t from_pid;
+	pid_t about_pid;
+	uid_t sender_uid;
+	gid_t sender_gid;
+	int err_num;
+	int pri;
+	const char *from_name;
+	const char *about_name;
+	const char *session_name;
+	const char *msg;
+	size_t obj_sz;
+	char data[0];
+};
+
+
 void _vproc_logv(int pri, int err, const char *msg, va_list ap);
+vproc_err_t _vprocmgr_log_forward(mach_port_t mp, void *data, size_t len);
+
 
 kern_return_t
 bootstrap_info(

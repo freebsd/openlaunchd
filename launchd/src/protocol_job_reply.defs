@@ -37,7 +37,7 @@ skip; /* register */
 
 skip; /* look_up */
 
-skip;
+skip; /* send_signal */
 
 skip; /* parent */
 
@@ -59,3 +59,22 @@ simpleroutine job_mig_wait_reply(
 		__r_port	: mach_port_move_send_once_t;
 		__result	: kern_return_t, RetCode;
 		__wait		: integer_t);
+
+skip; /* uncork_fork */
+
+skip; /* swap_integer */
+
+skip; /* set_service_policy */
+
+skip; /* log */
+
+skip; /* lookup_per_user_context */
+
+skip; /* move_subset */
+
+skip; /* swap_complex */
+
+simpleroutine job_mig_log_drain_reply(
+		__r_port	: mach_port_move_send_once_t;
+		__result	: kern_return_t, RetCode;
+		__outval        : pointer_t);
