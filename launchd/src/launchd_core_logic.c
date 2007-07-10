@@ -995,7 +995,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, zombie ? zombie : kp.kp_proc.p_comm, NULL)) != NULL)) {
-		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT|NOTE_REAP;
+		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT /* |NOTE_REAP */;
 
 		total_children++;
 		jr->anonymous = true;
@@ -2096,12 +2096,15 @@ job_callback_proc(job_t j, int flags, int fflags)
 		}
 	}
 
+	/* NOTE_REAP sanity checking is disabled for now while we try and diagnose 5289559 */
+#if 0
 	if (j && (fflags & NOTE_REAP)) {
 		job_assumes(j, flags & EV_ONESHOT);
 		job_assumes(j, flags & EV_EOF);
 
 		job_assumes(j, j->p == 0);
 	}
+#endif
 }
 
 void
@@ -2234,7 +2237,7 @@ job_start(job_t j)
 	pid_t c;
 	bool sipc = false;
 	time_t td;
-	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT|NOTE_REAP;
+	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT /* |NOTE_REAP */;
 
 	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
