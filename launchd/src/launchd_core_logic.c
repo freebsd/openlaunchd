@@ -121,15 +121,18 @@ static void mspolicy_delete(job_t j, struct mspolicy *msp);
 
 struct machservice {
 	SLIST_ENTRY(machservice) sle;
+	SLIST_ENTRY(machservice) special_port_sle;
 	LIST_ENTRY(machservice) name_hash_sle;
 	LIST_ENTRY(machservice) port_hash_sle;
 	job_t			job;
 	uint64_t		bad_perf_cnt;
 	unsigned int		gen_num;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, per_user_hack:1, debug_on_close:1, per_pid:1;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, per_user_hack:1, debug_on_close:1, per_pid:1, special_port_num:10;
 	const char		name[0];
 };
+
+static SLIST_HEAD(, machservice) special_ports; /* hack, this should be per jobmgr_t */
 
 #define PORT_HASH_SIZE 32
 #define HASH_PORT(x)	(IS_POWER_OF_TWO(PORT_HASH_SIZE) ? (MACH_PORT_INDEX(x) & (PORT_HASH_SIZE - 1)) : (MACH_PORT_INDEX(x) % PORT_HASH_SIZE))
@@ -3740,7 +3743,8 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 				job_log(ms->job, LOG_WARNING, "Tried to set a reserved task special port: %d", which_port);
 				break;
 			default:
-				job_assumes(ms->job, (errno = task_set_special_port(mach_task_self(), which_port, ms->port)) == KERN_SUCCESS);
+				ms->special_port_num = which_port;
+				SLIST_INSERT_HEAD(&special_ports, ms, special_port_sle);
 				break;
 			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
@@ -4184,6 +4188,10 @@ machservice_delete(job_t j, struct machservice *ms, bool port_died)
 	}
 
 	job_log(j, LOG_INFO, "Mach service deleted%s: %s", port_died ? " (port died)" : "", ms->name);
+
+	if (ms->special_port_num) {
+		SLIST_REMOVE(&special_ports, ms, machservice, special_port_sle);
+	}
 
 	SLIST_REMOVE(&j->machservices, ms, machservice, sle);
 	LIST_REMOVE(ms, name_hash_sle);
@@ -5022,6 +5030,8 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 kern_return_t
 job_mig_post_fork_ping(job_t j, task_t child_task)
 {
+	struct machservice *ms;
+
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
@@ -5029,6 +5039,14 @@ job_mig_post_fork_ping(job_t j, task_t child_task)
 	job_log(j, LOG_DEBUG, "Post fork ping.");
 
 	job_setup_exception_port(j, child_task);
+
+	SLIST_FOREACH(ms, &special_ports, special_port_sle) {
+		if (j->per_user && (ms->special_port_num != TASK_ACCESS_PORT)) {
+			/* The TASK_ACCESS_PORT funny business is to workaround 5325399. */
+			continue;
+		}
+		job_assumes(j, (errno = task_set_special_port(child_task, ms->special_port_num, ms->port)) == KERN_SUCCESS);
+	}
 
 	job_assumes(j, launchd_mport_deallocate(child_task) == KERN_SUCCESS);
 
