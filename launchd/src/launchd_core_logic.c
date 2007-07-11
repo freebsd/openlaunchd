@@ -105,7 +105,13 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 extern char **environ;
 
-mach_port_t inherited_bootstrap_port;
+struct waiting_for_removal {
+	SLIST_ENTRY(waiting_for_removal) sle;
+	mach_port_t reply_port;
+};
+
+static bool waiting4removal_new(job_t j, mach_port_t rp);
+static void waiting4removal_delete(job_t j, struct waiting_for_removal *w4r);
 
 struct mspolicy {
 	SLIST_ENTRY(mspolicy) sle;
@@ -308,6 +314,7 @@ struct job_s {
 	SLIST_HEAD(, mspolicy) mspolicies;
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
+	SLIST_HEAD(, waiting_for_removal) removal_watchers;
 #if DO_RUSAGE_SUMMATION
 	struct rusage ru;
 #endif
@@ -447,6 +454,7 @@ static bool did_first_per_user_launchd_BootCache_hack;
 static jobmgr_t background_jobmgr;
 
 /* process wide globals */
+mach_port_t inherited_bootstrap_port;
 jobmgr_t root_jobmgr;
 
 void
@@ -711,6 +719,7 @@ jobmgr_remove(jobmgr_t jm)
 void
 job_remove(job_t j)
 {
+	struct waiting_for_removal *w4r;
 	struct calendarinterval *ci;
 	struct semaphoreitem *si;
 	struct socketgroup *sg;
@@ -777,6 +786,9 @@ job_remove(job_t j)
 	}
 	while ((si = SLIST_FIRST(&j->semaphores))) {
 		semaphoreitem_delete(j, si);
+	}
+	while ((w4r = SLIST_FIRST(&j->removal_watchers))) {
+		waiting4removal_delete(j, w4r);
 	}
 
 	if (j->prog) {
@@ -4769,7 +4781,7 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 }
 
 kern_return_t
-job_mig_send_signal(job_t j, name_t targetlabel, int sig)
+job_mig_send_signal(job_t j, mach_port_t srp, name_t targetlabel, int sig)
 {
 	struct ldcred ldc;
 	job_t otherj;
@@ -4788,7 +4800,24 @@ job_mig_send_signal(job_t j, name_t targetlabel, int sig)
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 
-	if (otherj->p) {
+	if (sig == VPROC_MAGIC_UNLOAD_SIGNAL) {
+		bool do_block = otherj->p;
+
+		if (otherj->anonymous) {
+			return BOOTSTRAP_NOT_PRIVILEGED;
+		}
+
+		job_remove(otherj);
+
+		if (do_block) {
+			job_log(j, LOG_DEBUG, "Blocking MIG return of job_remove(): %s", otherj->label);
+			/* this is messy. We shouldn't access 'otherj' after job_remove(), but we check otherj->p first... */
+			job_assumes(otherj, waiting4removal_new(otherj, srp));
+			return MIG_NO_REPLY;
+		} else {
+			return 0;
+		}
+	} else if (otherj->p) {
 		job_assumes(j, kill(otherj->p, sig) != -1);
 	}
 
@@ -6133,4 +6162,30 @@ mspolicy_delete(job_t j, struct mspolicy *msp)
 	SLIST_REMOVE(&j->mspolicies, msp, mspolicy, sle);
 
 	free(msp);
+}
+
+bool
+waiting4removal_new(job_t j, mach_port_t rp)
+{
+	struct waiting_for_removal *w4r;
+
+	if (!job_assumes(j, (w4r = malloc(sizeof(struct waiting_for_removal))) != NULL)) {
+		return false;
+	}
+
+	w4r->reply_port = rp;
+
+	SLIST_INSERT_HEAD(&j->removal_watchers, w4r, sle);
+
+	return true;
+}
+
+void
+waiting4removal_delete(job_t j, struct waiting_for_removal *w4r)
+{
+	job_assumes(j, job_mig_send_signal_reply(w4r->reply_port, 0) == 0);
+
+	SLIST_REMOVE(&j->removal_watchers, w4r, waiting_for_removal, sle);
+
+	free(w4r);
 }

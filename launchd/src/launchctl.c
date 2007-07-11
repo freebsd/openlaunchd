@@ -440,11 +440,8 @@ getenv_and_export_cmd(int argc, char *const argv[])
 void
 unloadjob(launch_data_t job)
 {
-	launch_data_t resp, tmp, tmps, msg;
-	int e;
+	launch_data_t tmps;
 
-	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
-	tmp = launch_data_alloc(LAUNCH_DATA_STRING);
 	tmps = launch_data_dict_lookup(job, LAUNCH_JOBKEY_LABEL);
 
 	if (!tmps) {
@@ -452,20 +449,7 @@ unloadjob(launch_data_t job)
 		return;
 	}
 
-	launch_data_set_string(tmp, launch_data_get_string(tmps));
-	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_REMOVEJOB);
-	resp = launch_msg(msg);
-	launch_data_free(msg);
-	if (!resp) {
-		fprintf(stderr, "%s: Error: launch_msg(): %s\n", getprogname(), strerror(errno));
-		return;
-	}
-	if (LAUNCH_DATA_ERRNO == launch_data_get_type(resp)) {
-		if ((e = launch_data_get_errno(resp))) {
-			fprintf(stderr, "%s\n", strerror(e));
-		}
-	}
-	launch_data_free(resp);
+	assumes(_vproc_send_signal_by_label(launch_data_get_string(tmps), VPROC_MAGIC_UNLOAD_SIGNAL) == NULL);
 }
 
 launch_data_t

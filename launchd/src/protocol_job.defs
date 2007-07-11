@@ -70,6 +70,7 @@ routine look_up2(
 
 routine send_signal(
 		__bs_port	: job_t;
+	sreplyport	__rport	: mach_port_make_send_once_t;
 		__label		: name_t;
 		__signal	: integer_t);
 

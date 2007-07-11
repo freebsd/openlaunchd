@@ -37,7 +37,9 @@ skip; /* register */
 
 skip; /* look_up */
 
-skip; /* send_signal */
+simpleroutine job_mig_send_signal_reply(
+		__r_port	: mach_port_move_send_once_t;
+		__result	: kern_return_t, RetCode);
 
 skip; /* parent */
 

@@ -31,6 +31,9 @@ __BEGIN_DECLS
 
 #pragma GCC visibility push(default)
 
+/* DO NOT use this. This is a hack for launchctl */
+#define VPROC_MAGIC_UNLOAD_SIGNAL 0x4141504C
+
 typedef enum {
 	VPROC_GSK_LAST_EXIT_STATUS = 1,
 	VPROC_GSK_GLOBAL_ON_DEMAND,
