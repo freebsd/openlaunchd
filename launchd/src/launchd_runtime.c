@@ -1195,6 +1195,7 @@ void
 runtime_log_uncork_pending_drain(void)
 {
 	mach_msg_type_number_t outvalCnt;
+	mach_port_t tmp_port;
 	vm_offset_t outval;
 
 	if (!drain_reply_port) {
@@ -1209,11 +1210,12 @@ runtime_log_uncork_pending_drain(void)
 		return;
 	}
 
-	if (!launchd_assumes(job_mig_log_drain_reply(drain_reply_port, 0, outval, outvalCnt) == 0)) {
-		launchd_assumes(launchd_mport_deallocate(drain_reply_port) == KERN_SUCCESS);
-	}
-
+	tmp_port = drain_reply_port;
 	drain_reply_port = MACH_PORT_NULL;
+
+	if (!launchd_assumes(job_mig_log_drain_reply(tmp_port, 0, outval, outvalCnt) == 0)) {
+		launchd_assumes(launchd_mport_deallocate(tmp_port) == KERN_SUCCESS);
+	}
 
 	mig_deallocate(outval, outvalCnt);
 }
