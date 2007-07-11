@@ -167,6 +167,7 @@ static void socketgroup_watch(job_t j, struct socketgroup *sg);
 static void socketgroup_ignore(job_t j, struct socketgroup *sg);
 static void socketgroup_callback(job_t j);
 static void socketgroup_setup(launch_data_t obj, const char *key, void *context);
+static void socketgroup_kevent_mod(job_t j, struct socketgroup *sg, bool do_add);
 
 struct calendarinterval {
 	LIST_ENTRY(calendarinterval) global_sle;
@@ -180,6 +181,7 @@ static LIST_HEAD(, calendarinterval) sorted_calendar_events;
 
 static bool calendarinterval_new(job_t j, struct tm *w);
 static bool calendarinterval_new_from_obj(job_t j, launch_data_t obj);
+static void calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void *context);
 static void calendarinterval_delete(job_t j, struct calendarinterval *ci);
 static void calendarinterval_setalarm(job_t j, struct calendarinterval *ci);
 static void calendarinterval_callback(void);
@@ -402,6 +404,7 @@ static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 static void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
+static void job_log_stdouterr2(job_t j, const char *msg, ...);
 static void job_set_exeception_port(job_t j, mach_port_t port);
 static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
 
@@ -429,16 +432,22 @@ static bool cronemu_mday(struct tm *wtm, int mday, int hour, int min);
 static bool cronemu_hour(struct tm *wtm, int hour, int min);
 static bool cronemu_min(struct tm *wtm, int min);
 
-static unsigned int total_children;
+/* miscellaneous file local functions */
 static void ensure_root_bkgd_setup(void);
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 static size_t our_strhash(const char *s) __attribute__((pure));
+static void extract_rcsid_substr(const char *i, char *o, size_t osz);
+static void do_first_per_user_launchd_hack(void);
+
+/* file local globals */
+static unsigned int total_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
-
-jobmgr_t root_jobmgr;
 static jobmgr_t background_jobmgr;
+
+/* process wide globals */
+jobmgr_t root_jobmgr;
 
 void
 job_ignore(job_t j)
@@ -2002,7 +2011,7 @@ job_dispatch(job_t j, bool kickstart)
 	return j;
 }
 
-static void
+void
 job_log_stdouterr2(job_t j, const char *msg, ...)
 {
 	struct runtime_syslog_attr attr = { j->label, j->label, j->mgr->name, LOG_NOTICE, getuid(), j->p, j->p };
@@ -2352,7 +2361,7 @@ job_start(job_t j)
 	}
 }
 
-static void
+void
 do_first_per_user_launchd_hack(void)
 {
 	char *bcct_tool[] = { "/usr/sbin/BootCacheControl", "tag", NULL };
@@ -2812,7 +2821,7 @@ calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 	}
 }
 
-static void
+void
 extract_rcsid_substr(const char *i, char *o, size_t osz)
 {
 	char *rcs_rev_tmp = strchr(i, ' ');
@@ -2993,11 +3002,11 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 	char parentdir_path[PATH_MAX], *which_path = si->what;
 	int fflags = 0;
 	
+	strlcpy(parentdir_path, dirname(si->what), sizeof(parentdir_path));
+
 	switch (si->why) {
 	case PATH_EXISTS:
 		fflags = NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_EXTEND|NOTE_WRITE;
-		strlcpy(parentdir_path, dirname(si->what), sizeof(parentdir_path));
-		which_path = parentdir_path;
 		break;
 	case PATH_MISSING:
 		fflags = NOTE_DELETE|NOTE_RENAME;
@@ -3011,7 +3020,10 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 	}
 
 	if (si->fd == -1) {
-		si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY));
+		if ((si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY))) == -1) {
+			which_path = parentdir_path;
+			si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY));
+		}
 	}
 
 	if (si->fd == -1) {
@@ -3086,7 +3098,7 @@ semaphoreitem_callback(job_t j, struct kevent *kev)
 	job_dispatch(j, false);
 }
 
-static void
+void
 calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void *context)
 {
 	struct tm *tmptm = context;
@@ -3245,7 +3257,7 @@ socketgroup_delete(job_t j, struct socketgroup *sg)
 	free(sg);
 }
 
-static void
+void
 socketgroup_kevent_mod(job_t j, struct socketgroup *sg, bool do_add)
 {
 	struct kevent kev[sg->fd_cnt];
