@@ -20,6 +20,13 @@
 
 static const char *const __rcs_file_version__ = "$Revision$";
 
+#include "liblaunch_public.h"
+#include "liblaunch_private.h"
+#include "libbootstrap_public.h"
+#include "libvproc_public.h"
+#include "libvproc_private.h"
+#include "libvproc_internal.h"
+
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
 #include <Security/Security.h>
@@ -65,12 +72,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sysexits.h>
 #include <util.h>
 
-#include "libbootstrap_public.h"
-#include "libvproc_public.h"
-#include "libvproc_private.h"
-#include "libvproc_internal.h"
-#include "liblaunch_public.h"
-#include "liblaunch_private.h"
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
 
@@ -143,6 +144,7 @@ static void do_bootroot_magic(void);
 static void do_single_user_mode(bool);
 static bool do_single_user_mode2(void);
 static void read_launchd_conf(void);
+static bool job_disabled_logic(launch_data_t obj);
 
 typedef enum {
 	BOOTCACHE_START = 1,
@@ -612,7 +614,7 @@ readfile(const char *what, struct load_unload_state *lus)
 	}
 
 	if ((tmpd = launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_DISABLED))) {
-		job_disabled = launch_data_get_bool(tmpd);
+		job_disabled = job_disabled_logic(tmpd);
 	}
 
 	if (lus->forceload) {
@@ -639,6 +641,61 @@ out_bad:
 		fprintf(stdout, "Ignored: %s\n", what);
 	}
 	launch_data_free(thejob);
+}
+
+static bool
+sysctl_hw_streq(int mib_slot, const char *str)
+{
+	char buf[1000];
+	size_t bufsz = sizeof(buf);
+	int mib[] = { CTL_HW, mib_slot };
+
+	if (sysctl(mib, 2, buf, &bufsz, NULL, 0) != -1) {
+		if (strcmp(buf, str) == 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void
+job_disabled_dict_logic(launch_data_t obj, const char *key, void *context)
+{
+	bool *r = context;
+
+	if (launch_data_get_type(obj) != LAUNCH_DATA_STRING) {
+		return;
+	}
+
+	if (strcasecmp(key, LAUNCH_JOBKEY_DISABLED_MACHINETYPE) == 0) {
+		if (sysctl_hw_streq(HW_MACHINE, launch_data_get_string(obj))) {
+			*r = true;
+		}
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_DISABLED_MODELNAME) == 0) {
+		if (sysctl_hw_streq(HW_MODEL, launch_data_get_string(obj))) {
+			*r = true;
+		}
+	}
+}
+
+bool
+job_disabled_logic(launch_data_t obj)
+{
+	bool r = false;
+
+	switch (launch_data_get_type(obj)) {
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(obj, job_disabled_dict_logic, &r);
+		break;
+	case LAUNCH_DATA_BOOL:
+		r = launch_data_get_bool(obj);
+		break;
+	default:
+		break;
+	}
+
+	return r;
 }
 
 bool
