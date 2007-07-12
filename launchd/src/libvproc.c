@@ -395,7 +395,7 @@ _vprocmgr_log_forward(mach_port_t mp, void *data, size_t len)
 vproc_err_t
 _vprocmgr_log_drain(vproc_t vp __attribute__((unused)), pthread_mutex_t *mutex, _vprocmgr_log_drain_callback_t func)
 {
-	mach_msg_type_number_t outdata_cnt;
+	mach_msg_type_number_t outdata_cnt, tmp_cnt;
 	vm_offset_t outdata = 0;
 	struct logmsg_s *lm;
 
@@ -407,17 +407,22 @@ _vprocmgr_log_drain(vproc_t vp __attribute__((unused)), pthread_mutex_t *mutex, 
 		return _vprocmgr_log_drain;
 	}
 
+	tmp_cnt = outdata_cnt;
+
 	if (mutex) {
 		pthread_mutex_lock(mutex);
 	}
 
-	for (lm = (struct logmsg_s *)outdata; lm->obj_sz; lm = ((void *)lm + lm->obj_sz)) {
+	for (lm = (struct logmsg_s *)outdata; tmp_cnt > 0; lm = ((void *)lm + lm->obj_sz)) {
 		lm->from_name += (size_t)lm;
 		lm->about_name += (size_t)lm;
 		lm->msg += (size_t)lm;
 		lm->session_name += (size_t)lm;
 
-		func(&lm->when, lm->from_pid, lm->about_pid, lm->sender_uid, lm->sender_gid, lm->pri, lm->from_name, lm->about_name, lm->session_name, lm->msg);
+		func(&lm->when, lm->from_pid, lm->about_pid, lm->sender_uid, lm->sender_gid, lm->pri,
+				lm->from_name, lm->about_name, lm->session_name, lm->msg);
+
+		tmp_cnt -= lm->obj_sz;
 	}
 
 	if (mutex) {
