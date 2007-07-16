@@ -262,6 +262,7 @@ launchd_shutdown(void)
 		 * When this changes to a more sustainable API, update this:
 		 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
 		 */
+		runtime_setlogmask(LOG_UPTO(LOG_DEBUG));
 		prep_shutdown_log_dir();
 		debug_shutdown_hangs = true;
 	}

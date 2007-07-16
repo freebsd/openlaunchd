@@ -1084,9 +1084,11 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 
 	prev_msg = tvnow;
 
-	snprintf(newmsg, sizeof(newmsg), "%3ld.%06d\t%ld.%06d\t",
+	snprintf(newmsg, sizeof(newmsg), "%3ld.%06d%4ld.%06d%6u %-40s%6u %-40s ",
 			tvd_total.tv_sec, tvd_total.tv_usec,
-			tvd_msg_delta.tv_sec, tvd_msg_delta.tv_usec);
+			tvd_msg_delta.tv_sec, tvd_msg_delta.tv_usec,
+			attr->from_pid, attr->from_name,
+			attr->about_pid, attr->about_name);
 
 	for (i = 0, j = strlen(newmsg); message[i];) {
 		if (message[i] == '%' && message[i + 1] == 'm') {
