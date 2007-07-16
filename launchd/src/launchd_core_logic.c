@@ -2607,6 +2607,17 @@ job_postfork_become_user(job_t j)
 		return;
 	}
 
+	/*
+	 * We must copy the results of getpw*().
+	 *
+	 * Why? Because subsequent API calls may call getpw*() as a part of
+	 * their implementation. Since getpw*() returns a [now thread scoped]
+	 * global, we must therefore cache the results before continuing.
+	 */
+
+	desired_uid = pwe->pw_uid;
+	desired_gid = pwe->pw_gid;
+
 	strlcpy(shellpath, pwe->pw_shell, sizeof(shellpath));
 	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
 	strlcpy(homedir, pwe->pw_dir, sizeof(homedir));
@@ -2616,8 +2627,6 @@ job_postfork_become_user(job_t j)
 		_exit(EXIT_FAILURE);
 	}
 
-	desired_uid = pwe->pw_uid;
-	desired_gid = pwe->pw_gid;
 
 	if (j->username && strcmp(j->username, loginname) != 0) {
 		job_log(j, LOG_WARNING, "Suspicious setup: User \"%s\" maps to user: %s", j->username, loginname);
