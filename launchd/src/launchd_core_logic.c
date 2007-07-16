@@ -5101,7 +5101,24 @@ job_mig_post_fork_ping(job_t j, task_t child_task)
 			/* The TASK_ACCESS_PORT funny business is to workaround 5325399. */
 			continue;
 		}
-		job_assumes(j, (errno = task_set_special_port(child_task, ms->special_port_num, ms->port)) == KERN_SUCCESS);
+
+		errno = task_set_special_port(child_task, ms->special_port_num, ms->port);
+
+		if (errno) {
+			int desired_log_devel = LOG_ERR;
+
+			if (j->anonymous) {
+				/* 5338127 */
+
+				desired_log_devel = LOG_WARNING;
+
+				if (ms->special_port_num == TASK_SEATBELT_PORT) {
+					desired_log_devel = LOG_DEBUG;
+				}
+			}
+
+			job_log(j, desired_log_devel, "Could not setup Mach task special port %u: %s", ms->special_port_num, mach_error_string(errno));
+		}
 	}
 
 	job_assumes(j, launchd_mport_deallocate(child_task) == KERN_SUCCESS);
