@@ -216,7 +216,15 @@ static bool verbose = false;
 int
 main(int argc, char *const argv[])
 {
+	int64_t is_managed = 0;
 	char *l;
+
+	if ((getuid() == 0) && (vproc_swap_integer(NULL, VPROC_GSK_IS_MANAGED, NULL, &is_managed) == NULL) && (is_managed == 0)) {
+		mach_port_t root_bs = str2bsport("/");
+		task_set_bootstrap_port(mach_task_self(), root_bs);
+		mach_port_deallocate(mach_task_self(), bootstrap_port);
+		bootstrap_port = root_bs;
+	}
 
 	istty = isatty(STDIN_FILENO);
 
