@@ -451,7 +451,9 @@ unloadjob(launch_data_t job)
 		return;
 	}
 
-	assumes(_vproc_send_signal_by_label(launch_data_get_string(tmps), VPROC_MAGIC_UNLOAD_SIGNAL) == NULL);
+	if (_vproc_send_signal_by_label(launch_data_get_string(tmps), VPROC_MAGIC_UNLOAD_SIGNAL) != NULL) {
+		fprintf(stderr, "%s: Error unloading: %s\n", getprogname(), launch_data_get_string(tmps));
+	}
 }
 
 launch_data_t
