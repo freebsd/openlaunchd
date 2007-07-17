@@ -77,6 +77,7 @@ install-data-hook:
 	mkdir -p $(DESTDIR)/usr/local/include
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
+	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_login_session.d
 	mkdir -p $(DESTDIR)/Library/LaunchDaemons
 	mkdir -p $(DESTDIR)/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents

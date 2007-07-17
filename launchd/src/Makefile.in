@@ -1150,6 +1150,7 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/usr/local/include
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init.d
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_user.d
+@LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/$(sysconfdir)/mach_init_per_login_session.d
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/Library/LaunchDaemons
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/Library/LaunchAgents
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
