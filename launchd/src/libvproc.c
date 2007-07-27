@@ -99,8 +99,7 @@ vproc_err_t
 _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 {
 	launch_data_t output_obj;
-	kern_return_t kr = 1;
-	mach_port_t puc = 0, rootbs = get_root_bootstrap_port();
+	kern_return_t kr = 0;
 	bool is_bkgd = (strcmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0);
 	int64_t ldpid, lduid;
 
@@ -110,18 +109,6 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 
 	if (vproc_swap_integer(NULL, VPROC_GSK_MGR_UID, 0, &lduid) != 0) {
 		return (vproc_err_t)_vprocmgr_move_subset_to_user;
-	}
-
-	if (target_user == 0) {
-		if (ldpid == 1 && rootbs != bootstrap_port) {
-			return _vprocmgr_init(session_type);
-		}
-
-		task_set_bootstrap_port(mach_task_self(), rootbs);
-		mach_port_deallocate(mach_task_self(), bootstrap_port);
-		bootstrap_port = rootbs;
-
-		return NULL;
 	}
 
 	if (ldpid != 1) {
@@ -135,22 +122,23 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 		return (vproc_err_t)_vprocmgr_move_subset_to_user;
 	}
 
-	if (vproc_mig_lookup_per_user_context(rootbs, target_user, &puc) != 0) {
-		return (vproc_err_t)_vprocmgr_move_subset_to_user;
-	}
+	if (is_bkgd || target_user) {
+		mach_port_t puc = 0, rootbs = get_root_bootstrap_port();
 
-	if (is_bkgd) {
-		kr = 0;
-	} else {
-		kr = vproc_mig_move_subset(puc, bootstrap_port, (char *)session_type);
-	}
+		if (vproc_mig_lookup_per_user_context(rootbs, target_user, &puc) != 0) {
+			return (vproc_err_t)_vprocmgr_move_subset_to_user;
+		}
 
-	if (is_bkgd) {
-		task_set_bootstrap_port(mach_task_self(), puc);
-		mach_port_deallocate(mach_task_self(), bootstrap_port);
-		bootstrap_port = puc;
+		if (is_bkgd) {
+			task_set_bootstrap_port(mach_task_self(), puc);
+			mach_port_deallocate(mach_task_self(), bootstrap_port);
+			bootstrap_port = puc;
+		} else {
+			kr = vproc_mig_move_subset(puc, bootstrap_port, (char *)session_type);
+			mach_port_deallocate(mach_task_self(), puc);
+		}
 	} else {
-		mach_port_deallocate(mach_task_self(), puc);
+		kr = _vprocmgr_init(session_type) ? 1 : 0;
 	}
 
 	cached_pid = -1;

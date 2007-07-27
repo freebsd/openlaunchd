@@ -5659,6 +5659,12 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 				kr = BOOTSTRAP_NOT_PRIVILEGED;
 				goto out;
 			}
+		} else if (ldc.uid == 0 && getpid() == 1 && strcmp(session_type, VPROCMGR_SESSION_STANDARDIO) == 0) {
+			ensure_root_bkgd_setup();
+
+			SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
+			j->mgr->parentmgr = background_jobmgr;
+			SLIST_INSERT_HEAD(&j->mgr->parentmgr->submgrs, j->mgr, sle);
 		}
 
 		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
