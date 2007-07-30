@@ -1730,6 +1730,10 @@ job_find(const char *label)
 	job_t ji;
 
 	LIST_FOREACH(ji, &label_hash[hash_label(label)], label_hash_sle) {
+		if (ji->removal_pending) {
+			continue; /* 5351245 */
+		}
+
 		if (strcmp(ji->label, label) == 0) {
 			return ji;
 		}
@@ -5646,6 +5650,12 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 					SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
 					j->mgr->parentmgr = background_jobmgr;
 					SLIST_INSERT_HEAD(&j->mgr->parentmgr->submgrs, j->mgr, sle);
+
+					/*
+					 * We really should wait for all the jobs to die before proceeding. See 5351245 for more info.
+					 *
+					 * We have hacked around this in job_find() by ignoring jobs that are pending removal.
+					 */
 
 				} else if (strcmp(j->mgr->name, VPROCMGR_SESSION_AQUA) == 0) {
 					return 0;
