@@ -179,6 +179,11 @@ handle_pid1_crashes_separately(void)
 
 #define PID1_CRASH_LOGFILE "/var/log/launchd-pid1.crash"
 
+/* This hack forces the dynamic linker to resolve these symbols ASAP */
+static __attribute__((unused)) typeof(sync) *__junk_dyld_trick1 = sync;
+static __attribute__((unused)) typeof(sleep) *__junk_dyld_trick2 = sleep;
+static __attribute__((unused)) typeof(reboot) *__junk_dyld_trick3 = reboot;
+
 void
 fatal_signal_handler(int sig, siginfo_t *si, void *uap)
 {
