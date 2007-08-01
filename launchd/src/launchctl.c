@@ -210,16 +210,21 @@ static const struct {
 	{ "help",	help_cmd,		"This help output" },
 };
 
-static bool istty = false;
-static bool verbose = false;
+static bool istty;
+static bool verbose;
+static bool is_managed;
 
 int
 main(int argc, char *const argv[])
 {
-	int64_t is_managed = 0;
+	int64_t is_managed_val = 0;
 	char *l;
 
-	if ((getuid() == 0) && (vproc_swap_integer(NULL, VPROC_GSK_IS_MANAGED, NULL, &is_managed) == NULL) && (is_managed == 0)) {
+	if (vproc_swap_integer(NULL, VPROC_GSK_IS_MANAGED, NULL, &is_managed_val) == NULL && is_managed_val) {
+		is_managed = true;
+	}
+
+	if (getuid() && !is_managed) {
 		mach_port_t root_bs = str2bsport("/");
 		task_set_bootstrap_port(mach_task_self(), root_bs);
 		mach_port_deallocate(mach_task_self(), bootstrap_port);
@@ -1719,11 +1724,13 @@ load_and_unload_cmd(int argc, char *const argv[])
 	if (launch_data_array_get_count(lus.pass0) == 0 &&
 			launch_data_array_get_count(lus.pass1) == 0 &&
 			launch_data_array_get_count(lus.pass2) == 0) {
-		fprintf(stderr, "nothing found to %s\n", lus.load ? "load" : "unload");
+		if (!is_managed) {
+			fprintf(stderr, "nothing found to %s\n", lus.load ? "load" : "unload");
+		}
 		launch_data_free(lus.pass0);
 		launch_data_free(lus.pass1);
 		launch_data_free(lus.pass2);
-		return 1;
+		return is_managed ? 0 : 1;
 	}
 	
 	if (lus.load) {
