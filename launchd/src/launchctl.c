@@ -224,7 +224,7 @@ main(int argc, char *const argv[])
 		is_managed = true;
 	}
 
-	if (getuid() && !is_managed) {
+	if (getuid() == 0 && !is_managed) {
 		mach_port_t root_bs = str2bsport("/");
 		task_set_bootstrap_port(mach_task_self(), root_bs);
 		mach_port_deallocate(mach_task_self(), bootstrap_port);
