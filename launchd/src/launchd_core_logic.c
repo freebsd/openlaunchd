@@ -5658,6 +5658,10 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 					 */
 
 				} else if (strcmp(j->mgr->name, VPROCMGR_SESSION_AQUA) == 0) {
+					job_log(j, LOG_DEBUG, "Tried to move the Aqua session.");
+					return 0;
+				} else if (strcmp(j->mgr->name, VPROCMGR_SESSION_BACKGROUND) == 0) {
+					job_log(j, LOG_DEBUG, "Tried to move the background session.");
 					return 0;
 				} else {
 					job_log(j, LOG_ERR, "Tried to initialize an already setup session!");

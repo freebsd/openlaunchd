@@ -111,7 +111,7 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 		return (vproc_err_t)_vprocmgr_move_subset_to_user;
 	}
 
-	if (ldpid != 1) {
+	if (!is_bkgd && ldpid != 1) {
 		if (lduid == getuid()) {
 			return NULL;
 		}
