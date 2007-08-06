@@ -229,8 +229,12 @@ static bool StartupItemSecurityCheck(const char *aPath)
 		syslog(LOG_WARNING, "\"%s\" failed security check: not a directory or regular file", aPath);
 		r = false;
 	}
-	if ((aStatBuf.st_mode & ALLPERMS) & ~(S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)) {
-		syslog(LOG_WARNING, "\"%s\" failed security check: permissions", aPath);
+	if (aStatBuf.st_mode & S_IWOTH) {
+		syslog(LOG_WARNING, "\"%s\" failed security check: world writable", aPath);
+		r = false;
+	}
+	if (aStatBuf.st_mode & S_IWGRP) {
+		syslog(LOG_WARNING, "\"%s\" failed security check: group writable", aPath);
 		r = false;
 	}
 	if (aStatBuf.st_uid != 0) {
