@@ -698,6 +698,7 @@ int
 kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
+	int r;
 
 	switch (filter) {
 	case EVFILT_READ:
@@ -708,6 +709,8 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 		break;
 	}
 
+	flags |= EV_RECEIPT;
+
 	if (flags & EV_ADD && !launchd_assumes(udata != NULL)) {
 		errno = EINVAL;
 		return -1;
@@ -715,7 +718,24 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 
 	EV_SET(&kev, ident, filter, flags, fflags, data, udata);
 
-	return kevent(mainkq, &kev, 1, NULL, 0, NULL);
+	r = kevent(mainkq, &kev, 1, &kev, 1, NULL);
+
+#define BUG_5321044_RESEARCH 1
+#if BUG_5321044_RESEARCH
+	if (r != 1) {
+		runtime_syslog(LOG_ERR, "Bug (5321044): kevent_mod() == %d", r);
+		return -1;
+	}
+
+	if (launchd_assumes(kev.flags & EV_ERROR)) {
+		if ((flags & EV_ADD) && kev.data) {
+			runtime_syslog(LOG_ERR, "Bug (5321044): See next line.");
+			log_kevent_struct(LOG_ERR, &kev, 0);
+		}
+	}
+#endif
+
+	return r;
 }
 
 boolean_t

@@ -3058,7 +3058,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 	job_log(j, LOG_DEBUG, "Watching Vnode: %d", si->fd);
 	if (!job_assumes(j, kevent_mod(si->fd, EVFILT_VNODE, EV_ADD, fflags, 0, j) != -1)) {
 		/* Extra logging for 5321044 */
-		job_log(j, LOG_ERR, "Bug (5321044): si->fd == %d fflags = 0x%x j == %p", si->fd, fflags, j);
+		job_log(j, LOG_ERR, "Bug (5321044): si->why == %u si->fd == %d fflags = 0x%x j == %p", si->why, si->fd, fflags, j);
 	}
 }
 
