@@ -731,6 +731,8 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 		if ((flags & EV_ADD) && kev.data) {
 			runtime_syslog(LOG_ERR, "Bug (5321044): See next line.");
 			log_kevent_struct(LOG_ERR, &kev, 0);
+			errno = kev.data;
+			return -1;
 		}
 	}
 #endif
