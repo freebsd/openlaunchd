@@ -720,22 +720,17 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 
 	r = kevent(mainkq, &kev, 1, &kev, 1, NULL);
 
-#define BUG_5321044_RESEARCH 1
-#if BUG_5321044_RESEARCH
-	if (r != 1) {
-		runtime_syslog(LOG_ERR, "Bug (5321044): kevent_mod() == %d", r);
+	if (!launchd_assumes(r == 1)) {
 		return -1;
 	}
 
 	if (launchd_assumes(kev.flags & EV_ERROR)) {
-		if ((flags & EV_ADD) && kev.data) {
-			runtime_syslog(LOG_ERR, "Bug (5321044): See next line.");
+		if ((flags & EV_ADD) && !launchd_assumes(kev.data == 0)) {
 			log_kevent_struct(LOG_ERR, &kev, 0);
 			errno = kev.data;
 			return -1;
 		}
 	}
-#endif
 
 	return r;
 }

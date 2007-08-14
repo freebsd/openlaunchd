@@ -3044,22 +3044,31 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 		return;
 	}
 
-	if (si->fd == -1) {
-		if ((si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY))) == -1) {
-			which_path = parentdir_path;
-			si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY));
+	do {
+		if (si->fd == -1) {
+			if ((si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY))) == -1) {
+				which_path = parentdir_path;
+				si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY));
+			}
 		}
-	}
 
-	if (si->fd == -1) {
-		return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", which_path);
-	}
+		if (si->fd == -1) {
+			return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", which_path);
+		}
 
-	job_log(j, LOG_DEBUG, "Watching Vnode: %d", si->fd);
-	if (!job_assumes(j, kevent_mod(si->fd, EVFILT_VNODE, EV_ADD, fflags, 0, j) != -1)) {
-		/* Extra logging for 5321044 */
-		job_log(j, LOG_ERR, "Bug (5321044): si->why == %u si->fd == %d fflags = 0x%x j == %p", si->why, si->fd, fflags, j);
-	}
+		job_log(j, LOG_DEBUG, "Watching Vnode: %d", si->fd);
+
+		if (kevent_mod(si->fd, EVFILT_VNODE, EV_ADD, fflags, 0, j) == -1) {
+			/*
+			 * The FD can be revoked between the open() and kevent().
+			 * This is similar to the inability for kevents to be
+			 * attached to short lived zombie processes after fork()
+			 * but before kevent().
+			 */
+			job_assumes(j, runtime_close(si->fd) == 0);
+			si->fd = -1;
+		}
+	} while (si->fd == -1);
 }
 
 void
