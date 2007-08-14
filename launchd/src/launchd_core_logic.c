@@ -985,8 +985,17 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	if (!jobmgr_assumes(jm, anonpid != 0)) {
 		return NULL;
 	}
+	
+	if (!jobmgr_assumes(jm, anonpid < 100000)) {
+		/* The kernel current defines PID_MAX to be 99999, but that define isn't exported */
+		return NULL;
+	}
 
 	if (!jobmgr_assumes(jm, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
+		return NULL;
+	}
+
+	if (!jobmgr_assumes(jm, kp.kp_proc.p_comm[0] != '\0')) {
 		return NULL;
 	}
 
@@ -1001,6 +1010,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		break;
 	case 1:
 		if (getpid() != 1) {
+			/* we cannot possibly find a parent job_t that is useful in this function */
 			break;
 		}
 		/* fall through */
