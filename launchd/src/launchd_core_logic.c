@@ -1843,7 +1843,7 @@ job_find_by_service_port(mach_port_t p)
 void
 job_mig_destructor(job_t j)
 {
-	if (j->unload_at_mig_return) {
+	if (j && j->unload_at_mig_return) {
 		job_log(j, LOG_NOTICE, "Unloading PID %u at MIG return.", j->p);
 		job_remove(j);
 	}
