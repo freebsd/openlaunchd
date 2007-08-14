@@ -5157,6 +5157,10 @@ job_mig_reboot2(job_t j, uint64_t flags)
 	struct ldcred ldc;
 	pid_t pid_to_log;
 
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
 	if (getpid() != 1) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
