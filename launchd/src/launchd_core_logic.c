@@ -1832,7 +1832,7 @@ job_find_by_service_port(mach_port_t p)
 	struct machservice *ms;
 
 	LIST_FOREACH(ms, &port_hash[HASH_PORT(p)], port_hash_sle) {
-		if (ms->port == p) {
+		if (ms->recv && (ms->port == p)) {
 			return ms->job;
 		}
 	}
@@ -4342,7 +4342,7 @@ job_ack_port_destruction(mach_port_t p)
 	struct machservice *ms;
 
 	LIST_FOREACH(ms, &port_hash[HASH_PORT(p)], port_hash_sle) {
-		if (ms->port == p) {
+		if (ms->recv && (ms->port == p)) {
 			break;
 		}
 	}
