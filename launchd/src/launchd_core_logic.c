@@ -3035,6 +3035,7 @@ void
 semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 {
 	char parentdir_path[PATH_MAX], *which_path = si->what;
+	int saved_errno = 0;
 	int fflags = 0;
 	
 	strlcpy(parentdir_path, dirname(si->what), sizeof(parentdir_path));
@@ -3054,6 +3055,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 		return;
 	}
 
+	/* See 5321044 for why we do the do-while loop and 5415523 for why ENOENT is checked */
 	do {
 		if (si->fd == -1) {
 			if ((si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY))) == -1) {
@@ -3069,6 +3071,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 		job_log(j, LOG_DEBUG, "Watching Vnode: %d", si->fd);
 
 		if (kevent_mod(si->fd, EVFILT_VNODE, EV_ADD, fflags, 0, j) == -1) {
+			saved_errno = errno;
 			/*
 			 * The FD can be revoked between the open() and kevent().
 			 * This is similar to the inability for kevents to be
@@ -3078,7 +3081,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 			job_assumes(j, runtime_close(si->fd) == 0);
 			si->fd = -1;
 		}
-	} while (si->fd == -1);
+	} while ((si->fd == -1) && (saved_errno == ENOENT));
 }
 
 void
