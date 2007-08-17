@@ -159,6 +159,7 @@ static void SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		CFSTR("Network"),
 		CFSTR("TIM"),
 		CFSTR("Disks"),
+		CFSTR("NIS"),
 		NULL
 	};
 	CFMutableArrayRef aList, aNewList;
