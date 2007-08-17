@@ -135,7 +135,7 @@ routine set_service_policy(
 		__flags		: uint64_t;
 		__service	: name_t);
 
-simpleroutine log(
+routine log(
 		__bs_port	: job_t;
 		__pri		: integer_t;
 		__err		: integer_t;

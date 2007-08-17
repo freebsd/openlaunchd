@@ -995,6 +995,10 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		return NULL;
 	}
 
+	if (!jobmgr_assumes(jm, len == sizeof(kp))) {
+		return NULL;
+	}
+
 	if (!jobmgr_assumes(jm, kp.kp_proc.p_comm[0] != '\0')) {
 		return NULL;
 	}
