@@ -725,8 +725,9 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 	}
 
 	if (launchd_assumes(kev.flags & EV_ERROR)) {
-		if ((flags & EV_ADD) && !launchd_assumes(kev.data == 0)) {
-			log_kevent_struct(LOG_ERR, &kev, 0);
+		if ((flags & EV_ADD) && kev.data) {
+			runtime_syslog(LOG_DEBUG, "%s(): See the next line...", __func__);
+			log_kevent_struct(LOG_DEBUG, &kev, 0);
 			errno = kev.data;
 			return -1;
 		}
