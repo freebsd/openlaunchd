@@ -5614,7 +5614,9 @@ job_reparent_hack(job_t j, const char *where)
 	}
 
 	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
-		if (strcasecmp(jmi->name, where) == 0) {
+		if (jmi->shutting_down) {
+			continue;
+		} else if (strcasecmp(jmi->name, where) == 0) {
 			goto jm_found;
 		} else if (strcasecmp(jmi->name, VPROCMGR_SESSION_BACKGROUND) == 0 && getpid() == 1) {
 			SLIST_FOREACH(jmi2, &jmi->submgrs, sle) {
@@ -5709,6 +5711,31 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 			SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
 			j->mgr->parentmgr = background_jobmgr;
 			SLIST_INSERT_HEAD(&j->mgr->parentmgr->submgrs, j->mgr, sle);
+		} else if (strcmp(session_type, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
+			jobmgr_t jmi;
+
+			/*
+			 * 5330262
+			 *
+			 * We're working around LoginWindow and the WindowServer.
+			 *
+			 * In practice, there is only one LoginWindow session.  * Unfortunately, for certain
+			 * scenarios, the WindowServer spawns loginwindow, and in those cases, it frequently
+			 * spawns a replacement loginwindow session before cleaning up the previous one.
+			 *
+			 * We're going to use the creation of a new LoginWindow context as a clue that the
+			 * previous LoginWindow context is on the way out and therefore we should just
+			 * kick-start the shutdown of it.
+			 */
+
+			SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
+				if (jmi->shutting_down) {
+					continue;
+				} else if (strcasecmp(jmi->name, session_type) == 0) {
+					jobmgr_shutdown(jmi);
+					break;
+				}
+			}
 		}
 
 		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
