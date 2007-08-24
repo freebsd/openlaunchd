@@ -5719,7 +5719,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 			 *
 			 * We're working around LoginWindow and the WindowServer.
 			 *
-			 * In practice, there is only one LoginWindow session.  * Unfortunately, for certain
+			 * In practice, there is only one LoginWindow session. Unfortunately, for certain
 			 * scenarios, the WindowServer spawns loginwindow, and in those cases, it frequently
 			 * spawns a replacement loginwindow session before cleaning up the previous one.
 			 *
