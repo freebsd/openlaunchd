@@ -1446,9 +1446,6 @@ system_specific_bootstrap(bool sflag)
 		assumes(fwexec(dirhelper_tool, true) != -1);
 	}
 
-	// 775 root:daemon /var/run/StartupItems
-
-	assumes(touch_file(_PATH_UTMP, DEFFILEMODE) != -1);
 	assumes(touch_file(_PATH_UTMPX, DEFFILEMODE) != -1);
 	assumes(touch_file(_PATH_VARRUN "/.systemStarterRunning", DEFFILEMODE) != -1);
 
