@@ -2596,8 +2596,11 @@ job_find_and_blame_pids_with_weird_uids(job_t j)
 		job_log(j, LOG_ERR, "PID %u \"%s\" has no account to back it! Real/effective/saved UIDs: %u/%u/%u",
 				i_pid, kp[i].kp_proc.p_comm, i_uid, i_euid, i_svuid);
 
+/* Temporarily disabled due to 5423935 and 4946119. */
+#if 0
 		/* Ask the accountless process to exit. */
 		job_assumes(j, kill(i_pid, SIGTERM) != -1);
+#endif
 	}
 
 out:
