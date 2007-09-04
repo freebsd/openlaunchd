@@ -2033,6 +2033,16 @@ job_dispatch(job_t j, bool kickstart)
 			job_start(j);
 		} else {
 			job_watch(j);
+
+			/*
+			 * 5455720
+			 *
+			 * Path checking and monitoring is really racy right now.
+			 * We should clean this up post Leopard.
+			 */
+			if (job_keepalive(j)) {
+				job_start(j);
+			}
 		}
 	} else {
 		job_log(j, LOG_DEBUG, "Tried to dispatch an already active job.");
