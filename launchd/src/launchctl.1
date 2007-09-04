@@ -53,6 +53,8 @@ domain is available for use called "user." For example, without a session type g
 With a session type passed, it would load from /System/Library/LaunchAgents.
 .El
 .It Xo Ar unload Op Fl w
+.Op Fl S Ar sessiontype
+.Op Fl D Ar domain
 .Ar paths ...
 .Xc
 Unload the specified configuration files or directories of configuration files.
@@ -60,6 +62,20 @@ This will also stop the job if it is running.
 .Bl -tag -width -indent
 .It Fl w
 Add the disabled key and write the configuration files back out to disk.
+.It Fl S Ar sessiontype
+Some jobs only make sense in certain contexts. This flag instructs
+.Nm launchctl
+to look for jobs in a different location when using the -D flag, and allows
+.Nm launchctl
+to restrict which jobs are loaded into which session types. Currently known
+session types include: Aqua, LoginWindow, Background, StandardIO and System.
+.It Fl D Ar domain
+Look for
+.Xr plist 5 files ending in *.plist in the domain given. Valid domains include
+"system," "local," "network" and "all." When providing a session type, an additional
+domain is available for use called "user." For example, without a session type given,
+"-D system" would load from property list files from /System/Library/LaunchDaemons.
+With a session type passed, it would load from /System/Library/LaunchAgents.
 .El
 .It Xo Ar submit Fl l Ar label
 .Op Fl p Ar executable
