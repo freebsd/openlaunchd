@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <sys/mman.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -217,13 +218,29 @@ CFIndex StartupItemListCountServices(CFArrayRef anItemList)
 
 static bool StartupItemSecurityCheck(const char *aPath)
 {
+	static struct timeval boot_time;
 	struct stat aStatBuf;
 	bool r = true;
+
+	if (boot_time.tv_sec == 0) {
+		int mib[] = { CTL_KERN, KERN_BOOTTIME };
+		size_t boot_time_sz = sizeof(boot_time);
+		int rv;
+
+		rv = sysctl(mib, sizeof(mib) / sizeof(mib[0]), &boot_time, &boot_time_sz, NULL, 0);
+
+		assert(rv != -1);
+		assert(boot_time_sz == sizeof(boot_time));
+	}
 
 	/* should use lstatx_np() on Tiger? */
 	if (lstat(aPath, &aStatBuf) == -1) {
 		if (errno != ENOENT)
 			syslog(LOG_ERR, "lstat(\"%s\"): %m", aPath);
+		return false;
+	}
+	if (aStatBuf.st_ctimespec.tv_sec > boot_time.tv_sec) {
+		syslog(LOG_WARNING, "\"%s\" failed sanity check: path was created after boot up", aPath);
 		return false;
 	}
 	if (!(S_ISREG(aStatBuf.st_mode) || S_ISDIR(aStatBuf.st_mode))) {
