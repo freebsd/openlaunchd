@@ -57,6 +57,7 @@ typedef void (*timeout_callback)(void);
 boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
 void launchd_runtime_init(void);
+void launchd_runtime_init2(void);
 void launchd_runtime(void) __attribute__((noreturn));
 
 int runtime_close(int fd);

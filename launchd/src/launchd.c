@@ -106,13 +106,7 @@ bool network_up = false;
 int
 main(int argc, char *const *argv)
 {
-	static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM,
-		SIGTERM, SIGURG, SIGTSTP, SIGTSTP, SIGCONT, SIGTTIN,
-		SIGTTOU, SIGIO, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF,
-		SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
-	};
 	bool sflag = false;
-	size_t i;
 	int ch;
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
@@ -136,10 +130,6 @@ main(int argc, char *const *argv)
 
 	launchd_runtime_init();
 
-	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
-		launchd_assumes(signal(sigigns[i], SIG_IGN) != SIG_ERR);
-	}
-
 	if (NULL == getenv("PATH")) {
 		setenv("PATH", _PATH_STDPATH, 1);
 	}
@@ -152,12 +142,13 @@ main(int argc, char *const *argv)
 
 	monitor_networking_state();
 
-
 	if (getpid() == 1) {
 		handle_pid1_crashes_separately();
 	}
 
 	jobmgr_init(sflag);
+
+	launchd_runtime_init2();
 
 	launchd_runtime();
 }

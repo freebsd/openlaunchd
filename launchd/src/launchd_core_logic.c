@@ -2482,10 +2482,6 @@ job_start_child(job_t j)
 		job_assumes(j, binpref_out_cnt == j->j_binpref_cnt);
 	}
 
-	for (i = 1; i < NSIG; i++) {
-		signal(i, SIG_DFL);
-	}
-
 	if (j->quarantine_data) {
 		qtn_proc_t qp;
 

@@ -54,6 +54,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <stdlib.h>
 #include <stdbool.h>
 #include <syslog.h>
+#include <signal.h>
 #include <dlfcn.h>
 
 #include "launchd_internalServer.h"
@@ -105,6 +106,13 @@ static void runtime_log_push(void);
 static bool logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg);
 static void logmsg_remove(struct logmsg_s *lm);
 
+
+static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
+	SIGURG, SIGTSTP, SIGTSTP, SIGCONT, SIGTTIN, SIGTTOU, SIGIO, SIGXCPU,
+	SIGXFSZ, SIGVTALRM, SIGPROF, SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
+};
+static sigset_t sigign_set;
+
 void
 launchd_runtime_init(void)
 {
@@ -141,6 +149,17 @@ launchd_runtime_init(void)
 
 	runtime_openlog(getprogname(), LOG_PID|LOG_CONS, LOG_LAUNCHD);
 	runtime_setlogmask(LOG_UPTO(/* LOG_DEBUG */ LOG_NOTICE));
+}
+
+void
+launchd_runtime_init2(void)
+{
+	size_t i;
+
+	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
+		sigaddset(&sigign_set, sigigns[i]);
+		launchd_assumes(signal(sigigns[i], SIG_IGN) != SIG_ERR);
+	}
 }
 
 void *
@@ -583,19 +602,33 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 pid_t
 runtime_fork(mach_port_t bsport)
 {
+	sigset_t emptyset, oset;
 	pid_t r = -1;
 	int saved_errno;
+	size_t i;
+
+	sigemptyset(&emptyset);
 
 	launchd_assumes(launchd_mport_make_send(bsport) == KERN_SUCCESS);
 	launchd_assumes(launchd_set_bport(bsport) == KERN_SUCCESS);
 	launchd_assumes(launchd_mport_deallocate(bsport) == KERN_SUCCESS);
 
-	r = fork();
+	launchd_assumes(sigprocmask(SIG_BLOCK, &sigign_set, &oset) != -1);
+	for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
+		launchd_assumes(signal(sigigns[i], SIG_DFL) != SIG_ERR);
+	}
 
+	r = fork();
 	saved_errno = errno;
 
 	if (r != 0) {
+		for (i = 0; i < (sizeof(sigigns) / sizeof(int)); i++) {
+			launchd_assumes(signal(sigigns[i], SIG_IGN) != SIG_ERR);
+		}
+		launchd_assumes(sigprocmask(SIG_SETMASK, &oset, NULL) != -1);
 		launchd_assumes(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
+	} else {
+		launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) != -1);
 	}
 
 	errno = saved_errno;
