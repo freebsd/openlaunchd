@@ -1037,6 +1037,10 @@ runtime_closelog(void)
 {
 	if (ourlogfile) {
 		fflush(ourlogfile);
+
+		if (debug_shutdown_hangs) {
+			fcntl(fileno(ourlogfile), F_FULLFSYNC, NULL);
+		}
 	}
 }
 
