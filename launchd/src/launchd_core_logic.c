@@ -4492,7 +4492,7 @@ out:
 	}
 
 	if (logfile_fd != -1) {
-		job_assumes(j, fcntl(logfile_fd, F_FULLFSYNC, 0) != -1);
+		job_assumes(j, runtime_fsync(logfile_fd) != -1);
 		job_assumes(j, runtime_close(logfile_fd) != -1);
 	}
 

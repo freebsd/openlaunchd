@@ -1036,11 +1036,18 @@ void
 runtime_closelog(void)
 {
 	if (ourlogfile) {
-		fflush(ourlogfile);
+		launchd_assumes(fflush(ourlogfile) == 0);
+		launchd_assumes(runtime_fsync(fileno(ourlogfile)) != -1);
+	}
+}
 
-		if (debug_shutdown_hangs) {
-			fcntl(fileno(ourlogfile), F_FULLFSYNC, NULL);
-		}
+int
+runtime_fsync(int fd)
+{
+	if (debug_shutdown_hangs) {
+		return fcntl(fd, F_FULLFSYNC, NULL);
+	} else {
+		return fsync(fd);
 	}
 }
 
