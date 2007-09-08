@@ -4375,6 +4375,9 @@ job_ack_port_destruction(mach_port_t p)
 
 	job_log(ms->job, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
 	job_dispatch(ms->job, false);
+
+	root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
+
 	return true;
 }
 
