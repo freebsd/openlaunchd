@@ -77,8 +77,6 @@ int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intpt
 
 pid_t runtime_fork(mach_port_t bsport);
 
-void runtime_openlog(const char *ident, int logopt, int facility);
-void runtime_closelog(void);
 kern_return_t runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mach_msg_type_number_t invalCnt);
 kern_return_t runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt);
 
@@ -95,6 +93,7 @@ struct runtime_syslog_attr {
 };
 
 int runtime_setlogmask(int maskpri);
+void runtime_closelog(void);
 void runtime_syslog(int pri, const char *message, ...) __attribute__((format(printf, 2, 3)));
 void runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args) __attribute__((format(printf, 2, 0)));
 

@@ -146,9 +146,6 @@ launchd_runtime_init(void)
 	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
 	pthread_attr_destroy(&attr);
-
-	runtime_openlog(getprogname(), LOG_PID|LOG_CONS, LOG_LAUNCHD);
-	runtime_setlogmask(LOG_UPTO(/* LOG_DEBUG */ LOG_NOTICE));
 }
 
 void
@@ -1027,12 +1024,6 @@ runtime_close(int fd)
 static FILE *ourlogfile;
 
 void
-runtime_openlog(const char *ident, int logopt, int facility)
-{
-	openlog(ident, logopt, facility);
-}
-
-void
 runtime_closelog(void)
 {
 	if (ourlogfile) {
@@ -1051,7 +1042,8 @@ runtime_fsync(int fd)
 	}
 }
 
-static int internal_mask_pri;
+static int internal_mask_pri = LOG_UPTO(LOG_NOTICE);
+//static int internal_mask_pri = LOG_UPTO(LOG_DEBUG);
 
 int
 runtime_setlogmask(int maskpri)
