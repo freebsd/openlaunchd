@@ -90,7 +90,6 @@ This optional key is used to disable your job. The default is false.
 This optional key specifies the user to run the job as. This key is only applicable when launchd is running as root.
 .It Sy GroupName <string>
 This optional key specifies the group to run the job as. This key is only applicable when launchd is running as root. If UserName is set and GroupName is not, the the group will be set to the default group of the user.
-The GroupName key is ignored without the UserName key.
 .It Sy inetdCompatibility <dictionary>
 The presence of this key specifies that the daemon expects to be run as if it were launched from inetd.
 .Bl -ohang -offset indent
