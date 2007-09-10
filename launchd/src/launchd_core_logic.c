@@ -639,6 +639,14 @@ job_export(job_t j)
 	return r;
 }
 
+static void
+still_alive_with_check(void)
+{
+	jobmgr_log(root_jobmgr, LOG_NOTICE, "Still alive with %u children.", total_children);
+
+	runtime_closelog(); /* hack to flush logs */
+}
+
 jobmgr_t
 jobmgr_shutdown(jobmgr_t jm)
 {
@@ -662,7 +670,7 @@ jobmgr_shutdown(jobmgr_t jm)
 	}
 
 	if (debug_shutdown_hangs && jm->parentmgr == NULL && getpid() == 1) {
-		jobmgr_assumes(jm, kevent_mod((uintptr_t)jm, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, 3, jm) != -1);
+		runtime_set_timeout(still_alive_with_check, 3000);
 	}
 
 	return jobmgr_do_garbage_collection(jm);
@@ -2241,11 +2249,8 @@ jobmgr_callback(void *obj, struct kevent *kev)
 		jobmgr_dispatch_all_semaphores(jm);
 		break;
 	case EVFILT_TIMER:
-		if (kev->ident == (uintptr_t)&sorted_calendar_events) {
+		if (jobmgr_assumes(jm, kev->ident == (uintptr_t)&sorted_calendar_events)) {
 			calendarinterval_callback();
-		} else {
-			jobmgr_log(jm, LOG_NOTICE, "Still alive with %u children.", total_children);
-			runtime_closelog(); /* hack to flush logs */
 		}
 		break;
 	default:
