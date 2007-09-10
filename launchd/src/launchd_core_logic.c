@@ -2619,6 +2619,14 @@ job_postfork_become_user(job_t j)
 		return;
 	}
 
+	/*
+	 * I contend that having UID == 0 and GID != 0 is of dubious value.
+	 * Nevertheless, this used to work in Tiger. See: 5425348
+	 */
+	if (j->groupname && !j->username) {
+		j->username = "root";
+	}
+
 	if (j->username) {
 		if ((pwe = getpwnam(j->username)) == NULL) {
 			job_log(j, LOG_ERR, "getpwnam(\"%s\") failed", j->username);
