@@ -23,6 +23,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
+#include <mach/mach_time.h>
 #include <mach/boolean.h>
 #include <mach/message.h>
 #include <mach/notify.h>
@@ -348,8 +349,8 @@ struct job_s {
 	unsigned int exit_timeout;
 	int stdout_err_fd;
 	struct timeval sent_sigterm_time;
-	time_t start_time;
-	time_t min_run_time;
+	uint64_t start_time;
+	uint32_t min_run_time;
 	unsigned int start_interval;
 	unsigned int checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
@@ -2284,14 +2285,19 @@ job_callback(void *obj, struct kevent *kev)
 void
 job_start(job_t j)
 {
+	static mach_timebase_info_data_t tbi;
+	uint64_t td, tnow = mach_absolute_time();
 	int spair[2];
 	int execspair[2];
 	int oepair[2];
 	char nbuf[64];
 	pid_t c;
 	bool sipc = false;
-	time_t td;
 	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT /* |NOTE_REAP */;
+
+	if (tbi.denom == 0) {
+		launchd_assert(mach_timebase_info(&tbi) == 0);
+	}
 
 	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
@@ -2302,7 +2308,8 @@ job_start(job_t j)
 		return;
 	}
 
-	td = time(NULL) - j->start_time;
+	td = (tnow - j->start_time) * tbi.numer / tbi.denom;
+	td /= NSEC_PER_SEC;
 
 	if (td < j->min_run_time && !j->legacy_mach_job && !j->inetcompat) {
 		time_t respawn_delta = j->min_run_time - td;
@@ -2334,7 +2341,7 @@ job_start(job_t j)
 		job_assumes(j, kevent_mod(j->log_redirect_fd, EVFILT_READ, EV_ADD, 0, 0, j) != -1);
 	}
 
-	time(&j->start_time);
+	j->start_time = tnow;
 
 	switch (c = runtime_fork(j->weird_bootstrap ? j->j_port : j->mgr->jm_port)) {
 	case -1:
