@@ -348,7 +348,7 @@ struct job_s {
 	unsigned int timeout;
 	unsigned int exit_timeout;
 	int stdout_err_fd;
-	struct timeval sent_sigterm_time;
+	uint64_t sent_sigterm_time;
 	uint64_t start_time;
 	uint32_t min_run_time;
 	unsigned int start_interval;
@@ -447,12 +447,14 @@ static char **mach_cmd2argv(const char *string);
 static size_t our_strhash(const char *s) __attribute__((pure));
 static void extract_rcsid_substr(const char *i, char *o, size_t osz);
 static void do_first_per_user_launchd_hack(void);
+static void do_file_init(void) __attribute__((constructor));
 
 /* file local globals */
 static unsigned int total_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
 static jobmgr_t background_jobmgr;
+static mach_timebase_info_data_t tbi;
 
 /* process wide globals */
 mach_port_t inherited_bootstrap_port;
@@ -522,7 +524,7 @@ job_stop(job_t j)
 	}
 
 	job_assumes(j, kill(j->p, SIGTERM) != -1);
-	job_assumes(j, gettimeofday(&j->sent_sigterm_time, NULL) != -1);
+	j->sent_sigterm_time = mach_absolute_time();
 
 	if (j->exit_timeout) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
@@ -1898,7 +1900,6 @@ job_export_all(void)
 void
 job_reap(job_t j)
 {
-	struct timeval tve, tvd;
 	struct rusage ru;
 	int status;
 
@@ -1943,19 +1944,20 @@ job_reap(job_t j)
 	total_children--;
 	LIST_REMOVE(j, pid_hash_sle);
 
-	job_assumes(j, gettimeofday(&tve, NULL) != -1);
-
 	if (j->wait_reply_port) {
 		job_log(j, LOG_DEBUG, "MPM wait reply being sent");
 		job_assumes(j, job_mig_wait_reply(j->wait_reply_port, 0, status) == 0);
 		j->wait_reply_port = MACH_PORT_NULL;
 	}
 
-	if (j->sent_sigterm_time.tv_sec) {
-		timersub(&tve, &j->sent_sigterm_time,  &tvd);
+	if (j->sent_sigterm_time) {
+		uint64_t td_sec, td_usec, td = (mach_absolute_time() - j->sent_sigterm_time) * tbi.numer / tbi.denom;
 
-		job_log(j, LOG_INFO, "Exited %ld.%06d seconds after %s was sent",
-				tvd.tv_sec, tvd.tv_usec, signal_to_C_name(j->sent_sigkill ? SIGKILL : SIGTERM));
+		td_sec = td / NSEC_PER_SEC;
+		td_usec = (td % NSEC_PER_SEC) / NSEC_PER_USEC;
+
+		job_log(j, LOG_INFO, "Exited %lld.%06lld seconds after %s was sent",
+				td_sec, td_usec, signal_to_C_name(j->sent_sigkill ? SIGKILL : SIGTERM));
 	}
 
 #if DO_RUSAGE_SUMMATION
@@ -2175,12 +2177,12 @@ job_callback_timer(job_t j, void *ident)
 		job_dispatch(j, false);
 	} else if (&j->exit_timeout == ident) {
 		if (j->sent_sigkill) {
-			struct timeval tvd, tve;
+			uint64_t td = (mach_absolute_time() - j->sent_sigterm_time) * tbi.numer / tbi.denom;
 
-			job_assumes(j, gettimeofday(&tve, NULL) != -1);
-			timersub(&tve, &j->sent_sigterm_time,  &tvd);
-			tvd.tv_sec -= j->exit_timeout;
-			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %lu seconds ago...", tvd.tv_sec);
+			td /= NSEC_PER_SEC;
+			td -= j->exit_timeout;
+
+			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %llu seconds ago...", td);
 		} else {
 			job_force_sampletool(j);
 			if (j->debug_before_kill) {
@@ -2285,7 +2287,6 @@ job_callback(void *obj, struct kevent *kev)
 void
 job_start(job_t j)
 {
-	static mach_timebase_info_data_t tbi;
 	uint64_t td, tnow = mach_absolute_time();
 	int spair[2];
 	int execspair[2];
@@ -2294,10 +2295,6 @@ job_start(job_t j)
 	pid_t c;
 	bool sipc = false;
 	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT /* |NOTE_REAP */;
-
-	if (tbi.denom == 0) {
-		launchd_assert(mach_timebase_info(&tbi) == 0);
-	}
 
 	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
@@ -2320,8 +2317,7 @@ job_start(job_t j)
 		return;
 	}
 
-	j->sent_sigterm_time.tv_sec = 0;
-	j->sent_sigterm_time.tv_usec = 0;
+	j->sent_sigterm_time = 0;
 
 	if (!j->legacy_mach_job) {
 		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
@@ -6323,4 +6319,11 @@ waiting4removal_delete(job_t j, struct waiting_for_removal *w4r)
 	SLIST_REMOVE(&j->removal_watchers, w4r, waiting_for_removal, sle);
 
 	free(w4r);
+}
+
+void
+do_file_init(void)
+{
+	launchd_assert(mach_timebase_info(&tbi) == 0);
+
 }
