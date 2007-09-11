@@ -2305,6 +2305,11 @@ job_start(job_t j)
 		return;
 	}
 
+	/*
+	 * Some users adjust the wall-clock and then expect software to not notice.
+	 * Therefore, launchd must use an absolute clock instead of gettimeofday()
+	 * or time() wherever possible.
+	 */
 	td = (tnow - j->start_time) * tbi.numer / tbi.denom;
 	td /= NSEC_PER_SEC;
 
