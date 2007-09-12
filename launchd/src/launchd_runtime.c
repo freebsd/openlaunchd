@@ -439,7 +439,7 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 	struct kevent kev;
 	unsigned int i;
 
-	if (!launchd_assumes(mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt) == KERN_SUCCESS)) {
+	if (!launchd_assumes((errno = mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt)) == KERN_SUCCESS)) {
 		return 1;
 	}
 
