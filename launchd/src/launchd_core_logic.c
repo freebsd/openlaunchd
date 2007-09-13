@@ -1687,6 +1687,7 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 	job_t j;
 
 	if (pload == NULL) {
+		errno = EINVAL;
 		return NULL;
 	}
 
@@ -1695,12 +1696,19 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 		return NULL;
 	}
 
-	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)) &&
-			(launch_data_get_type(tmp) == LAUNCH_DATA_STRING)) {
-		if (!(label = launch_data_get_string(tmp))) {
-			errno = EINVAL;
-			return NULL;
-		}
+	if (!(tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	if (launch_data_get_type(tmp) != LAUNCH_DATA_STRING) {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	if (!(label = launch_data_get_string(tmp))) {
+		errno = EINVAL;
+		return NULL;
 	}
 
 	if ((tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_PROGRAM)) &&
