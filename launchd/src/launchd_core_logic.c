@@ -250,6 +250,7 @@ static void semaphoreitem_setup_dict_iter(launch_data_t obj, const char *key, vo
 static void semaphoreitem_callback(job_t j, struct kevent *kev);
 static void semaphoreitem_watch(job_t j, struct semaphoreitem *si);
 static void semaphoreitem_ignore(job_t j, struct semaphoreitem *si);
+static void semaphoreitem_runtime_mod_ref(struct semaphoreitem *si, bool add);
 
 #define ACTIVE_JOB_HASH_SIZE	32
 #define ACTIVE_JOB_HASH(x)	(IS_POWER_OF_TWO(ACTIVE_JOB_HASH_SIZE) ? (x & (ACTIVE_JOB_HASH_SIZE - 1)) : (x % ACTIVE_JOB_HASH_SIZE))
@@ -2328,6 +2329,11 @@ job_start(job_t j)
 
 	if (td < j->min_run_time && !j->legacy_mach_job && !j->inetcompat) {
 		time_t respawn_delta = j->min_run_time - td;
+
+		/*
+		 * We technically should ref-count throttled jobs to prevent idle exit,
+		 * but we're not directly tracking the 'throttled' state at the moment.
+		 */
 
 		job_log(j, LOG_WARNING, "Throttling respawn: Will start in %ld seconds", respawn_delta);
 		job_assumes(j, kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_ADD|EV_ONESHOT, NOTE_SECONDS, respawn_delta, j) != -1);
@@ -4572,14 +4578,43 @@ semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 
 	SLIST_INSERT_HEAD(&j->semaphores, si, sle);
 
-	runtime_add_ref();
+	semaphoreitem_runtime_mod_ref(si, true);
 
 	return true;
 }
 
 void
+semaphoreitem_runtime_mod_ref(struct semaphoreitem *si, bool add)
+{
+	/*
+	 * External events need to be tracked.
+	 * Internal events do NOT need to be tracked.
+	 */
+
+	switch (si->why) {
+	case SUCCESSFUL_EXIT:
+	case FAILED_EXIT:
+	case OTHER_JOB_ENABLED:
+	case OTHER_JOB_DISABLED:
+	case OTHER_JOB_ACTIVE:
+	case OTHER_JOB_INACTIVE:
+		return;
+	default:
+		break;
+	}
+
+	if (add) {
+		runtime_add_ref();
+	} else {
+		runtime_del_ref();
+	}
+}
+
+void
 semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 {
+	semaphoreitem_runtime_mod_ref(si, false);
+
 	SLIST_REMOVE(&j->semaphores, si, semaphoreitem, sle);
 
 	if (si->fd != -1) {
@@ -4587,8 +4622,6 @@ semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 	}
 
 	free(si);
-
-	runtime_del_ref();
 }
 
 void
