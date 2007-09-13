@@ -81,8 +81,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define MACHINIT_JOBKEY_SERVERPORT	"ServerPort"
 #define MACHINIT_JOBKEY_SERVICEPORT	"ServicePort"
 
-#define assumes(e)      \
-	        (__builtin_expect(!(e), 0) ? _log_launchctl_bug(__rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+#define assumes(e)	\
+	(__builtin_expect(!(e), 0) ? _log_launchctl_bug(__rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
 
 struct load_unload_state {
@@ -738,7 +738,7 @@ path_goodness_check(const char *path, bool forceload)
 	}
 
 	if (!(S_ISREG(sb.st_mode) || S_ISDIR(sb.st_mode))) {
-		fprintf(stderr, "%s: Dubious path. Not a regular file or directory (skipping):  %s\n", getprogname(), path);
+		fprintf(stderr, "%s: Dubious path. Not a regular file or directory (skipping): %s\n", getprogname(), path);
 		return false;
 	}
 
@@ -894,9 +894,9 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 			setm = true;
 		}
 
-		if (passive) {                  
+		if (passive) {
 			if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
-				close(sfd);     
+				close(sfd);
 				return;
 			}
 			oldmask = umask(S_IRWXG|S_IRWXO);
@@ -1621,7 +1621,7 @@ bootstrap_cmd(int argc, char *const argv[])
 int
 load_and_unload_cmd(int argc, char *const argv[])
 {
-        NSSearchPathEnumerationState es = 0;
+	NSSearchPathEnumerationState es = 0;
 	char nspath[PATH_MAX * 2]; /* safe side, we need to append */
 	bool badopts = false;
 	struct load_unload_state lus;
@@ -2595,7 +2595,7 @@ bool
 is_legacy_mach_job(launch_data_t obj)
 {
 	bool has_servicename = launch_data_dict_lookup(obj, MACHINIT_JOBKEY_SERVICENAME);
-	bool has_command  = launch_data_dict_lookup(obj, MACHINIT_JOBKEY_COMMAND);
+	bool has_command = launch_data_dict_lookup(obj, MACHINIT_JOBKEY_COMMAND);
 	bool has_label = launch_data_dict_lookup(obj, LAUNCH_JOBKEY_LABEL);
 
 	return has_command && has_servicename && !has_label;

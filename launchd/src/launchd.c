@@ -115,7 +115,7 @@ main(int argc, char *const *argv)
 
 	while ((ch = getopt(argc, argv, "s")) != -1) {
 		switch (ch) {
-		case 's': sflag = true;   break;	/* single user */
+		case 's': sflag = true; break;	/* single user */
 		case '?': /* we should do something with the global optopt variable here */
 		default:
 			fprintf(stderr, "%s: ignoring unknown arguments\n", getprogname());

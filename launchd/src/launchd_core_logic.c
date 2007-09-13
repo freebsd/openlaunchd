@@ -273,8 +273,8 @@ struct jobmgr_s {
 	char name[0];
 };
 
-#define jobmgr_assumes(jm, e)      \
-	                (__builtin_expect(!(e), 0) ? jobmgr_log_bug(jm, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+#define jobmgr_assumes(jm, e)	\
+	(__builtin_expect(!(e), 0) ? jobmgr_log_bug(jm, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name);
 static job_t jobmgr_import2(jobmgr_t jm, launch_data_t pload);
@@ -369,8 +369,8 @@ static size_t hash_label(const char *label) __attribute__((pure));
 static size_t hash_ms(const char *msstr) __attribute__((pure));
 
 
-#define job_assumes(j, e)      \
-	                (__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+#define job_assumes(j, e)	\
+	(__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
 static void job_import_bool(job_t j, const char *key, bool value);
@@ -421,15 +421,15 @@ static const struct {
 	const char *key;
 	int val;
 } launchd_keys2limits[] = {
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,    RLIMIT_CORE    },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,     RLIMIT_CPU     },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,    RLIMIT_DATA    },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,   RLIMIT_FSIZE   },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK, RLIMIT_MEMLOCK },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,  RLIMIT_NOFILE  },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,   RLIMIT_NPROC   },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,     RLIMIT_RSS     },
-	{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,   RLIMIT_STACK   },
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_CORE,	RLIMIT_CORE	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_CPU,	RLIMIT_CPU	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_DATA,	RLIMIT_DATA	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_FSIZE,	RLIMIT_FSIZE	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_MEMLOCK,	RLIMIT_MEMLOCK	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_NOFILE,	RLIMIT_NOFILE	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_NPROC,	RLIMIT_NPROC	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_RSS,	RLIMIT_RSS	},
+	{ LAUNCH_JOBKEY_RESOURCELIMIT_STACK,	RLIMIT_STACK	},
 };
 
 static time_t cronemu(int mon, int mday, int hour, int min);
@@ -716,7 +716,7 @@ jobmgr_remove(jobmgr_t jm)
 	} else if (getpid() == 1) {
 		jobmgr_log(jm, LOG_DEBUG, "About to call: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
 		runtime_closelog();
-		jobmgr_assumes(jm,  reboot(jm->reboot_flags) != -1);
+		jobmgr_assumes(jm, reboot(jm->reboot_flags) != -1);
 		runtime_closelog();
 	} else {
 		runtime_closelog();
@@ -3070,9 +3070,9 @@ jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap)
 	}
 }
 
-void    
+void
 semaphoreitem_ignore(job_t j, struct semaphoreitem *si)
-{       
+{
 	if (si->fd != -1) {
 		job_log(j, LOG_DEBUG, "Ignoring Vnode: %d", si->fd);
 		job_assumes(j, kevent_mod(si->fd, EVFILT_VNODE, EV_DELETE, 0, 0, NULL) != -1);
@@ -4336,8 +4336,8 @@ machservice_request_notifications(struct machservice *ms)
 	job_assumes(ms->job, launchd_mport_notify_req(ms->port, which) == KERN_SUCCESS);
 }
 
-#define NELEM(x)                (sizeof(x)/sizeof(x[0]))
-#define END_OF(x)               (&(x)[NELEM(x)])
+#define NELEM(x)	(sizeof(x)/sizeof(x[0]))
+#define END_OF(x)	(&(x)[NELEM(x)])
 
 char **
 mach_cmd2argv(const char *string)
@@ -4737,11 +4737,11 @@ cronemu_mon(struct tm *wtm, int mon, int mday, int hour, int min)
 		return true;
 	}
 
-        if (mon < wtm->tm_mon) {
+	if (mon < wtm->tm_mon) {
 		return false;
 	}
 
-        if (mon > wtm->tm_mon) {
+	if (mon > wtm->tm_mon) {
 		wtm->tm_mon = mon;
 		wtm->tm_mday = 1;
 		wtm->tm_hour = 0;
@@ -4772,11 +4772,11 @@ cronemu_mday(struct tm *wtm, int mday, int hour, int min)
 		return true;
 	}
 
-        if (mday < wtm->tm_mday) {
+	if (mday < wtm->tm_mday) {
 		return false;
 	}
 
-        if (mday > wtm->tm_mday) {
+	if (mday > wtm->tm_mday) {
 		wtm->tm_mday = mday;
 		wtm->tm_hour = 0;
 		wtm->tm_min = 0;

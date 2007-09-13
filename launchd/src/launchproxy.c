@@ -48,12 +48,12 @@ static int kq = 0;
 
 static void find_fds(launch_data_t o, const char *key __attribute__((unused)), void *context __attribute__((unused)))
 {
-        struct kevent kev;
-        size_t i;
+	struct kevent kev;
+	size_t i;
 	int fd;
 
-        switch (launch_data_get_type(o)) {
-        case LAUNCH_DATA_FD:
+	switch (launch_data_get_type(o)) {
+	case LAUNCH_DATA_FD:
 		fd = launch_data_get_fd(o);
 		if (-1 == fd)
 			break;
@@ -61,17 +61,17 @@ static void find_fds(launch_data_t o, const char *key __attribute__((unused)), v
 		EV_SET(&kev, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
 		if (kevent(kq, &kev, 1, NULL, 0, NULL) == -1)
 			syslog(LOG_DEBUG, "kevent(%d): %m", fd);
-                break;
-        case LAUNCH_DATA_ARRAY:
-                for (i = 0; i < launch_data_array_get_count(o); i++)
-                        find_fds(launch_data_array_get_index(o, i), NULL, NULL);
-                break;
-        case LAUNCH_DATA_DICTIONARY:
-                launch_data_dict_iterate(o, find_fds, NULL);
-                break;
-        default:
-                break;
-        }
+		break;
+	case LAUNCH_DATA_ARRAY:
+		for (i = 0; i < launch_data_array_get_count(o); i++)
+			find_fds(launch_data_array_get_index(o, i), NULL, NULL);
+		break;
+	case LAUNCH_DATA_DICTIONARY:
+		launch_data_dict_iterate(o, find_fds, NULL);
+		break;
+	default:
+		break;
+	}
 }
 
 int main(int argc __attribute__((unused)), char *argv[])

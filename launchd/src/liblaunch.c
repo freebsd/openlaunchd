@@ -372,7 +372,7 @@ launch_data_t
 launch_data_array_pop_first(launch_data_t where)
 {
 	launch_data_t r = NULL;
-       
+
 	if (where->_array_cnt > 0) {
 		r = where->_array[0];
 		memmove(where->_array, where->_array + 1, (where->_array_cnt - 1) * sizeof(launch_data_t));
@@ -525,23 +525,23 @@ launchd_getfd(launch_t l)
 launch_t
 launchd_fdopen(int fd)
 {
-        launch_t c;
+	launch_t c;
 
-        c = calloc(1, sizeof(struct _launch));
+	c = calloc(1, sizeof(struct _launch));
 	if (!c)
 		return NULL;
 
-        c->fd = fd;
+	c->fd = fd;
 
 	fcntl(fd, F_SETFL, O_NONBLOCK);
 
-        if ((c->sendbuf = malloc(0)) == NULL)
+	if ((c->sendbuf = malloc(0)) == NULL)
 		goto out_bad;
-        if ((c->sendfds = malloc(0)) == NULL)
+	if ((c->sendfds = malloc(0)) == NULL)
 		goto out_bad;
-        if ((c->recvbuf = malloc(0)) == NULL)
+	if ((c->recvbuf = malloc(0)) == NULL)
 		goto out_bad;
-        if ((c->recvfds = malloc(0)) == NULL)
+	if ((c->recvfds = malloc(0)) == NULL)
 		goto out_bad;
 
 	return c;
@@ -770,10 +770,10 @@ int launchd_msg_send(launch_t lh, launch_data_t d)
 		iov[0].iov_base = &lmh;
 		iov[0].iov_len = sizeof(lmh);
 		mh.msg_iov = iov;
-        	mh.msg_iovlen = 2;
+		mh.msg_iovlen = 2;
 	} else {
 		mh.msg_iov = iov + 1;
-        	mh.msg_iovlen = 1;
+		mh.msg_iovlen = 1;
 	}
 
 	iov[1].iov_base = lh->sendbuf;
@@ -916,7 +916,7 @@ launch_msg_internal(launch_data_t d)
 				goto out;
 		} while (launchd_msg_send(_lc->l, NULL) == -1);
 	}
-       
+
 	while (resp == NULL) {
 		if (d == NULL && launch_data_array_get_count(_lc->async_resp) > 0) {
 			resp = launch_data_array_pop_first(_lc->async_resp);
@@ -950,13 +950,13 @@ int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *conte
 	struct cmsghdr *cm = alloca(4096); 
 	launch_data_t rmsg = NULL;
 	size_t data_offset, fd_offset;
-        struct msghdr mh;
-        struct iovec iov;
+	struct msghdr mh;
+	struct iovec iov;
 	int r;
 
-        memset(&mh, 0, sizeof(mh));
-        mh.msg_iov = &iov;
-        mh.msg_iovlen = 1;
+	memset(&mh, 0, sizeof(mh));
+	mh.msg_iov = &iov;
+	mh.msg_iovlen = 1;
 
 	lh->recvbuf = reallocf(lh->recvbuf, lh->recvlen + 8*1024);
 
@@ -1099,7 +1099,7 @@ launch_data_t launch_data_new_errno(int e)
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_ERRNO);
 
 	if (r)
-	       launch_data_set_errno(r, e);
+		launch_data_set_errno(r, e);
 
 	return r;
 }
@@ -1109,7 +1109,7 @@ launch_data_t launch_data_new_fd(int fd)
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_FD);
 
 	if (r)
-	       launch_data_set_fd(r, fd);
+		launch_data_set_fd(r, fd);
 
 	return r;
 }
@@ -1119,7 +1119,7 @@ launch_data_t launch_data_new_machport(mach_port_t p)
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_MACHPORT);
 
 	if (r)
-	       launch_data_set_machport(r, p);
+		launch_data_set_machport(r, p);
 
 	return r;
 }

@@ -142,7 +142,7 @@ launchd_runtime_init(void)
 	launchd_assert(pthread_create(&kqueue_demand_thread, &attr, kqueue_demand_loop, NULL) == 0);
 	pthread_attr_destroy(&attr);
 
-        pthread_attr_init(&attr);
+	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
@@ -1173,7 +1173,7 @@ logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg)
 	char *data_off;
 	struct logmsg_s *lm;
 
-#define ROUND_TO_64BIT_WORD_SIZE(x)     ((x + 7) & ~7)
+#define ROUND_TO_64BIT_WORD_SIZE(x)	((x + 7) & ~7)
 
 	/* we do this to make the unpacking for the log_drain cause unalignment faults */
 	lm_sz = ROUND_TO_64BIT_WORD_SIZE(lm_sz);
