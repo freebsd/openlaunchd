@@ -454,6 +454,7 @@ static unsigned int total_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
 static jobmgr_t background_jobmgr;
+static job_t workaround_5477111;
 static mach_timebase_info_data_t tbi;
 
 /* process wide globals */
@@ -1858,10 +1859,18 @@ job_find_by_service_port(mach_port_t p)
 void
 job_mig_destructor(job_t j)
 {
-	if (j && j->unload_at_mig_return) {
+	/*
+	 * 5477111
+	 *
+	 * 'j' can be invalid at this point. We should fix this up after Leopard ships.
+	 */
+
+	if (j && j != workaround_5477111 && j->unload_at_mig_return) {
 		job_log(j, LOG_NOTICE, "Unloading PID %u at MIG return.", j->p);
 		job_remove(j);
 	}
+
+	workaround_5477111 = NULL;
 
 	calendarinterval_sanity_check();
 }
@@ -5967,6 +5976,8 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	jm->req_port = 0;
 	jm->jm_port = 0;
+
+	workaround_5477111 = j;
 
 	jobmgr_shutdown(jm);
 
