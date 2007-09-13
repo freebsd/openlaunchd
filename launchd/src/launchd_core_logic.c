@@ -2014,6 +2014,12 @@ job_reap(job_t j)
 	j->last_exit_status = status;
 	j->sent_sigkill = false;
 	j->p = 0;
+
+	/*
+	 * We need to someday evaluate other jobs and find those who wish to track the
+	 * active/inactive state of this job. The current job_dispatch() logic makes
+	 * this messy, given that jobs can be deleted at dispatch.
+	 */
 }
 
 void
