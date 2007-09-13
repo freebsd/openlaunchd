@@ -2341,7 +2341,7 @@ job_start(job_t j)
 	td = (tnow - j->start_time) * tbi.numer / tbi.denom;
 	td /= NSEC_PER_SEC;
 
-	if (td < j->min_run_time && !j->legacy_mach_job && !j->inetcompat) {
+	if (j->start_time && (td < j->min_run_time) && !j->legacy_mach_job && !j->inetcompat) {
 		time_t respawn_delta = j->min_run_time - td;
 
 		/*
