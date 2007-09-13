@@ -56,6 +56,9 @@ typedef void (*timeout_callback)(void);
 
 boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
+void runtime_add_ref(void);
+void runtime_del_ref(void);
+
 void launchd_runtime_init(void);
 void launchd_runtime_init2(void);
 void launchd_runtime(void) __attribute__((noreturn));
@@ -63,7 +66,9 @@ void launchd_runtime(void) __attribute__((noreturn));
 int runtime_close(int fd);
 int runtime_fsync(int fd);
 
-void runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to);
+#define RUNTIME_ADVISABLE_IDLE_TIMEOUT 30
+
+void runtime_set_timeout(timeout_callback to_cb, unsigned int sec);
 kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size);
 kern_return_t runtime_remove_mport(mach_port_t name);
 bool runtime_get_caller_creds(struct ldcred *ldc);

@@ -90,9 +90,10 @@ static void launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufReq
 static mach_msg_size_t max_msg_size;
 static mig_callback *mig_cb_table;
 static size_t mig_cb_table_sz;
-static timeout_callback runtime_idle_callback;
-static mach_msg_timeout_t runtime_idle_timeout;
+static timeout_callback runtime_idle_callback = launchd_shutdown;
+static mach_msg_timeout_t runtime_idle_timeout = RUNTIME_ADVISABLE_IDLE_TIMEOUT * 1000;
 static audit_token_t *au_tok;
+static size_t runtime_busy_cnt;
 
 
 static STAILQ_HEAD(, logmsg_s) logmsg_queue = STAILQ_HEAD_INITIALIZER(logmsg_queue);
@@ -635,15 +636,15 @@ runtime_fork(mach_port_t bsport)
 
 
 void
-runtime_set_timeout(timeout_callback to_cb, mach_msg_timeout_t to)
+runtime_set_timeout(timeout_callback to_cb, unsigned int sec)
 {
-	if (to == 0 || to_cb == NULL) {
+	if (sec == 0 || to_cb == NULL) {
 		runtime_idle_callback = NULL;
 		runtime_idle_timeout = 0;
 	}
 
 	runtime_idle_callback = to_cb;
-	runtime_idle_timeout = to;
+	runtime_idle_timeout = sec * 1000;
 }
 
 kern_return_t
@@ -911,7 +912,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			}
 		}
 
-		if ((tmp_options & MACH_RCV_MSG) && runtime_idle_callback) {
+		if ((tmp_options & MACH_RCV_MSG) && runtime_idle_callback && (runtime_busy_cnt == 0)) {
 			tmp_options |= MACH_RCV_TIMEOUT;
 
 			if (!(tmp_options & MACH_SEND_TIMEOUT)) {
@@ -1348,4 +1349,16 @@ runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *
 	}
 
 	return runtime_log_pack(outval, outvalCnt);
+}
+
+void
+runtime_add_ref(void)
+{
+	runtime_busy_cnt++;
+}
+
+void
+runtime_del_ref(void)
+{
+	runtime_busy_cnt--;
 }

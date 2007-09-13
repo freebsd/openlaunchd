@@ -93,7 +93,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "job_reply.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
-#define LAUNCHD_ADVISABLE_IDLE_TIMEOUT 30
 #define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
 #define LAUNCHD_SIGKILL_TIMER 5
 
@@ -450,7 +449,7 @@ static void do_first_per_user_launchd_hack(void);
 static void do_file_init(void) __attribute__((constructor));
 
 /* file local globals */
-static unsigned int total_children;
+static size_t total_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
 static jobmgr_t background_jobmgr;
@@ -646,7 +645,7 @@ job_export(job_t j)
 static void
 still_alive_with_check(void)
 {
-	jobmgr_log(root_jobmgr, LOG_NOTICE, "Still alive with %u children.", total_children);
+	jobmgr_log(root_jobmgr, LOG_NOTICE, "Still alive with %lu children.", total_children);
 
 	runtime_closelog(); /* hack to flush logs */
 }
@@ -739,6 +738,10 @@ job_remove(job_t j)
 	struct limititem *li;
 	struct mspolicy *msp;
 	struct envitem *ei;
+
+	if (j == workaround_5477111) {
+		job_log(j, LOG_NOTICE, "@@@@@ Tried to remove ahead of schedule!");
+	}
 
 	if (j->p && j->anonymous) {
 		job_reap(j);
@@ -837,6 +840,7 @@ job_remove(job_t j)
 		free(j->j_binpref);
 	}
 	if (j->start_interval) {
+		runtime_del_ref();
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 	}
 
@@ -1122,7 +1126,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	j->kqjob_callback = job_callback;
 	j->mgr = jm;
 	j->min_run_time = LAUNCHD_MIN_JOB_RUN_TIME;
-	j->timeout = LAUNCHD_ADVISABLE_IDLE_TIMEOUT;
+	j->timeout = RUNTIME_ADVISABLE_IDLE_TIMEOUT;
 	j->exit_timeout = LAUNCHD_DEFAULT_EXIT_TIMEOUT;
 	j->currently_ignored = true;
 	j->ondemand = true;
@@ -1460,6 +1464,7 @@ job_import_integer(job_t j, const char *key, long long value)
 			if (value <= 0) {
 				job_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
 			} else {
+				runtime_add_ref();
 				j->start_interval = value;
 			}
 			if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j)) {
@@ -1950,6 +1955,9 @@ job_reap(job_t j)
 		kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	}
 
+	if (!j->anonymous) {
+		runtime_del_ref();
+	}
 	total_children--;
 	LIST_REMOVE(j, pid_hash_sle);
 
@@ -2388,6 +2396,7 @@ job_start(job_t j)
 
 		j->start_pending = false;
 
+		runtime_add_ref();
 		total_children++;
 		LIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, pid_hash_sle);
 
@@ -3262,6 +3271,8 @@ calendarinterval_new(job_t j, struct tm *w)
 	
 	calendarinterval_setalarm(j, ci);
 
+	runtime_add_ref();
+
 	return true;
 }
 
@@ -3272,6 +3283,8 @@ calendarinterval_delete(job_t j, struct calendarinterval *ci)
 	LIST_REMOVE(ci, global_sle);
 
 	free(ci);
+
+	runtime_del_ref();
 }
 
 void
@@ -3329,6 +3342,8 @@ socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd_cnt, bool j
 
 	SLIST_INSERT_HEAD(&j->sockets, sg, sle);
 
+	runtime_add_ref();
+
 	return true;
 }
 
@@ -3345,6 +3360,8 @@ socketgroup_delete(job_t j, struct socketgroup *sg)
 
 	free(sg->fds);
 	free(sg);
+
+	runtime_del_ref();
 }
 
 void
@@ -3542,7 +3559,7 @@ job_useless(job_t j)
 		job_log(j, LOG_DEBUG, "Exited while removal was pending.");
 		return true;
 	} else if (j->mgr->shutting_down) {
-		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %u", total_children);
+		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %lu", total_children);
 		return true;
 	} else if (j->legacy_mach_job) {
 		if (SLIST_EMPTY(&j->machservices)) {
@@ -4559,6 +4576,8 @@ semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 
 	SLIST_INSERT_HEAD(&j->semaphores, si, sle);
 
+	runtime_add_ref();
+
 	return true;
 }
 
@@ -4572,6 +4591,8 @@ semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 	}
 
 	free(si);
+
+	runtime_del_ref();
 }
 
 void
@@ -5122,10 +5143,16 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		break;
 	case VPROC_GSK_START_INTERVAL:
 		if ((unsigned int)inval > 0) {
+			if (j->start_interval == 0) {
+				runtime_add_ref();
+			}
 			j->start_interval = inval;
 			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, j) != -1);
 		} else if (j->start_interval) {
 			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+			if (j->start_interval != 0) {
+				runtime_del_ref();
+			}
 			j->start_interval = 0;
 		}
 		break;
