@@ -1834,7 +1834,7 @@ job_mig_intran(mach_port_t p)
 
 		mib[3] = ldc.pid;
 
-		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
+		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1) && jobmgr_assumes(root_jobmgr, len == sizeof(kp))) {
 			jobmgr_log(root_jobmgr, LOG_ERR, "%s() was confused by PID %u UID %u EUID %u Mach Port 0x%x: %s", __func__, ldc.pid, ldc.uid, ldc.euid, p, kp.kp_proc.p_comm);
 		}
 	}
