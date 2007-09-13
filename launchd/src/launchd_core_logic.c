@@ -739,10 +739,6 @@ job_remove(job_t j)
 	struct mspolicy *msp;
 	struct envitem *ei;
 
-	if (j == workaround_5477111) {
-		job_log(j, LOG_NOTICE, "@@@@@ Tried to remove ahead of schedule!");
-	}
-
 	if (j->p && j->anonymous) {
 		job_reap(j);
 	} else if (j->p) {
