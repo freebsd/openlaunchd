@@ -3370,6 +3370,18 @@ socketgroup_delete(job_t j, struct socketgroup *sg)
 	unsigned int i;
 
 	for (i = 0; i < sg->fd_cnt; i++) {
+#if 0
+		struct sockaddr_storage ss;
+		struct sockaddr_un *sun = (struct sockaddr_un *)&ss;
+		socklen_t ss_len = sizeof(ss);
+
+		/* 5480306 */
+		if (job_assumes(j, getsockname(sg->fds[i], (struct sockaddr *)&ss, &ss_len) != -1)
+				&& job_assumes(j, ss_len > 0) && (ss.ss_family == AF_UNIX)) {
+			job_assumes(j, unlink(sun->sun_path) != -1);
+			/* We might conditionally need to delete a directory here */
+		}
+#endif
 		job_assumes(j, runtime_close(sg->fds[i]) != -1);
 	}
 
