@@ -3054,8 +3054,8 @@ preheat_page_cache_hack(void)
 		}
 
 		if (fstat(fd, &sb) != -1) { 
-			if ((junkbuf = malloc(sb.st_size)) != NULL) {
-				assumes(read(fd, junkbuf, sb.st_size) == sb.st_size);
+			if ((sb.st_size < 10*1024*1024) && (junkbuf = malloc((size_t)sb.st_size)) != NULL) {
+				assumes(read(fd, junkbuf, (size_t)sb.st_size) == (ssize_t)sb.st_size);
 				free(junkbuf);
 			}
 		}

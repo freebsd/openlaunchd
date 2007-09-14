@@ -2343,7 +2343,7 @@ job_start(job_t j)
 	td /= NSEC_PER_SEC;
 
 	if (j->start_time && (td < j->min_run_time) && !j->legacy_mach_job && !j->inetcompat) {
-		time_t respawn_delta = j->min_run_time - td;
+		time_t respawn_delta = j->min_run_time - (uint32_t)td;
 
 		/*
 		 * We technically should ref-count throttled jobs to prevent idle exit,
@@ -5898,7 +5898,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 		job_assumes(j, obj_at_idx = launch_data_array_get_index(out_obj_array, l2l_i));
 		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_PID));
-		target_pid = launch_data_get_integer(tmp);
+		target_pid = (pid_t)launch_data_get_integer(tmp);
 		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_PERPID));
 		serv_perpid = launch_data_get_bool(tmp);
 		job_assumes(j, tmp = launch_data_dict_lookup(obj_at_idx, TAKE_SUBSET_NAME));

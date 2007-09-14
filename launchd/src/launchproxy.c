@@ -108,7 +108,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 	tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_TIMEOUT);
 	if (tmp)
-		timeout.tv_sec = launch_data_get_integer(tmp);
+		timeout.tv_sec = (int)launch_data_get_integer(tmp);
 
 	tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_PROGRAM);
 	if (tmp)
