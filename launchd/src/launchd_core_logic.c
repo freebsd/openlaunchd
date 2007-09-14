@@ -351,7 +351,7 @@ struct job_s {
 	uint64_t sent_sigterm_time;
 	uint64_t start_time;
 	uint32_t min_run_time;
-	unsigned int start_interval;
+	uint32_t start_interval;
 	unsigned int checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
 		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, start_pending:1;
@@ -1418,7 +1418,9 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 'E':
 		if (strcasecmp(key, LAUNCH_JOBKEY_EXITTIMEOUT) == 0) {
 			if (value < 0) {
-				job_log(j, LOG_WARNING, "Exit timeout less zero. Ignoring.");
+				job_log(j, LOG_WARNING, "%s less than zero. Ignoring.", LAUNCH_JOBKEY_EXITTIMEOUT);
+			} else if (value > UINT32_MAX) {
+				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_EXITTIMEOUT);
 			} else {
 				j->exit_timeout = value;
 			}
@@ -1434,14 +1436,18 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 't':
 	case 'T':
 		if (strcasecmp(key, LAUNCH_JOBKEY_TIMEOUT) == 0) {
-			if (value <= 0) {
-				job_log(j, LOG_WARNING, "Timeout less than or equal to zero. Ignoring.");
+			if (value < 0) {
+				job_log(j, LOG_WARNING, "%s less than zero. Ignoring.", LAUNCH_JOBKEY_TIMEOUT);
+			} else if (value > UINT32_MAX) {
+				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_TIMEOUT);
 			} else {
 				j->timeout = value;
 			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_THROTTLEINTERVAL) == 0) {
 			if (value < 0) {
 				job_log(j, LOG_WARNING, "%s less than zero. Ignoring.", LAUNCH_JOBKEY_THROTTLEINTERVAL);
+			} else if (value > UINT32_MAX) {
+				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_THROTTLEINTERVAL);
 			} else {
 				j->min_run_time = value;
 			}
@@ -1458,13 +1464,14 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 'S':
 		if (strcasecmp(key, LAUNCH_JOBKEY_STARTINTERVAL) == 0) {
 			if (value <= 0) {
-				job_log(j, LOG_WARNING, "StartInterval is not greater than zero, ignoring");
+				job_log(j, LOG_WARNING, "%s is not greater than zero. Ignoring.", LAUNCH_JOBKEY_STARTINTERVAL);
+			} else if (value > UINT32_MAX) {
+				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_STARTINTERVAL);
 			} else {
 				runtime_add_ref();
 				j->start_interval = value;
-			}
-			if (-1 == kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j)) {
-				job_log_error(j, LOG_ERR, "adding kevent timer");
+
+				job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j) != -1);
 			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXFLAGS) == 0) {
 			j->seatbelt_flags = value;
@@ -5192,7 +5199,9 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		j->ondemand = !inval;
 		break;
 	case VPROC_GSK_START_INTERVAL:
-		if ((unsigned int)inval > 0) {
+		if ((uint64_t)inval > UINT32_MAX) {
+			kr = 1;
+		} else if (inval) {
 			if (j->start_interval == 0) {
 				runtime_add_ref();
 			}
