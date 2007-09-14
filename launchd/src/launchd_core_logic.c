@@ -404,7 +404,6 @@ static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid);
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
 static const char *job_prog(job_t j);
-static pid_t job_get_pid(job_t j);
 static jobmgr_t job_get_bs(job_t j);
 static void job_kill(job_t j);
 static void job_uncork_fork(job_t j);
@@ -4475,12 +4474,6 @@ job_is_anonymous(job_t j)
 	return j->anonymous;
 }
 
-pid_t
-job_get_pid(job_t j)
-{
-	return j->p;
-}
-
 void
 job_force_sampletool(job_t j)
 {
@@ -6220,7 +6213,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
-	if (indataCnt == 0) {
+	if (!job_assumes(j, indataCnt != 0)) {
 		return 1;
 	}
 
@@ -6229,12 +6222,14 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 	}
 
 	jr = jobmgr_import2(j->mgr, input_obj);
-
-	if (jr == NULL) switch (errno) {
-	case EEXIST:
-		return BOOTSTRAP_NAME_IN_USE;
-	default:
-		return BOOTSTRAP_NO_MEMORY;
+	
+	if (!job_assumes(j, jr != NULL)) {
+		switch (errno) {
+		case EEXIST:
+			return BOOTSTRAP_NAME_IN_USE;
+		default:
+			return BOOTSTRAP_NO_MEMORY;
+		}
 	}
 
 	job_reparent_hack(jr, NULL);
@@ -6254,6 +6249,8 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	job_assumes(jr, jr->p);
+
 	if (!job_setup_machport(jr)) {
 		job_remove(jr);
 		return BOOTSTRAP_NO_MEMORY;
@@ -6261,7 +6258,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 
 	job_log(j, LOG_INFO, "Spawned");
 
-	*child_pid = job_get_pid(jr);
+	*child_pid = jr->p;
 	*obsvr_port = jr->j_port;
 
 	mig_deallocate(indata, indataCnt);
