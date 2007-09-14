@@ -47,6 +47,9 @@ static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
 static void	displayErrorMessages(StartupContext aStartupContext);
 static pid_t	fwexec(const char *cmd, ...) __attribute__((sentinel));
+static void	dummy_sig(int signo __attribute__((unused)))
+{
+}
 
 int 
 main(int argc, char *argv[])
@@ -60,7 +63,7 @@ main(int argc, char *argv[])
 	EV_SET(&kev, SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
 	r = kevent(kq, &kev, 1, NULL, 0, NULL);
 	assert(r != -1);
-	signal(SIGTERM, SIG_IGN);
+	signal(SIGTERM, dummy_sig);
 
 	while ((ch = getopt(argc, argv, "gvxirdDqn?")) != -1) {
 		switch (ch) {
