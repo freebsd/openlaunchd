@@ -2333,6 +2333,8 @@ job_start(job_t j)
 		return;
 	}
 
+	job_assumes(j, tnow > j->start_time);
+
 	/*
 	 * Some users adjust the wall-clock and then expect software to not notice.
 	 * Therefore, launchd must use an absolute clock instead of gettimeofday()

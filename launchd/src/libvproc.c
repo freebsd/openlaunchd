@@ -322,6 +322,10 @@ out:
 		errno = EPERM; break;
 	case BOOTSTRAP_NO_MEMORY:
 		errno = ENOMEM; break;
+	case BOOTSTRAP_NAME_IN_USE:
+		errno = EEXIST; break;
+	case 1:
+		errno = EIO; break;
 	default:
 		errno = EINVAL; break;
 	}
