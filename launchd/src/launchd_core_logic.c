@@ -5915,9 +5915,10 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 		j_for_service = jobmgr_find_by_pid(jmr, target_pid, true);
 
-		if (!jobmgr_assumes(jmr, j_for_service != NULL)) {
-			kr = BOOTSTRAP_NO_MEMORY;
-			goto out;
+		if (!j_for_service) {
+			/* The PID probably exited */
+			job_assumes(j, launchd_mport_deallocate(l2l_ports[l2l_i]) == KERN_SUCCESS);
+			continue;
 		}
 
 		if ((ms = machservice_new(j_for_service, serv_name, &l2l_ports[l2l_i], serv_perpid))) {
