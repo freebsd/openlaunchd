@@ -1007,7 +1007,8 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		return NULL;
 	}
 
-	if (!jobmgr_assumes(jm, len == sizeof(kp))) {
+	if (len != sizeof(kp)) {
+		jobmgr_log(jm, LOG_DEBUG, "Tried to create an anonymous job for nonexistent PID: %u", anonpid);
 		return NULL;
 	}
 
