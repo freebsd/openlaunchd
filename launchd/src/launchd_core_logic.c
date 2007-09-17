@@ -523,7 +523,7 @@ job_stop(job_t j)
 		return;
 	}
 
-	job_assumes(j, kill(j->p, SIGTERM) != -1);
+	job_assumes(j, killpg(j->p, SIGTERM) != -1);
 	j->sent_sigterm_time = mach_absolute_time();
 
 	if (j->exit_timeout) {
@@ -2147,7 +2147,7 @@ job_kill(job_t j)
 		return;
 	}
 
-	job_assumes(j, kill(j->p, SIGKILL) != -1);
+	job_assumes(j, killpg(j->p, SIGKILL) != -1);
 
 	j->sent_sigkill = true;
 
@@ -2831,7 +2831,11 @@ job_setup_attributes(job_t j)
 		setenv(ei->key, ei->value, 1);
 	}
 
-	job_assumes(j, setsid() != -1);
+	if (j->per_user) {
+		job_assumes(j, setsid() != -1);
+	} else {
+		job_assumes(j, setpgid(0, 0) != -1);
+	}
 }
 
 void
@@ -3319,7 +3323,7 @@ calendarinterval_sanity_check(void)
 	time_t now = time(NULL);
 
 	if (ci && (ci->when_next < now)) {
-		jobmgr_assumes(root_jobmgr, kill(getpid(), SIGUSR1) != -1);
+		jobmgr_assumes(root_jobmgr, raise(SIGUSR1) != -1);
 	}
 }
 
