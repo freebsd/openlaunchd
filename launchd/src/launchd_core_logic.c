@@ -1967,6 +1967,19 @@ job_reap(job_t j)
 		 */
 		killpg(j->p, SIGKILL);
 
+		/*
+		 * 5020256
+		 *
+		 * The current implementation of ptrace() causes the traced process to
+		 * be abducted away from the true parent and adopted by the tracer.
+		 *
+		 * Once the tracing process relinquishes control, the kernel then
+		 * restores the true parent/child relationship.
+		 *
+		 * Unfortunately, the wait*() family of APIs is unaware of the temporarily
+		 * data structures changes, and they return an error if reality hasn't
+		 * been restored by the time they are called.
+		 */
 		if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
 			job_log(j, LOG_NOTICE, "Working around 5020256. Assuming the job crashed.");
 
