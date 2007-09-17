@@ -523,7 +523,7 @@ job_stop(job_t j)
 		return;
 	}
 
-	job_assumes(j, killpg(j->p, SIGTERM) != -1);
+	job_assumes(j, kill(j->p, SIGTERM) != -1);
 	j->sent_sigterm_time = mach_absolute_time();
 
 	if (j->exit_timeout) {
@@ -1955,12 +1955,24 @@ job_reap(job_t j)
 	if (j->anonymous) {
 		status = 0;
 		memset(&ru, 0, sizeof(ru));
-	} else if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
-		job_log(j, LOG_NOTICE, "Working around 5020256. Assuming the job crashed.");
+	} else {
+		/*
+		 * The job is dead. While the PID/PGID is still known to be
+		 * valid, try to kill abandoned descendant processes.
+		 *
+		 * We'd use job_assumes(), but POSIX defines consistency over
+		 * correctness, and consequently kill/killpg now returns EPERM
+		 * instead of ESRCH. As luck would have it, ESRCH is the only
+		 * error we can ignore.
+		 */
+		killpg(j->p, SIGKILL);
 
-		status = W_EXITCODE(0, SIGSEGV);
+		if (!job_assumes(j, wait4(j->p, &status, 0, &ru) != -1)) {
+			job_log(j, LOG_NOTICE, "Working around 5020256. Assuming the job crashed.");
 
-		memset(&ru, 0, sizeof(ru));
+			status = W_EXITCODE(0, SIGSEGV);
+			memset(&ru, 0, sizeof(ru));
+		}
 	}
 
 	if (j->exit_timeout) {
@@ -2147,7 +2159,7 @@ job_kill(job_t j)
 		return;
 	}
 
-	job_assumes(j, killpg(j->p, SIGKILL) != -1);
+	job_assumes(j, kill(j->p, SIGKILL) != -1);
 
 	j->sent_sigkill = true;
 
