@@ -452,6 +452,7 @@ static void do_file_init(void) __attribute__((constructor));
 static size_t total_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
+#define JOB_BOOTCACHE_HACK_CHECK(j)	(j->per_user && !did_first_per_user_launchd_BootCache_hack && (j->mach_uid >= 500) && (j->mach_uid != (uid_t)-2))
 static jobmgr_t background_jobmgr;
 static job_t workaround_5477111;
 static mach_timebase_info_data_t tbi;
@@ -459,6 +460,7 @@ static mach_timebase_info_data_t tbi;
 /* process wide globals */
 mach_port_t inherited_bootstrap_port;
 jobmgr_t root_jobmgr;
+
 
 void
 job_ignore(job_t j)
@@ -2450,7 +2452,7 @@ job_start(job_t j)
 		total_children++;
 		LIST_INSERT_HEAD(&j->mgr->active_jobs[ACTIVE_JOB_HASH(c)], j, pid_hash_sle);
 
-		if (j->per_user && !did_first_per_user_launchd_BootCache_hack) {
+		if (JOB_BOOTCACHE_HACK_CHECK(j)) {
 			did_first_per_user_launchd_BootCache_hack = true;
 		}
 
@@ -2512,7 +2514,7 @@ job_start_child(job_t j)
 	size_t binpref_out_cnt = 0;
 	int i;
 
-	if (j->per_user && !did_first_per_user_launchd_BootCache_hack) {
+	if (JOB_BOOTCACHE_HACK_CHECK(j)) {
 		do_first_per_user_launchd_hack();
 	}
 
