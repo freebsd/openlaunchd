@@ -1778,6 +1778,8 @@ job_find(const char *label)
 	LIST_FOREACH(ji, &label_hash[hash_label(label)], label_hash_sle) {
 		if (ji->removal_pending) {
 			continue; /* 5351245 */
+		} else if (ji->mgr->shutting_down) {
+			continue; /* 5488633 */
 		}
 
 		if (strcmp(ji->label, label) == 0) {
