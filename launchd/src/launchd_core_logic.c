@@ -4093,6 +4093,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 	for (i = 0; i < kp_cnt; i++) {
 		pid_t p_i = kp[i].kp_proc.p_pid;
 		pid_t pp_i = kp[i].kp_eproc.e_ppid;
+		pid_t pg_i = kp[i].kp_eproc.e_pgid;
 		const char *z = kp[i].kp_proc.p_stat == SZOMB ? "zombie " : "";
 		const char *n = kp[i].kp_proc.p_comm;
 
@@ -4100,7 +4101,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 			continue;
 		}
 
-		jobmgr_log(jm, LOG_WARNING, "Stray %sprocess at shutdown: PID %u PPID %u %s", z, p_i, pp_i, n);
+		jobmgr_log(jm, LOG_WARNING, "Stray %sprocess at shutdown: PID %u PPID %u PGID %u %s", z, p_i, pp_i, pg_i, n);
 
 		/*
 		 * The kernel team requested that launchd not do this for Leopard.
