@@ -29,8 +29,11 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
+#include <TargetConditionals.h>
+#if !TARGET_OS_EMBEDDED
 #include <Security/Security.h>
 #include <Security/AuthSession.h>
+#endif
 #include <IOKit/IOKitLib.h>
 #include <NSSystemDirectories.h>
 #include <mach/mach.h>
@@ -1592,25 +1595,27 @@ bootstrap_cmd(int argc, char *const argv[])
 			load_launchd_items[4] = "system";
 		}
 
-		if (strcasecmp(session_type, "Background") == 0 || strcasecmp(session_type, "LoginWindow") == 0) {
+		if (strcasecmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0 || strcasecmp(session_type, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 			load_launchd_items[4] = "system";
 			if (!is_safeboot()) {
 				load_launchd_items[5] = "-D";
 				load_launchd_items[6] = "local";
 				the_argc += 2;
 			}
-			if (strcasecmp(session_type, "LoginWindow") == 0) {
+			if (strcasecmp(session_type, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 				load_launchd_items[the_argc] = "/etc/mach_init_per_login_session.d";
 				the_argc += 1;
 			}
-		} else if (strcasecmp(session_type, "Aqua") == 0) {
+		} else if (strcasecmp(session_type, VPROCMGR_SESSION_AQUA) == 0) {
 			load_launchd_items[5] = "/etc/mach_init_per_user.d";
 			the_argc += 1;
 		}
 
-		if (strcasecmp(session_type, "Background") == 0) {
+#if !TARGET_OS_EMBEDDED
+		if (strcasecmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0) {
 			assumes(SessionCreate(sessionKeepCurrentBootstrap, 0) == 0);
 		}
+#endif
 
 		return load_and_unload_cmd(the_argc, load_launchd_items);
 	}
