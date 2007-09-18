@@ -285,6 +285,12 @@ CFMutableArrayRef StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 		strcpy(aPath + strlen(aPath), kStartupItemsPath);
 		++aDomainIndex;
 
+		/* 5485016
+		 *
+		 * Just in case...
+		 */
+		mkdir(aPath, S_IRWXU|S_IRWXG|S_IROTH|S_IXOTH);
+
 		if (!StartupItemSecurityCheck(aPath))
 			continue;
 
