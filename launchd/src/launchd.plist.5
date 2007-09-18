@@ -278,6 +278,11 @@ performed automatically by the system.
 This optional key specifies what
 .Xr nice 3
 value should be applied to the daemon.
+.It Sy AbandonProcessGroup <boolean>
+When a job dies,
+.Nm launchd
+kills any remaining processes with the same process group ID as the job.
+Setting this key to true disables that behavior.
 .It Sy HopefullyExitsFirst <boolean>
 This optional key causes programs to exit earlier during system shutdown.
 This key exists because some jobs do more than flush buffers and exit like

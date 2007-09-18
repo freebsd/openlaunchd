@@ -359,7 +359,7 @@ struct job_s {
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
-		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1;
+		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1;
 	const char label[0];
 };
 
@@ -1223,6 +1223,13 @@ job_import_bool(job_t j, const char *key, bool value)
 	bool found_key = false;
 
 	switch (key[0]) {
+	case 'a':
+	case 'A':
+		if (strcasecmp(key, LAUNCH_JOBKEY_ABANDONPROCESSGROUP) == 0) {
+			j->abandon_pg = value;
+			found_key = true;
+		}
+		break;
 	case 'k':
 	case 'K':
 		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
@@ -1970,7 +1977,9 @@ job_reap(job_t j)
 		 * instead of ESRCH. As luck would have it, ESRCH is the only
 		 * error we can ignore.
 		 */
-		killpg(j->p, SIGKILL);
+		if (!j->abandon_pg) {
+			killpg(j->p, SIGKILL);
+		}
 
 		/*
 		 * 5020256
