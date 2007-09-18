@@ -182,6 +182,8 @@ int main(int argc __attribute__((unused)), char *argv[])
 				continue;
 			}
 
+			setpgid(0, 0);
+
 			if ((tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SESSIONCREATE)) && launch_data_get_bool(tmp)) {
 				if (SessionCreate) {
 					OSStatus scr = SessionCreate(0, 0);
