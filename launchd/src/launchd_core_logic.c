@@ -714,6 +714,7 @@ jobmgr_remove(jobmgr_t jm)
 	}
 
 	if (jm->parentmgr) {
+		runtime_del_ref();
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 	} else if (getpid() == 1) {
 		jobmgr_log(jm, LOG_DEBUG, "About to call: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
@@ -4226,6 +4227,10 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	if (bootstrapper) {
 		jobmgr_assumes(jmr, job_dispatch(bootstrapper, true) != NULL);
+	}
+
+	if (jmr->parentmgr) {
+		runtime_add_ref();
 	}
 
 	return jmr;
