@@ -90,8 +90,8 @@ static void launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufReq
 static mach_msg_size_t max_msg_size;
 static mig_callback *mig_cb_table;
 static size_t mig_cb_table_sz;
-static timeout_callback runtime_idle_callback = launchd_shutdown;
-static mach_msg_timeout_t runtime_idle_timeout = RUNTIME_ADVISABLE_IDLE_TIMEOUT * 1000;
+static timeout_callback runtime_idle_callback;
+static mach_msg_timeout_t runtime_idle_timeout;
 static audit_token_t *au_tok;
 static size_t runtime_busy_cnt;
 
@@ -912,11 +912,11 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			}
 		}
 
-		if ((tmp_options & MACH_RCV_MSG) && runtime_idle_callback && (runtime_busy_cnt == 0)) {
+		if ((tmp_options & MACH_RCV_MSG) && (runtime_idle_callback || (runtime_busy_cnt == 0))) {
 			tmp_options |= MACH_RCV_TIMEOUT;
 
 			if (!(tmp_options & MACH_SEND_TIMEOUT)) {
-				to = runtime_idle_timeout;
+				to = runtime_busy_cnt ? runtime_idle_timeout : (RUNTIME_ADVISABLE_IDLE_TIMEOUT * 1000);
 			}
 		}
 
@@ -935,7 +935,11 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			continue;
 		} else if (mr == MACH_RCV_TIMED_OUT) {
 			if (to != MACH_MSG_TIMEOUT_NONE) {
-				runtime_idle_callback();
+				if (runtime_busy_cnt == 0) {
+					launchd_shutdown();
+				} else if (runtime_idle_callback) {
+					runtime_idle_callback();
+				}
 			}
 			continue;
 		} else if (!launchd_assumes(mr == MACH_MSG_SUCCESS)) {

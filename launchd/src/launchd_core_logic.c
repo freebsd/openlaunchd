@@ -381,6 +381,7 @@ static void job_import_dictionary(job_t j, const char *key, launch_data_t value)
 static void job_import_array(job_t j, const char *key, launch_data_t value);
 static void job_import_opaque(job_t j, const char *key, launch_data_t value);
 static bool job_set_global_on_demand(job_t j, bool val);
+static const char *job_active(job_t j);
 static void job_watch(job_t j);
 static void job_ignore(job_t j);
 static void job_reap(job_t j);
@@ -532,6 +533,8 @@ job_stop(job_t j)
 		job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
 					EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
 	}
+
+	job_log(j, LOG_DEBUG, "Sent SIGTERM signal.");
 }
 
 launch_data_t
@@ -645,9 +648,30 @@ job_export(job_t j)
 }
 
 static void
+jobmgr_log_active_jobs(jobmgr_t jm)
+{
+	const char *why_active;
+	jobmgr_t jmi;
+	job_t ji;
+
+	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
+		jobmgr_log_active_jobs(jmi);
+	}
+
+	LIST_FOREACH(ji, &jm->jobs, sle) {
+		why_active = job_active(ji);
+
+		job_log(ji, LOG_DEBUG, "%s", why_active ? why_active : "Inactive");
+	}
+
+}
+
+static void
 still_alive_with_check(void)
 {
 	jobmgr_log(root_jobmgr, LOG_NOTICE, "Still alive with %lu children.", total_children);
+
+	jobmgr_log_active_jobs(root_jobmgr);
 
 	runtime_closelog(); /* hack to flush logs */
 }
@@ -675,7 +699,7 @@ jobmgr_shutdown(jobmgr_t jm)
 	}
 
 	if (debug_shutdown_hangs && jm->parentmgr == NULL && getpid() == 1) {
-		runtime_set_timeout(still_alive_with_check, 3000);
+		runtime_set_timeout(still_alive_with_check, 5);
 	}
 
 	return jobmgr_do_garbage_collection(jm);
@@ -2187,6 +2211,8 @@ job_kill(job_t j)
 
 	job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
 				EV_ADD, NOTE_SECONDS, LAUNCHD_SIGKILL_TIMER, j) != -1);
+
+	job_log(j, LOG_DEBUG, "Sent SIGKILL signal.");
 }
 
 void
@@ -3773,30 +3799,30 @@ job_prog(job_t j)
 	}
 }
 
-bool
+const char *
 job_active(job_t j)
 {
 	struct machservice *ms;
 
 	if (j->wait4pipe_eof && j->log_redirect_fd) {
-		return true;
+		return "Standard out/error is still valid";
 	}
 
 	if (j->p) {
-		return true;
+		return "PID is still valid";
 	}
 
 	if (j->priv_port_has_senders) {
-		return true;
+		return "Privileged Port still has outstanding senders";
 	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
 		if (ms->recv && ms->isActive) {
-			return true;
+			return "Mach service is still active";
 		}
 	}
 
-	return false;
+	return NULL;
 }
 
 void
