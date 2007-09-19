@@ -26,6 +26,8 @@
 #include <stdbool.h>
 #include <syslog.h>
 
+#include "launchd_runtime_kill.h"
+
 struct ldcred {
 	uid_t   euid;
 	uid_t   uid;

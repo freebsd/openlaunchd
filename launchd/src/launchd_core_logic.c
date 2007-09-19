@@ -525,7 +525,7 @@ job_stop(job_t j)
 		return;
 	}
 
-	job_assumes(j, kill(j->p, SIGTERM) != -1);
+	job_assumes(j, runtime_kill(j->p, SIGTERM) != -1);
 	j->sent_sigterm_time = mach_absolute_time();
 
 	if (j->exit_timeout) {
@@ -1971,14 +1971,9 @@ job_reap(job_t j)
 		/*
 		 * The job is dead. While the PID/PGID is still known to be
 		 * valid, try to kill abandoned descendant processes.
-		 *
-		 * We'd use job_assumes(), but POSIX defines consistency over
-		 * correctness, and consequently kill/killpg now returns EPERM
-		 * instead of ESRCH. As luck would have it, ESRCH is the only
-		 * error we can ignore.
 		 */
 		if (!j->abandon_pg) {
-			killpg(j->p, SIGKILL);
+			job_assumes(j, runtime_killpg(j->p, SIGKILL) != -1 || errno == ESRCH);
 		}
 
 		/*
@@ -2186,7 +2181,7 @@ job_kill(job_t j)
 		return;
 	}
 
-	job_assumes(j, kill(j->p, SIGKILL) != -1);
+	job_assumes(j, runtime_kill(j->p, SIGKILL) != -1);
 
 	j->sent_sigkill = true;
 
@@ -2690,7 +2685,7 @@ job_find_and_blame_pids_with_weird_uids(job_t j)
 /* Temporarily disabled due to 5423935 and 4946119. */
 #if 0
 		/* Ask the accountless process to exit. */
-		job_assumes(j, kill(i_pid, SIGTERM) != -1);
+		job_assumes(j, runtime_kill(i_pid, SIGTERM) != -1);
 #endif
 	}
 
@@ -4114,7 +4109,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 
 		/*
 		 * The kernel team requested that launchd not do this for Leopard.
-		 * jobmgr_assumes(jm, kill(p_i, SIGKILL) != -1);
+		 * jobmgr_assumes(jm, runtime_kill(p_i, SIGKILL) != -1);
 		 */
 	}
 
@@ -5026,7 +5021,7 @@ job_mig_send_signal(job_t j, mach_port_t srp, name_t targetlabel, int sig)
 			return 0;
 		}
 	} else if (otherj->p) {
-		job_assumes(j, kill(otherj->p, sig) != -1);
+		job_assumes(j, runtime_kill(otherj->p, sig) != -1);
 	}
 
 	return 0;

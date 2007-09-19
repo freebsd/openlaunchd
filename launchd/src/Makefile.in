@@ -96,7 +96,7 @@ launchctl_LINK = $(CCLD) $(launchctl_CFLAGS) $(CFLAGS) \
 am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 	launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c \
 	launchd_internalUser.c launchd_internalServer.c \
-	job_replyUser.c launchd_runtime.c
+	job_replyUser.c launchd_runtime.c launchd_runtime_kill.c
 @LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_core_logic.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_unix_ipc.$(OBJEXT) \
@@ -105,7 +105,8 @@ am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 @LIBS_ONLY_FALSE@	launchd-launchd_internalUser.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_internalServer.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-job_replyUser.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-launchd_runtime.$(OBJEXT)
+@LIBS_ONLY_FALSE@	launchd-launchd_runtime.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-launchd_runtime_kill.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_LINK = $(CCLD) $(launchd_CFLAGS) $(CFLAGS) $(launchd_LDFLAGS) \
@@ -252,7 +253,7 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
@@ -420,6 +421,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime_kill.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_unix_ipc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-notifyServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-protocol_vprocServer.Po@am__quote@
@@ -771,6 +773,20 @@ launchd-launchd_runtime.obj: launchd_runtime.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_runtime.c' object='launchd-launchd_runtime.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_runtime.obj `if test -f 'launchd_runtime.c'; then $(CYGPATH_W) 'launchd_runtime.c'; else $(CYGPATH_W) '$(srcdir)/launchd_runtime.c'; fi`
+
+launchd-launchd_runtime_kill.o: launchd_runtime_kill.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-launchd_runtime_kill.o -MD -MP -MF $(DEPDIR)/launchd-launchd_runtime_kill.Tpo -c -o launchd-launchd_runtime_kill.o `test -f 'launchd_runtime_kill.c' || echo '$(srcdir)/'`launchd_runtime_kill.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-launchd_runtime_kill.Tpo $(DEPDIR)/launchd-launchd_runtime_kill.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_runtime_kill.c' object='launchd-launchd_runtime_kill.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_runtime_kill.o `test -f 'launchd_runtime_kill.c' || echo '$(srcdir)/'`launchd_runtime_kill.c
+
+launchd-launchd_runtime_kill.obj: launchd_runtime_kill.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-launchd_runtime_kill.obj -MD -MP -MF $(DEPDIR)/launchd-launchd_runtime_kill.Tpo -c -o launchd-launchd_runtime_kill.obj `if test -f 'launchd_runtime_kill.c'; then $(CYGPATH_W) 'launchd_runtime_kill.c'; else $(CYGPATH_W) '$(srcdir)/launchd_runtime_kill.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-launchd_runtime_kill.Tpo $(DEPDIR)/launchd-launchd_runtime_kill.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_runtime_kill.c' object='launchd-launchd_runtime_kill.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_runtime_kill.obj `if test -f 'launchd_runtime_kill.c'; then $(CYGPATH_W) 'launchd_runtime_kill.c'; else $(CYGPATH_W) '$(srcdir)/launchd_runtime_kill.c'; fi`
 install-man1: $(man1_MANS) $(man_MANS)
 	@$(NORMAL_INSTALL)
 	test -z "$(man1dir)" || $(MKDIR_P) "$(DESTDIR)$(man1dir)"

@@ -277,7 +277,7 @@ launchd_single_user(void)
 
 	sleep(3);
 
-	kill(-1, SIGKILL);
+	runtime_kill(-1, SIGKILL);
 }
 
 void
