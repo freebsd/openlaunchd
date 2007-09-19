@@ -6378,6 +6378,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 
 	jr->unload_at_exit = true;
 	jr->wait4pipe_eof = true;
+	jr->abandon_pg = true;
 	jr->stall_before_exec = jr->wait4debugger;
 	jr->wait4debugger = false;
 
