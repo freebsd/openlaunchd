@@ -1274,7 +1274,8 @@ runtime_log_uncork_pending_drain(void)
 	tmp_port = drain_reply_port;
 	drain_reply_port = MACH_PORT_NULL;
 
-	if (!launchd_assumes((errno = job_mig_log_drain_reply(tmp_port, 0, outval, outvalCnt)) == 0)) {
+	if ((errno = job_mig_log_drain_reply(tmp_port, 0, outval, outvalCnt))) {
+		launchd_assumes(errno == MACH_SEND_INVALID_DEST);
 		launchd_assumes(launchd_mport_deallocate(tmp_port) == KERN_SUCCESS);
 	}
 
