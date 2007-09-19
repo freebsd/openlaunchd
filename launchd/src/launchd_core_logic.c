@@ -451,6 +451,7 @@ static void do_file_init(void) __attribute__((constructor));
 
 /* file local globals */
 static size_t total_children;
+static size_t total_anon_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
 #define JOB_BOOTCACHE_HACK_CHECK(j)	(j->per_user && !did_first_per_user_launchd_BootCache_hack && (j->mach_uid >= 500) && (j->mach_uid != (uid_t)-2))
@@ -534,7 +535,7 @@ job_stop(job_t j)
 					EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
 	}
 
-	job_log(j, LOG_DEBUG, "Sent SIGTERM signal.");
+	job_log(j, LOG_DEBUG, "Sent SIGTERM signal");
 }
 
 launch_data_t
@@ -669,7 +670,7 @@ jobmgr_log_active_jobs(jobmgr_t jm)
 static void
 still_alive_with_check(void)
 {
-	jobmgr_log(root_jobmgr, LOG_NOTICE, "Still alive with %lu children.", total_children);
+	jobmgr_log(root_jobmgr, LOG_NOTICE, "Still alive with %lu/%lu children", total_children, total_anon_children);
 
 	jobmgr_log_active_jobs(root_jobmgr);
 
@@ -747,7 +748,7 @@ jobmgr_remove(jobmgr_t jm)
 		runtime_closelog();
 	} else {
 		runtime_closelog();
-		jobmgr_log(jm, LOG_DEBUG, "About to exit.");
+		jobmgr_log(jm, LOG_DEBUG, "About to exit");
 		exit(EXIT_SUCCESS);
 	}
 	
@@ -769,7 +770,7 @@ job_remove(job_t j)
 	if (j->p && j->anonymous) {
 		job_reap(j);
 	} else if (j->p) {
-		job_log(j, LOG_DEBUG, "Removal pended until the job exits.");
+		job_log(j, LOG_DEBUG, "Removal pended until the job exits");
 
 		if (!j->removal_pending) {
 			j->removal_pending = true;
@@ -1072,7 +1073,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, zombie ? zombie : kp.kp_proc.p_comm, NULL)) != NULL)) {
 		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT /* |NOTE_REAP */;
 
-		total_children++;
+		total_anon_children++;
 		jr->anonymous = true;
 		jr->p = anonpid;
 
@@ -1081,7 +1082,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 
 		if (kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) == -1 && job_assumes(jr, errno == ESRCH)) {
 			/* zombies are weird */
-			job_log(jr, LOG_ERR, "Failed to add kevent for PID %u. Will unload at MIG return.", jr->p);
+			job_log(jr, LOG_ERR, "Failed to add kevent for PID %u. Will unload at MIG return", jr->p);
 			jr->unload_at_mig_return = true;
 		}
 
@@ -1090,7 +1091,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		}
 
 		if (shutdown_state && jm->hopefully_first_cnt == 0) {
-			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time.");
+			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time");
 		}
 
 		job_log(jr, LOG_DEBUG, "Created PID %u anonymously by PPID %u%s%s", anonpid, kp.kp_eproc.e_ppid, jp ? ": " : "", jp ? jp->label : "");
@@ -2025,10 +2026,12 @@ job_reap(job_t j)
 		kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	}
 
-	if (!j->anonymous) {
+	if (j->anonymous) {
+		total_anon_children--;
+	} else {
 		runtime_del_ref();
+		total_children--;
 	}
-	total_children--;
 	LIST_REMOVE(j, pid_hash_sle);
 
 	if (j->wait_reply_port) {
@@ -3660,7 +3663,7 @@ job_useless(job_t j)
 		job_log(j, LOG_DEBUG, "Exited while removal was pending.");
 		return true;
 	} else if (j->mgr->shutting_down) {
-		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %lu", total_children);
+		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %lu/%lu", total_children, total_anon_children);
 		return true;
 	} else if (j->legacy_mach_job) {
 		if (SLIST_EMPTY(&j->machservices)) {
