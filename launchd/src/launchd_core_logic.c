@@ -401,6 +401,7 @@ static void job_callback(void *obj, struct kevent *kev);
 static void job_callback_proc(job_t j, int flags, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
+static void job_log_stray_pg(job_t j);
 static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid);
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
@@ -1961,6 +1962,39 @@ job_export_all(void)
 }
 
 void
+job_log_stray_pg(job_t j)
+{
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PGRP, j->p };
+	size_t i, kp_cnt, len = 10*1024*1024;
+	struct kinfo_proc *kp;
+
+	if (!job_assumes(j, (kp = malloc(len)) != NULL)) {
+		return;
+	}
+	if (!job_assumes(j, sysctl(mib, 4, kp, &len, NULL, 0) != -1)) {
+		goto out;
+	}
+
+	kp_cnt = len / sizeof(struct kinfo_proc);
+
+	for (i = 0; i < kp_cnt; i++) {
+		pid_t p_i = kp[i].kp_proc.p_pid;
+		pid_t pp_i = kp[i].kp_eproc.e_ppid;
+		const char *z = (kp[i].kp_proc.p_stat == SZOMB) ? "zombie " : "";
+		const char *n = kp[i].kp_proc.p_comm;
+
+		if (!job_assumes(j, p_i != 0 && p_i != 1)) {
+			continue;
+		}
+
+		job_log(j, LOG_WARNING, "Stray %sprocess with PGID equal to this dead job: PID %u PPID %u %s", z, p_i, pp_i, n);
+	}
+
+out:
+	free(kp);
+}
+
+void
 job_reap(job_t j)
 {
 	struct rusage ru;
@@ -1998,6 +2032,7 @@ job_reap(job_t j)
 		 * valid, try to kill abandoned descendant processes.
 		 */
 		if (!j->abandon_pg) {
+			job_log_stray_pg(j);
 			job_assumes(j, runtime_killpg(j->p, SIGKILL) != -1 || errno == ESRCH);
 		}
 
@@ -4127,7 +4162,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 		pid_t p_i = kp[i].kp_proc.p_pid;
 		pid_t pp_i = kp[i].kp_eproc.e_ppid;
 		pid_t pg_i = kp[i].kp_eproc.e_pgid;
-		const char *z = kp[i].kp_proc.p_stat == SZOMB ? "zombie " : "";
+		const char *z = (kp[i].kp_proc.p_stat == SZOMB) ? "zombie " : "";
 		const char *n = kp[i].kp_proc.p_comm;
 
 		if (p_i == 0 || p_i == 1) {
