@@ -2033,7 +2033,7 @@ job_reap(job_t j)
 		 */
 		if (!j->abandon_pg) {
 			job_log_stray_pg(j);
-			job_assumes(j, runtime_killpg(j->p, SIGKILL) != -1 || errno == ESRCH);
+			job_assumes(j, runtime_killpg(j->p, SIGTERM) != -1 || errno == ESRCH);
 		}
 
 		/*
