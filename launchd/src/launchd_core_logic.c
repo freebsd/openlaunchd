@@ -2015,7 +2015,7 @@ job_reap(job_t j)
 		j->weird_bootstrap = false;
 	}
 
-	if (j->log_redirect_fd && (!j->wait4pipe_eof || j->mgr->shutting_down)) {
+	if (j->log_redirect_fd && !j->wait4pipe_eof) {
 		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 	}
@@ -3844,12 +3844,18 @@ job_active(job_t j)
 {
 	struct machservice *ms;
 
-	if (j->wait4pipe_eof && j->log_redirect_fd) {
-		return "Standard out/error is still valid";
-	}
-
 	if (j->p) {
 		return "PID is still valid";
+	}
+
+	if (j->mgr->shutting_down && j->log_redirect_fd) {
+		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
+		j->log_redirect_fd = 0;
+	}
+
+	if (j->log_redirect_fd) {
+		job_assumes(j, j->wait4pipe_eof);
+		return "Standard out/error is still valid";
 	}
 
 	if (j->priv_port_has_senders) {
