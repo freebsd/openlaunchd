@@ -1983,7 +1983,9 @@ job_log_stray_pg(job_t j)
 		const char *z = (kp[i].kp_proc.p_stat == SZOMB) ? "zombie " : "";
 		const char *n = kp[i].kp_proc.p_comm;
 
-		if (!job_assumes(j, p_i != 0 && p_i != 1)) {
+		if (p_i == j->p) {
+			continue;
+		} else if (!job_assumes(j, p_i != 0 && p_i != 1)) {
 			continue;
 		}
 
@@ -2031,8 +2033,8 @@ job_reap(job_t j)
 		 * The job is dead. While the PID/PGID is still known to be
 		 * valid, try to kill abandoned descendant processes.
 		 */
+		job_log_stray_pg(j);
 		if (!j->abandon_pg) {
-			job_log_stray_pg(j);
 			job_assumes(j, runtime_killpg(j->p, SIGTERM) != -1 || errno == ESRCH);
 		}
 
