@@ -2947,7 +2947,7 @@ job_setup_attributes(job_t j)
 	 * believe that prevents launchd from being able to send signals to
 	 * setuid children. We'll settle for process-groups.
 	 */
-	if (getuid()) {
+	if (getppid() != 1) {
 		job_assumes(j, setpgid(0, 0) != -1);
 	} else {
 		job_assumes(j, setsid() != -1);
