@@ -2942,10 +2942,15 @@ job_setup_attributes(job_t j)
 		setenv(ei->key, ei->value, 1);
 	}
 
-	if (j->per_user) {
-		job_assumes(j, setsid() != -1);
-	} else {
+	/*
+	 * We'd like to call setsid() unconditionally, but we have reason to
+	 * believe that prevents launchd from being able to send signals to
+	 * setuid children. We'll settle for process-groups.
+	 */
+	if (getuid()) {
 		job_assumes(j, setpgid(0, 0) != -1);
+	} else {
+		job_assumes(j, setsid() != -1);
 	}
 }
 
