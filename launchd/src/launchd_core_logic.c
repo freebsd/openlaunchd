@@ -359,7 +359,8 @@ struct job_s {
 	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
-		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1;
+		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1,
+		     poll_for_vfs_changes:1;
 	const char label[0];
 };
 
@@ -479,6 +480,11 @@ job_ignore(job_t j)
 	job_log(j, LOG_DEBUG, "Ignoring...");
 
 	j->currently_ignored = true;
+
+	if (j->poll_for_vfs_changes) {
+		j->poll_for_vfs_changes = false;
+		job_assumes(j, kevent_mod((uintptr_t)&j->semaphores, EVFILT_TIMER, EV_DELETE, 0, 0, j) != -1);
+	}
 
 	SLIST_FOREACH(sg, &j->sockets, sle) {
 		socketgroup_ignore(j, sg);
@@ -867,6 +873,9 @@ job_remove(job_t j)
 	if (j->start_interval) {
 		runtime_del_ref();
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
+	}
+	if (j->poll_for_vfs_changes) {
+		job_assumes(j, kevent_mod((uintptr_t)&j->semaphores, EVFILT_TIMER, EV_DELETE, 0, 0, j) != -1);
 	}
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
@@ -2307,6 +2316,8 @@ job_callback_timer(job_t j, void *ident)
 {
 	if (j == ident) {
 		job_dispatch(j, true);
+	} else if (&j->semaphores == ident) {
+		job_dispatch(j, false);
 	} else if (&j->start_interval == ident) {
 		j->start_pending = true;
 		job_dispatch(j, false);
@@ -3246,7 +3257,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 		}
 
 		if (si->fd == -1) {
-			return job_log_error(j, LOG_ERR, "Watchpath monitoring failed on \"%s\"", which_path);
+			return job_log_error(j, LOG_ERR, "Path monitoring failed on \"%s\"", which_path);
 		}
 
 		job_log(j, LOG_DEBUG, "Watching Vnode: %d", si->fd);
@@ -3263,6 +3274,20 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 			si->fd = -1;
 		}
 	} while ((si->fd == -1) && (saved_errno == ENOENT));
+
+	if (saved_errno == ENOTSUP) {
+		/*
+		 * 3524219 NFS needs kqueue support
+		 * 4124079 VFS needs generic kqueue support
+		 * 5226811 EVFILT: Launchd EVFILT_VNODE doesn't work on /dev
+		 */
+		job_log(j, LOG_DEBUG, "Falling back to polling for path: %s", si->what);
+
+		if (!j->poll_for_vfs_changes) {
+			j->poll_for_vfs_changes = true;
+			job_assumes(j, kevent_mod((uintptr_t)&j->semaphores, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, 3, j) != -1);
+		}
+	}
 }
 
 void
@@ -3815,7 +3840,7 @@ job_keepalive(job_t j)
 			break;
 		case DIR_NOT_EMPTY:
 			if (-1 == (qdir_file_cnt = dir_has_files(j, si->what))) {
-				job_log_error(j, LOG_ERR, "dir_has_files(\"%s\", ...)", si->what);
+				job_log_error(j, LOG_ERR, "Failed to count the number of files in \"%s\"", si->what);
 			} else if (qdir_file_cnt > 0) {
 				job_log(j, LOG_DEBUG, "KeepAlive: Directory is not empty: %s", si->what);
 				return true;
