@@ -1566,6 +1566,7 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 	case 'I':
 		if (strcasecmp(key, LAUNCH_JOBKEY_INETDCOMPATIBILITY) == 0) {
 			j->inetcompat = true;
+			j->abandon_pg = true;
 			if ((tmp = launch_data_dict_lookup(value, LAUNCH_JOBINETDCOMPATIBILITY_WAIT))) {
 				j->inetcompat_wait = launch_data_get_bool(tmp);
 			}
