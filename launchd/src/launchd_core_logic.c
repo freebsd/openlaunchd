@@ -4122,6 +4122,19 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 
 	jobmgr_log(jm, LOG_DEBUG, "Garbage collecting.");
 
+	/*
+	 * Normally, we wait for all resources of a job (Unix PIDs/FDs and Mach ports)
+	 * to reset before we conider the job truly dead and ready to be spawned again.
+	 *
+	 * In order to work around 5487724 and 3456090, we're going to call reboot()
+	 * when the last PID dies and not wait for the associated resources to reset.
+	 */
+	if (getpid() == 1 && jm->parentmgr == NULL && total_children == 0) {
+		jobmgr_log(jm, LOG_DEBUG, "About to force a call to: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
+		runtime_closelog();
+		jobmgr_assumes(jm, reboot(jm->reboot_flags) != -1);
+	}
+
 	if (jm->hopefully_first_cnt) {
 		return jm;
 	}
