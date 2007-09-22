@@ -992,6 +992,7 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 	jr->mach_uid = uid;
 	jr->ondemand = ond;
 	jr->legacy_mach_job = true;
+	jr->abandon_pg = true;
 	jr->priv_port_has_senders = true; /* the IPC that called us will make-send on this port */
 
 	if (!job_setup_machport(jr)) {
