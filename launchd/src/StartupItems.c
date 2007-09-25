@@ -239,7 +239,11 @@ static bool StartupItemSecurityCheck(const char *aPath)
 			syslog(LOG_ERR, "lstat(\"%s\"): %m", aPath);
 		return false;
 	}
-	if (aStatBuf.st_ctimespec.tv_sec > boot_time.tv_sec) {
+	/*
+	 * We check the boot time because of 5409386.
+	 * We ignore the boot time if PPID != 1 because of 5503536.
+	 */
+	if ((aStatBuf.st_ctimespec.tv_sec > boot_time.tv_sec) && (getppid() == 1)) {
 		syslog(LOG_WARNING, "\"%s\" failed sanity check: path was created after boot up", aPath);
 		return false;
 	}
