@@ -37,6 +37,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/proc.h>
 #include <sys/event.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
@@ -180,6 +181,70 @@ mport_demand_loop(void *arg __attribute__((unused)))
 }
 
 const char *
+proc_flags_to_C_names(unsigned int flags)
+{
+#define MAX_PFLAG_STR "P_ADVLOCK|P_CONTROLT|P_LP64|P_NOCLDSTOP|P_PPWAIT|P_PROFIL|P_SELECT|P_CONTINUED|P_SUGID|P_SYSTEM|P_TIMEOUT|P_TRACED|P_RESV3|P_WEXIT|P_EXEC|P_OWEUPC|P_AFFINITY|P_TRANSLATED|P_RESV5|P_CHECKOPENEVT|P_DEPENDENCY_CAPABLE|P_REBOOT|P_TBE|P_RESV7|P_THCWD|P_RESV9|P_RESV10|P_RESV11|P_NOSHLIB|P_FORCEQUOTA|P_NOCLDWAIT|P_NOREMOTEHANG|0xdeadbeeffeedface"
+
+	static char flags_buf[sizeof(MAX_PFLAG_STR)];
+	char *flags_off = NULL;
+
+	if (!flags) {
+		return "";
+	}
+
+	while (flags) {
+		if (flags_off) {
+			*flags_off = '|';
+			flags_off++;
+			*flags_off = '\0';
+		} else {
+			flags_off = flags_buf;
+		}
+
+#define FLAGIF(f) if (flags & f) { flags_off += sprintf(flags_off, #f); flags &= ~f; }
+
+		FLAGIF(P_ADVLOCK)
+		else FLAGIF(P_CONTROLT)
+		else FLAGIF(P_LP64)
+		else FLAGIF(P_NOCLDSTOP)
+		else FLAGIF(P_PPWAIT)
+		else FLAGIF(P_PROFIL)
+		else FLAGIF(P_SELECT)
+		else FLAGIF(P_CONTINUED)
+		else FLAGIF(P_SUGID)
+		else FLAGIF(P_SYSTEM)
+		else FLAGIF(P_TIMEOUT)
+		else FLAGIF(P_TRACED)
+		else FLAGIF(P_RESV3)
+		else FLAGIF(P_WEXIT)
+		else FLAGIF(P_EXEC)
+		else FLAGIF(P_OWEUPC)
+		else FLAGIF(P_AFFINITY)
+		else FLAGIF(P_TRANSLATED)
+		else FLAGIF(P_RESV5)
+		else FLAGIF(P_CHECKOPENEVT)
+		else FLAGIF(P_DEPENDENCY_CAPABLE)
+		else FLAGIF(P_REBOOT)
+		else FLAGIF(P_TBE)
+		else FLAGIF(P_RESV7)
+		else FLAGIF(P_THCWD)
+		else FLAGIF(P_RESV9)
+		else FLAGIF(P_RESV10)
+		else FLAGIF(P_RESV11)
+		else FLAGIF(P_NOSHLIB)
+		else FLAGIF(P_FORCEQUOTA)
+		else FLAGIF(P_NOCLDWAIT)
+		else FLAGIF(P_NOREMOTEHANG)
+		else {
+			flags_off += sprintf(flags_off, "0x%x", flags);
+			flags = 0;
+		}
+	}
+
+	return flags_buf;
+}
+
+const char *
 reboot_flags_to_C_names(unsigned int flags)
 {
 #define MAX_RB_STR "RB_ASKNAME|RB_SINGLE|RB_NOSYNC|RB_KDB|RB_HALT|RB_INITNAME|RB_DFLTROOT|RB_ALTBOOT|RB_UNIPROC|RB_SAFEBOOT|RB_UPSDELAY|0xdeadbeeffeedface"
@@ -194,8 +259,6 @@ reboot_flags_to_C_names(unsigned int flags)
 		} else {
 			flags_off = flags_buf;
 		}
-
-#define FLAGIF(f) if (flags & f) { flags_off += sprintf(flags_off, #f); flags &= ~f; }
 
 		FLAGIF(RB_ASKNAME)
 		else FLAGIF(RB_SINGLE)
@@ -477,6 +540,14 @@ void *
 kqueue_demand_loop(void *arg __attribute__((unused)))
 {
 	fd_set rfds;
+
+	/*
+	 * Yes, at first glance, calling select() on a kqueue seems silly.
+	 *
+	 * This avoids a race condition between the main thread and this helper
+	 * thread by ensuring that we drain kqueue events on the same thread
+	 * that manipulates the kqueue.
+	 */
 
 	for (;;) {
 		FD_ZERO(&rfds);
@@ -1356,6 +1427,15 @@ runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *
 	return runtime_log_pack(outval, outvalCnt);
 }
 
+/*
+ * We should break this into two reference counts.
+ *
+ * One for hard references that would prevent exiting.
+ * One for soft references that would only prevent idle exiting.
+ *
+ * In the long run, reference counting should completely automate when a
+ * process can and should exit.
+ */
 void
 runtime_add_ref(void)
 {

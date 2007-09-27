@@ -77,6 +77,7 @@ bool runtime_get_caller_creds(struct ldcred *ldc);
 
 const char *signal_to_C_name(unsigned int sig);
 const char *reboot_flags_to_C_names(unsigned int flags);
+const char *proc_flags_to_C_names(unsigned int flags);
 
 
 int kevent_bulk_mod(struct kevent *kev, size_t kev_cnt);
