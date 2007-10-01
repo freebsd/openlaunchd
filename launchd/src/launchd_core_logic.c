@@ -2221,6 +2221,7 @@ void
 job_log_stdouterr(job_t j)
 {
 	char *msg, *bufindex, *buf = malloc(BIG_PIPE_SIZE + 1);
+	bool close_log_redir = false;
 	ssize_t rsz;
 
 	if (!job_assumes(j, buf != NULL)) {
@@ -2233,10 +2234,10 @@ job_log_stdouterr(job_t j)
 
 	if (rsz == 0) {
 		job_log(j, LOG_DEBUG, "Standard out/error pipe closed");
-		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
-		j->log_redirect_fd = 0;
-		job_dispatch(j, false);
-	} else if (job_assumes(j, rsz != -1)) {
+		close_log_redir = true;
+	} else if (!job_assumes(j, rsz != -1)) {
+		close_log_redir = true;
+	} else {
 		buf[rsz] = '\0';
 
 		while ((msg = strsep(&bufindex, "\n\r"))) {
@@ -2247,6 +2248,12 @@ job_log_stdouterr(job_t j)
 	}
 
 	free(buf);
+
+	if (close_log_redir) {
+		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
+		j->log_redirect_fd = 0;
+		job_dispatch(j, false);
+	}
 }
 
 void
@@ -3886,8 +3893,12 @@ job_active(job_t j)
 	}
 
 	if (j->log_redirect_fd) {
-		job_assumes(j, j->wait4pipe_eof);
-		return "Standard out/error is still valid";
+		if (job_assumes(j, j->wait4pipe_eof)) {
+			return "Standard out/error is still valid";
+		} else {
+			job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
+			j->log_redirect_fd = 0;
+		}
 	}
 
 	if (j->priv_port_has_senders) {
