@@ -6454,7 +6454,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	job_log(j, LOG_INFO, "Spawned");
+	job_log(jr, LOG_DEBUG, "Spawned by PID %u: %s", j->p, j->label);
 
 	*child_pid = jr->p;
 	*obsvr_port = jr->j_port;
