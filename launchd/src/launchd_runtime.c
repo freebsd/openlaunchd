@@ -647,7 +647,7 @@ launchd_get_bport(mach_port_t *name)
 kern_return_t
 launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 {
-	mach_port_mscount_t msgc = (which == MACH_NOTIFY_NO_SENDERS) ? 1 : 0;
+	mach_port_mscount_t msgc = (which == MACH_NOTIFY_PORT_DESTROYED) ? 0 : 1;
 	mach_port_t previous, where = (which == MACH_NOTIFY_NO_SENDERS) ? name : launchd_internal_port;
 
 	if (which == MACH_NOTIFY_NO_SENDERS) {
