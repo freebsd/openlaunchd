@@ -2515,6 +2515,11 @@ job_start(job_t j)
 			job_assumes(j, runtime_close(spair[0]) == 0);
 			job_assumes(j, runtime_close(spair[1]) == 0);
 		}
+		if (!j->legacy_mach_job) {
+			job_assumes(j, runtime_close(oepair[0]) != -1);
+			job_assumes(j, runtime_close(oepair[1]) != -1);
+			j->log_redirect_fd = 0;
+		}
 		break;
 	case 0:
 		if (_vproc_post_fork_ping()) {
@@ -6447,7 +6452,10 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	job_assumes(jr, jr->p);
+	if (!job_assumes(jr, jr->p)) {
+		job_remove(jr);
+		return BOOTSTRAP_NO_MEMORY;
+	}
 
 	if (!job_setup_machport(jr)) {
 		job_remove(jr);
