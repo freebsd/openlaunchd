@@ -115,6 +115,10 @@ static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 };
 static sigset_t sigign_set;
 
+static int internal_mask_pri = LOG_UPTO(LOG_NOTICE);
+//static int internal_mask_pri = LOG_UPTO(LOG_DEBUG);
+
+
 void
 launchd_runtime_init(void)
 {
@@ -247,7 +251,7 @@ proc_flags_to_C_names(unsigned int flags)
 const char *
 reboot_flags_to_C_names(unsigned int flags)
 {
-#define MAX_RB_STR "RB_ASKNAME|RB_SINGLE|RB_NOSYNC|RB_KDB|RB_HALT|RB_INITNAME|RB_DFLTROOT|RB_ALTBOOT|RB_UNIPROC|RB_SAFEBOOT|RB_UPSDELAY|0xdeadbeeffeedface"
+#define MAX_RB_STR "RB_ASKNAME|RB_SINGLE|RB_NOSYNC|RB_HALT|RB_INITNAME|RB_DFLTROOT|RB_ALTBOOT|RB_UNIPROC|RB_SAFEBOOT|RB_UPSDELAY|0xdeadbeeffeedface"
 	static char flags_buf[sizeof(MAX_RB_STR)];
 	char *flags_off = NULL;
 
@@ -263,7 +267,6 @@ reboot_flags_to_C_names(unsigned int flags)
 		FLAGIF(RB_ASKNAME)
 		else FLAGIF(RB_SINGLE)
 		else FLAGIF(RB_NOSYNC)
-		else FLAGIF(RB_KDB)
 		else FLAGIF(RB_HALT)
 		else FLAGIF(RB_INITNAME)
 		else FLAGIF(RB_DFLTROOT)
@@ -337,6 +340,10 @@ log_kevent_struct(int level, struct kevent *kev, int indx)
 	char *fflags_off = NULL;
 	unsigned short flags = kev->flags;
 	unsigned int fflags = kev->fflags;
+
+	if (!(LOG_MASK(level) & internal_mask_pri)) {
+		return;
+	}
 
 	if (flags) while (flags) {
 		if (flags_off) {
@@ -1117,9 +1124,6 @@ runtime_fsync(int fd)
 		return fsync(fd);
 	}
 }
-
-static int internal_mask_pri = LOG_UPTO(LOG_NOTICE);
-//static int internal_mask_pri = LOG_UPTO(LOG_DEBUG);
 
 int
 runtime_setlogmask(int maskpri)
