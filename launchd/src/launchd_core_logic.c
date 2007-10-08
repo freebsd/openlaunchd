@@ -4147,6 +4147,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 	 * when the last PID dies and not wait for the associated resources to reset.
 	 */
 	if (getpid() == 1 && jm->parentmgr == NULL && total_children == 0) {
+		jobmgr_log_stray_children(jm);
 		jobmgr_log(jm, LOG_DEBUG, "About to force a call to: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
 		runtime_closelog();
 		jobmgr_assumes(jm, reboot(jm->reboot_flags) != -1);
