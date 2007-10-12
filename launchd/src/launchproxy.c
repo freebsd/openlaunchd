@@ -194,6 +194,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 				}
 			}
 			fcntl(r, F_SETFL, 0);
+			fcntl(r, F_SETFD, 1);
 			dup2(r, STDIN_FILENO);
 			if (dupstdout)
 				dup2(r, STDOUT_FILENO);
