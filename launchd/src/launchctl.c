@@ -74,6 +74,9 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <bootfiles.h>
 #include <sysexits.h>
 #include <util.h>
+#include <spawn.h>
+
+extern char **environ;
 
 
 #define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
@@ -132,7 +135,7 @@ static void print_launchd_env(launch_data_t obj, const char *key, void *context)
 static void _log_launchctl_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
 static void loopback_setup_ipv4(void);
 static void loopback_setup_ipv6(void);
-static pid_t fwexec(const char *const *argv, bool _wait);
+static pid_t fwexec(const char *const *argv, int *wstatus);
 static void do_potential_fsck(void);
 static bool path_check(const char *path);
 static bool is_safeboot(void);
@@ -1404,19 +1407,19 @@ system_specific_bootstrap(bool sflag)
 
 	if (path_check("/etc/rc.server")) {
 		const char *rcserver_tool[] = { _PATH_BSHELL, "/etc/rc.server", NULL };
-		assumes(fwexec(rcserver_tool, true) != -1);
+		assumes(fwexec(rcserver_tool, NULL) != -1);
 	}
 
 	apply_sysctls_from_file("/etc/sysctl.conf");
 
 	if (path_check("/etc/rc.cdrom")) {
 		const char *rccdrom_tool[] = { _PATH_BSHELL, "/etc/rc.cdrom", "multiuser", NULL };
-		assumes(fwexec(rccdrom_tool, true) != -1);
+		assumes(fwexec(rccdrom_tool, NULL) != -1);
 		assumes(reboot(RB_HALT) != -1);
 		_exit(EXIT_FAILURE);
 	} else if (is_netboot()) {
 		const char *rcnetboot_tool[] = { _PATH_BSHELL, "/etc/rc.netboot", "init", NULL };
-		if (!assumes(fwexec(rcnetboot_tool, true) != -1)) {
+		if (!assumes(fwexec(rcnetboot_tool, NULL) != -1)) {
 			assumes(reboot(RB_HALT) != -1);
 			_exit(EXIT_FAILURE);
 		}
@@ -1432,12 +1435,12 @@ system_specific_bootstrap(bool sflag)
 
 	if (path_check("/etc/fstab")) {
 		const char *mount_tool[] = { "mount", "-vat", "nonfs", NULL };
-		assumes(fwexec(mount_tool, true) != -1);
+		assumes(fwexec(mount_tool, NULL) != -1);
 	}
 
 	if (path_check("/etc/rc.installer_cleanup")) {
 		const char *rccleanup_tool[] = { _PATH_BSHELL, "/etc/rc.installer_cleanup", "multiuser", NULL };
-		assumes(fwexec(rccleanup_tool, true) != -1);
+		assumes(fwexec(rccleanup_tool, NULL) != -1);
 	}
 
 	empty_dir(_PATH_VARRUN, NULL);
@@ -1446,7 +1449,7 @@ system_specific_bootstrap(bool sflag)
 
 	if (path_check("/usr/libexec/dirhelper")) {
 		const char *dirhelper_tool[] = { "/usr/libexec/dirhelper", "-machineBoot", NULL };
-		assumes(fwexec(dirhelper_tool, true) != -1);
+		assumes(fwexec(dirhelper_tool, NULL) != -1);
 	}
 
 	assumes(touch_file(_PATH_UTMPX, DEFFILEMODE) != -1);
@@ -1454,7 +1457,7 @@ system_specific_bootstrap(bool sflag)
 
 	if (path_check("/etc/security/rc.audit")) {
 		const char *audit_tool[] = { _PATH_BSHELL, "/etc/security/rc.audit", NULL };
-		assumes(fwexec(audit_tool, true) != -1);
+		assumes(fwexec(audit_tool, NULL) != -1);
 	}
 
 	do_BootCache_magic(BOOTCACHE_START);
@@ -1553,7 +1556,7 @@ do_BootCache_magic(BootCache_action_t what)
 		return;
 	}
 
-	fwexec(bcc_tool, true);
+	fwexec(bcc_tool, NULL);
 }
 
 int
@@ -2556,7 +2559,7 @@ bsexec_cmd(int argc, char *const argv[])
 	setgid(getgid());
 	setuid(getuid());
 
-	if (fwexec((const char *const *)argv + 2, true) == -1) {
+	if (fwexec((const char *const *)argv + 2, NULL) == -1) {
 		fprintf(stderr, "%s bsexec failed: %s\n", getprogname(), strerror(errno));
 		return 1;
 	}
@@ -2703,29 +2706,25 @@ loopback_setup_ipv6(void)
 }
 
 pid_t
-fwexec(const char *const *argv, bool _wait)
+fwexec(const char *const *argv, int *wstatus)
 {
-	int wstatus;
+	int wstatus2;
 	pid_t p;
 
-	switch ((p = fork())) {
-	case -1:
-		break;
-	case 0:
-		if (!_wait) {
-			setsid();
-		}
-		execvp(argv[0], (char *const *)argv);
-		_exit(EXIT_FAILURE);
-		break;
-	default:
-		if (!_wait)
-			return p;
-		if (p == waitpid(p, &wstatus, 0)) {
-			if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EXIT_SUCCESS)
-				return p;
-		}
-		break;
+	errno = posix_spawnp(&p, argv[0], NULL, NULL, (char **)argv, environ);
+
+	if (errno) {
+		return -1;
+	}
+
+	if (waitpid(p, wstatus ? wstatus : &wstatus2, 0) == -1) {
+		return -1;
+	}
+
+	if (wstatus) {
+		return p;
+	} else if (WIFEXITED(wstatus2) && WEXITSTATUS(wstatus2) == EXIT_SUCCESS) {
+		return p;
 	}
 
 	return -1;
@@ -2755,12 +2754,12 @@ do_potential_fsck(void)
 		}
 #endif
 
-		if (fwexec(fsck_tool, true) != -1) {
+		if (fwexec(fsck_tool, NULL) != -1) {
 			goto out;
 		}
 	}
 
-	if (fwexec(safe_fsck_tool, true) != -1) {
+	if (fwexec(safe_fsck_tool, NULL) != -1) {
 		goto out;
 	}
 
@@ -2778,7 +2777,7 @@ out:
 	 * assumes(mount(sfs.f_fstypename, "/", MNT_UPDATE, NULL) != -1);
 	 */
 
-	assumes(fwexec(remount_tool, true) != -1);
+	assumes(fwexec(remount_tool, NULL) != -1);
 }
 
 bool
@@ -2930,7 +2929,7 @@ apply_sysctls_from_file(const char *thefile)
 			goto skip_sysctl_tool;
 		}
 		sysctl_tool[2] = val;
-		assumes(fwexec(sysctl_tool, true) != -1);
+		assumes(fwexec(sysctl_tool, NULL) != -1);
 skip_sysctl_tool:
 		free(tmpstr);
 	}
@@ -3097,11 +3096,7 @@ do_bootroot_magic(void)
 
 	CFRelease(bootrootProp);
 
-	if (!assumes((p = fwexec(kextcache_tool, false)) != -1)) {
-		return;
-	}
-
-	if (!assumes(waitpid(p, &wstatus, 0) != -1)) {
+	if (!assumes((p = fwexec(kextcache_tool, &wstatus)) != -1)) {
 		return;
 	}
 

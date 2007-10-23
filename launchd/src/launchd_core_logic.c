@@ -132,7 +132,6 @@ struct machservice {
 	LIST_ENTRY(machservice) name_hash_sle;
 	LIST_ENTRY(machservice) port_hash_sle;
 	job_t			job;
-	uint64_t		bad_perf_cnt;
 	unsigned int		gen_num;
 	mach_port_name_t	port;
 	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, per_user_hack:1, debug_on_close:1, per_pid:1, special_port_num:10;
@@ -358,11 +357,11 @@ struct job_s {
 		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
 		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, start_pending:1;
 	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, unload_at_exit:1, stall_before_exec:1, only_once:1,
+	unsigned int globargv:1, wait4debugger:1, internal_exc_handler:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     wait4pipe_eof:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
+		     legacy_LS_job:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
 		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1,
-		     poll_for_vfs_changes:1, internal_exc_handler:1;
+		     poll_for_vfs_changes:1;
 	const char label[0];
 };
 
@@ -396,7 +395,7 @@ static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
 static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
 static void job_postfork_become_user(job_t j);
-static void job_find_and_blame_pids_with_weird_uids(job_t j);
+static void job_log_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_setup_exception_port(job_t j, task_t target_task);
 static void job_reparent_hack(job_t j, const char *where);
@@ -405,6 +404,7 @@ static void job_callback_proc(job_t j, int flags, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static void job_log_stray_pg(job_t j);
+static void job_log_chidren_without_exec(job_t j);
 static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid);
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
@@ -1034,9 +1034,10 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, anonpid };
 	struct kinfo_proc kp;
 	size_t len = sizeof(kp);
-	const char *zombie = NULL;
 	bool shutdown_state;
 	job_t jp = NULL, jr = NULL;
+	uid_t kp_euid, kp_uid, kp_svuid;
+	gid_t kp_egid, kp_gid, kp_svgid;
 
 	if (!jobmgr_assumes(jm, anonpid != 0)) {
 		return NULL;
@@ -1061,8 +1062,23 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (kp.kp_proc.p_stat == SZOMB) {
-		jobmgr_log(jm, LOG_DEBUG, "Tried to create an anonymous job for zombie PID: %u", anonpid);
-		zombie = "zombie";
+		jobmgr_log(jm, LOG_DEBUG, "Tried to create an anonymous job for zombie PID %u: %s", anonpid, kp.kp_proc.p_comm);
+	}
+
+	if (kp.kp_proc.p_flag & P_SUGID) {
+		jobmgr_log(jm, LOG_APPLEONLY, "Inconsistency: P_SUGID is set on PID %u: %s", anonpid, kp.kp_proc.p_comm);
+	}
+
+	kp_euid = kp.kp_eproc.e_ucred.cr_uid;
+	kp_uid = kp.kp_eproc.e_pcred.p_ruid;
+	kp_svuid = kp.kp_eproc.e_pcred.p_svuid;
+	kp_egid = kp.kp_eproc.e_ucred.cr_gid;
+	kp_gid = kp.kp_eproc.e_pcred.p_rgid;
+	kp_svgid = kp.kp_eproc.e_pcred.p_svgid;
+
+	if (kp_euid != kp_uid || kp_euid != kp_svuid || kp_uid != kp_svuid || kp_egid != kp_gid || kp_egid != kp_svgid || kp_gid != kp_svgid) {
+		jobmgr_log(jm, LOG_APPLEONLY, "Inconsistency: Mixed credentials (e/r/s UID %u/%u/%u GID %u/%u/%u) detected on PID %u: %s",
+				kp_euid, kp_uid, kp_svuid, kp_egid, kp_gid, kp_svgid, anonpid, kp.kp_proc.p_comm);
 	}
 
 	switch (kp.kp_eproc.e_ppid) {
@@ -1081,13 +1097,18 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		break;
 	}
 
+	if (jp && !jp->anonymous && !(kp.kp_proc.p_flag & P_EXEC)) {
+		job_log(jp, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn()");
+	}
+
+
 	/* A total hack: Normally, job_new() returns an error during shutdown, but anonymous jobs are special. */
 	if ((shutdown_state = jm->shutting_down)) {
 		jm->shutting_down = false;
 	}
 
-	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, zombie ? zombie : kp.kp_proc.p_comm, NULL)) != NULL)) {
-		u_int proc_fflags = NOTE_EXEC|NOTE_EXIT /* |NOTE_REAP */;
+	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, kp.kp_proc.p_comm, NULL)) != NULL)) {
+		u_int proc_fflags = NOTE_EXEC|NOTE_FORK|NOTE_EXIT /* |NOTE_REAP */;
 
 		total_anon_children++;
 		jr->anonymous = true;
@@ -1107,7 +1128,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		}
 
 		if (shutdown_state && jm->hopefully_first_cnt == 0) {
-			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time");
+			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time.");
 		}
 
 		job_log(jr, LOG_DEBUG, "Created PID %u anonymously by PPID %u%s%s", anonpid, kp.kp_eproc.e_ppid, jp ? ": " : "", jp ? jp->label : "");
@@ -2044,7 +2065,7 @@ job_reap(job_t j)
 		j->weird_bootstrap = false;
 	}
 
-	if (j->log_redirect_fd && !j->wait4pipe_eof) {
+	if (j->log_redirect_fd && !j->legacy_LS_job) {
 		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 	}
@@ -2292,28 +2313,73 @@ job_kill(job_t j)
 }
 
 void
+job_log_chidren_without_exec(job_t j)
+{
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
+	size_t i, kp_cnt, len = 10*1024*1024;
+	struct kinfo_proc *kp;
+
+	if (j->anonymous || j->per_user) {
+		return;
+	}
+
+	if (!job_assumes(j, (kp = malloc(len)) != NULL)) {
+		return;
+	}
+	if (!job_assumes(j, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
+		goto out;
+	}
+
+	kp_cnt = len / sizeof(struct kinfo_proc);
+
+	for (i = 0; i < kp_cnt; i++) {
+		if (kp[i].kp_eproc.e_ppid != j->p) {
+			continue;
+		} else if (kp[i].kp_proc.p_flag & P_EXEC) {
+			continue;
+		}
+
+		job_log(j, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn()");
+	}
+
+out:
+	free(kp);
+}
+
+void
 job_callback_proc(job_t j, int flags, int fflags)
 {
-	if ((fflags & NOTE_EXEC) && j->anonymous) {
-		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, j->p };
-		struct kinfo_proc kp;
-		size_t len = sizeof(kp);
+	bool program_changed = false;
 
-		if (job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)) {
-			char newlabel[1000];
+	if (fflags & NOTE_EXEC) {
+		program_changed = true;
 
-			snprintf(newlabel, sizeof(newlabel), "%p.%s", j, kp.kp_proc.p_comm);
+		if (j->anonymous) {
+			int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, j->p };
+			struct kinfo_proc kp;
+			size_t len = sizeof(kp);
 
-			job_log(j, LOG_DEBUG, "Program changed. Updating the label to: %s", newlabel);
+			if (job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1) && job_assumes(j, len == sizeof(kp))) {
+				char newlabel[1000];
 
-			LIST_REMOVE(j, label_hash_sle);
-			strcpy((char *)j->label, newlabel);
-			LIST_INSERT_HEAD(&label_hash[hash_label(j->label)], j, label_hash_sle);
+				snprintf(newlabel, sizeof(newlabel), "%p.%s", j, kp.kp_proc.p_comm);
+
+				job_log(j, LOG_INFO, "Program changed. Updating the label to: %s", newlabel);
+				j->lastlookup = NULL;
+				j->lastlookup_gennum = 0;
+
+				LIST_REMOVE(j, label_hash_sle);
+				strcpy((char *)j->label, newlabel);
+				LIST_INSERT_HEAD(&label_hash[hash_label(j->label)], j, label_hash_sle);
+			}
+		} else {
+			job_log(j, LOG_DEBUG, "Program changed");
 		}
 	}
 
 	if (fflags & NOTE_FORK) {
-		job_log(j, LOG_DEBUG, "Called fork()");
+		job_log(j, LOG_DEBUG, "fork()ed%s", program_changed ? ". For this message only: We don't know whether this event happened before or after execve()." : "");
+		job_log_chidren_without_exec(j);
 	}
 
 	if (fflags & NOTE_EXIT) {
@@ -2467,7 +2533,7 @@ job_start(job_t j)
 	char nbuf[64];
 	pid_t c;
 	bool sipc = false;
-	u_int proc_fflags = /* NOTE_EXEC|NOTE_FORK| */ NOTE_EXIT /* |NOTE_REAP */;
+	u_int proc_fflags = NOTE_EXIT|NOTE_FORK|NOTE_EXEC /* NOTE_REAP */;
 
 	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
@@ -2762,7 +2828,7 @@ jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
 }
 
 void
-job_find_and_blame_pids_with_weird_uids(job_t j)
+job_log_pids_with_weird_uids(job_t j)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
 	size_t i, kp_cnt, len = 10*1024*1024;
@@ -2834,7 +2900,7 @@ job_postfork_become_user(job_t j)
 	} else if (j->mach_uid) {
 		if ((pwe = getpwuid(j->mach_uid)) == NULL) {
 			job_log(j, LOG_ERR, "getpwuid(\"%u\") failed", j->mach_uid);
-			job_find_and_blame_pids_with_weird_uids(j);
+			job_log_pids_with_weird_uids(j);
 			_exit(EXIT_FAILURE);
 		}
 	} else {
@@ -3750,10 +3816,8 @@ limititem_setup(launch_data_t obj, const char *key, void *context)
 bool
 job_useless(job_t j)
 {
-	/* Yes, j->unload_at_exit and j->only_once seem the same, but they'll differ someday... */
-
-	if ((j->unload_at_exit || j->only_once) && j->start_time != 0) {
-		if (j->unload_at_exit && j->j_port) {
+	if ((j->legacy_LS_job || j->only_once) && j->start_time != 0) {
+		if (j->legacy_LS_job && j->j_port) {
 			return false;
 		}
 		job_log(j, LOG_INFO, "Exited. Was only configured to run once.");
@@ -3916,7 +3980,7 @@ job_active(job_t j)
 	}
 
 	if (j->log_redirect_fd) {
-		if (job_assumes(j, j->wait4pipe_eof)) {
+		if (job_assumes(j, j->legacy_LS_job)) {
 			return "Standard out/error is still valid";
 		} else {
 			job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
@@ -3974,6 +4038,7 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_lo
 
 	strcpy((char *)ms->name, name);
 	ms->job = j;
+	ms->gen_num = 1;
 	ms->per_pid = pid_local;
 
 	if (*serviceport == MACH_PORT_NULL) {
@@ -5725,9 +5790,9 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 
 	runtime_get_caller_creds(&ldc);
 
-#if 0
-	job_log(j, LOG_APPLEONLY, "bootstrap_register() is deprecated. Service: %s", servicename);
-#endif
+	if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && !j->legacy_LS_job) {
+		job_log(j, LOG_APPLEONLY, "Performance: bootstrap_register() is deprecated. Service: %s", servicename);
+	}
 
 	job_log(j, LOG_DEBUG, "%sMach service registration attempt: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 
@@ -5806,17 +5871,16 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 	if (ms) {
 		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
 		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
-#if 0
-		/* After Leopard ships, we should enable this */
+
 		if (j->lastlookup == ms && j->lastlookup_gennum == ms->gen_num && !j->per_user) {
-			ms->bad_perf_cnt++;
-			job_log(j, LOG_APPLEONLY, "Performance opportunity: Number of bootstrap_lookup(... \"%s\" ...) calls that should have been cached: %llu",
-					servicename, ms->bad_perf_cnt);
+			job_log(ms->job, LOG_APPLEONLY, "Performance: Please fix the framework to cache the Mach port for service: %s", servicename);
 		}
+
 		j->lastlookup = ms;
 		j->lastlookup_gennum = ms->gen_num;
-#endif
+
 		*serviceportp = machservice_port(ms);
+
 		kr = BOOTSTRAP_SUCCESS;
 	} else if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && (inherited_bootstrap_port != MACH_PORT_NULL)) {
 		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
@@ -6469,8 +6533,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		jr->mach_uid = ldc.uid;
 	}
 
-	jr->unload_at_exit = true;
-	jr->wait4pipe_eof = true;
+	jr->legacy_LS_job = true;
 	jr->abandon_pg = true;
 	jr->stall_before_exec = jr->wait4debugger;
 	jr->wait4debugger = false;

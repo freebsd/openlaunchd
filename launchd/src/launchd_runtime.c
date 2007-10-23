@@ -1173,22 +1173,23 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 	char newmsg[10000];
 	size_t i, j;
 
-	if (!(LOG_MASK(attr->priority) & internal_mask_pri)) {
-		goto out;
-	}
-
 	if (apple_internal_logging == 1) {
 		apple_internal_logging = stat("/AppleInternal", &sb);
 	}
 
+	if (attr->priority == LOG_APPLEONLY) {
+		if (apple_internal_logging == 0) {
+			attr->priority = LOG_NOTICE;
+		} else {
+			return;
+		}
+	}
+
+	if (!(LOG_MASK(attr->priority) & internal_mask_pri)) {
+		goto out;
+	}
 
 	if (!(debug_shutdown_hangs && getpid() == 1)) {
-		if (attr->priority == LOG_APPLEONLY) {
-			if (apple_internal_logging == -1) {
-				goto out;
-			}
-			attr->priority = LOG_NOTICE;
-		}
 		vsnprintf(newmsg, sizeof(newmsg), message, args);
 		logmsg_add(attr, saved_errno, newmsg);
 		goto out;
