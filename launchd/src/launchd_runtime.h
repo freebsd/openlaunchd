@@ -24,9 +24,52 @@
 #include <sys/types.h>
 #include <bsm/libbsm.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <float.h>
 #include <syslog.h>
 
 #include "launchd_runtime_kill.h"
+
+#if 0
+
+/* I need to do more testing of these macros */
+
+#define min_of_type(x) \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), long double), LDBL_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), double), DBL_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), float), FLT_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), char), 0, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), signed char), INT8_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), short), INT16_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), int), INT32_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), long), (__builtin_choose_expr(sizeof(x) == 4, INT32_MIN, INT64_MIN)), \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), long long), INT64_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned char), 0, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned short), 0, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned int), 0, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned long), 0, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned long long), 0, \
+	(void)0))))))))))))))
+
+#define max_of_type(x) \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), long double), LDBL_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), double), DBL_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), float), FLT_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), char), UINT8_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), signed char), INT8_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), short), INT16_MIN, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), int), INT32_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), long), (__builtin_choose_expr(sizeof(x) == 4, INT32_MAX, INT64_MAX)), \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), long long), INT64_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned char), UINT8_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned short), UINT16_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned int), UINT32_MAX, \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned long), (__builtin_choose_expr(sizeof(x) == 4, UINT32_MAX, UINT64_MAX)), \
+	__builtin_choose_expr(__builtin_types_compatible_p(typeof(x), unsigned long long), UINT64_MAX, \
+	(void)0))))))))))))))
+
+#endif
+
 
 struct ldcred {
 	uid_t   euid;
@@ -34,7 +77,6 @@ struct ldcred {
 	gid_t   egid;
 	gid_t   gid;
 	pid_t   pid;
-	au_asid_t asid;
 };
 
 /*

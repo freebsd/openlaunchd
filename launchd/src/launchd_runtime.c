@@ -959,7 +959,7 @@ runtime_get_caller_creds(struct ldcred *ldc)
 
 	audit_token_to_au32(*au_tok, /* audit UID */ NULL, &ldc->euid,
 			&ldc->egid, &ldc->uid, &ldc->gid, &ldc->pid,
-			&ldc->asid, /* au_tid_t */ NULL);
+			/* au_asid_t */ NULL, /* au_tid_t */ NULL);
 
 	return true;
 }
