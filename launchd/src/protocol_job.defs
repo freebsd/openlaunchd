@@ -63,8 +63,9 @@ routine register2(
 
 routine look_up2(
 		__bs_port	: job_t;
+	sreplyport	__rport	: mach_port_make_send_once_t;
 		__service_name	: name_t;
-	out	__service_port	: mach_port_send_t;
+	out	__service_port	: mach_port_t;
 		__target_pid	: pid_t;
 		__flags		: uint64_t);
 
@@ -76,7 +77,8 @@ routine send_signal(
 
 routine parent(
 		__bs_port	: job_t;
-	out	__parent_port	: mach_port_send_t);
+	sreplyport	__rport	: mach_port_make_send_once_t;
+	out	__parent_port	: mach_port_make_send_t);
 
 routine post_fork_ping(
 		__bs_port	: job_t;

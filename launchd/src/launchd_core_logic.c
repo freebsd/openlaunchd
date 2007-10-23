@@ -91,6 +91,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "protocol_vproc.h"
 #include "protocol_vprocServer.h"
 #include "job_reply.h"
+#include "job_forward.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
 #define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
@@ -5741,7 +5742,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 }
 
 kern_return_t
-job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_msg_type_name_t *ptype, pid_t target_pid, uint64_t flags)
+job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serviceportp, pid_t target_pid, uint64_t flags)
 {
 	struct machservice *ms;
 	struct ldcred ldc;
@@ -5788,12 +5789,12 @@ job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_ms
 		j->lastlookup_gennum = ms->gen_num;
 #endif
 		*serviceportp = machservice_port(ms);
-		*ptype = MACH_MSG_TYPE_COPY_SEND;
 		kr = BOOTSTRAP_SUCCESS;
 	} else if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && (inherited_bootstrap_port != MACH_PORT_NULL)) {
 		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
-		*ptype = MACH_MSG_TYPE_MOVE_SEND;
-		kr = bootstrap_look_up(inherited_bootstrap_port, servicename, serviceportp);
+		job_assumes(j, vproc_mig_look_up2_forward(inherited_bootstrap_port, srp, servicename, 0, 0) == 0);
+		/* The previous routine moved the reply port, we're forced to return MIG_NO_REPLY now */
+		return MIG_NO_REPLY;
 	} else if (getpid() == 1 && j->anonymous && ldc.euid >= 500 && strcasecmp(job_get_bs(j)->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 		/*
 		 * 5240036 Should start background session when a lookup of CCacheServer occurs
@@ -5811,7 +5812,7 @@ job_mig_look_up2(job_t j, name_t servicename, mach_port_t *serviceportp, mach_ms
 }
 
 kern_return_t
-job_mig_parent(job_t j, mach_port_t *parentport, mach_msg_type_name_t *pptype)
+job_mig_parent(job_t j, mach_port_t srp, mach_port_t *parentport)
 {
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -5820,15 +5821,14 @@ job_mig_parent(job_t j, mach_port_t *parentport, mach_msg_type_name_t *pptype)
 	job_log(j, LOG_DEBUG, "Requested parent bootstrap port");
 	jobmgr_t jm = j->mgr;
 
-	*pptype = MACH_MSG_TYPE_MAKE_SEND;
-
 	if (jobmgr_parent(jm)) {
 		*parentport = jobmgr_parent(jm)->jm_port;
 	} else if (MACH_PORT_NULL == inherited_bootstrap_port) {
 		*parentport = jm->jm_port;
 	} else {
-		*pptype = MACH_MSG_TYPE_COPY_SEND;
-		*parentport = inherited_bootstrap_port;
+		job_assumes(j, vproc_mig_parent_forward(inherited_bootstrap_port, srp) == 0);
+		/* The previous routine moved the reply port, we're forced to return MIG_NO_REPLY now */
+		return MIG_NO_REPLY;
 	}
 	return BOOTSTRAP_SUCCESS;
 }

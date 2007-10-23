@@ -96,7 +96,8 @@ launchctl_LINK = $(CCLD) $(launchctl_CFLAGS) $(CFLAGS) \
 am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 	launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c \
 	launchd_internalUser.c launchd_internalServer.c \
-	job_replyUser.c launchd_runtime.c launchd_runtime_kill.c
+	job_replyUser.c launchd_runtime.c launchd_runtime_kill.c \
+	job_forwardUser.c
 @LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_core_logic.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_unix_ipc.$(OBJEXT) \
@@ -106,7 +107,8 @@ am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 @LIBS_ONLY_FALSE@	launchd-launchd_internalServer.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-job_replyUser.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_runtime.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-launchd_runtime_kill.$(OBJEXT)
+@LIBS_ONLY_FALSE@	launchd-launchd_runtime_kill.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-job_forwardUser.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_LINK = $(CCLD) $(launchd_CFLAGS) $(CFLAGS) $(launchd_LDFLAGS) \
@@ -253,7 +255,7 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
@@ -415,6 +417,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-StartupItems.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/SystemStarter-SystemStarter.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchctl-launchctl.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-job_forwardUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-job_replyUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_core_logic.Po@am__quote@
@@ -787,6 +790,20 @@ launchd-launchd_runtime_kill.obj: launchd_runtime_kill.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_runtime_kill.c' object='launchd-launchd_runtime_kill.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_runtime_kill.obj `if test -f 'launchd_runtime_kill.c'; then $(CYGPATH_W) 'launchd_runtime_kill.c'; else $(CYGPATH_W) '$(srcdir)/launchd_runtime_kill.c'; fi`
+
+launchd-job_forwardUser.o: job_forwardUser.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-job_forwardUser.o -MD -MP -MF $(DEPDIR)/launchd-job_forwardUser.Tpo -c -o launchd-job_forwardUser.o `test -f 'job_forwardUser.c' || echo '$(srcdir)/'`job_forwardUser.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-job_forwardUser.Tpo $(DEPDIR)/launchd-job_forwardUser.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='job_forwardUser.c' object='launchd-job_forwardUser.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-job_forwardUser.o `test -f 'job_forwardUser.c' || echo '$(srcdir)/'`job_forwardUser.c
+
+launchd-job_forwardUser.obj: job_forwardUser.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-job_forwardUser.obj -MD -MP -MF $(DEPDIR)/launchd-job_forwardUser.Tpo -c -o launchd-job_forwardUser.obj `if test -f 'job_forwardUser.c'; then $(CYGPATH_W) 'job_forwardUser.c'; else $(CYGPATH_W) '$(srcdir)/job_forwardUser.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-job_forwardUser.Tpo $(DEPDIR)/launchd-job_forwardUser.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='job_forwardUser.c' object='launchd-job_forwardUser.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-job_forwardUser.obj `if test -f 'job_forwardUser.c'; then $(CYGPATH_W) 'job_forwardUser.c'; else $(CYGPATH_W) '$(srcdir)/job_forwardUser.c'; fi`
 install-man1: $(man1_MANS) $(man_MANS)
 	@$(NORMAL_INSTALL)
 	test -z "$(man1dir)" || $(MKDIR_P) "$(DESTDIR)$(man1dir)"
@@ -1149,7 +1166,10 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
 @LIBS_ONLY_FALSE@launchd_runtime.c:: notifyServer.h launchd_internal.h
-@LIBS_ONLY_FALSE@launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h
+@LIBS_ONLY_FALSE@launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h job_forward.h
+
+@LIBS_ONLY_FALSE@job_forwardUser.c job_forward.h: $(srcdir)/protocol_job_forward.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/protocol_job_forward.defs
 
 @LIBS_ONLY_FALSE@notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
