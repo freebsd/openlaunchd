@@ -2,7 +2,7 @@ AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -W
 
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
-	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h __version.c
+	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h __version.c mach_excServer.c mach_excServer.h
 
 protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h: $(srcdir)/protocol_job.defs
 	mig $(MIGFLAGS) -sheader protocol_vprocServer.h $(srcdir)/protocol_job.defs
@@ -48,9 +48,9 @@ SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 launchd_LDFLAGS = -lbsm
-launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c
+launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
 
-launchd_runtime.c:: notifyServer.h launchd_internal.h
+launchd_runtime.c:: notifyServer.h launchd_internal.h mach_excServer.h
 launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h job_forward.h
 
 launchproxy_LDFLAGS = -weak_framework Security
@@ -60,6 +60,9 @@ job_forwardUser.c job_forward.h: $(srcdir)/protocol_job_forward.defs
 
 notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
 	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
+
+mach_excServer.c mach_excServer.h: /usr/include/mach/mach_exc.defs
+	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader mach_excServer.h /usr/include/mach/mach_exc.defs
 
 job_replyUser.c job_reply.h: $(srcdir)/protocol_job_reply.defs
 	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/protocol_job_reply.defs

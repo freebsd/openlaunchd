@@ -98,7 +98,7 @@ typedef void (*kq_callback)(void *, struct kevent *);
 typedef boolean_t (*mig_callback)(mach_msg_header_t *, mach_msg_header_t *);
 typedef void (*timeout_callback)(void);
 
-boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
+mach_port_t runtime_get_kernel_port(void);
 
 void runtime_add_ref(void);
 void runtime_del_ref(void);

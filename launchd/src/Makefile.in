@@ -97,7 +97,7 @@ am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 	launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c \
 	launchd_internalUser.c launchd_internalServer.c \
 	job_replyUser.c launchd_runtime.c launchd_runtime_kill.c \
-	job_forwardUser.c
+	job_forwardUser.c mach_excServer.c
 @LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_core_logic.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_unix_ipc.$(OBJEXT) \
@@ -108,7 +108,8 @@ am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 @LIBS_ONLY_FALSE@	launchd-job_replyUser.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_runtime.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_runtime_kill.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-job_forwardUser.$(OBJEXT)
+@LIBS_ONLY_FALSE@	launchd-job_forwardUser.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-mach_excServer.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_LINK = $(CCLD) $(launchd_CFLAGS) $(CFLAGS) $(launchd_LDFLAGS) \
@@ -240,7 +241,7 @@ top_srcdir = @top_srcdir@
 AM_CFLAGS = -no-cpp-precomp -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -Dmig_external=__private_extern__
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
-	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h __version.c
+	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h __version.c mach_excServer.c mach_excServer.h
 
 @LIBS_ONLY_TRUE@noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 @LIBS_ONLY_TRUE@liblaunch_a_CFLAGS = -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
@@ -255,7 +256,7 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -Wno-unused-parameter
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
@@ -426,6 +427,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime_kill.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_unix_ipc.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-mach_excServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-notifyServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-protocol_vprocServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
@@ -804,6 +806,20 @@ launchd-job_forwardUser.obj: job_forwardUser.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='job_forwardUser.c' object='launchd-job_forwardUser.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-job_forwardUser.obj `if test -f 'job_forwardUser.c'; then $(CYGPATH_W) 'job_forwardUser.c'; else $(CYGPATH_W) '$(srcdir)/job_forwardUser.c'; fi`
+
+launchd-mach_excServer.o: mach_excServer.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-mach_excServer.o -MD -MP -MF $(DEPDIR)/launchd-mach_excServer.Tpo -c -o launchd-mach_excServer.o `test -f 'mach_excServer.c' || echo '$(srcdir)/'`mach_excServer.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-mach_excServer.Tpo $(DEPDIR)/launchd-mach_excServer.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='mach_excServer.c' object='launchd-mach_excServer.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-mach_excServer.o `test -f 'mach_excServer.c' || echo '$(srcdir)/'`mach_excServer.c
+
+launchd-mach_excServer.obj: mach_excServer.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-mach_excServer.obj -MD -MP -MF $(DEPDIR)/launchd-mach_excServer.Tpo -c -o launchd-mach_excServer.obj `if test -f 'mach_excServer.c'; then $(CYGPATH_W) 'mach_excServer.c'; else $(CYGPATH_W) '$(srcdir)/mach_excServer.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-mach_excServer.Tpo $(DEPDIR)/launchd-mach_excServer.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='mach_excServer.c' object='launchd-mach_excServer.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-mach_excServer.obj `if test -f 'mach_excServer.c'; then $(CYGPATH_W) 'mach_excServer.c'; else $(CYGPATH_W) '$(srcdir)/mach_excServer.c'; fi`
 install-man1: $(man1_MANS) $(man_MANS)
 	@$(NORMAL_INSTALL)
 	test -z "$(man1dir)" || $(MKDIR_P) "$(DESTDIR)$(man1dir)"
@@ -1165,7 +1181,7 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_TRUE@	cp liblaunch.a $(DESTDIR)/usr/local/lib/system/liblaunch_debug.a
 @LIBS_ONLY_TRUE@	cp liblaunch_profile.a $(DESTDIR)/usr/local/lib/system/liblaunch_profile.a
 
-@LIBS_ONLY_FALSE@launchd_runtime.c:: notifyServer.h launchd_internal.h
+@LIBS_ONLY_FALSE@launchd_runtime.c:: notifyServer.h launchd_internal.h mach_excServer.h
 @LIBS_ONLY_FALSE@launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h job_forward.h
 
 @LIBS_ONLY_FALSE@job_forwardUser.c job_forward.h: $(srcdir)/protocol_job_forward.defs
@@ -1173,6 +1189,9 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 
 @LIBS_ONLY_FALSE@notifyServer.c notifyServer.h: /usr/include/mach/notify.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader notifyServer.h /usr/include/mach/notify.defs
+
+@LIBS_ONLY_FALSE@mach_excServer.c mach_excServer.h: /usr/include/mach/mach_exc.defs
+@LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -header /dev/null -user /dev/null -sheader mach_excServer.h /usr/include/mach/mach_exc.defs
 
 @LIBS_ONLY_FALSE@job_replyUser.c job_reply.h: $(srcdir)/protocol_job_reply.defs
 @LIBS_ONLY_FALSE@	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/protocol_job_reply.defs

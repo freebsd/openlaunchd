@@ -61,6 +61,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launchd_internalServer.h"
 #include "launchd_internal.h"
 #include "notifyServer.h"
+#include "mach_excServer.h"
 
 /* We shouldn't be including these */
 #include "launch.h"
@@ -86,6 +87,7 @@ static void *mport_demand_loop(void *arg);
 static void *kqueue_demand_loop(void *arg);
 static void log_kevent_struct(int level, struct kevent *kev, int indx);
 
+static boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 static void record_caller_creds(mach_msg_header_t *mh);
 static void launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_reply_error_t *bufReply);
 static mach_msg_size_t max_msg_size;
@@ -114,6 +116,12 @@ static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 	SIGXFSZ, SIGVTALRM, SIGPROF, SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 };
 static sigset_t sigign_set;
+
+mach_port_t
+runtime_get_kernel_port(void)
+{
+	return launchd_internal_port;
+}
 
 static int internal_mask_pri = LOG_UPTO(LOG_NOTICE);
 //static int internal_mask_pri = LOG_UPTO(LOG_DEBUG);
@@ -850,9 +858,11 @@ launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 {
 	if (launchd_internal_server_routine(Request)) {
 		return launchd_internal_server(Request, Reply);
+	} else if (notify_server_routine(Request)) {
+		return notify_server(Request, Reply);
+	} else {
+		return mach_exc_server(Request, Reply);
 	}
-
-	return notify_server(Request, Reply);
 }
 
 kern_return_t
@@ -1450,4 +1460,58 @@ void
 runtime_del_ref(void)
 {
 	runtime_busy_cnt--;
+}
+
+kern_return_t
+catch_mach_exception_raise(mach_port_t exception_port, mach_port_t thread, mach_port_t task,
+		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt)
+{
+	pid_t p4t = -1;
+
+	launchd_assumes(pid_for_task(task, &p4t) == 0);
+
+	runtime_syslog(LOG_NOTICE, "%s(): PID: %u thread: 0x%x type: 0x%x code: %p codeCnt: 0x%x",
+			__func__, p4t, thread, exception, code, codeCnt);
+
+	launchd_assumes(launchd_mport_deallocate(thread) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_deallocate(task) == KERN_SUCCESS);
+
+	return 0;
+}
+
+kern_return_t
+catch_mach_exception_raise_state(mach_port_t exception_port,
+		exception_type_t exception, const mach_exception_data_t code, mach_msg_type_number_t codeCnt,
+		int *flavor, const thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
+		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
+{
+	runtime_syslog(LOG_NOTICE, "%s(): type: 0x%x code: %p codeCnt: 0x%x flavor: %p old_state: %p old_stateCnt: 0x%x new_state: %p new_stateCnt: %p",
+			__func__, exception, code, codeCnt, flavor, old_state, old_stateCnt, new_state, new_stateCnt);
+
+	memcpy(new_state, old_state, old_stateCnt * sizeof(old_state[0]));
+	*new_stateCnt = old_stateCnt;
+
+	return 0;
+}
+
+kern_return_t
+catch_mach_exception_raise_state_identity(mach_port_t exception_port, mach_port_t thread, mach_port_t task,
+		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt,
+		int *flavor, thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
+		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
+{
+	pid_t p4t = -1;
+
+	launchd_assumes(pid_for_task(task, &p4t) == 0);
+
+	runtime_syslog(LOG_NOTICE, "%s(): PID: %u thread: 0x%x type: 0x%x code: %p codeCnt: 0x%x flavor: %p old_state: %p old_stateCnt: 0x%x new_state: %p new_stateCnt: %p",
+			__func__, p4t, thread, exception, code, codeCnt, flavor, old_state, old_stateCnt, new_state, new_stateCnt);
+
+	memcpy(new_state, old_state, old_stateCnt * sizeof(old_state[0]));
+	*new_stateCnt = old_stateCnt;
+
+	launchd_assumes(launchd_mport_deallocate(thread) == KERN_SUCCESS);
+	launchd_assumes(launchd_mport_deallocate(task) == KERN_SUCCESS);
+
+	return 0;
 }
