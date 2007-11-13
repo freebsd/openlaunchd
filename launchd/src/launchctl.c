@@ -2763,7 +2763,10 @@ do_potential_fsck(void)
 		goto out;
 	}
 
-	fprintf(stderr, "fsck failed! Leaving the root file system read-only...\n");
+	fprintf(stderr, "fsck failed!\n");
+
+	/* someday, we should keep booting read-only, but as of today, other sub-systems cannot handle that scenario */
+	assumes(reboot(RB_HALT) != -1);
 
 	return;
 out:
