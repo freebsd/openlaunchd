@@ -123,7 +123,7 @@ ipc_server_init(void)
 			}
 		}
 	} else {
-		snprintf(ourdir, sizeof(ourdir), "/tmp/launchd-%u.XXXXXX", getpid());
+		snprintf(ourdir, sizeof(ourdir), _PATH_TMP "launchd-%u.XXXXXX", getpid());
 		if (mkdtemp(ourdir) == NULL) {
 			runtime_syslog(LOG_ERR, "Could not create critical directory \"%s\": %m", ourdir);
 			goto out_bad;

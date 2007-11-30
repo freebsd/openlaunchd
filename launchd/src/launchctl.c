@@ -79,7 +79,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 extern char **environ;
 
 
-#define LAUNCH_SECDIR "/tmp/launch-XXXXXX"
+#define LAUNCH_SECDIR _PATH_TMP "launch-XXXXXX"
 
 #define MACHINIT_JOBKEY_ONDEMAND	"OnDemand"
 #define MACHINIT_JOBKEY_SERVICENAME	"ServiceName"

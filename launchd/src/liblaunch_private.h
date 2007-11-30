@@ -24,6 +24,7 @@
 #include <sys/types.h>
 #include <launch.h>
 #include <unistd.h>
+#include <paths.h>
 #include <quarantine.h>
 
 #pragma GCC visibility push(default)
@@ -40,7 +41,7 @@ __BEGIN_DECLS
 #define LAUNCH_KEY_GETRUSAGECHILDREN	"GetResourceUsageChildren"
 
 #define LAUNCHD_SOCKET_ENV		"LAUNCHD_SOCKET"
-#define LAUNCHD_SOCK_PREFIX		"/var/tmp/launchd"
+#define LAUNCHD_SOCK_PREFIX		_PATH_VARTMP "launchd"
 #define LAUNCHD_TRUSTED_FD_ENV		"__LAUNCHD_FD"
 #define LAUNCHD_ASYNC_MSG_KEY		"_AsyncMessage"
 #define LAUNCH_KEY_BATCHCONTROL		"BatchControl"
