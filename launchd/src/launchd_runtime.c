@@ -263,7 +263,11 @@ reboot_flags_to_C_names(unsigned int flags)
 	static char flags_buf[sizeof(MAX_RB_STR)];
 	char *flags_off = NULL;
 
-	if (flags) while (flags) {
+	if (flags == 0) {
+		return "RB_AUTOBOOT";
+	}
+
+	while (flags) {
 		if (flags_off) {
 			*flags_off = '|';
 			flags_off++;
@@ -286,10 +290,9 @@ reboot_flags_to_C_names(unsigned int flags)
 			flags_off += sprintf(flags_off, "0x%x", flags);
 			flags = 0;
 		}
-		return flags_buf;
-	} else {
-		return "RB_AUTOBOOT";
 	}
+
+	return flags_buf;
 }
 
 const char *
