@@ -5759,8 +5759,7 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 	}
 	if (machservice_job(ms) != j) {
 		if (last_warned_pid != ldc.pid) {
-			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. PID %d is not privileged: %s",
-					ldc.pid, servicename);
+			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. The service \"%s\" is owned by: %s", servicename, j->label);
 			last_warned_pid = ldc.pid;
 		}
 		 return BOOTSTRAP_NOT_PRIVILEGED;
