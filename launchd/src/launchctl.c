@@ -151,6 +151,7 @@ static void do_single_user_mode(bool);
 static bool do_single_user_mode2(void);
 static void read_launchd_conf(void);
 static bool job_disabled_logic(launch_data_t obj);
+static void fix_bogus_file_metadata(void);
 
 typedef enum {
 	BOOTCACHE_START = 1,
@@ -2781,7 +2782,66 @@ out:
 	 */
 
 	assumes(fwexec(remount_tool, NULL) != -1);
+
+	fix_bogus_file_metadata();
 }
+
+void
+fix_bogus_file_metadata(void)
+{
+	static const struct {
+		const char *path;
+		const uid_t owner;
+		const gid_t group;
+		const mode_t needed_bits;
+		const mode_t bad_bits;
+	} f[] = {
+		{ "/sbin/launchd", 0, 0, S_IRUSR|S_IXUSR|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH, S_ISUID|S_ISGID|S_ISVTX|S_IWOTH },
+		{ _PATH_TMP, 0, 0, S_ISTXT|S_IRWXU|S_IRWXG|S_IRWXO, S_ISUID|S_ISGID },
+		{ _PATH_VARTMP, 0, 0, S_ISTXT|S_IRWXU|S_IRWXG|S_IRWXO, S_ISUID|S_ISGID },
+	};
+	struct stat sb;
+	size_t i;
+
+	for (i = 0; i < (sizeof(f) / sizeof(f[0])); i++) {
+		mode_t i_needed_bits;
+		mode_t i_bad_bits;
+		bool fix_mode = false;
+		bool fix_id = false;
+
+		if (!assumes(stat(f[i].path, &sb) != -1)) {
+			continue;
+		}
+
+		i_needed_bits = ~sb.st_mode & f[i].needed_bits;
+		i_bad_bits = sb.st_mode & f[i].bad_bits;
+
+		if (i_bad_bits) {
+			fprintf(stderr, "Crucial filesystem check: Removing bogus mode bits 0%o on path: %s\n", i_bad_bits, f[i].path);
+			fix_mode = true;
+		}
+		if (i_needed_bits) {
+			fprintf(stderr, "Crucial filesystem check: Adding missing mode bits 0%o on path: %s\n", i_needed_bits, f[i].path);
+			fix_mode = true;
+		}
+		if (sb.st_uid != f[i].owner) {
+			fprintf(stderr, "Crucial filesystem check: Fixing bogus UID %u on path: %s\n", sb.st_uid, f[i].path);
+			fix_id = true;
+		}
+		if (sb.st_gid != f[i].group) {
+			fprintf(stderr, "Crucial filesystem check: Fixing bogus GID %u on path: %s\n", sb.st_gid, f[i].path);
+			fix_id = true;
+		}
+
+		if (fix_mode) {
+			assumes(chmod(f[i].path, (sb.st_mode & ~i_bad_bits) | i_needed_bits) != -1);
+		}
+		if (fix_id) {
+			assumes(chown(f[i].path, f[i].owner, f[i].group) != -1);
+		}
+	}
+}
+
 
 bool
 path_check(const char *path)
