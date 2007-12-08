@@ -116,7 +116,7 @@ static void waiting4removal_delete(job_t j, struct waiting_for_removal *w4r);
 
 struct mspolicy {
 	SLIST_ENTRY(mspolicy) sle;
-	unsigned int		allow:1, per_pid:1;
+	unsigned int		allow:1, per_pid:1, __junk:30;
 	const char		name[0];
 };
 
@@ -134,7 +134,8 @@ struct machservice {
 	job_t			job;
 	unsigned int		gen_num;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1, per_user_hack:1, debug_on_close:1, per_pid:1, special_port_num:10;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1,
+					per_user_hack:1, debug_on_close:1, per_pid:1, special_port_num:24;
 	const char		name[0];
 };
 
@@ -270,7 +271,7 @@ struct jobmgr_s {
 	unsigned int global_on_demand_cnt;
 	unsigned int hopefully_first_cnt;
 	unsigned int normal_active_cnt;
-	unsigned int sent_stop_to_normal_jobs:1, sent_stop_to_hopefully_last_jobs:1, shutting_down:1, session_initialized:1;
+	unsigned int sent_stop_to_normal_jobs:1, sent_stop_to_hopefully_last_jobs:1, shutting_down:1, session_initialized:1, __junk:28;
 	char name[0];
 };
 
@@ -353,15 +354,15 @@ struct job_s {
 	uint64_t start_time;
 	uint32_t min_run_time;
 	uint32_t start_interval;
-	unsigned int checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
+	unsigned short checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
-		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, start_pending:1;
-	mode_t mask;
-	unsigned int globargv:1, wait4debugger:1, internal_exc_handler:1, stall_before_exec:1, only_once:1,
+		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, start_pending:1,
+		     globargv:1, wait4debugger:1, internal_exc_handler:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     legacy_LS_job:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
 		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1,
-		     poll_for_vfs_changes:1;
+		     poll_for_vfs_changes:1, __junk:12;
+	mode_t mask;
 	const char label[0];
 };
 

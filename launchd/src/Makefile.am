@@ -1,4 +1,4 @@
-AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -freorder-blocks -Dmig_external=__private_extern__
+AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -freorder-blocks -Dmig_external=__private_extern__
 
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
@@ -39,7 +39,7 @@ libexec_PROGRAMS = launchproxy
 
 sysconf_DATA = hostconfig rc.common rc.netboot
 
-launchctl_CFLAGS = $(AM_CFLAGS) -I/System/Library/Frameworks/System.framework/PrivateHeaders
+launchctl_CFLAGS = $(AM_CFLAGS) -isystem /System/Library/Frameworks/System.framework/PrivateHeaders
 launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit -framework Security -weak_library /usr/lib/libedit.dylib
 
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)

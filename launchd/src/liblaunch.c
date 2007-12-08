@@ -138,6 +138,9 @@ struct _launch {
 	size_t	recvlen;
 	size_t	recvfdcnt;
 	int	fd;
+#if __LP64__
+	int	__pad;
+#endif
 };
 
 static launch_data_t launch_data_array_pop_first(launch_data_t where);

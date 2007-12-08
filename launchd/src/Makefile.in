@@ -238,7 +238,7 @@ sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -freorder-blocks -Dmig_external=__private_extern__
+AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wshadow -Wpadded -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -freorder-blocks -Dmig_external=__private_extern__
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
 	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h __version.c mach_excServer.c mach_excServer.h
@@ -249,7 +249,7 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_TRUE@liblaunch_profile_a_CFLAGS = -pg -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
 @LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 @LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc.common rc.netboot
-@LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -I/System/Library/Frameworks/System.framework/PrivateHeaders
+@LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -isystem /System/Library/Frameworks/System.framework/PrivateHeaders
 @LIBS_ONLY_FALSE@launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit -framework Security -weak_library /usr/lib/libedit.dylib
 @LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 @LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
