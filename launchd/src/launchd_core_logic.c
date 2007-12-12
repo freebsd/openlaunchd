@@ -6701,7 +6701,7 @@ do_file_init(void)
 void
 do_unmounts(void)
 {
-	struct statfs buf[100];
+	struct statfs buf[250];
 	int i, found, returned;
 
 	do {
@@ -6712,7 +6712,8 @@ do_unmounts(void)
 			return;
 		}
 
-		for (i = 0; i < returned; i++) {
+		/* Work backwards due to mounts on top of mounts */
+		for (i = returned - 1; i >= 0; i--) {
 			if (strcmp(buf[i].f_mntonname, "/") == 0) {
 				continue;
 			} else if (strncmp(buf[i].f_mntonname, "/dev", strlen("/dev")) == 0) {
