@@ -107,6 +107,8 @@ void launchd_runtime_init(void);
 void launchd_runtime_init2(void);
 void launchd_runtime(void) __attribute__((noreturn));
 
+void launchd_log_vm_stats(void);
+
 int runtime_close(int fd);
 int runtime_fsync(int fd);
 

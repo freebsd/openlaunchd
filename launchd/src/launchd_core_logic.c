@@ -401,7 +401,7 @@ static void job_force_sampletool(job_t j);
 static void job_setup_exception_port(job_t j, task_t target_task);
 static void job_reparent_hack(job_t j, const char *where);
 static void job_callback(void *obj, struct kevent *kev);
-static void job_callback_proc(job_t j, int flags, int fflags);
+static void job_callback_proc(job_t j, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static void job_log_stray_pg(job_t j);
@@ -752,6 +752,9 @@ jobmgr_remove(jobmgr_t jm)
 		runtime_del_ref();
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 	} else if (getpid() == 1) {
+		jobmgr_log(jm, LOG_DEBUG, "About to call: sync()");
+		sync(); /* We're are going to rely on log timestamps to benchmark this call */
+		launchd_log_vm_stats();
 		jobmgr_log(jm, LOG_DEBUG, "About to call: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
 		runtime_closelog();
 		jobmgr_assumes(jm, reboot(jm->reboot_flags) != -1);
@@ -1109,7 +1112,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (jobmgr_assumes(jm, (jr = job_new(jm, AUTO_PICK_LEGACY_LABEL, kp.kp_proc.p_comm, NULL)) != NULL)) {
-		u_int proc_fflags = NOTE_EXEC|NOTE_FORK|NOTE_EXIT /* |NOTE_REAP */;
+		u_int proc_fflags = NOTE_EXEC|NOTE_FORK|NOTE_EXIT|NOTE_REAP;
 
 		total_anon_children++;
 		jr->anonymous = true;
@@ -2348,7 +2351,7 @@ out:
 }
 
 void
-job_callback_proc(job_t j, int flags, int fflags)
+job_callback_proc(job_t j, int fflags)
 {
 	bool program_changed = false;
 
@@ -2394,15 +2397,9 @@ job_callback_proc(job_t j, int flags, int fflags)
 		}
 	}
 
-	/* NOTE_REAP sanity checking is disabled for now while we try and diagnose 5289559 */
-#if 0
 	if (j && (fflags & NOTE_REAP)) {
-		job_assumes(j, flags & EV_ONESHOT);
-		job_assumes(j, flags & EV_EOF);
-
 		job_assumes(j, j->p == 0);
 	}
-#endif
 }
 
 void
@@ -2510,7 +2507,7 @@ job_callback(void *obj, struct kevent *kev)
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
-		return job_callback_proc(j, kev->flags, kev->fflags);
+		return job_callback_proc(j, kev->fflags);
 	case EVFILT_TIMER:
 		return job_callback_timer(j, (void *)kev->ident);
 	case EVFILT_VNODE:
@@ -2534,7 +2531,7 @@ job_start(job_t j)
 	char nbuf[64];
 	pid_t c;
 	bool sipc = false;
-	u_int proc_fflags = NOTE_EXIT|NOTE_FORK|NOTE_EXEC /* NOTE_REAP */;
+	u_int proc_fflags = NOTE_EXIT|NOTE_FORK|NOTE_EXEC|NOTE_REAP;
 
 	if (!job_assumes(j, j->mgr != NULL)) {
 		return;
@@ -2687,11 +2684,11 @@ do_first_per_user_launchd_hack(void)
 void
 job_start_child(job_t j)
 {
+	typeof(posix_spawn) *psf;
 	const char *file2exec = "/usr/libexec/launchproxy";
 	const char **argv;
 	posix_spawnattr_t spattr;
 	int gflags = GLOB_NOSORT|GLOB_NOCHECK|GLOB_TILDE|GLOB_DOOFFS;
-	pid_t junk_pid;
 	glob_t g;
 	short spflags = POSIX_SPAWN_SETEXEC;
 	size_t binpref_out_cnt = 0;
@@ -2769,13 +2766,14 @@ job_start_child(job_t j)
 		}
 	}
 
-	if (j->prog) {
-		errno = posix_spawn(&junk_pid, j->inetcompat ? file2exec : j->prog, NULL, &spattr, (char *const*)argv, environ);
-		job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", j->prog);
-	} else {
-		errno = posix_spawnp(&junk_pid, j->inetcompat ? file2exec : argv[0], NULL, &spattr, (char *const*)argv, environ);
-		job_log_error(j, LOG_ERR, "posix_spawnp(\"%s\", ...)", argv[0]);
+	psf = j->prog ? posix_spawn : posix_spawnp;
+
+	if (!j->inetcompat) {
+		file2exec = j->prog ? j->prog : argv[0];
 	}
+
+	errno = psf(NULL, file2exec, NULL, &spattr, (char *const*)argv, environ);
+	job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", j->prog);
 
 out_bad:
 	_exit(EXIT_FAILURE);
@@ -4233,20 +4231,6 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 	}
 
 	jobmgr_log(jm, LOG_DEBUG, "Garbage collecting.");
-
-	/*
-	 * Normally, we wait for all resources of a job (Unix PIDs/FDs and Mach ports)
-	 * to reset before we conider the job truly dead and ready to be spawned again.
-	 *
-	 * In order to work around 5487724 and 3456090, we're going to call reboot()
-	 * when the last PID dies and not wait for the associated resources to reset.
-	 */
-	if (getpid() == 1 && jm->parentmgr == NULL && total_children == 0) {
-		jobmgr_log_stray_children(jm);
-		jobmgr_log(jm, LOG_DEBUG, "About to force a call to: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
-		runtime_closelog();
-		jobmgr_assumes(jm, reboot(jm->reboot_flags) != -1);
-	}
 
 	if (jm->hopefully_first_cnt) {
 		return jm;

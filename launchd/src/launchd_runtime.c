@@ -869,7 +869,7 @@ launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 }
 
 kern_return_t
-do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
+do_mach_notify_port_destroyed(mach_port_t notify __attribute__((unused)), mach_port_t rights)
 {
 	/* This message is sent to us when a receive right is returned to us. */
 
@@ -881,7 +881,7 @@ do_mach_notify_port_destroyed(mach_port_t notify, mach_port_t rights)
 }
 
 kern_return_t
-do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
+do_mach_notify_port_deleted(mach_port_t notify __attribute__((unused)), mach_port_name_t name __attribute__((unused)))
 {
 	/* If we deallocate/destroy/mod_ref away a port with a pending
 	 * notification, the original notification message is replaced with
@@ -892,7 +892,7 @@ do_mach_notify_port_deleted(mach_port_t notify, mach_port_name_t name)
 }
 
 kern_return_t
-do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
+do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount __attribute__((unused)))
 {
 	job_t j = job_mig_intran(notify);
 
@@ -910,7 +910,7 @@ do_mach_notify_no_senders(mach_port_t notify, mach_port_mscount_t mscount)
 }
 
 kern_return_t
-do_mach_notify_send_once(mach_port_t notify)
+do_mach_notify_send_once(mach_port_t notify __attribute__((unused)))
 {
 	/* This message is sent to us every time we close a port that we have
 	 * outstanding Mach notification requests on. We can safely ignore this
@@ -921,7 +921,7 @@ do_mach_notify_send_once(mach_port_t notify)
 }
 
 kern_return_t
-do_mach_notify_dead_name(mach_port_t notify, mach_port_name_t name)
+do_mach_notify_dead_name(mach_port_t notify __attribute__((unused)), mach_port_name_t name)
 {
 	/* This message is sent to us when one of our send rights no longer has
 	 * a receiver somewhere else on the system.
@@ -1467,7 +1467,7 @@ runtime_del_ref(void)
 }
 
 kern_return_t
-catch_mach_exception_raise(mach_port_t exception_port, mach_port_t thread, mach_port_t task,
+catch_mach_exception_raise(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
 		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt)
 {
 	pid_t p4t = -1;
@@ -1484,7 +1484,7 @@ catch_mach_exception_raise(mach_port_t exception_port, mach_port_t thread, mach_
 }
 
 kern_return_t
-catch_mach_exception_raise_state(mach_port_t exception_port,
+catch_mach_exception_raise_state(mach_port_t exception_port __attribute__((unused)),
 		exception_type_t exception, const mach_exception_data_t code, mach_msg_type_number_t codeCnt,
 		int *flavor, const thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
 		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
@@ -1499,7 +1499,7 @@ catch_mach_exception_raise_state(mach_port_t exception_port,
 }
 
 kern_return_t
-catch_mach_exception_raise_state_identity(mach_port_t exception_port, mach_port_t thread, mach_port_t task,
+catch_mach_exception_raise_state_identity(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
 		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt,
 		int *flavor, thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
 		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
@@ -1518,4 +1518,52 @@ catch_mach_exception_raise_state_identity(mach_port_t exception_port, mach_port_
 	launchd_assumes(launchd_mport_deallocate(task) == KERN_SUCCESS);
 
 	return 0;
+}
+
+void
+launchd_log_vm_stats(void)
+{
+	static struct vm_statistics orig_stats;
+	static bool did_first_pass;
+	unsigned int count = HOST_VM_INFO_COUNT;
+	struct vm_statistics stats, *statsp;
+	mach_port_t mhs = mach_host_self();
+
+	statsp = did_first_pass ? &stats : &orig_stats;
+
+	if (!launchd_assumes(host_statistics(mhs, HOST_VM_INFO, (host_info_t)statsp, &count) == KERN_SUCCESS)) {
+		return;
+	}
+
+	launchd_assumes(count == HOST_VM_INFO_COUNT);
+
+	if (did_first_pass) {
+		runtime_syslog(LOG_DEBUG, "VM statistics (now - orig): Free: %d Active: %d Inactive: %d Reactivations: %d PageIns: %d PageOuts: %d Faults: %d COW-Faults: %d Purgeable: %d Purges: %d",
+				stats.free_count - orig_stats.free_count,
+				stats.active_count - orig_stats.active_count,
+				stats.inactive_count - orig_stats.inactive_count,
+				stats.reactivations - orig_stats.reactivations,
+				stats.pageins - orig_stats.pageins,
+				stats.pageouts - orig_stats.pageouts,
+				stats.faults - orig_stats.faults,
+				stats.cow_faults - orig_stats.cow_faults,
+				stats.purgeable_count - orig_stats.purgeable_count,
+				stats.purges - orig_stats.purges);
+	} else {
+		runtime_syslog(LOG_DEBUG, "VM statistics (now): Free: %d Active: %d Inactive: %d Reactivations: %d PageIns: %d PageOuts: %d Faults: %d COW-Faults: %d Purgeable: %d Purges: %d",
+				orig_stats.free_count,
+				orig_stats.active_count,
+				orig_stats.inactive_count,
+				orig_stats.reactivations,
+				orig_stats.pageins,
+				orig_stats.pageouts,
+				orig_stats.faults,
+				orig_stats.cow_faults,
+				orig_stats.purgeable_count,
+				orig_stats.purges);
+
+		did_first_pass = true;
+	}
+
+	launchd_mport_deallocate(mhs);
 }

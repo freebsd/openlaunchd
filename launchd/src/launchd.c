@@ -176,7 +176,7 @@ static __attribute__((unused)) typeof(sleep) *__junk_dyld_trick2 = sleep;
 static __attribute__((unused)) typeof(reboot) *__junk_dyld_trick3 = reboot;
 
 void
-fatal_signal_handler(int sig, siginfo_t *si, void *uap)
+fatal_signal_handler(int sig, siginfo_t *si, void *uap __attribute__((unused)))
 {
 	const char *doom_why = "at instruction";
 	char *sample_args[] = { "/usr/bin/sample", "1", "1", "-file", PID1_CRASH_LOGFILE, NULL };
@@ -245,6 +245,7 @@ prep_shutdown_log_dir(void)
 void
 launchd_shutdown(void)
 {
+	struct timeval tvnow;
 	struct stat sb;
 
 	if (shutdown_in_progress) {
@@ -262,6 +263,12 @@ launchd_shutdown(void)
 		prep_shutdown_log_dir();
 		debug_shutdown_hangs = true;
 	}
+
+	if (launchd_assumes(gettimeofday(&tvnow, NULL) != -1)) {
+		runtime_syslog(LOG_NOTICE, "Shutdown began at: %lu.%06u", tvnow.tv_sec, tvnow.tv_usec);
+	}
+
+	launchd_log_vm_stats();
 
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }
@@ -372,7 +379,7 @@ monitor_networking_state(void)
 }
 
 void
-pfsystem_callback(void *obj, struct kevent *kev)
+pfsystem_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
 	bool new_networking_state;
 	char buf[1024];
