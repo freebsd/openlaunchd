@@ -453,6 +453,7 @@ static size_t our_strhash(const char *s) __attribute__((pure));
 static void extract_rcsid_substr(const char *i, char *o, size_t osz);
 static void do_first_per_user_launchd_hack(void);
 static void do_file_init(void) __attribute__((constructor));
+static void do_unmounts(void);
 
 /* file local globals */
 static size_t total_children;
@@ -754,6 +755,8 @@ jobmgr_remove(jobmgr_t jm)
 	} else if (getpid() == 1) {
 		jobmgr_log(jm, LOG_DEBUG, "About to call: sync()");
 		sync(); /* We're are going to rely on log timestamps to benchmark this call */
+		jobmgr_log(jm, LOG_DEBUG, "Unmounting all filesystems except / and /dev");
+		do_unmounts();
 		launchd_log_vm_stats();
 		jobmgr_log(jm, LOG_DEBUG, "About to call: reboot(%s)", reboot_flags_to_C_names(jm->reboot_flags));
 		runtime_closelog();
@@ -6693,4 +6696,33 @@ do_file_init(void)
 {
 	launchd_assert(mach_timebase_info(&tbi) == 0);
 
+}
+
+void
+do_unmounts(void)
+{
+	struct statfs buf[100];
+	int i, found, returned;
+
+	do {
+		returned = getfsstat(buf, sizeof(buf), MNT_NOWAIT);
+		found = 0;
+
+		if (!launchd_assumes(returned != -1)) {
+			return;
+		}
+
+		for (i = 0; i < returned; i++) {
+			if (strcmp(buf[i].f_mntonname, "/") == 0) {
+				continue;
+			} else if (strncmp(buf[i].f_mntonname, "/dev", strlen("/dev")) == 0) {
+				continue;
+			}
+
+			runtime_syslog(LOG_DEBUG, "About to unmount: %s", buf[i].f_mntonname);
+			if (launchd_assumes(unmount(buf[i].f_mntonname, 0) != -1)) {
+				found++;
+			}
+		}
+	} while ((returned == (sizeof(buf) / sizeof(buf[0]))) && (found > 0));
 }
