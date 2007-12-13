@@ -5737,6 +5737,7 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 	static pid_t last_warned_pid = 0;
 	struct machservice *ms;
 	struct ldcred ldc;
+	job_t jo;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -5750,9 +5751,10 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
-	if (machservice_job(ms) != j) {
+
+	if ((jo = machservice_job(ms)) != j) {
 		if (last_warned_pid != ldc.pid) {
-			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. The service \"%s\" is owned by: %s", servicename, j->label);
+			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. The service \"%s\" is owned by: %s", servicename, jo->label);
 			last_warned_pid = ldc.pid;
 		}
 		 return BOOTSTRAP_NOT_PRIVILEGED;
