@@ -1131,7 +1131,7 @@ runtime_closelog(void)
 int
 runtime_fsync(int fd)
 {
-	if (debug_shutdown_hangs) {
+	if (do_apple_internal_logging()) {
 		return fcntl(fd, F_FULLFSYNC, NULL);
 	} else {
 		return fsync(fd);
@@ -1169,19 +1169,13 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
 	static struct timeval shutdown_start;
 	static struct timeval prev_msg;
-	static int apple_internal_logging = 1;
 	struct timeval tvnow, tvd_total, tvd_msg_delta = { 0, 0 };
-	struct stat sb;
 	int saved_errno = errno;
 	char newmsg[10000];
 	size_t i, j;
 
-	if (apple_internal_logging == 1) {
-		apple_internal_logging = stat("/AppleInternal", &sb);
-	}
-
 	if (attr->priority == LOG_APPLEONLY) {
-		if (apple_internal_logging == 0) {
+		if (do_apple_internal_logging()) {
 			attr->priority = LOG_NOTICE;
 		} else {
 			return;
@@ -1192,7 +1186,7 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 		goto out;
 	}
 
-	if (!(debug_shutdown_hangs && getpid() == 1)) {
+	if (getpid() != 1 || !shutdown_in_progress) {
 		vsnprintf(newmsg, sizeof(newmsg), message, args);
 		logmsg_add(attr, saved_errno, newmsg);
 		goto out;
@@ -1566,4 +1560,17 @@ launchd_log_vm_stats(void)
 	}
 
 	launchd_mport_deallocate(mhs);
+}
+
+bool
+do_apple_internal_logging(void)
+{
+	static int apple_internal_logging = 1;
+	struct stat sb;
+
+	if (apple_internal_logging == 1) {
+		apple_internal_logging = stat("/AppleInternal", &sb);
+	}
+
+	return (apple_internal_logging == 0);
 }

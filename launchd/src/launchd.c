@@ -99,8 +99,7 @@ static bool re_exec_in_single_user_mode = false;
 static void *crash_addr;
 static pid_t crash_pid;
 
-static bool shutdown_in_progress = false;
-bool debug_shutdown_hangs = false;
+bool shutdown_in_progress = false;
 bool network_up = false;
 
 int
@@ -246,7 +245,6 @@ void
 launchd_shutdown(void)
 {
 	struct timeval tvnow;
-	struct stat sb;
 
 	if (shutdown_in_progress) {
 		return;
@@ -254,14 +252,13 @@ launchd_shutdown(void)
 
 	shutdown_in_progress = true;
 
-	if (getpid() == 1 && stat("/var/db/debugShutdownHangs", &sb) != -1) {
+	if (getpid() == 1) {
 		/*
 		 * When this changes to a more sustainable API, update this:
 		 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
 		 */
 		runtime_setlogmask(LOG_UPTO(LOG_DEBUG));
 		prep_shutdown_log_dir();
-		debug_shutdown_hangs = true;
 	}
 
 	if (launchd_assumes(gettimeofday(&tvnow, NULL) != -1)) {

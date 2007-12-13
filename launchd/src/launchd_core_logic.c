@@ -710,7 +710,7 @@ jobmgr_shutdown(jobmgr_t jm)
 		}
 	}
 
-	if (debug_shutdown_hangs && jm->parentmgr == NULL && getpid() == 1) {
+	if (do_apple_internal_logging() && jm->parentmgr == NULL && getpid() == 1) {
 		runtime_set_timeout(still_alive_with_check, 5);
 	}
 
@@ -4294,7 +4294,7 @@ void
 jobmgr_log_stray_children(jobmgr_t jm)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
-	size_t i, kp_cnt, len = 10*1024*1024;
+	size_t i, kp_cnt = 0, kp_skipped = 0, len = 10*1024*1024;
 	struct kinfo_proc *kp;
 
 	if (jm->parentmgr || getpid() != 1) {
@@ -4318,6 +4318,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 		const char *n = kp[i].kp_proc.p_comm;
 
 		if (p_i == 0 || p_i == 1) {
+			kp_skipped++;
 			continue;
 		}
 
@@ -4330,6 +4331,10 @@ jobmgr_log_stray_children(jobmgr_t jm)
 	}
 
 out:
+	if (kp_cnt == kp_skipped) {
+		jobmgr_log(jm, LOG_DEBUG, "No stray processes at shutdown");
+	}
+
 	free(kp);
 }
 
@@ -4766,7 +4771,7 @@ job_force_sampletool(job_t j)
 	int wstatus;
 	pid_t sp;
 
-	if (!debug_shutdown_hangs) {
+	if (!do_apple_internal_logging()) {
 		return;
 	}
 	
@@ -6702,7 +6707,7 @@ void
 do_unmounts(void)
 {
 	struct statfs buf[250];
-	int i, found, returned;
+	int r, i, found, returned;
 
 	do {
 		returned = getfsstat(buf, sizeof(buf), MNT_NOWAIT);
@@ -6720,8 +6725,11 @@ do_unmounts(void)
 				continue;
 			}
 
-			runtime_syslog(LOG_DEBUG, "About to unmount: %s", buf[i].f_mntonname);
-			if (launchd_assumes(unmount(buf[i].f_mntonname, 0) != -1)) {
+			r = unmount(buf[i].f_mntonname, 0);
+
+			runtime_syslog(LOG_DEBUG, "unmount(\"%s\", 0): %s", buf[i].f_mntonname, r == -1 ? strerror(errno) : "Success");
+
+			if (r != -1) {
 				found++;
 			}
 		}

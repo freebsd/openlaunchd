@@ -123,6 +123,7 @@ const char *signal_to_C_name(unsigned int sig);
 const char *reboot_flags_to_C_names(unsigned int flags);
 const char *proc_flags_to_C_names(unsigned int flags);
 
+bool do_apple_internal_logging(void);
 
 int kevent_bulk_mod(struct kevent *kev, size_t kev_cnt);
 int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);

@@ -31,7 +31,7 @@
 struct kevent;
 struct conncb;
 
-extern bool debug_shutdown_hangs;
+extern bool shutdown_in_progress;
 extern bool network_up;
 
 bool init_check_pid(pid_t);
