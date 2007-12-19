@@ -798,6 +798,17 @@ job_remove(job_t j)
 
 	ipc_close_all_with_job(j);
 
+#if DO_RUSAGE_SUMMATION
+	job_log(j, LOG_INFO, "Total rusage: utime %ld.%06u stime %ld.%06u maxrss %lu ixrss %lu idrss %lu isrss %lu minflt %lu majflt %lu nswap %lu inblock %lu oublock %lu msgsnd %lu msgrcv %lu nsignals %lu nvcsw %lu nivcsw %lu",
+			j->ru.ru_utime.tv_sec, j->ru.ru_utime.tv_usec,
+			j->ru.ru_stime.tv_sec, j->ru.ru_stime.tv_usec,
+			j->ru.ru_maxrss, j->ru.ru_ixrss, j->ru.ru_idrss, j->ru.ru_isrss,
+			j->ru.ru_minflt, j->ru.ru_majflt,
+			j->ru.ru_nswap, j->ru.ru_inblock, j->ru.ru_oublock,
+			j->ru.ru_msgsnd, j->ru.ru_msgrcv,
+			j->ru.ru_nsignals, j->ru.ru_nvcsw, j->ru.ru_nivcsw);
+#endif
+
 	if (j->forced_peers_to_demand_mode) {
 		job_set_global_on_demand(j, false);
 	}
