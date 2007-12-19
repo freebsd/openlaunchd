@@ -2084,8 +2084,12 @@ job_reap(job_t j)
 	}
 
 	if (j->log_redirect_fd && !j->legacy_LS_job) {
-		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
-		j->log_redirect_fd = 0;
+		job_log_stdouterr(j); /* one last chance */
+
+		if (j->log_redirect_fd) {
+			job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
+			j->log_redirect_fd = 0;
+		}
 	}
 
 	if (j->forkfd) {

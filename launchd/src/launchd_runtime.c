@@ -1183,13 +1183,13 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 	}
 
 	if (!(LOG_MASK(attr->priority) & internal_mask_pri)) {
-		goto out;
+		return;
 	}
 
 	if (getpid() != 1 || !shutdown_in_progress) {
 		vsnprintf(newmsg, sizeof(newmsg), message, args);
 		logmsg_add(attr, saved_errno, newmsg);
-		goto out;
+		return;
 	}
 
 	if (shutdown_start.tv_sec == 0) {
@@ -1211,11 +1211,11 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 	pthread_mutex_unlock(&ourlock);
 
 	if (ourlogfile == NULL) {
-		goto out;
+		return;
 	}
 
 	if (message == NULL) {
-		goto out;
+		return;
 	}
 
 	timersub(&tvnow, &shutdown_start, &tvd_total);
@@ -1248,9 +1248,6 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 	strcpy(newmsg + j, "\n");
 
 	vfprintf(ourlogfile, newmsg, args);
-
-out:
-	runtime_log_uncork_pending_drain();
 }
 
 bool
@@ -1375,6 +1372,7 @@ runtime_log_push(void)
 		launchd_assumes(STAILQ_EMPTY(&logmsg_queue));
 		return;
 	} else if (getpid() == 1) {
+		runtime_log_uncork_pending_drain();
 		return;
 	}
 
