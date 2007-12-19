@@ -23,7 +23,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include <mach/mach.h>
 #include <mach/mach_error.h>
-#include <mach/mach_time.h>
 #include <mach/boolean.h>
 #include <mach/message.h>
 #include <mach/notify.h>
@@ -452,7 +451,6 @@ static char **mach_cmd2argv(const char *string);
 static size_t our_strhash(const char *s) __attribute__((pure));
 static void extract_rcsid_substr(const char *i, char *o, size_t osz);
 static void do_first_per_user_launchd_hack(void);
-static void do_file_init(void) __attribute__((constructor));
 static void do_unmounts(void);
 
 /* file local globals */
@@ -463,7 +461,6 @@ static bool did_first_per_user_launchd_BootCache_hack;
 #define JOB_BOOTCACHE_HACK_CHECK(j)	(j->per_user && !did_first_per_user_launchd_BootCache_hack && (j->mach_uid >= 500) && (j->mach_uid != (uid_t)-2))
 static jobmgr_t background_jobmgr;
 static job_t workaround_5477111;
-static mach_timebase_info_data_t tbi;
 
 /* process wide globals */
 mach_port_t inherited_bootstrap_port;
@@ -539,7 +536,7 @@ job_stop(job_t j)
 	}
 
 	job_assumes(j, runtime_kill(j->p, SIGTERM) != -1);
-	j->sent_sigterm_time = mach_absolute_time();
+	j->sent_sigterm_time = runtime_get_opaque_time();
 
 	if (j->exit_timeout) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
@@ -2150,7 +2147,7 @@ job_reap(job_t j)
 	}
 
 	if (j->sent_sigterm_time) {
-		uint64_t td_sec, td_usec, td = (mach_absolute_time() - j->sent_sigterm_time) * tbi.numer / tbi.denom;
+		uint64_t td_sec, td_usec, td = runtime_opaque_time_to_nano(runtime_get_opaque_time() - j->sent_sigterm_time);
 
 		td_sec = td / NSEC_PER_SEC;
 		td_usec = (td % NSEC_PER_SEC) / NSEC_PER_USEC;
@@ -2432,7 +2429,7 @@ job_callback_timer(job_t j, void *ident)
 		job_dispatch(j, false);
 	} else if (&j->exit_timeout == ident) {
 		if (j->sent_sigkill) {
-			uint64_t td = (mach_absolute_time() - j->sent_sigterm_time) * tbi.numer / tbi.denom;
+			uint64_t td = runtime_opaque_time_to_nano(runtime_get_opaque_time() - j->sent_sigterm_time);
 
 			td /= NSEC_PER_SEC;
 			td -= j->exit_timeout;
@@ -2481,7 +2478,6 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 void
 jobmgr_callback(void *obj, struct kevent *kev)
 {
-	struct timeval tvnow;
 	jobmgr_t jm = obj;
 	job_t ji;
 
@@ -2504,8 +2500,11 @@ jobmgr_callback(void *obj, struct kevent *kev)
 
 			runtime_closelog(); /* HACK -- force 'start' time to be set */
 
-			if (getpid() == 1 && jobmgr_assumes(jm, gettimeofday(&tvnow, NULL) != -1)) {
-				jobmgr_log(jm, LOG_NOTICE, "Anticipatory shutdown began at: %lu.%06u", tvnow.tv_sec, tvnow.tv_usec);
+			if (getpid() == 1) {
+				int64_t now = runtime_get_wall_time();
+
+				jobmgr_log(jm, LOG_NOTICE, "Anticipatory shutdown began at: %lld.%06llu", now / USEC_PER_SEC, now % USEC_PER_SEC);
+
 				LIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
 					if (ji->per_user && ji->p) {
 						job_assumes(ji, runtime_kill(ji->p, SIGUSR2) != -1);
@@ -2562,7 +2561,7 @@ job_callback(void *obj, struct kevent *kev)
 void
 job_start(job_t j)
 {
-	uint64_t td, tnow = mach_absolute_time();
+	uint64_t td, tnow = runtime_get_opaque_time();
 	int spair[2];
 	int execspair[2];
 	int oepair[2];
@@ -2584,10 +2583,10 @@ job_start(job_t j)
 
 	/*
 	 * Some users adjust the wall-clock and then expect software to not notice.
-	 * Therefore, launchd must use an absolute clock instead of gettimeofday()
-	 * or time() wherever possible.
+	 * Therefore, launchd must use an absolute clock instead of the wall clock
+	 * wherever possible.
 	 */
-	td = (tnow - j->start_time) * tbi.numer / tbi.denom;
+	td = runtime_opaque_time_to_nano(tnow - j->start_time);
 	td /= NSEC_PER_SEC;
 
 	if (j->start_time && (td < j->min_run_time) && !j->legacy_mach_job && !j->inetcompat) {
@@ -6734,13 +6733,6 @@ waiting4removal_delete(job_t j, struct waiting_for_removal *w4r)
 	SLIST_REMOVE(&j->removal_watchers, w4r, waiting_for_removal, sle);
 
 	free(w4r);
-}
-
-void
-do_file_init(void)
-{
-	launchd_assert(mach_timebase_info(&tbi) == 0);
-
 }
 
 void

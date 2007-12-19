@@ -70,6 +70,8 @@
 
 #endif
 
+#define	likely(x)	__builtin_expect((bool)(x), true)
+#define	unlikely(x)	__builtin_expect((bool)(x), false)
 
 struct ldcred {
 	uid_t   euid;
@@ -150,6 +152,10 @@ void runtime_closelog(void);
 void runtime_syslog(int pri, const char *message, ...) __attribute__((format(printf, 2, 3)));
 void runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args) __attribute__((format(printf, 2, 0)));
 void runtime_log_push(void);
+
+int64_t runtime_get_wall_time(void);
+uint64_t runtime_get_opaque_time(void);
+uint64_t runtime_opaque_time_to_nano(uint64_t o);
 
 
 kern_return_t launchd_set_bport(mach_port_t name);

@@ -59,7 +59,7 @@ kern_return_t _vprocmgr_getsocket(name_t);
 
 struct logmsg_s {
 	STAILQ_ENTRY(logmsg_s) sqe;
-	struct timeval when;
+	int64_t when;
 	pid_t from_pid;
 	pid_t about_pid;
 	uid_t sender_uid;

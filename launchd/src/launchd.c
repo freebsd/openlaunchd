@@ -245,7 +245,7 @@ prep_shutdown_log_dir(void)
 void
 launchd_shutdown(void)
 {
-	struct timeval tvnow;
+	int64_t now;
 
 	if (shutdown_in_progress) {
 		return;
@@ -264,9 +264,9 @@ launchd_shutdown(void)
 
 	runtime_log_push();
 
-	if (launchd_assumes(gettimeofday(&tvnow, NULL) != -1)) {
-		runtime_syslog(LOG_NOTICE, "Shutdown began at: %lu.%06u", tvnow.tv_sec, tvnow.tv_usec);
-	}
+	now = runtime_get_wall_time();
+
+	runtime_syslog(LOG_NOTICE, "Shutdown began at: %lld.%06llu", now / USEC_PER_SEC, now % USEC_PER_SEC);
 
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }

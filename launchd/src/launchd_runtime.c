@@ -33,6 +33,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <mach/mach_interface.h>
 #include <mach/host_info.h>
 #include <mach/mach_host.h>
+#include <mach/mach_time.h>
 #include <mach/exception.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -109,6 +110,8 @@ static kern_return_t runtime_log_pack(vm_offset_t *outval, mach_msg_type_number_
 static bool logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg);
 static void logmsg_remove(struct logmsg_s *lm);
 
+static void do_file_init(void) __attribute__((constructor));
+static mach_timebase_info_data_t tbi;
 
 static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 	SIGURG, SIGTSTP, SIGTSTP, SIGCONT, SIGTTIN, SIGTTOU, SIGIO, SIGXCPU,
@@ -1209,7 +1212,7 @@ logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg)
 
 	data_off = lm->data;
 
-	launchd_assumes(gettimeofday(&lm->when, NULL) != -1);
+	lm->when = runtime_get_wall_time();
 	lm->from_pid = attr->from_pid;
 	lm->about_pid = attr->about_pid;
 	lm->err_num = err_num;
@@ -1307,8 +1310,7 @@ void
 runtime_log_push(void)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
-	static struct timeval shutdown_start;
-	struct timeval tvd;
+	static int64_t shutdown_start, log_delta;
 	mach_msg_type_number_t outvalCnt;
 	struct logmsg_s *lm;
 	vm_offset_t outval;
@@ -1329,8 +1331,8 @@ runtime_log_push(void)
 		return;
 	}
 
-	if (shutdown_start.tv_sec == 0) {
-		gettimeofday(&shutdown_start, NULL);
+	if (shutdown_start == 0) {
+		shutdown_start = runtime_get_wall_time();
 		launchd_log_vm_stats();
 	}
 
@@ -1349,15 +1351,9 @@ runtime_log_push(void)
 	}
 
 	while ((lm = STAILQ_FIRST(&logmsg_queue))) {
-		timersub(&lm->when, &shutdown_start, &tvd);
+		log_delta = lm->when - shutdown_start;
 
-		/* don't ask */
-		if (tvd.tv_sec < 0) {
-			tvd.tv_sec = 0;
-			tvd.tv_usec = 0;
-		}
-
-		fprintf(ourlogfile, "%3ld.%06d%6u %-40s%6u %-40s %s\n", tvd.tv_sec, tvd.tv_usec,
+		fprintf(ourlogfile, "%8lld%6u %-40s%6u %-40s %s\n", log_delta,
 				lm->from_pid, lm->from_name, lm->about_pid, lm->about_name, lm->msg);
 
 		logmsg_remove(lm);
@@ -1550,3 +1546,55 @@ do_apple_internal_logging(void)
 
 	return (apple_internal_logging == 0);
 }
+
+int64_t
+runtime_get_wall_time(void)
+{
+	struct timeval tv;
+	int64_t r;
+
+	launchd_assumes(gettimeofday(&tv, NULL) != -1);
+
+	r = tv.tv_sec;
+	r *= USEC_PER_SEC;
+	r += tv.tv_usec;
+
+	return r;
+}
+
+uint64_t
+runtime_get_opaque_time(void)
+{
+	return mach_absolute_time();
+}
+
+uint64_t
+runtime_opaque_time_to_nano(uint64_t o)
+{
+#if defined(__i386__)
+	if (unlikely(tbi.numer != tbi.denom)) {
+#elif defined(__ppc__)
+	if (likely(tbi.numer != tbi.denom)) {
+#else
+	if (tbi.numer != tbi.denom) {
+#endif
+		if (o < INT32_MAX) {
+			o *= tbi.numer;
+			o /= tbi.denom;
+		} else {
+			double d = o;
+			d *= tbi.numer;
+			d /= tbi.denom;
+			o = d;
+		}
+	}
+
+	return o;
+}
+
+void
+do_file_init(void)
+{
+	launchd_assert(mach_timebase_info(&tbi) == 0);
+}
+
