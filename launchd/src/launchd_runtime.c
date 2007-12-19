@@ -112,6 +112,7 @@ static void logmsg_remove(struct logmsg_s *lm);
 
 static void do_file_init(void) __attribute__((constructor));
 static mach_timebase_info_data_t tbi;
+static double tbi_float_val;
 
 static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 	SIGURG, SIGTSTP, SIGTSTP, SIGCONT, SIGTTIN, SIGTTOU, SIGIO, SIGXCPU,
@@ -1583,8 +1584,7 @@ runtime_opaque_time_to_nano(uint64_t o)
 			o /= tbi.denom;
 		} else {
 			double d = o;
-			d *= tbi.numer;
-			d /= tbi.denom;
+			d *= tbi_float_val;
 			o = d;
 		}
 	}
@@ -1596,5 +1596,7 @@ void
 do_file_init(void)
 {
 	launchd_assert(mach_timebase_info(&tbi) == 0);
+	tbi_float_val = tbi.numer;
+	tbi_float_val /= tbi.denom;
 }
 
