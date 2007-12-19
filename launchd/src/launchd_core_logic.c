@@ -2481,7 +2481,9 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 void
 jobmgr_callback(void *obj, struct kevent *kev)
 {
+	struct timeval tvnow;
 	jobmgr_t jm = obj;
+	job_t ji;
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
@@ -2496,6 +2498,24 @@ jobmgr_callback(void *obj, struct kevent *kev)
 			return launchd_shutdown();
 		case SIGUSR1:
 			return calendarinterval_callback();
+		case SIGUSR2:
+			fake_shutdown_in_progress = true;
+			runtime_setlogmask(LOG_UPTO(LOG_DEBUG));
+
+			runtime_closelog(); /* HACK -- force 'start' time to be set */
+
+			if (getpid() == 1 && jobmgr_assumes(jm, gettimeofday(&tvnow, NULL) != -1)) {
+				jobmgr_log(jm, LOG_NOTICE, "Anticipatory shutdown began at: %lu.%06u", tvnow.tv_sec, tvnow.tv_usec);
+				LIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
+					if (ji->per_user && ji->p) {
+						job_assumes(ji, runtime_kill(ji->p, SIGUSR2) != -1);
+					}
+				}
+			} else {
+				jobmgr_log(jm, LOG_NOTICE, "Anticipatory per-user launchd shutdown");
+			}
+
+			return;
 		default:
 			return (void)jobmgr_assumes(jm, false);
 		}
@@ -4453,6 +4473,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	if (!jm) {
 		jobmgr_assumes(jmr, kevent_mod(SIGTERM, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
 		jobmgr_assumes(jmr, kevent_mod(SIGUSR1, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
+		jobmgr_assumes(jmr, kevent_mod(SIGUSR2, EVFILT_SIGNAL, EV_ADD, 0, 0, jmr) != -1);
 		jobmgr_assumes(jmr, kevent_mod(0, EVFILT_FS, EV_ADD, VQ_MOUNT|VQ_UNMOUNT|VQ_UPDATE, 0, jmr) != -1);
 	}
 
@@ -5749,7 +5770,6 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 kern_return_t
 job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
-	static pid_t last_warned_pid = 0;
 	struct machservice *ms;
 	struct ldcred ldc;
 	job_t jo;
@@ -5768,11 +5788,14 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 	}
 
 	if ((jo = machservice_job(ms)) != j) {
+		static pid_t last_warned_pid;
+
 		if (last_warned_pid != ldc.pid) {
 			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. The service \"%s\" is owned by: %s", servicename, jo->label);
 			last_warned_pid = ldc.pid;
 		}
-		 return BOOTSTRAP_NOT_PRIVILEGED;
+
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 	if (machservice_active(ms)) {
 		job_log(j, LOG_WARNING, "Check-in of Mach service failed. Already active: %s", servicename);

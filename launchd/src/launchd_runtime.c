@@ -105,7 +105,6 @@ static size_t logmsg_queue_cnt;
 static mach_port_t drain_reply_port;
 static void runtime_log_uncork_pending_drain(void);
 static kern_return_t runtime_log_pack(vm_offset_t *outval, mach_msg_type_number_t *outvalCnt);
-static void runtime_log_push(void);
 
 static bool logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg);
 static void logmsg_remove(struct logmsg_s *lm);
@@ -116,6 +115,8 @@ static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 	SIGXFSZ, SIGVTALRM, SIGPROF, SIGWINCH, SIGINFO, SIGUSR1, SIGUSR2
 };
 static sigset_t sigign_set;
+static FILE *ourlogfile;
+
 
 mach_port_t
 runtime_get_kernel_port(void)
@@ -1117,11 +1118,11 @@ runtime_close(int fd)
 	return close(fd);
 }
 
-static FILE *ourlogfile;
-
 void
 runtime_closelog(void)
 {
+	runtime_log_push();
+
 	if (ourlogfile) {
 		launchd_assumes(fflush(ourlogfile) == 0);
 		launchd_assumes(runtime_fsync(fileno(ourlogfile)) != -1);
@@ -1131,11 +1132,15 @@ runtime_closelog(void)
 int
 runtime_fsync(int fd)
 {
+#if 0
 	if (do_apple_internal_logging()) {
 		return fcntl(fd, F_FULLFSYNC, NULL);
 	} else {
 		return fsync(fd);
 	}
+#else
+	return fsync(fd);
+#endif
 }
 
 int
@@ -1166,13 +1171,8 @@ runtime_syslog(int pri, const char *message, ...)
 void
 runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args)
 {
-	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
-	static struct timeval shutdown_start;
-	static struct timeval prev_msg;
-	struct timeval tvnow, tvd_total, tvd_msg_delta = { 0, 0 };
 	int saved_errno = errno;
 	char newmsg[10000];
-	size_t i, j;
 
 	if (attr->priority == LOG_APPLEONLY) {
 		if (do_apple_internal_logging()) {
@@ -1186,69 +1186,10 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 		return;
 	}
 
-	if (getpid() != 1 || !shutdown_in_progress) {
-		vsnprintf(newmsg, sizeof(newmsg), message, args);
-		logmsg_add(attr, saved_errno, newmsg);
-		return;
-	}
-
-	if (shutdown_start.tv_sec == 0) {
-		gettimeofday(&shutdown_start, NULL);
-	}
-
-	if (gettimeofday(&tvnow, NULL) == -1) {
-		tvnow.tv_sec = 0;
-		tvnow.tv_usec = 0;
-	}
-
-	pthread_mutex_lock(&ourlock);
-
-	if (ourlogfile == NULL) {
-		rename("/var/log/launchd-shutdown.log", "/var/log/launchd-shutdown.log.1");
-		ourlogfile = fopen("/var/log/launchd-shutdown.log", "a");
-	}
-
-	pthread_mutex_unlock(&ourlock);
-
-	if (ourlogfile == NULL) {
-		return;
-	}
-
-	if (message == NULL) {
-		return;
-	}
-
-	timersub(&tvnow, &shutdown_start, &tvd_total);
-
-	if (prev_msg.tv_sec != 0) {
-		timersub(&tvnow, &prev_msg, &tvd_msg_delta);
-	}
-
-	prev_msg = tvnow;
-
-	snprintf(newmsg, sizeof(newmsg), "%3ld.%06d%4ld.%06d%6u %-40s%6u %-40s ",
-			tvd_total.tv_sec, tvd_total.tv_usec,
-			tvd_msg_delta.tv_sec, tvd_msg_delta.tv_usec,
-			attr->from_pid, attr->from_name,
-			attr->about_pid, attr->about_name);
-
-	for (i = 0, j = strlen(newmsg); message[i];) {
-		if (message[i] == '%' && message[i + 1] == 'm') {
-			char *errs = strerror(saved_errno);
-			strcpy(newmsg + j, errs ? errs : "unknown error");
-			j += strlen(newmsg + j);
-			i += 2;
-		} else {
-			newmsg[j] = message[i];
-			j++;
-			i++;
-		}
-	}
-
-	strcpy(newmsg + j, "\n");
-
-	vfprintf(ourlogfile, newmsg, args);
+	vsnprintf(newmsg, sizeof(newmsg), message, args);
+	logmsg_add(attr, saved_errno, newmsg);
 }
+
 
 bool
 logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg)
@@ -1365,24 +1306,62 @@ runtime_log_uncork_pending_drain(void)
 void
 runtime_log_push(void)
 {
+	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
+	static struct timeval shutdown_start;
+	struct timeval tvd;
 	mach_msg_type_number_t outvalCnt;
+	struct logmsg_s *lm;
 	vm_offset_t outval;
 
 	if (logmsg_queue_cnt == 0) {
 		launchd_assumes(STAILQ_EMPTY(&logmsg_queue));
 		return;
-	} else if (getpid() == 1) {
+	} else if (getpid() != 1) {
+		if (runtime_log_pack(&outval, &outvalCnt) == 0) {
+			launchd_assumes(_vprocmgr_log_forward(inherited_bootstrap_port, (void *)outval, outvalCnt) == NULL);
+			mig_deallocate(outval, outvalCnt);
+		}
+		return;
+	}
+
+	if (!shutdown_in_progress && !fake_shutdown_in_progress) {
 		runtime_log_uncork_pending_drain();
 		return;
 	}
 
-	if (runtime_log_pack(&outval, &outvalCnt) != 0) {
+	if (shutdown_start.tv_sec == 0) {
+		gettimeofday(&shutdown_start, NULL);
+		launchd_log_vm_stats();
+	}
+
+
+	pthread_mutex_lock(&ourlock);
+
+	if (ourlogfile == NULL) {
+		rename("/var/log/launchd-shutdown.log", "/var/log/launchd-shutdown.log.1");
+		ourlogfile = fopen("/var/log/launchd-shutdown.log", "a");
+	}
+
+	pthread_mutex_unlock(&ourlock);
+
+	if (!ourlogfile) {
 		return;
 	}
 
-	launchd_assumes(_vprocmgr_log_forward(inherited_bootstrap_port, (void *)outval, outvalCnt) == NULL);
+	while ((lm = STAILQ_FIRST(&logmsg_queue))) {
+		timersub(&lm->when, &shutdown_start, &tvd);
 
-	mig_deallocate(outval, outvalCnt);
+		/* don't ask */
+		if (tvd.tv_sec < 0) {
+			tvd.tv_sec = 0;
+			tvd.tv_usec = 0;
+		}
+
+		fprintf(ourlogfile, "%3ld.%06d%6u %-40s%6u %-40s %s\n", tvd.tv_sec, tvd.tv_usec,
+				lm->from_pid, lm->from_name, lm->about_pid, lm->about_name, lm->msg);
+
+		logmsg_remove(lm);
+	}
 }
 
 kern_return_t
@@ -1424,10 +1403,9 @@ runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mac
 kern_return_t
 runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
 {
-	if (logmsg_queue_cnt == 0) {
-		launchd_assumes(STAILQ_EMPTY(&logmsg_queue));
-		launchd_assumes(drain_reply_port == 0);
+	launchd_assumes(drain_reply_port == 0);
 
+	if ((logmsg_queue_cnt == 0) || shutdown_in_progress || fake_shutdown_in_progress) {
 		drain_reply_port = srp;
 		launchd_assumes(launchd_mport_notify_req(drain_reply_port, MACH_NOTIFY_DEAD_NAME) == KERN_SUCCESS);
 

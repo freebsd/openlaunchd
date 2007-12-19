@@ -149,6 +149,7 @@ int runtime_setlogmask(int maskpri);
 void runtime_closelog(void);
 void runtime_syslog(int pri, const char *message, ...) __attribute__((format(printf, 2, 3)));
 void runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args) __attribute__((format(printf, 2, 0)));
+void runtime_log_push(void);
 
 
 kern_return_t launchd_set_bport(mach_port_t name);

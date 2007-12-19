@@ -95,12 +95,13 @@ static void fatal_signal_handler(int sig, siginfo_t *si, void *uap);
 static void handle_pid1_crashes_separately(void);
 static void prep_shutdown_log_dir(void);
 
-static bool re_exec_in_single_user_mode = false;
+static bool re_exec_in_single_user_mode;
 static void *crash_addr;
 static pid_t crash_pid;
 
-bool shutdown_in_progress = false;
-bool network_up = false;
+bool shutdown_in_progress;
+bool fake_shutdown_in_progress;
+bool network_up;
 
 int
 main(int argc, char *const *argv)
@@ -261,11 +262,11 @@ launchd_shutdown(void)
 		prep_shutdown_log_dir();
 	}
 
+	runtime_log_push();
+
 	if (launchd_assumes(gettimeofday(&tvnow, NULL) != -1)) {
 		runtime_syslog(LOG_NOTICE, "Shutdown began at: %lu.%06u", tvnow.tv_sec, tvnow.tv_usec);
 	}
-
-	launchd_log_vm_stats();
 
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }
