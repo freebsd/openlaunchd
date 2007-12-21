@@ -405,9 +405,9 @@ static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static void job_log_stray_pg(job_t j);
 static void job_log_chidren_without_exec(job_t j);
-static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid);
-static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv);
-static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond);
+static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid) __attribute__((malloc, nonnull, warn_unused_result));
+static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv) __attribute__((malloc, nonnull(1,2), warn_unused_result));
+static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond) __attribute__((malloc, nonnull, warn_unused_result));
 static const char *job_prog(job_t j);
 static jobmgr_t job_get_bs(job_t j);
 static void job_kill(job_t j);
@@ -1055,11 +1055,13 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	gid_t kp_egid, kp_gid, kp_svgid;
 
 	if (!jobmgr_assumes(jm, anonpid != 0)) {
+		errno = EINVAL;
 		return NULL;
 	}
 	
 	if (!jobmgr_assumes(jm, anonpid < 100000)) {
 		/* The kernel current defines PID_MAX to be 99999, but that define isn't exported */
+		errno = EINVAL;
 		return NULL;
 	}
 
@@ -1074,6 +1076,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (!jobmgr_assumes(jm, kp.kp_proc.p_comm[0] != '\0')) {
+		errno = EINVAL;
 		return NULL;
 	}
 
@@ -6499,6 +6502,15 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 	job_t target_j;
 
 	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	target_j = jobmgr_find_by_pid(j->mgr, target_pid, true);
+
+	if (unlikely(target_j == NULL)) {
+		if (job_assumes(j, errno == ESRCH)) {
+			job_log(j, LOG_ERR, "Could not find PID %u while trying to set Mach bootstrap service policy: %s", target_pid, target_service);
+		}
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
