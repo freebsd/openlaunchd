@@ -6522,7 +6522,11 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 	if (SLIST_EMPTY(&j->mspolicies)) {
 		job_log(j, LOG_DEBUG, "Setting policy on job \"%s\" for Mach service: %s", target_j->label, target_service);
 		if (target_service[0]) {
-			job_assumes(j, mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE, false));
+			bool r = mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE, false);
+
+			if (unlikely(!r) && job_assumes(j, errno == EEXIST)) {
+				job_log(j, LOG_ERR, "Tried to update a known policy on PID %u: %s", target_pid, target_service);
+			}
 		} else {
 			target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
 		}
@@ -6668,6 +6672,7 @@ mspolicy_new(job_t j, const char *name, bool allow, bool pid_local, bool skip_ch
 		if (msp->per_pid != pid_local) {
 			continue;
 		} else if (strcmp(msp->name, name) == 0) {
+			errno = EEXIST;
 			return false;
 		}
 	}
