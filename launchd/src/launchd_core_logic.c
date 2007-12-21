@@ -582,7 +582,7 @@ job_export(job_t j)
 	if (j->stderrpath && (tmp = launch_data_new_string(j->stderrpath))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDERRORPATH);
 	}
-	if (j->argv && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
+	if (likely(j->argv) && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
 		int i;
 
 		for (i = 0; i < j->argc; i++) {
@@ -857,7 +857,7 @@ job_remove(job_t j)
 	if (j->prog) {
 		free(j->prog);
 	}
-	if (j->argv) {
+	if (likely(j->argv)) {
 		free(j->argv);
 	}
 	if (j->rootdir) {
@@ -1080,7 +1080,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		return NULL;
 	}
 
-	if (kp.kp_proc.p_stat == SZOMB) {
+	if (unlikely(kp.kp_proc.p_stat == SZOMB)) {
 		jobmgr_log(jm, LOG_DEBUG, "Tried to create an anonymous job for zombie PID %u: %s", anonpid, kp.kp_proc.p_comm);
 	}
 
@@ -1136,7 +1136,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		/* anonymous process reaping is messy */
 		LIST_INSERT_HEAD(&jm->active_jobs[ACTIVE_JOB_HASH(jr->p)], jr, pid_hash_sle);
 
-		if (kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) == -1 && job_assumes(jr, errno == ESRCH)) {
+		if (unlikely(kevent_mod(jr->p, EVFILT_PROC, EV_ADD, proc_fflags, 0, root_jobmgr) == -1) && job_assumes(jr, errno == ESRCH)) {
 			/* zombies are weird */
 			job_log(jr, LOG_ERR, "Failed to add kevent for PID %u. Will unload at MIG return", jr->p);
 			jr->unload_at_mig_return = true;
@@ -1173,12 +1173,12 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 
 	launchd_assert(offsetof(struct job_s, kqjob_callback) == 0);
 
-	if (jm->shutting_down) {
+	if (unlikely(jm->shutting_down)) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	if (prog == NULL && argv == NULL) {
+	if (unlikely(prog == NULL && argv == NULL)) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1220,9 +1220,10 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		}
 	}
 
-	if (argv) {
-		while (*argv_tmp++)
+	if (likely(argv)) {
+		while (*argv_tmp++) {
 			j->argc++;
+		}
 
 		for (i = 0; i < j->argc; i++) {
 			cc += strlen(argv[i]) + 1;
@@ -1522,9 +1523,9 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 'e':
 	case 'E':
 		if (strcasecmp(key, LAUNCH_JOBKEY_EXITTIMEOUT) == 0) {
-			if (value < 0) {
+			if (unlikely(value < 0)) {
 				job_log(j, LOG_WARNING, "%s less than zero. Ignoring.", LAUNCH_JOBKEY_EXITTIMEOUT);
-			} else if (value > UINT32_MAX) {
+			} else if (unlikely(value > UINT32_MAX)) {
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_EXITTIMEOUT);
 			} else {
 				j->exit_timeout = value;
@@ -1541,9 +1542,9 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 't':
 	case 'T':
 		if (strcasecmp(key, LAUNCH_JOBKEY_TIMEOUT) == 0) {
-			if (value < 0) {
+			if (unlikely(value < 0)) {
 				job_log(j, LOG_WARNING, "%s less than zero. Ignoring.", LAUNCH_JOBKEY_TIMEOUT);
-			} else if (value > UINT32_MAX) {
+			} else if (unlikely(value > UINT32_MAX)) {
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_TIMEOUT);
 			} else {
 				j->timeout = value;
@@ -1568,9 +1569,9 @@ job_import_integer(job_t j, const char *key, long long value)
 	case 's':
 	case 'S':
 		if (strcasecmp(key, LAUNCH_JOBKEY_STARTINTERVAL) == 0) {
-			if (value <= 0) {
+			if (unlikely(value <= 0)) {
 				job_log(j, LOG_WARNING, "%s is not greater than zero. Ignoring.", LAUNCH_JOBKEY_STARTINTERVAL);
-			} else if (value > UINT32_MAX) {
+			} else if (unlikely(value > UINT32_MAX)) {
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_STARTINTERVAL);
 			} else {
 				runtime_add_ref();
@@ -1759,7 +1760,7 @@ job_import_keys(launch_data_t obj, const char *key, void *context)
 	job_t j = context;
 	launch_data_type_t kind;
 
-	if (obj == NULL) {
+	if (!launchd_assumes(obj != NULL)) {
 		return;
 	}
 
@@ -1798,7 +1799,7 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 	const char **argv = NULL;
 	job_t j;
 
-	if (pload == NULL) {
+	if (!launchd_assumes(pload != NULL)) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1854,7 +1855,7 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 		argv[i] = NULL;
 	}
 
-	if ((j = job_find(label)) != NULL) {
+	if (unlikely((j = job_find(label)) != NULL)) {
 		errno = EEXIST;
 		return NULL;
 	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
@@ -2756,7 +2757,7 @@ job_start_child(job_t j)
 		}
 		g.gl_pathv[0] = (char *)file2exec;
 		argv = (const char **)g.gl_pathv;
-	} else if (j->argv) {
+	} else if (likely(j->argv)) {
 		argv = alloca((j->argc + 2) * sizeof(char *));
 		argv[0] = file2exec;
 		for (i = 0; i < j->argc; i++) {
@@ -3998,7 +3999,7 @@ job_prog(job_t j)
 {
 	if (j->prog) {
 		return j->prog;
-	} else if (j->argv) {
+	} else if (likely(j->argv)) {
 		return j->argv[0];
 	} else {
 		return "";
