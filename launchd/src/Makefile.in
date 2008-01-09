@@ -238,7 +238,7 @@ sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -freorder-blocks -Dmig_external=__private_extern__
+AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -Dmig_external=__private_extern__
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
 	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h __version.c mach_excServer.c mach_excServer.h
@@ -254,7 +254,7 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 @LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
 @LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
-@LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
+@LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks # -fomit-frame-pointer # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
 @LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = -weak_framework Security

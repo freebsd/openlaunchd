@@ -227,7 +227,7 @@ pid1_magic_init(void)
 }
 
 
-int
+INTERNAL_ABI int
 _fd(int fd)
 {
 	if (fd >= 0) {
@@ -242,7 +242,7 @@ prep_shutdown_log_dir(void)
 	launchd_assumes(mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST);
 }
 
-void
+INTERNAL_ABI void
 launchd_shutdown(void)
 {
 	int64_t now;
@@ -271,7 +271,7 @@ launchd_shutdown(void)
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }
 
-void
+INTERNAL_ABI void
 launchd_single_user(void)
 {
 	runtime_syslog(LOG_NOTICE, "Going to single-user mode");
@@ -285,7 +285,7 @@ launchd_single_user(void)
 	runtime_kill(-1, SIGKILL);
 }
 
-void
+INTERNAL_ABI void
 launchd_SessionCreate(void)
 {
 	OSStatus (*sescr)(SessionCreationFlags flags, SessionAttributeBits attributes);
@@ -392,7 +392,7 @@ pfsystem_callback(void *obj __attribute__((unused)), struct kevent *kev)
 	}
 }
 
-void
+INTERNAL_ABI bool
 _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test)
 {
 	int saved_errno = errno;
@@ -417,4 +417,6 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 	}
 
 	runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
+
+	return false;
 }

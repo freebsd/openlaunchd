@@ -20,6 +20,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+#include <launchd_runtime.h>
 #include "libbootstrap_public.h"
 #include "liblaunch_public.h"
 
@@ -29,27 +30,27 @@ typedef struct jobmgr_s *jobmgr_t;
 extern jobmgr_t root_jobmgr;
 extern mach_port_t inherited_bootstrap_port;
 
-void jobmgr_init(bool);
-jobmgr_t jobmgr_shutdown(jobmgr_t jm);
-void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
-jobmgr_t jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
+INTERNAL_ABI void jobmgr_init(bool);
+INTERNAL_ABI jobmgr_t jobmgr_shutdown(jobmgr_t jm);
+INTERNAL_ABI void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
+INTERNAL_ABI jobmgr_t jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
 
-launch_data_t job_export_all(void);
+INTERNAL_ABI launch_data_t job_export_all(void);
 
-job_t job_dispatch(job_t j, bool kickstart); /* returns j on success, NULL on job removal */
-job_t job_find(const char *label);
-job_t job_find_by_service_port(mach_port_t p);
-bool job_ack_port_destruction(mach_port_t p);
-bool job_is_anonymous(job_t j);
-launch_data_t job_export(job_t j);
-void job_stop(job_t j);
-void job_checkin(job_t j);
-void job_remove(job_t j);
-job_t job_import(launch_data_t pload);
-launch_data_t job_import_bulk(launch_data_t pload);
-job_t job_mig_intran(mach_port_t mp);
-void job_mig_destructor(job_t j);
-void job_ack_no_senders(job_t j);
-void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
+INTERNAL_ABI job_t job_dispatch(job_t j, bool kickstart); /* returns j on success, NULL on job removal */
+INTERNAL_ABI job_t job_find(const char *label);
+INTERNAL_ABI job_t job_find_by_service_port(mach_port_t p);
+INTERNAL_ABI bool job_ack_port_destruction(mach_port_t p);
+INTERNAL_ABI bool job_is_anonymous(job_t j);
+INTERNAL_ABI launch_data_t job_export(job_t j);
+INTERNAL_ABI void job_stop(job_t j);
+INTERNAL_ABI void job_checkin(job_t j);
+INTERNAL_ABI void job_remove(job_t j);
+INTERNAL_ABI job_t job_import(launch_data_t pload);
+INTERNAL_ABI launch_data_t job_import_bulk(launch_data_t pload);
+INTERNAL_ABI job_t job_mig_intran(mach_port_t mp);
+INTERNAL_ABI void job_mig_destructor(job_t j);
+INTERNAL_ABI void job_ack_no_senders(job_t j);
+INTERNAL_ABI void job_log(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 
 #endif

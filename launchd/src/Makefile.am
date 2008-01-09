@@ -1,4 +1,4 @@
-AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -freorder-blocks -Dmig_external=__private_extern__
+AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -Dmig_external=__private_extern__
 
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
@@ -46,7 +46,7 @@ SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 
-launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
+launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks # -fomit-frame-pointer # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
 launchd_LDFLAGS = -lbsm
 launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
 

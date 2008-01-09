@@ -275,7 +275,7 @@ struct jobmgr_s {
 };
 
 #define jobmgr_assumes(jm, e)	\
-	(likely(e) ? true : jobmgr_log_bug(jm, __LINE__), false)
+	(likely(e) ? true : jobmgr_log_bug(jm, __LINE__))
 
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name);
 static job_t jobmgr_import2(jobmgr_t jm, launch_data_t pload);
@@ -296,7 +296,7 @@ static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, 
 static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
-static void jobmgr_log_bug(jobmgr_t jm, unsigned int line);
+static bool jobmgr_log_bug(jobmgr_t jm, unsigned int line);
 
 #define DO_RUSAGE_SUMMATION 0
 
@@ -375,7 +375,7 @@ static size_t hash_ms(const char *msstr) __attribute__((pure));
 
 
 #define job_assumes(j, e)	\
-	(likely(e) ? true : job_log_bug(j, __LINE__), false)
+	(likely(e) ? true : job_log_bug(j, __LINE__))
 
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
 static void job_import_bool(job_t j, const char *key, bool value);
@@ -417,7 +417,7 @@ static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
-static void job_log_bug(job_t j, unsigned int line);
+static bool job_log_bug(job_t j, unsigned int line);
 static void job_log_stdouterr2(job_t j, const char *msg, ...);
 static void job_set_exeception_port(job_t j, mach_port_t port);
 static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
@@ -530,7 +530,7 @@ job_watch(job_t j)
 	}
 }
 
-void
+INTERNAL_ABI void
 job_stop(job_t j)
 {
 	if (!j->p || j->anonymous) {
@@ -548,7 +548,7 @@ job_stop(job_t j)
 	job_log(j, LOG_DEBUG, "Sent SIGTERM signal");
 }
 
-launch_data_t
+INTERNAL_ABI launch_data_t
 job_export(job_t j)
 {
 	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
@@ -690,7 +690,7 @@ still_alive_with_check(void)
 	runtime_closelog(); /* hack to flush logs */
 }
 
-jobmgr_t
+INTERNAL_ABI jobmgr_t
 jobmgr_shutdown(jobmgr_t jm)
 {
 	jobmgr_t jmi, jmn;
@@ -773,7 +773,7 @@ jobmgr_remove(jobmgr_t jm)
 	free(jm);
 }
 
-void
+INTERNAL_ABI void
 job_remove(job_t j)
 {
 	struct waiting_for_removal *w4r;
@@ -1273,7 +1273,7 @@ out_bad:
 	return NULL;
 }
 
-job_t 
+INTERNAL_ABI job_t 
 job_import(launch_data_t pload)
 {
 	job_t j = jobmgr_import2(root_jobmgr, pload);
@@ -1285,7 +1285,7 @@ job_import(launch_data_t pload)
 	return job_dispatch(j, false);
 }
 
-launch_data_t
+INTERNAL_ABI launch_data_t
 job_import_bulk(launch_data_t pload)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
@@ -1895,7 +1895,7 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 	return j;
 }
 
-job_t 
+INTERNAL_ABI job_t 
 job_find(const char *label)
 {
 	job_t ji;
@@ -1964,7 +1964,7 @@ job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid)
 	return NULL;
 }
 
-job_t 
+INTERNAL_ABI job_t 
 job_mig_intran(mach_port_t p)
 {
 	struct ldcred ldc;
@@ -1990,7 +1990,7 @@ job_mig_intran(mach_port_t p)
 	return jr;
 }
 
-job_t
+INTERNAL_ABI job_t
 job_find_by_service_port(mach_port_t p)
 {
 	struct machservice *ms;
@@ -2004,7 +2004,7 @@ job_find_by_service_port(mach_port_t p)
 	return NULL;
 }
 
-void
+INTERNAL_ABI void
 job_mig_destructor(job_t j)
 {
 	/*
@@ -2042,7 +2042,7 @@ job_export_all2(jobmgr_t jm, launch_data_t where)
 	}
 }
 
-launch_data_t
+INTERNAL_ABI launch_data_t
 job_export_all(void)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
@@ -2255,7 +2255,7 @@ jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack)
 	}
 }
 
-job_t
+INTERNAL_ABI job_t
 job_dispatch(job_t j, bool kickstart)
 {
 	/*
@@ -3239,7 +3239,7 @@ extract_rcsid_substr(const char *i, char *o, size_t osz)
 	}
 }
 
-void
+bool
 jobmgr_log_bug(jobmgr_t jm, unsigned int line)
 {
 	static const char *file;
@@ -3263,9 +3263,11 @@ jobmgr_log_bug(jobmgr_t jm, unsigned int line)
 	} else {
 		runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
 	}
+
+	return false;
 }
 
-void
+bool
 job_log_bug(job_t j, unsigned int line)
 {
 	static const char *file;
@@ -3289,6 +3291,8 @@ job_log_bug(job_t j, unsigned int line)
 	} else {
 		runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
 	}
+
+	return false;
 }
 
 void
@@ -3338,7 +3342,7 @@ job_log_error(job_t j, int pri, const char *msg, ...)
 	va_end(ap);
 }
 
-void
+INTERNAL_ABI void
 job_log(job_t j, int pri, const char *msg, ...)
 {
 	va_list ap;
@@ -4587,7 +4591,7 @@ jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag)
 	return bootstrapper;
 }
 
-jobmgr_t
+INTERNAL_ABI jobmgr_t
 jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 {
 	struct machservice *ms, *next_ms;
@@ -4787,13 +4791,13 @@ mach_cmd2argv(const char *string)
 	return argv_ret;
 }
 
-void
+INTERNAL_ABI void
 job_checkin(job_t j)
 {
 	j->checkedin = true;
 }
 
-bool
+INTERNAL_ABI bool
 job_ack_port_destruction(mach_port_t p)
 {
 	struct machservice *ms;
@@ -4822,7 +4826,7 @@ job_ack_port_destruction(mach_port_t p)
 	return true;
 }
 
-void
+INTERNAL_ABI void
 job_ack_no_senders(job_t j)
 {
 	j->priv_port_has_senders = false;
@@ -4845,7 +4849,7 @@ job_get_bs(job_t j)
 	return NULL;
 }
 
-bool
+INTERNAL_ABI bool
 job_is_anonymous(job_t j)
 {
 	return j->anonymous;
@@ -5064,7 +5068,7 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 	}
 }
 
-void
+INTERNAL_ABI void
 jobmgr_dispatch_all_semaphores(jobmgr_t jm)
 {
 	jobmgr_t jmi, jmn;
@@ -6666,7 +6670,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 	return BOOTSTRAP_SUCCESS;
 }
 
-void
+INTERNAL_ABI void
 jobmgr_init(bool sflag)
 {
 	const char *root_session_type = getpid() == 1 ? VPROCMGR_SESSION_SYSTEM : VPROCMGR_SESSION_BACKGROUND;

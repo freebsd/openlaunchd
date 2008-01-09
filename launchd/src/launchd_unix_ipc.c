@@ -418,11 +418,17 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 	rmc->resp = resp;
 }
 
+static int
+close_abi_fixup(int fd)
+{
+	return runtime_close(fd);
+}
+
 void
 ipc_close(struct conncb *c)
 {
 	LIST_REMOVE(c, sle);
-	launchd_close(c->conn, runtime_close);
+	launchd_close(c->conn, close_abi_fixup);
 	free(c);
 }
 

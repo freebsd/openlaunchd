@@ -122,7 +122,7 @@ static sigset_t sigign_set;
 static FILE *ourlogfile;
 
 
-mach_port_t
+INTERNAL_ABI mach_port_t
 runtime_get_kernel_port(void)
 {
 	return launchd_internal_port;
@@ -132,7 +132,7 @@ static int internal_mask_pri = LOG_UPTO(LOG_NOTICE);
 //static int internal_mask_pri = LOG_UPTO(LOG_DEBUG);
 
 
-void
+INTERNAL_ABI void
 launchd_runtime_init(void)
 {
 	mach_msg_size_t mxmsgsz;
@@ -167,7 +167,7 @@ launchd_runtime_init(void)
 	pthread_attr_destroy(&attr);
 }
 
-void
+INTERNAL_ABI void
 launchd_runtime_init2(void)
 {
 	size_t i;
@@ -197,7 +197,7 @@ mport_demand_loop(void *arg __attribute__((unused)))
 	return NULL;
 }
 
-const char *
+INTERNAL_ABI const char *
 proc_flags_to_C_names(unsigned int flags)
 {
 #define MAX_PFLAG_STR "P_ADVLOCK|P_CONTROLT|P_LP64|P_NOCLDSTOP|P_PPWAIT|P_PROFIL|P_SELECT|P_CONTINUED|P_SUGID|P_SYSTEM|P_TIMEOUT|P_TRACED|P_RESV3|P_WEXIT|P_EXEC|P_OWEUPC|P_AFFINITY|P_TRANSLATED|P_RESV5|P_CHECKOPENEVT|P_DEPENDENCY_CAPABLE|P_REBOOT|P_TBE|P_RESV7|P_THCWD|P_RESV9|P_RESV10|P_RESV11|P_NOSHLIB|P_FORCEQUOTA|P_NOCLDWAIT|P_NOREMOTEHANG|0xdeadbeeffeedface"
@@ -261,7 +261,7 @@ proc_flags_to_C_names(unsigned int flags)
 	return flags_buf;
 }
 
-const char *
+INTERNAL_ABI const char *
 reboot_flags_to_C_names(unsigned int flags)
 {
 #define MAX_RB_STR "RB_ASKNAME|RB_SINGLE|RB_NOSYNC|RB_HALT|RB_INITNAME|RB_DFLTROOT|RB_ALTBOOT|RB_UNIPROC|RB_SAFEBOOT|RB_UPSDELAY|0xdeadbeeffeedface"
@@ -300,7 +300,7 @@ reboot_flags_to_C_names(unsigned int flags)
 	return flags_buf;
 }
 
-const char *
+INTERNAL_ABI const char *
 signal_to_C_name(unsigned int sig)
 {
 	static char unknown[25];
@@ -621,7 +621,7 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 
 
 
-void
+INTERNAL_ABI void
 launchd_runtime(void)
 {
 	mig_reply_error_t *req = NULL, *resp = NULL;
@@ -653,19 +653,19 @@ launchd_runtime(void)
 	}
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 launchd_set_bport(mach_port_t name)
 {
 	return errno = task_set_bootstrap_port(mach_task_self(), name);
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 launchd_get_bport(mach_port_t *name)
 {
 	return errno = task_get_bootstrap_port(mach_task_self(), name);
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 {
 	mach_port_mscount_t msgc = (which == MACH_NOTIFY_PORT_DESTROYED) ? 0 : 1;
@@ -689,7 +689,7 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 	return errno;
 }
 
-pid_t
+INTERNAL_ABI pid_t
 runtime_fork(mach_port_t bsport)
 {
 	sigset_t emptyset, oset;
@@ -727,7 +727,7 @@ runtime_fork(mach_port_t bsport)
 }
 
 
-void
+INTERNAL_ABI void
 runtime_set_timeout(timeout_callback to_cb, unsigned int sec)
 {
 	if (sec == 0 || to_cb == NULL) {
@@ -739,7 +739,7 @@ runtime_set_timeout(timeout_callback to_cb, unsigned int sec)
 	runtime_idle_timeout = sec * 1000;
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size)
 {
 	size_t needed_table_sz = (MACH_PORT_INDEX(name) + 1) * sizeof(mig_callback);
@@ -773,7 +773,7 @@ runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size
 	return errno = mach_port_move_member(mach_task_self(), name, target_set);
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 runtime_remove_mport(mach_port_t name)
 {
 	mig_cb_table[MACH_PORT_INDEX(name)] = NULL;
@@ -781,31 +781,31 @@ runtime_remove_mport(mach_port_t name)
 	return errno = mach_port_move_member(mach_task_self(), name, MACH_PORT_NULL);
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 launchd_mport_make_send(mach_port_t name)
 {
 	return errno = mach_port_insert_right(mach_task_self(), name, name, MACH_MSG_TYPE_MAKE_SEND);
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 launchd_mport_close_recv(mach_port_t name)
 {
 	return errno = mach_port_mod_refs(mach_task_self(), name, MACH_PORT_RIGHT_RECEIVE, -1);
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 launchd_mport_create_recv(mach_port_t *name)
 {
 	return errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, name);
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 launchd_mport_deallocate(mach_port_t name)
 {
 	return errno = mach_port_deallocate(mach_task_self(), name);
 }
 
-int
+INTERNAL_ABI int
 kevent_bulk_mod(struct kevent *kev, size_t kev_cnt)
 {
 	size_t i;
@@ -817,7 +817,7 @@ kevent_bulk_mod(struct kevent *kev, size_t kev_cnt)
 	return kevent(mainkq, kev, kev_cnt, kev, kev_cnt, NULL);
 }
 
-int
+INTERNAL_ABI int
 kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata)
 {
 	struct kevent kev;
@@ -966,7 +966,7 @@ record_caller_creds(mach_msg_header_t *mh)
 	au_tok = &tp->msgh_audit;
 }
 
-bool
+INTERNAL_ABI bool
 runtime_get_caller_creds(struct ldcred *ldc)
 {
 	if (unlikely(!au_tok)) {
@@ -1098,7 +1098,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 	}
 }
 
-int
+INTERNAL_ABI int
 runtime_close(int fd)
 {
 	int i;
@@ -1108,7 +1108,7 @@ runtime_close(int fd)
 		case EVFILT_VNODE:
 		case EVFILT_WRITE:
 		case EVFILT_READ:
-			if ((int)bulk_kev[i].ident == fd) {
+			if (unlikely((int)bulk_kev[i].ident == fd)) {
 				runtime_syslog(LOG_DEBUG, "Skipping kevent index: %d", i);
 				bulk_kev[i].filter = 0;
 			}
@@ -1120,7 +1120,7 @@ runtime_close(int fd)
 	return close(fd);
 }
 
-void
+INTERNAL_ABI void
 runtime_closelog(void)
 {
 	runtime_log_push();
@@ -1131,7 +1131,7 @@ runtime_closelog(void)
 	}
 }
 
-int
+INTERNAL_ABI int
 runtime_fsync(int fd)
 {
 #if 0
@@ -1145,7 +1145,7 @@ runtime_fsync(int fd)
 #endif
 }
 
-int
+INTERNAL_ABI int
 runtime_setlogmask(int maskpri)
 {
 	internal_mask_pri = maskpri;
@@ -1153,7 +1153,7 @@ runtime_setlogmask(int maskpri)
 	return internal_mask_pri;
 }
 
-void
+INTERNAL_ABI void
 runtime_syslog(int pri, const char *message, ...)
 {
 	struct runtime_syslog_attr attr = {
@@ -1170,7 +1170,7 @@ runtime_syslog(int pri, const char *message, ...)
 	va_end(ap);
 }
 
-void
+INTERNAL_ABI void
 runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args)
 {
 	int saved_errno = errno;
@@ -1314,7 +1314,7 @@ runtime_kernel_trace(void *code, void *a, void *b, void *c, void *d)
 }
 #endif
 
-void
+INTERNAL_ABI void
 runtime_log_push(void)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
@@ -1368,7 +1368,7 @@ runtime_log_push(void)
 	}
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mach_msg_type_number_t invalCnt)
 {
 	struct logmsg_s *lm, *lm_walk;
@@ -1404,7 +1404,7 @@ runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mac
 	return 0;
 }
 
-kern_return_t
+INTERNAL_ABI kern_return_t
 runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
 {
 	launchd_assumes(drain_reply_port == 0);
@@ -1428,13 +1428,13 @@ runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *
  * In the long run, reference counting should completely automate when a
  * process can and should exit.
  */
-void
+INTERNAL_ABI void
 runtime_add_ref(void)
 {
 	runtime_busy_cnt++;
 }
 
-void
+INTERNAL_ABI void
 runtime_del_ref(void)
 {
 	runtime_busy_cnt--;
@@ -1494,7 +1494,7 @@ catch_mach_exception_raise_state_identity(mach_port_t exception_port __attribute
 	return 0;
 }
 
-void
+INTERNAL_ABI void
 launchd_log_vm_stats(void)
 {
 	static struct vm_statistics orig_stats;
@@ -1542,7 +1542,7 @@ launchd_log_vm_stats(void)
 	launchd_mport_deallocate(mhs);
 }
 
-bool
+INTERNAL_ABI bool
 do_apple_internal_logging(void)
 {
 	static int apple_internal_logging = 1;
@@ -1555,7 +1555,7 @@ do_apple_internal_logging(void)
 	return (apple_internal_logging == 0);
 }
 
-int64_t
+INTERNAL_ABI int64_t
 runtime_get_wall_time(void)
 {
 	struct timeval tv;
@@ -1570,13 +1570,13 @@ runtime_get_wall_time(void)
 	return r;
 }
 
-uint64_t
+INTERNAL_ABI uint64_t
 runtime_get_opaque_time(void)
 {
 	return mach_absolute_time();
 }
 
-uint64_t
+INTERNAL_ABI uint64_t
 runtime_opaque_time_to_nano(uint64_t o)
 {
 #if defined(__i386__)
