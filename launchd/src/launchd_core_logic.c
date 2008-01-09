@@ -331,6 +331,7 @@ struct job_s {
 	char *workingdir;
 	char *username;
 	char *groupname;
+	char *stdinpath;
 	char *stdoutpath;
 	char *stderrpath;
 	char *alt_exc_handler;
@@ -343,7 +344,8 @@ struct job_s {
 	pid_t p;
 	int argc;
 	int last_exit_status;
-	int forkfd;
+	int stdin_fd;
+	int fork_fd;
 	int log_redirect_fd;
 	int nice;
 	unsigned int timeout;
@@ -458,7 +460,7 @@ static size_t total_children;
 static size_t total_anon_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
-#define JOB_BOOTCACHE_HACK_CHECK(j)	(j->per_user && !did_first_per_user_launchd_BootCache_hack && (j->mach_uid >= 500) && (j->mach_uid != (uid_t)-2))
+#define JOB_BOOTCACHE_HACK_CHECK(j)	(unlikely(j->per_user && !did_first_per_user_launchd_BootCache_hack && (j->mach_uid >= 500) && (j->mach_uid != (uid_t)-2)))
 static jobmgr_t background_jobmgr;
 static job_t workaround_5477111;
 
@@ -575,6 +577,9 @@ job_export(job_t j)
 	}
 	if (j->prog && (tmp = launch_data_new_string(j->prog))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PROGRAM);
+	}
+	if (j->stdinpath && (tmp = launch_data_new_string(j->stdinpath))) {
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDINPATH);
 	}
 	if (j->stdoutpath && (tmp = launch_data_new_string(j->stdoutpath))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDOUTPATH);
@@ -810,8 +815,12 @@ job_remove(job_t j)
 		job_set_global_on_demand(j, false);
 	}
 
-	if (!job_assumes(j, j->forkfd == 0)) {
-		job_assumes(j, runtime_close(j->forkfd) != -1);
+	if (!job_assumes(j, j->fork_fd == 0)) {
+		job_assumes(j, runtime_close(j->fork_fd) != -1);
+	}
+
+	if (j->stdin_fd) {
+		job_assumes(j, runtime_close(j->stdin_fd) != -1);
 	}
 
 	if (!job_assumes(j, j->log_redirect_fd == 0)) {
@@ -871,6 +880,9 @@ job_remove(job_t j)
 	}
 	if (j->groupname) {
 		free(j->groupname);
+	}
+	if (j->stdinpath) {
+		free(j->stdinpath);
 	}
 	if (j->stdoutpath) {
 		free(j->stdoutpath);
@@ -1499,6 +1511,17 @@ job_import_string(job_t j, const char *key, const char *value)
 			where2put = &j->stdoutpath;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDERRORPATH) == 0) {
 			where2put = &j->stderrpath;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_STANDARDINPATH) == 0) {
+			where2put = &j->stdinpath;
+			j->stdin_fd = _fd(open(value, O_RDONLY|O_CREAT|O_NOCTTY|O_NONBLOCK, DEFFILEMODE));
+			if (job_assumes(j, j->stdin_fd != -1)) {
+				/* open() should not block, but regular IO by the job should */
+				job_assumes(j, fcntl(j->stdin_fd, F_SETFL, 0) != -1);
+				/* XXX -- EV_CLEAR should make named pipes happy? */
+				job_assumes(j, kevent_mod(j->stdin_fd, EVFILT_READ, EV_ADD|EV_CLEAR, 0, 0, j) != -1);
+			} else {
+				j->stdin_fd = 0;
+			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXPROFILE) == 0) {
 			where2put = &j->seatbelt_profile;
 		}
@@ -2094,9 +2117,9 @@ job_reap(job_t j)
 		}
 	}
 
-	if (j->forkfd) {
-		job_assumes(j, runtime_close(j->forkfd) != -1);
-		j->forkfd = 0;
+	if (j->fork_fd) {
+		job_assumes(j, runtime_close(j->fork_fd) != -1);
+		j->fork_fd = 0;
 	}
 
 	if (j->anonymous) {
@@ -2460,6 +2483,8 @@ job_callback_read(job_t j, int ident)
 {
 	if (ident == j->log_redirect_fd) {
 		job_log_stdouterr(j);
+	} else if (ident == j->stdin_fd) {
+		job_dispatch(j, true);
 	} else {
 		socketgroup_callback(j);
 	}
@@ -2580,7 +2605,7 @@ job_start(job_t j)
 		return;
 	}
 
-	if (job_active(j)) {
+	if (unlikely(job_active(j))) {
 		job_log(j, LOG_DEBUG, "Already started");
 		return;
 	}
@@ -2611,7 +2636,7 @@ job_start(job_t j)
 
 	j->sent_sigterm_time = 0;
 
-	if (!j->legacy_mach_job) {
+	if (likely(!j->legacy_mach_job)) {
 		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
 	}
 
@@ -2623,7 +2648,7 @@ job_start(job_t j)
 
 	job_assumes(j, socketpair(AF_UNIX, SOCK_STREAM, 0, execspair) != -1);
 
-	if (!j->legacy_mach_job && job_assumes(j, pipe(oepair) != -1)) {
+	if (likely(!j->legacy_mach_job) && job_assumes(j, pipe(oepair) != -1)) {
 		j->log_redirect_fd = _fd(oepair[0]);
 		job_assumes(j, fcntl(j->log_redirect_fd, F_SETFL, O_NONBLOCK) != -1);
 		job_assumes(j, kevent_mod(j->log_redirect_fd, EVFILT_READ, EV_ADD, 0, 0, j) != -1);
@@ -2640,14 +2665,14 @@ job_start(job_t j)
 			job_assumes(j, runtime_close(spair[0]) == 0);
 			job_assumes(j, runtime_close(spair[1]) == 0);
 		}
-		if (!j->legacy_mach_job) {
+		if (likely(!j->legacy_mach_job)) {
 			job_assumes(j, runtime_close(oepair[0]) != -1);
 			job_assumes(j, runtime_close(oepair[1]) != -1);
 			j->log_redirect_fd = 0;
 		}
 		break;
 	case 0:
-		if (_vproc_post_fork_ping()) {
+		if (unlikely(_vproc_post_fork_ping())) {
 			_exit(EXIT_FAILURE);
 		}
 		if (!j->legacy_mach_job) {
@@ -2679,16 +2704,16 @@ job_start(job_t j)
 			did_first_per_user_launchd_BootCache_hack = true;
 		}
 
-		if (!j->legacy_mach_job) {
+		if (likely(!j->legacy_mach_job)) {
 			job_assumes(j, runtime_close(oepair[1]) != -1);
 		}
 		j->p = c;
-		if (j->hopefully_exits_first) {
+		if (unlikely(j->hopefully_exits_first)) {
 			j->mgr->hopefully_first_cnt++;
-		} else if (!j->hopefully_exits_last) {
+		} else if (likely(!j->hopefully_exits_last)) {
 			j->mgr->normal_active_cnt++;
 		}
-		j->forkfd = _fd(execspair[0]);
+		j->fork_fd = _fd(execspair[0]);
 		job_assumes(j, runtime_close(execspair[1]) == 0);
 		if (sipc) {
 			job_assumes(j, runtime_close(spair[1]) == 0);
@@ -2700,7 +2725,7 @@ job_start(job_t j)
 			job_reap(j);
 		}
 
-		if (!j->stall_before_exec) {
+		if (likely(!j->stall_before_exec)) {
 			job_uncork_fork(j);
 		}
 		break;
@@ -2745,7 +2770,7 @@ job_start_child(job_t j)
 
 	job_setup_attributes(j);
 
-	if (j->argv && j->globargv) {
+	if (unlikely(j->argv && j->globargv)) {
 		g.gl_offs = 1;
 		for (i = 0; i < j->argc; i++) {
 			if (i > 0) {
@@ -2772,18 +2797,18 @@ job_start_child(job_t j)
 		argv[2] = NULL;
 	}
 
-	if (!j->inetcompat) {
+	if (likely(!j->inetcompat)) {
 		argv++;
 	}
 
-	if (j->wait4debugger) {
+	if (unlikely(j->wait4debugger)) {
 		job_log(j, LOG_WARNING, "Spawned and waiting for the debugger to attach before continuing...");
 		spflags |= POSIX_SPAWN_START_SUSPENDED;
 	}
 
 	job_assumes(j, posix_spawnattr_setflags(&spattr, spflags) == 0);
 
-	if (j->j_binpref_cnt) {
+	if (unlikely(j->j_binpref_cnt)) {
 		job_assumes(j, posix_spawnattr_setbinpref_np(&spattr, j->j_binpref_cnt, j->j_binpref, &binpref_out_cnt) == 0);
 		job_assumes(j, binpref_out_cnt == j->j_binpref_cnt);
 	}
@@ -2811,7 +2836,7 @@ job_start_child(job_t j)
 
 	psf = j->prog ? posix_spawn : posix_spawnp;
 
-	if (!j->inetcompat) {
+	if (likely(!j->inetcompat)) {
 		file2exec = j->prog ? j->prog : argv[0];
 	}
 
@@ -2964,22 +2989,22 @@ job_postfork_become_user(job_t j)
 	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
 	strlcpy(homedir, pwe->pw_dir, sizeof(homedir));
 
-	if (pwe->pw_expire && time(NULL) >= pwe->pw_expire) {
+	if (unlikely(pwe->pw_expire && time(NULL) >= pwe->pw_expire)) {
 		job_log(j, LOG_ERR, "Expired account");
 		_exit(EXIT_FAILURE);
 	}
 
 
-	if (j->username && strcmp(j->username, loginname) != 0) {
+	if (unlikely(j->username && strcmp(j->username, loginname) != 0)) {
 		job_log(j, LOG_WARNING, "Suspicious setup: User \"%s\" maps to user: %s", j->username, loginname);
-	} else if (j->mach_uid && (j->mach_uid != desired_uid)) {
+	} else if (unlikely(j->mach_uid && (j->mach_uid != desired_uid))) {
 		job_log(j, LOG_WARNING, "Suspicious setup: UID %u maps to UID %u", j->mach_uid, desired_uid);
 	}
 
 	if (j->groupname) {
 		struct group *gre;
 
-		if ((gre = getgrnam(j->groupname)) == NULL) {
+		if (unlikely((gre = getgrnam(j->groupname)) == NULL)) {
 			job_log(j, LOG_ERR, "getgrnam(\"%s\") failed", j->groupname);
 			_exit(EXIT_FAILURE);
 		}
@@ -3000,7 +3025,7 @@ job_postfork_become_user(job_t j)
 	 * called after setgid(). See 4616864 for more information.
 	 */
 
-	if (!j->no_init_groups) {
+	if (likely(!j->no_init_groups)) {
 		if (!job_assumes(j, initgroups(loginname, desired_gid) != -1)) {
 			_exit(EXIT_FAILURE);
 		}
@@ -3012,7 +3037,7 @@ job_postfork_become_user(job_t j)
 
 	r = confstr(_CS_DARWIN_USER_TEMP_DIR, tmpdirpath, sizeof(tmpdirpath));
 
-	if (r > 0 && r < sizeof(tmpdirpath)) {
+	if (likely(r > 0 && r < sizeof(tmpdirpath))) {
 		setenv("TMPDIR", tmpdirpath, 0);
 	}
 
@@ -3028,7 +3053,7 @@ job_setup_attributes(job_t j)
 	struct limititem *li;
 	struct envitem *ei;
 
-	if (j->setnice) {
+	if (unlikely(j->setnice)) {
 		job_assumes(j, setpriority(PRIO_PROCESS, 0, j->nice) != -1);
 	}
 
@@ -3051,30 +3076,35 @@ job_setup_attributes(job_t j)
 		}
 	}
 
-	if (!j->inetcompat && j->session_create) {
+	if (unlikely(!j->inetcompat && j->session_create)) {
 		launchd_SessionCreate();
 	}
 
-	if (j->low_pri_io) {
+	if (unlikely(j->low_pri_io)) {
 		job_assumes(j, setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_THROTTLE) != -1);
 	}
-	if (j->rootdir) {
+	if (unlikely(j->rootdir)) {
 		job_assumes(j, chroot(j->rootdir) != -1);
 		job_assumes(j, chdir(".") != -1);
 	}
 
 	job_postfork_become_user(j);
 
-	if (j->workingdir) {
+	if (unlikely(j->workingdir)) {
 		job_assumes(j, chdir(j->workingdir) != -1);
 	}
 
-	if (j->setmask) {
+	if (unlikely(j->setmask)) {
 		umask(j->mask);
 	}
 
-	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath, O_WRONLY|O_APPEND|O_CREAT);
-	job_setup_fd(j, STDERR_FILENO, j->stderrpath, O_WRONLY|O_APPEND|O_CREAT);
+	if (j->stdin_fd) {
+		job_assumes(j, dup2(j->stdin_fd, STDIN_FILENO) != -1);
+	} else {
+		job_setup_fd(j, STDIN_FILENO,  j->stdinpath,  O_RDONLY|O_CREAT);
+	}
+	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath, O_WRONLY|O_CREAT|O_APPEND);
+	job_setup_fd(j, STDERR_FILENO, j->stderrpath, O_WRONLY|O_CREAT|O_APPEND);
 
 	jobmgr_setup_env_from_other_jobs(j->mgr);
 
@@ -3119,7 +3149,7 @@ dir_has_files(job_t j, const char *path)
 	struct dirent *de;
 	bool r = 0;
 
-	if (!dd) {
+	if (unlikely(!dd)) {
 		return -1;
 	}
 
@@ -3185,7 +3215,7 @@ calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 		ctime_r(&later, time_string);
 		time_string_len = strlen(time_string);
 
-		if (time_string_len && time_string[time_string_len - 1] == '\n') {
+		if (likely(time_string_len && time_string[time_string_len - 1] == '\n')) {
 			time_string[time_string_len - 1] = '\0';
 		}
 
@@ -3287,13 +3317,13 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 		snprintf(newmsg, newmsgsz, "%s", msg);
 	}
 
-	if (j->debug) {
+	if (unlikely(j->debug)) {
 		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
 	}
 
 	runtime_vsyslog(&attr, newmsg, ap);
 
-	if (j->debug) {
+	if (unlikely(j->debug)) {
 		setlogmask(oldmask);
 	}
 }
@@ -4414,9 +4444,9 @@ job_uncork_fork(job_t j)
 	job_log(j, LOG_DEBUG, "Uncorking the fork().");
 	/* this unblocks the child and avoids a race
 	 * between the above fork() and the kevent_mod() */
-	job_assumes(j, write(j->forkfd, &c, sizeof(c)) == sizeof(c));
-	job_assumes(j, runtime_close(j->forkfd) != -1);
-	j->forkfd = 0;
+	job_assumes(j, write(j->fork_fd, &c, sizeof(c)) == sizeof(c));
+	job_assumes(j, runtime_close(j->fork_fd) != -1);
+	j->fork_fd = 0;
 }
 
 jobmgr_t 
