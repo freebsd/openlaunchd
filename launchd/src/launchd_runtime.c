@@ -186,7 +186,7 @@ mport_demand_loop(void *arg __attribute__((unused)))
 
 	for (;;) {
 		kr = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
-		if (kr == MACH_RCV_PORT_CHANGED) {
+		if (unlikely(kr == MACH_RCV_PORT_CHANGED)) {
 			break;
 		} else if (!launchd_assumes(kr == MACH_RCV_TOO_LARGE)) {
 			continue;
@@ -357,7 +357,7 @@ log_kevent_struct(int level, struct kevent *kev, int indx)
 	unsigned short flags = kev->flags;
 	unsigned int fflags = kev->fflags;
 
-	if (!(LOG_MASK(level) & internal_mask_pri)) {
+	if (likely(!(LOG_MASK(level) & internal_mask_pri))) {
 		return;
 	}
 
@@ -592,9 +592,7 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 
 	bulk_kev = kev;
 
-	launchd_assumes((bulk_kev_cnt = kevent(fd, NULL, 0, kev, BULK_KEV_MAX, &ts)) != -1);
-
-	if (bulk_kev_cnt > 0) {
+	if (launchd_assumes((bulk_kev_cnt = kevent(fd, NULL, 0, kev, BULK_KEV_MAX, &ts)) != -1)) {
 #if 0
 		Dl_info dli;
 
@@ -631,11 +629,11 @@ launchd_runtime(void)
 	int flags = VM_MAKE_TAG(VM_MEMORY_MACH_MSG)|TRUE;
 
 	for (;;) {
-		if (req) {
+		if (likely(req)) {
 			launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)req, mz) == KERN_SUCCESS);
 			req = NULL;
 		}
-		if (resp) {
+		if (likely(resp)) {
 			launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)resp, mz) == KERN_SUCCESS);
 			resp = NULL;
 		}
@@ -676,7 +674,7 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 	if (which == MACH_NOTIFY_NO_SENDERS) {
 		/* Always make sure the send count is zero, in case a receive right is reused */
 		errno = mach_port_set_mscount(mach_task_self(), name, 0);
-		if (errno != KERN_SUCCESS) {
+		if (unlikely(errno != KERN_SUCCESS)) {
 			return errno;
 		}
 	}
@@ -684,7 +682,7 @@ launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which)
 	errno = mach_port_request_notification(mach_task_self(), name, which, msgc, where,
 			MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous);
 
-	if (errno == 0 && previous != MACH_PORT_NULL) {
+	if (likely(errno == 0) && previous != MACH_PORT_NULL) {
 		launchd_assumes(launchd_mport_deallocate(previous) == KERN_SUCCESS);
 	}
 
@@ -749,7 +747,7 @@ runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size
 
 	msg_size = round_page(msg_size + MAX_TRAILER_SIZE);
 
-	if (needed_table_sz > mig_cb_table_sz) {
+	if (unlikely(needed_table_sz > mig_cb_table_sz)) {
 		needed_table_sz *= 2; /* Let's try and avoid realloc'ing for a while */
 		mig_callback *new_table = malloc(needed_table_sz);
 
@@ -757,7 +755,7 @@ runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size
 			return KERN_RESOURCE_SHORTAGE;
 		}
 
-		if (mig_cb_table) {
+		if (likely(mig_cb_table)) {
 			memcpy(new_table, mig_cb_table, mig_cb_table_sz);
 			free(mig_cb_table);
 		}
@@ -960,7 +958,7 @@ record_caller_creds(mach_msg_header_t *mh)
 
 	trailer_size = tp->msgh_trailer_size - (mach_msg_size_t)(sizeof(mach_msg_trailer_type_t) - sizeof(mach_msg_trailer_size_t));
 
-	if (trailer_size < (mach_msg_size_t)sizeof(audit_token_t)) {
+	if (unlikely(trailer_size < (mach_msg_size_t)sizeof(audit_token_t))) {
 		au_tok = NULL;
 		return;
 	}
@@ -971,7 +969,7 @@ record_caller_creds(mach_msg_header_t *mh)
 bool
 runtime_get_caller_creds(struct ldcred *ldc)
 {
-	if (!au_tok) {
+	if (unlikely(!au_tok)) {
 		return false;
 	}
 
@@ -999,7 +997,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 	for (;;) {
 		to = MACH_MSG_TIMEOUT_NONE;
 
-		if (msg_size != max_msg_size) {
+		if (unlikely(msg_size != max_msg_size)) {
 			/* The buffer isn't big enougth to receive messages anymore... */
 			tmp_options &= ~MACH_RCV_MSG;
 			options &= ~MACH_RCV_MSG;
@@ -1023,13 +1021,13 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 
 		tmp_options = options;
 
-		if (mr == MACH_SEND_INVALID_DEST || mr == MACH_SEND_TIMED_OUT) {
+		if (unlikely(mr == MACH_SEND_INVALID_DEST || mr == MACH_SEND_TIMED_OUT)) {
 			/* We need to clean up and start over. */
 			if (bufReply->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX) {
 				mach_msg_destroy(&bufReply->Head);
 			}
 			continue;
-		} else if (mr == MACH_RCV_TIMED_OUT) {
+		} else if (unlikely(mr == MACH_RCV_TIMED_OUT)) {
 			if (to != MACH_MSG_TIMEOUT_NONE) {
 				if (runtime_busy_cnt == 0) {
 					launchd_shutdown();
@@ -1046,7 +1044,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		bufRequest = bufReply;
 		bufReply = bufTemp;
 
-		if (!(tmp_options & MACH_RCV_MSG)) {
+		if (unlikely(!(tmp_options & MACH_RCV_MSG))) {
 			continue;
 		}
 
@@ -1069,7 +1067,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		 * struct to declare our intent.
 		 */
 		static int no_hang_fd = -1;
-		if (no_hang_fd == -1) {
+		if (unlikely(no_hang_fd == -1)) {
 			no_hang_fd = _fd(open("/dev/autofs_nowait", 0));
 		}
 
@@ -1207,7 +1205,7 @@ logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg)
 	/* we do this to make the unpacking for the log_drain cause unalignment faults */
 	lm_sz = ROUND_TO_64BIT_WORD_SIZE(lm_sz);
 
-	if (!(lm = calloc(1, lm_sz))) {
+	if (unlikely((lm = calloc(1, lm_sz)) == NULL)) {
 		return false;
 	}
 
@@ -1255,7 +1253,7 @@ runtime_log_pack(vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
 
 	mig_allocate(outval, *outvalCnt);
 
-	if (*outval == 0) {
+	if (unlikely(*outval == 0)) {
 		return 1;
 	}
 
@@ -1299,13 +1297,22 @@ runtime_log_uncork_pending_drain(void)
 	tmp_port = drain_reply_port;
 	drain_reply_port = MACH_PORT_NULL;
 
-	if ((errno = job_mig_log_drain_reply(tmp_port, 0, outval, outvalCnt))) {
+	if (unlikely(errno = job_mig_log_drain_reply(tmp_port, 0, outval, outvalCnt))) {
 		launchd_assumes(errno == MACH_SEND_INVALID_DEST);
 		launchd_assumes(launchd_mport_deallocate(tmp_port) == KERN_SUCCESS);
 	}
 
 	mig_deallocate(outval, outvalCnt);
 }
+
+#if 0
+void
+runtime_kernel_trace(void *code, void *a, void *b, void *c, void *d)
+{
+	/* Request codes from Joe S. */
+	syscall(180 , code, a, b, c, d);
+}
+#endif
 
 void
 runtime_log_push(void)
@@ -1332,7 +1339,7 @@ runtime_log_push(void)
 		return;
 	}
 
-	if (shutdown_start == 0) {
+	if (unlikely(shutdown_start == 0)) {
 		shutdown_start = runtime_get_wall_time();
 		launchd_log_vm_stats();
 	}
@@ -1340,14 +1347,14 @@ runtime_log_push(void)
 
 	pthread_mutex_lock(&ourlock);
 
-	if (ourlogfile == NULL) {
+	if (unlikely(ourlogfile == NULL)) {
 		rename("/var/log/launchd-shutdown.log", "/var/log/launchd-shutdown.log.1");
 		ourlogfile = fopen("/var/log/launchd-shutdown.log", "a");
 	}
 
 	pthread_mutex_unlock(&ourlock);
 
-	if (!ourlogfile) {
+	if (unlikely(!ourlogfile)) {
 		return;
 	}
 
@@ -1541,7 +1548,7 @@ do_apple_internal_logging(void)
 	static int apple_internal_logging = 1;
 	struct stat sb;
 
-	if (apple_internal_logging == 1) {
+	if (unlikely(apple_internal_logging == 1)) {
 		apple_internal_logging = stat("/AppleInternal", &sb);
 	}
 
@@ -1599,4 +1606,3 @@ do_file_init(void)
 	tbi_float_val = tbi.numer;
 	tbi_float_val /= tbi.denom;
 }
-

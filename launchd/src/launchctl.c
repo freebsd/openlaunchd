@@ -1475,6 +1475,7 @@ system_specific_bootstrap(bool sflag)
 
 	assumes(load_and_unload_cmd(4, load_launchd_items) == 0);
 
+#ifdef __ppc__
 	/*
 	 * 5066316
 	 *
@@ -1483,7 +1484,7 @@ system_specific_bootstrap(bool sflag)
 	 * I want a plist defined knob for jobs to give advisory hints that
 	 * will "hopefully" serialize bootstrap. Reasons for doing so include
 	 * pragmatic performance optimizations and attempts to workaround bugs
-	 * in jobs. My current thought is something like what follows.
+	 * in jobs. Something like what follows might work:
 	 *
 	 * The BootCache would switch to launchd and add this to the plist:
 	 *
@@ -1519,6 +1520,7 @@ system_specific_bootstrap(bool sflag)
 	 */
 	mach_timespec_t w = { 5, 0 };
 	IOKitWaitQuiet(kIOMasterPortDefault, &w);
+#endif
 
 	do_BootCache_magic(BOOTCACHE_TAG);
 

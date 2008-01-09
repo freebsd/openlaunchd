@@ -275,7 +275,7 @@ struct jobmgr_s {
 };
 
 #define jobmgr_assumes(jm, e)	\
-	(__builtin_expect(!(e), 0) ? jobmgr_log_bug(jm, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+	(likely(e) ? true : jobmgr_log_bug(jm, __LINE__), false)
 
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name);
 static job_t jobmgr_import2(jobmgr_t jm, launch_data_t pload);
@@ -296,7 +296,7 @@ static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, 
 static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
-static void jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test);
+static void jobmgr_log_bug(jobmgr_t jm, unsigned int line);
 
 #define DO_RUSAGE_SUMMATION 0
 
@@ -373,7 +373,7 @@ static size_t hash_ms(const char *msstr) __attribute__((pure));
 
 
 #define job_assumes(j, e)	\
-	(__builtin_expect(!(e), 0) ? job_log_bug(j, __rcs_file_version__, __FILE__, __LINE__, #e), false : true)
+	(likely(e) ? true : job_log_bug(j, __LINE__), false)
 
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
 static void job_import_bool(job_t j, const char *key, bool value);
@@ -415,7 +415,7 @@ static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
-static void job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test);
+static void job_log_bug(job_t j, unsigned int line);
 static void job_log_stdouterr2(job_t j, const char *msg, ...);
 static void job_set_exeception_port(job_t j, mach_port_t port);
 static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
@@ -1266,7 +1266,7 @@ job_import(launch_data_t pload)
 {
 	job_t j = jobmgr_import2(root_jobmgr, pload);
 
-	if (j == NULL) {
+	if (unlikely(j == NULL)) {
 		return NULL;
 	}
 
@@ -1283,17 +1283,16 @@ job_import_bulk(launch_data_t pload)
 	ja = alloca(c * sizeof(job_t ));
 
 	for (i = 0; i < c; i++) {
-		if ((ja[i] = jobmgr_import2(root_jobmgr, launch_data_array_get_index(pload, i)))) {
+		if (likely(ja[i] = jobmgr_import2(root_jobmgr, launch_data_array_get_index(pload, i)))) {
 			errno = 0;
 		}
 		launch_data_array_set_index(resp, launch_data_new_errno(errno), i);
 	}
 
 	for (i = 0; i < c; i++) {
-		if (ja[i] == NULL) {
-			continue;
+		if (likely(ja[i])) {
+			job_dispatch(ja[i], false);
 		}
-		job_dispatch(ja[i], false);
 	}
 
 	return resp;
@@ -1804,22 +1803,22 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 		return NULL;
 	}
 
-	if (launch_data_get_type(pload) != LAUNCH_DATA_DICTIONARY) {
+	if (unlikely(launch_data_get_type(pload) != LAUNCH_DATA_DICTIONARY)) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	if (!(tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL))) {
+	if (unlikely(!(tmp = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LABEL)))) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	if (launch_data_get_type(tmp) != LAUNCH_DATA_STRING) {
+	if (unlikely(launch_data_get_type(tmp) != LAUNCH_DATA_STRING)) {
 		errno = EINVAL;
 		return NULL;
 	}
 
-	if (!(label = launch_data_get_string(tmp))) {
+	if (unlikely(!(label = launch_data_get_string(tmp)))) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1858,15 +1857,15 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 	if (unlikely((j = job_find(label)) != NULL)) {
 		errno = EEXIST;
 		return NULL;
-	} else if (label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
-			(strtol(label, NULL, 10) != 0)) {
+	} else if (unlikely(label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
+			(strtol(label, NULL, 10) != 0))) {
 		jobmgr_log(jm, LOG_ERR, "Somebody attempted to use a reserved prefix for a label: %s", label);
 		/* the empty string, com.apple.launchd and number prefixes for labels are reserved */
 		errno = EINVAL;
 		return NULL;
 	}
 
-	if ((j = job_new(jm, label, prog, argv))) {
+	if (likely(j = job_new(jm, label, prog, argv))) {
 		launch_data_dict_iterate(pload, job_import_keys, j);
 	}
 
@@ -1959,7 +1958,8 @@ job_mig_intran(mach_port_t p)
 
 		mib[3] = ldc.pid;
 
-		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1) && jobmgr_assumes(root_jobmgr, len == sizeof(kp))) {
+		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)
+				&& jobmgr_assumes(root_jobmgr, len == sizeof(kp))) {
 			jobmgr_log(root_jobmgr, LOG_ERR, "%s() was confused by PID %u UID %u EUID %u Mach Port 0x%x: %s", __func__, ldc.pid, ldc.uid, ldc.euid, p, kp.kp_proc.p_comm);
 		}
 	}
@@ -2074,7 +2074,7 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
-	if (j->weird_bootstrap) {
+	if (unlikely(j->weird_bootstrap)) {
 		mach_msg_size_t mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
 
 		if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
@@ -2295,7 +2295,7 @@ job_log_stdouterr(job_t j)
 
 	rsz = read(j->log_redirect_fd, buf, BIG_PIPE_SIZE);
 
-	if (rsz == 0) {
+	if (unlikely(rsz == 0)) {
 		job_log(j, LOG_DEBUG, "Standard out/error pipe closed");
 		close_log_redir = true;
 	} else if (!job_assumes(j, rsz != -1)) {
@@ -2312,7 +2312,7 @@ job_log_stdouterr(job_t j)
 
 	free(buf);
 
-	if (close_log_redir) {
+	if (unlikely(close_log_redir)) {
 		job_assumes(j, runtime_close(j->log_redirect_fd) != -1);
 		j->log_redirect_fd = 0;
 		job_dispatch(j, false);
@@ -2383,7 +2383,8 @@ job_callback_proc(job_t j, int fflags)
 			struct kinfo_proc kp;
 			size_t len = sizeof(kp);
 
-			if (job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1) && job_assumes(j, len == sizeof(kp))) {
+			if (job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)
+					&& job_assumes(j, len == sizeof(kp))) {
 				char newlabel[1000];
 
 				snprintf(newlabel, sizeof(newlabel), "%p.%s", j, kp.kp_proc.p_comm);
@@ -3209,39 +3210,55 @@ extract_rcsid_substr(const char *i, char *o, size_t osz)
 }
 
 void
-jobmgr_log_bug(jobmgr_t jm, const char *rcs_rev, const char *path, unsigned int line, const char *test)
+jobmgr_log_bug(jobmgr_t jm, unsigned int line)
 {
+	static const char *file;
 	int saved_errno = errno;
-	const char *file = strrchr(path, '/');
 	char buf[100];
 
-	extract_rcsid_substr(rcs_rev, buf, sizeof(buf));
+	extract_rcsid_substr(__rcs_file_version__, buf, sizeof(buf));
 
 	if (!file) {
-		file = path;
-	} else {
-		file += 1;
+		file = strrchr(__FILE__, '/');
+		if (!file) {
+			file = __FILE__;
+		} else {
+			file += 1;
+		}
 	}
 
-	jobmgr_log(jm, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
+	/* the only time 'jm' should not be set is if setting up the first bootstrap fails for some reason */
+	if (likely(jm)) {
+		jobmgr_log(jm, LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
+	} else {
+		runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
+	}
 }
 
 void
-job_log_bug(job_t j, const char *rcs_rev, const char *path, unsigned int line, const char *test)
+job_log_bug(job_t j, unsigned int line)
 {
+	static const char *file;
 	int saved_errno = errno;
-	const char *file = strrchr(path, '/');
 	char buf[100];
 
-	extract_rcsid_substr(rcs_rev, buf, sizeof(buf));
+	extract_rcsid_substr(__rcs_file_version__, buf, sizeof(buf));
 
 	if (!file) {
-		file = path;
-	} else {
-		file += 1;
+		file = strrchr(__FILE__, '/');
+		if (!file) {
+			file = __FILE__;
+		} else {
+			file += 1;
+		}
 	}
 
-	job_log(j, LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
+	/* I cannot think of any reason why 'j' should ever be NULL, nor have I ever seen the case in the wild */
+	if (likely(j)) {
+		job_log(j, LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
+	} else {
+		runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
+	}
 }
 
 void
@@ -3417,7 +3434,7 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 			job_assumes(j, runtime_close(si->fd) == 0);
 			si->fd = -1;
 		}
-	} while ((si->fd == -1) && (saved_errno == ENOENT));
+	} while (unlikely((si->fd == -1) && (saved_errno == ENOENT)));
 
 	if (saved_errno == ENOTSUP) {
 		/*
@@ -3501,7 +3518,7 @@ calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void
 	struct tm *tmptm = context;
 	int64_t val;
 
-	if (LAUNCH_DATA_INTEGER != launch_data_get_type(obj)) {
+	if (unlikely(LAUNCH_DATA_INTEGER != launch_data_get_type(obj))) {
 		/* hack to let caller know something went wrong */
 		tmptm->tm_sec = -1;
 		return;
@@ -3540,13 +3557,13 @@ calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 		return false;
 	}
 
-	if (LAUNCH_DATA_DICTIONARY != launch_data_get_type(obj)) {
+	if (unlikely(LAUNCH_DATA_DICTIONARY != launch_data_get_type(obj))) {
 		return false;
 	}
 
 	launch_data_dict_iterate(obj, calendarinterval_new_from_obj_dict_walk, &tmptm);
 
-	if (tmptm.tm_sec == -1) {
+	if (unlikely(tmptm.tm_sec == -1)) {
 		return false;
 	}
 
@@ -3591,7 +3608,7 @@ calendarinterval_sanity_check(void)
 	struct calendarinterval *ci = LIST_FIRST(&sorted_calendar_events);
 	time_t now = time(NULL);
 
-	if (ci && (ci->when_next < now)) {
+	if (unlikely(ci && (ci->when_next < now))) {
 		jobmgr_assumes(root_jobmgr, raise(SIGUSR1) != -1);
 	}
 }
@@ -3681,7 +3698,7 @@ socketgroup_kevent_mod(job_t j, struct socketgroup *sg, bool do_add)
 	char buf[10000];
 	unsigned int i, buf_off = 0;
 
-	if (sg->junkfds) {
+	if (unlikely(sg->junkfds)) {
 		return;
 	}
 
@@ -3892,6 +3909,7 @@ job_keepalive(job_t j)
 	struct stat sb;
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
 
+#ifdef __ppc__
 	/*
 	 * 5066316
 	 *
@@ -3901,6 +3919,11 @@ job_keepalive(job_t j)
 	if (j->mgr->global_on_demand_cnt > 0 && strcmp(j->label, "com.apple.kextd") != 0) {
 		return false;
 	}
+#else
+	if (j->mgr->global_on_demand_cnt > 0) {
+		return false;
+	}
+#endif
 
 	if (j->start_pending) {
 		job_log(j, LOG_DEBUG, "KeepAlive check: Pent-up non-IPC launch criteria.");
@@ -4071,9 +4094,9 @@ machservice_resetport(job_t j, struct machservice *ms)
 struct machservice *
 machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_local)
 {
-	struct machservice *ms;
+	struct machservice *ms = calloc(1, sizeof(struct machservice) + strlen(name) + 1);
 
-	if ((ms = calloc(1, sizeof(struct machservice) + strlen(name) + 1)) == NULL) {
+	if (!job_assumes(j, ms != NULL)) {
 		return NULL;
 	}
 
@@ -4411,8 +4434,8 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	}
 
 	jmr = calloc(1, sizeof(struct jobmgr_s) + (name ? (strlen(name) + 1) : 128));
-	
-	if (jmr == NULL) {
+
+	if (!jobmgr_assumes(jm, jmr != NULL)) {
 		return NULL;
 	}
 
@@ -6677,7 +6700,9 @@ mspolicy_new(job_t j, const char *name, bool allow, bool pid_local, bool skip_ch
 		}
 	}
 
-	if ((msp = calloc(1, sizeof(struct mspolicy) + strlen(name) + 1)) == NULL) {
+	msp = calloc(1, sizeof(struct mspolicy) + strlen(name) + 1);
+
+	if (!job_assumes(j, msp != NULL)) {
 		return false;
 	}
 
