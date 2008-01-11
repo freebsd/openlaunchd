@@ -102,7 +102,7 @@ ipc_server_init(void)
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 
-	if (getpid() == 1) {
+	if (pid1_magic) {
 		strcpy(ourdir, LAUNCHD_SOCK_PREFIX);
 		strncpy(sun.sun_path, LAUNCHD_SOCK_PREFIX "/sock", sizeof(sun.sun_path));
 
@@ -458,7 +458,7 @@ adjust_rlimits(launch_data_t in)
 				continue;
 			}
 
-			if (/* XXX readcfg_pid && */ getpid() == 1 && (i == RLIMIT_NOFILE || i == RLIMIT_NPROC)) {
+			if (/* XXX readcfg_pid && */ pid1_magic && (i == RLIMIT_NOFILE || i == RLIMIT_NPROC)) {
 				int gmib[] = { CTL_KERN, KERN_MAXPROC };
 				int pmib[] = { CTL_KERN, KERN_MAXPROCPERUID };
 				const char *gstr = "kern.maxproc";

@@ -103,6 +103,8 @@ typedef INTERNAL_ABI void (*kq_callback)(void *, struct kevent *);
 typedef boolean_t (*mig_callback)(mach_msg_header_t *, mach_msg_header_t *);
 typedef INTERNAL_ABI void (*timeout_callback)(void);
 
+extern bool pid1_magic;
+
 INTERNAL_ABI mach_port_t runtime_get_kernel_port(void);
 
 INTERNAL_ABI void runtime_add_ref(void);

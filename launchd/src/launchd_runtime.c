@@ -120,7 +120,7 @@ static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 };
 static sigset_t sigign_set;
 static FILE *ourlogfile;
-
+bool pid1_magic;
 
 INTERNAL_ABI mach_port_t
 runtime_get_kernel_port(void)
@@ -1158,7 +1158,7 @@ runtime_syslog(int pri, const char *message, ...)
 {
 	struct runtime_syslog_attr attr = {
 		"com.apple.launchd", "com.apple.launchd",
-		getpid() == 1 ? "System" : "Background",
+		pid1_magic ? "System" : "Background",
 		pri, getuid(), getpid(), getpid()
 	};
 	va_list ap;
@@ -1326,7 +1326,7 @@ runtime_log_push(void)
 	if (logmsg_queue_cnt == 0) {
 		launchd_assumes(STAILQ_EMPTY(&logmsg_queue));
 		return;
-	} else if (getpid() != 1) {
+	} else if (!pid1_magic) {
 		if (runtime_log_pack(&outval, &outvalCnt) == 0) {
 			launchd_assumes(_vprocmgr_log_forward(inherited_bootstrap_port, (void *)outval, outvalCnt) == NULL);
 			mig_deallocate(outval, outvalCnt);
@@ -1605,4 +1605,8 @@ do_file_init(void)
 	launchd_assert(mach_timebase_info(&tbi) == 0);
 	tbi_float_val = tbi.numer;
 	tbi_float_val /= tbi.denom;
+
+	if (getpid() == 1) {
+		pid1_magic = true;
+	}
 }

@@ -714,7 +714,7 @@ jobmgr_shutdown(jobmgr_t jm)
 		}
 	}
 
-	if (do_apple_internal_logging() && jm->parentmgr == NULL && getpid() == 1) {
+	if (do_apple_internal_logging() && jm->parentmgr == NULL && pid1_magic) {
 		runtime_set_timeout(still_alive_with_check, 5);
 	}
 
@@ -756,7 +756,7 @@ jobmgr_remove(jobmgr_t jm)
 	if (jm->parentmgr) {
 		runtime_del_ref();
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
-	} else if (getpid() == 1) {
+	} else if (pid1_magic) {
 		jobmgr_log(jm, LOG_DEBUG, "About to call: sync()");
 		sync(); /* We're are going to rely on log timestamps to benchmark this call */
 		jobmgr_log(jm, LOG_DEBUG, "Unmounting all filesystems except / and /dev");
@@ -1120,7 +1120,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		/* the kernel */
 		break;
 	case 1:
-		if (getpid() != 1) {
+		if (!pid1_magic) {
 			/* we cannot possibly find a parent job_t that is useful in this function */
 			break;
 		}
@@ -2524,7 +2524,7 @@ jobmgr_callback(void *obj, struct kevent *kev)
 
 			runtime_closelog(); /* HACK -- force 'start' time to be set */
 
-			if (getpid() == 1) {
+			if (pid1_magic) {
 				int64_t now = runtime_get_wall_time();
 
 				jobmgr_log(jm, LOG_NOTICE, "Anticipatory shutdown began at: %lld.%06llu", now / USEC_PER_SEC, now % USEC_PER_SEC);
@@ -4204,7 +4204,7 @@ job_setup_exception_port(job_t j, task_t target_task)
 	if (likely(target_task)) {
 		job_assumes(j, task_set_exception_ports(target_task, EXC_MASK_CRASH, exc_port,
 					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
-	} else if (getpid() == 1 && the_exception_server) {
+	} else if (pid1_magic && the_exception_server) {
 		mach_port_t mhp = mach_host_self();
 		job_assumes(j, host_set_exception_ports(mhp, EXC_MASK_CRASH, the_exception_server,
 					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
@@ -4254,7 +4254,7 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 				SLIST_INSERT_HEAD(&special_ports, ms, special_port_sle);
 				break;
 			}
-		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && getpid() == 1) {
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT) == 0 && pid1_magic) {
 			if (which_port > HOST_MAX_SPECIAL_KERNEL_PORT) {
 				job_assumes(ms->job, (errno = host_set_special_port(mhp, which_port, ms->port)) == KERN_SUCCESS);
 			} else {
@@ -4387,7 +4387,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 	size_t i, kp_cnt = 0, kp_skipped = 0, len = 10*1024*1024;
 	struct kinfo_proc *kp;
 
-	if (likely(jm->parentmgr || getpid() != 1)) {
+	if (likely(jm->parentmgr || !pid1_magic)) {
 		return;
 	}
 
@@ -4483,7 +4483,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	if (transfer_port != MACH_PORT_NULL) {
 		jobmgr_assumes(jmr, jm != NULL);
 		jmr->jm_port = transfer_port;
-	} else if (!jm && getpid() != 1) {
+	} else if (!jm && !pid1_magic) {
 		char *trusted_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
 		name_t service_buf;
 
@@ -5276,7 +5276,7 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 #define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
 #ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
-	if (getpid() == 1) {
+	if (pid1_magic) {
 		if (unlikely(ldc.euid && server_uid && (ldc.euid != server_uid))) {
 			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
 					server_cmd, ldc.euid, server_uid);
@@ -5662,7 +5662,7 @@ job_mig_reboot2(job_t j, uint64_t flags)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (unlikely(getpid() != 1)) {
+	if (unlikely(!pid1_magic)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5731,7 +5731,7 @@ job_mig_log(job_t j, int pri, int err, logmsg_t msg)
 void
 ensure_root_bkgd_setup(void)
 {
-	if (likely(background_jobmgr) || getpid() != 1) {
+	if (likely(background_jobmgr) || !pid1_magic) {
 		return;
 	}
 
@@ -5757,7 +5757,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 	runtime_get_caller_creds(&ldc);
 
-	if (unlikely(getpid() != 1)) {
+	if (unlikely(!pid1_magic)) {
 		job_log(j, LOG_ERR, "Only PID 1 supports per user launchd lookups.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -5896,7 +5896,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 	 * us). We'll have to reconcile this design friction at a later date.
 	 */
 	if (unlikely(j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.uid != getuid() && ldc.uid != 92)) {
-		if (getpid() == 1) {
+		if (pid1_magic) {
 			return VPROC_ERR_TRY_PER_USER;
 		} else {
 			return BOOTSTRAP_NOT_PRIVILEGED;
@@ -5941,7 +5941,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 
 	runtime_get_caller_creds(&ldc);
 
-	if (unlikely(getpid() == 1 && j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.euid != 0)) {
+	if (unlikely(pid1_magic && j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.euid != 0)) {
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
@@ -5981,7 +5981,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		job_assumes(j, vproc_mig_look_up2_forward(inherited_bootstrap_port, srp, servicename, 0, 0) == 0);
 		/* The previous routine moved the reply port, we're forced to return MIG_NO_REPLY now */
 		return MIG_NO_REPLY;
-	} else if (getpid() == 1 && j->anonymous && ldc.euid >= 500 && strcasecmp(job_get_bs(j)->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
+	} else if (pid1_magic && j->anonymous && ldc.euid >= 500 && strcasecmp(job_get_bs(j)->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 		/*
 		 * 5240036 Should start background session when a lookup of CCacheServer occurs
 		 *
@@ -6113,7 +6113,7 @@ job_reparent_hack(job_t j, const char *where)
 			continue;
 		} else if (strcasecmp(jmi->name, where) == 0) {
 			goto jm_found;
-		} else if (strcasecmp(jmi->name, VPROCMGR_SESSION_BACKGROUND) == 0 && getpid() == 1) {
+		} else if (strcasecmp(jmi->name, VPROCMGR_SESSION_BACKGROUND) == 0 && pid1_magic) {
 			SLIST_FOREACH(jmi2, &jmi->submgrs, sle) {
 				if (strcasecmp(jmi2->name, where) == 0) {
 					jmi = jmi2;
@@ -6162,7 +6162,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		job_t j2;
 
 		if (j->mgr->session_initialized) {
-			if (ldc.uid == 0 && getpid() == 1) {
+			if (ldc.uid == 0 && pid1_magic) {
 				if (strcmp(j->mgr->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 					job_t ji, jn;
 
@@ -6200,7 +6200,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 				kr = BOOTSTRAP_NOT_PRIVILEGED;
 				goto out;
 			}
-		} else if (ldc.uid == 0 && getpid() == 1 && strcmp(session_type, VPROCMGR_SESSION_STANDARDIO) == 0) {
+		} else if (ldc.uid == 0 && pid1_magic && strcmp(session_type, VPROCMGR_SESSION_STANDARDIO) == 0) {
 			ensure_root_bkgd_setup();
 
 			SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
@@ -6334,7 +6334,7 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	jm = j->mgr;
 
-	if (unlikely(getpid() != 1)) {
+	if (unlikely(!pid1_magic)) {
 		job_log(j, LOG_ERR, "Only the system launchd will transfer Mach sub-bootstraps.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -6606,7 +6606,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (unlikely(getpid() == 1 && ldc.euid && ldc.uid)) {
+	if (unlikely(pid1_magic && ldc.euid && ldc.uid)) {
 		job_log(j, LOG_DEBUG, "Punting spawn to per-user-context");
 		return VPROC_ERR_TRY_PER_USER;
 	}
@@ -6632,7 +6632,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 
 	job_reparent_hack(jr, NULL);
 
-	if (getpid() == 1) {
+	if (pid1_magic) {
 		jr->mach_uid = ldc.uid;
 	}
 
@@ -6670,7 +6670,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 INTERNAL_ABI void
 jobmgr_init(bool sflag)
 {
-	const char *root_session_type = getpid() == 1 ? VPROCMGR_SESSION_SYSTEM : VPROCMGR_SESSION_BACKGROUND;
+	const char *root_session_type = pid1_magic ? VPROCMGR_SESSION_SYSTEM : VPROCMGR_SESSION_BACKGROUND;
 
 	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag, root_session_type)) != NULL);
 }

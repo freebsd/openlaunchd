@@ -134,7 +134,7 @@ main(int argc, char *const *argv)
 		setenv("PATH", _PATH_STDPATH, 1);
 	}
 
-	if (getpid() == 1) {
+	if (pid1_magic) {
 		pid1_magic_init();
 	} else {
 		ipc_server_init();
@@ -142,7 +142,7 @@ main(int argc, char *const *argv)
 
 	monitor_networking_state();
 
-	if (getpid() == 1) {
+	if (pid1_magic) {
 		handle_pid1_crashes_separately();
 	}
 
@@ -253,7 +253,7 @@ launchd_shutdown(void)
 
 	shutdown_in_progress = true;
 
-	if (getpid() == 1) {
+	if (pid1_magic) {
 		/*
 		 * When this changes to a more sustainable API, update this:
 		 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
