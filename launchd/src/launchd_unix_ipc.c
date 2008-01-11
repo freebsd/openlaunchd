@@ -60,8 +60,9 @@ static LIST_HEAD(, conncb) connections;
 static launch_data_t adjust_rlimits(launch_data_t in);
 
 static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context);
+static void ipc_readmsg(launch_data_t msg, void *context);
 
-static void ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev);
+INTERNAL_ABI static void ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev);
 
 static kq_callback kqipc_listen_callback = ipc_listen_callback;
 
@@ -72,7 +73,7 @@ static char *sockdir = NULL;
 
 static bool ipc_inited = false;
 
-void
+static void
 ipc_clean_up(void)
 {
 	if (ipc_self != getpid()) {
@@ -86,7 +87,7 @@ ipc_clean_up(void)
 	}
 }
 
-void
+INTERNAL_ABI void
 ipc_server_init(void)
 {
 	struct sockaddr_un sun;
@@ -176,7 +177,7 @@ out_bad:
 	}
 }
 
-void
+INTERNAL_ABI void
 ipc_open(int fd, job_t j)
 {
 	struct conncb *c = calloc(1, sizeof(struct conncb));
@@ -190,7 +191,7 @@ ipc_open(int fd, job_t j)
 	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
 
-void
+INTERNAL_ABI void
 ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
 	struct sockaddr_un sun;
@@ -204,7 +205,7 @@ ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev)
 	ipc_open(cfd, NULL);
 }
 
-void
+INTERNAL_ABI void
 ipc_callback(void *obj, struct kevent *kev)
 {
 	struct conncb *c = obj;
@@ -238,7 +239,7 @@ static void set_user_env(launch_data_t obj, const char *key, void *context __att
 	setenv(key, launch_data_get_string(obj), 1);
 }
 
-void
+INTERNAL_ABI void
 ipc_close_all_with_job(job_t j)
 {
 	struct conncb *ci, *cin;
@@ -250,7 +251,7 @@ ipc_close_all_with_job(job_t j)
 	}
 }
 
-void
+INTERNAL_ABI void
 ipc_close_fds(launch_data_t o)
 {
 	size_t i;
@@ -273,7 +274,7 @@ ipc_close_fds(launch_data_t o)
 	}
 }
 
-void
+INTERNAL_ABI void
 ipc_revoke_fds(launch_data_t o)
 {
 	size_t i;
@@ -424,7 +425,7 @@ close_abi_fixup(int fd)
 	return runtime_close(fd);
 }
 
-void
+INTERNAL_ABI void
 ipc_close(struct conncb *c)
 {
 	LIST_REMOVE(c, sle);

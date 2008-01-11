@@ -82,7 +82,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 extern char **environ;
 
-static void pfsystem_callback(void *, struct kevent *);
+INTERNAL_ABI static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
@@ -376,7 +376,7 @@ monitor_networking_state(void)
 	launchd_assumes(kevent_mod(pfs, EVFILT_READ, EV_ADD, 0, 0, &kqpfsystem_callback) != -1);
 }
 
-void
+INTERNAL_ABI void
 pfsystem_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
 	bool new_networking_state;
@@ -392,7 +392,7 @@ pfsystem_callback(void *obj __attribute__((unused)), struct kevent *kev)
 	}
 }
 
-INTERNAL_ABI bool
+INTERNAL_ABI void
 _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test)
 {
 	int saved_errno = errno;
@@ -417,6 +417,4 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 	}
 
 	runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u: %s", file, line, buf, saved_errno, test);
-
-	return false;
 }

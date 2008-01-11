@@ -263,6 +263,7 @@ struct jobmgr_s {
 	LIST_HEAD(, job_s) jobs;
 	LIST_HEAD(, job_s) active_jobs[ACTIVE_JOB_HASH_SIZE];
 	LIST_HEAD(, machservice) ms_hash[MACHSERVICE_HASH_SIZE];
+	LIST_HEAD(, job_s) global_env_jobs;
 	mach_port_t jm_port;
 	mach_port_t req_port;
 	jobmgr_t parentmgr;
@@ -275,7 +276,7 @@ struct jobmgr_s {
 };
 
 #define jobmgr_assumes(jm, e)	\
-	(likely(e) ? true : jobmgr_log_bug(jm, __LINE__))
+	(unlikely(!(e)) ? jobmgr_log_bug(jm, __LINE__), false : true)
 
 static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bool sflag, const char *name);
 static job_t jobmgr_import2(jobmgr_t jm, launch_data_t pload);
@@ -289,14 +290,14 @@ static job_t jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sfl
 static job_t jobmgr_find_by_pid(jobmgr_t jm, pid_t p, bool create_anon);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
-static void jobmgr_callback(void *obj, struct kevent *kev);
+INTERNAL_ABI static void jobmgr_callback(void *obj, struct kevent *kev);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
 static void jobmgr_export_env_from_other_jobs(jobmgr_t jm, launch_data_t dict);
 static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid);
 static void jobmgr_logv(jobmgr_t jm, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
-static bool jobmgr_log_bug(jobmgr_t jm, unsigned int line);
+static void jobmgr_log_bug(jobmgr_t jm, unsigned int line);
 
 #define DO_RUSAGE_SUMMATION 0
 
@@ -307,6 +308,7 @@ struct job_s {
 	LIST_ENTRY(job_s) sle;
 	LIST_ENTRY(job_s) pid_hash_sle;
 	LIST_ENTRY(job_s) label_hash_sle;
+	LIST_ENTRY(job_s) global_env_sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	SLIST_HEAD(, envitem) global_env;
@@ -375,7 +377,7 @@ static size_t hash_ms(const char *msstr) __attribute__((pure));
 
 
 #define job_assumes(j, e)	\
-	(likely(e) ? true : job_log_bug(j, __LINE__))
+	(unlikely(!(e)) ? job_log_bug(j, __LINE__), false : true)
 
 static void job_import_keys(launch_data_t obj, const char *key, void *context);
 static void job_import_bool(job_t j, const char *key, bool value);
@@ -401,7 +403,7 @@ static void job_log_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_setup_exception_port(job_t j, task_t target_task);
 static void job_reparent_hack(job_t j, const char *where);
-static void job_callback(void *obj, struct kevent *kev);
+INTERNAL_ABI static void job_callback(void *obj, struct kevent *kev);
 static void job_callback_proc(job_t j, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
@@ -417,7 +419,7 @@ static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
 static void job_logv(job_t j, int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 4, 0)));
 static void job_log_error(job_t j, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4)));
-static bool job_log_bug(job_t j, unsigned int line);
+static void job_log_bug(job_t j, unsigned int line);
 static void job_log_stdouterr2(job_t j, const char *msg, ...);
 static void job_set_exeception_port(job_t j, mach_port_t port);
 static kern_return_t job_handle_mpm_wait(job_t j, mach_port_t srp, int *waitstatus);
@@ -680,7 +682,7 @@ jobmgr_log_active_jobs(jobmgr_t jm)
 
 }
 
-static void
+INTERNAL_ABI static void
 still_alive_with_check(void)
 {
 	jobmgr_log(root_jobmgr, LOG_NOTICE, "Still alive with %lu/%lu children", total_children, total_anon_children);
@@ -785,17 +787,18 @@ job_remove(job_t j)
 	struct mspolicy *msp;
 	struct envitem *ei;
 
-	if (j->p && j->anonymous) {
-		job_reap(j);
-	} else if (j->p) {
-		job_log(j, LOG_DEBUG, "Removal pended until the job exits");
+	if (unlikely(j->p)) {
+		if (j->anonymous) {
+			job_reap(j);
+		} else {
+			job_log(j, LOG_DEBUG, "Removal pended until the job exits");
 
-		if (!j->removal_pending) {
-			j->removal_pending = true;
-			job_stop(j);
+			if (!j->removal_pending) {
+				j->removal_pending = true;
+				job_stop(j);
+			}
+			return;
 		}
-
-		return;
 	}
 
 	ipc_close_all_with_job(j);
@@ -866,7 +869,7 @@ job_remove(job_t j)
 	if (j->prog) {
 		free(j->prog);
 	}
-	if (likely(j->argv)) {
+	if (j->argv) {
 		free(j->argv);
 	}
 	if (j->rootdir) {
@@ -1017,7 +1020,7 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 	free(argv);
 
 	/* jobs can easily be denied creation during shutdown */
-	if (!jr) {
+	if (unlikely(jr == NULL)) {
 		goto out_bad;
 	}
 
@@ -1081,7 +1084,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		return NULL;
 	}
 
-	if (len != sizeof(kp)) {
+	if (unlikely(len != sizeof(kp))) {
 		jobmgr_log(jm, LOG_DEBUG, "Tried to create an anonymous job for nonexistent PID: %u", anonpid);
 		errno = ESRCH;
 		return NULL;
@@ -1096,7 +1099,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		jobmgr_log(jm, LOG_DEBUG, "Tried to create an anonymous job for zombie PID %u: %s", anonpid, kp.kp_proc.p_comm);
 	}
 
-	if (kp.kp_proc.p_flag & P_SUGID) {
+	if (unlikely(kp.kp_proc.p_flag & P_SUGID)) {
 		jobmgr_log(jm, LOG_APPLEONLY, "Inconsistency: P_SUGID is set on PID %u: %s", anonpid, kp.kp_proc.p_comm);
 	}
 
@@ -1107,7 +1110,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	kp_gid = kp.kp_eproc.e_pcred.p_rgid;
 	kp_svgid = kp.kp_eproc.e_pcred.p_svgid;
 
-	if (kp_euid != kp_uid || kp_euid != kp_svuid || kp_uid != kp_svuid || kp_egid != kp_gid || kp_egid != kp_svgid || kp_gid != kp_svgid) {
+	if (unlikely(kp_euid != kp_uid || kp_euid != kp_svuid || kp_uid != kp_svuid || kp_egid != kp_gid || kp_egid != kp_svgid || kp_gid != kp_svgid)) {
 		jobmgr_log(jm, LOG_APPLEONLY, "Inconsistency: Mixed credentials (e/r/s UID %u/%u/%u GID %u/%u/%u) detected on PID %u: %s",
 				kp_euid, kp_uid, kp_svuid, kp_egid, kp_gid, kp_svgid, anonpid, kp.kp_proc.p_comm);
 	}
@@ -1128,13 +1131,13 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 		break;
 	}
 
-	if (jp && !jp->anonymous && !(kp.kp_proc.p_flag & P_EXEC)) {
+	if (jp && !jp->anonymous && unlikely(!(kp.kp_proc.p_flag & P_EXEC))) {
 		job_log(jp, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn()");
 	}
 
 
 	/* A total hack: Normally, job_new() returns an error during shutdown, but anonymous jobs are special. */
-	if ((shutdown_state = jm->shutting_down)) {
+	if (unlikely(shutdown_state = jm->shutting_down)) {
 		jm->shutting_down = false;
 	}
 
@@ -1158,14 +1161,14 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 			job_assumes(jr, mspolicy_copy(jr, jp));
 		}
 
-		if (shutdown_state && jm->hopefully_first_cnt == 0) {
+		if (unlikely(shutdown_state && jm->hopefully_first_cnt == 0)) {
 			job_log(jr, LOG_APPLEONLY, "This process showed up to the party while all the guests were leaving. Odds are that it will have a miserable time.");
 		}
 
 		job_log(jr, LOG_DEBUG, "Created PID %u anonymously by PPID %u%s%s", anonpid, kp.kp_eproc.e_ppid, jp ? ": " : "", jp ? jp->label : "");
 	}
 
-	if (shutdown_state) {
+	if (unlikely(shutdown_state)) {
 		jm->shutting_down = true;
 	}
 
@@ -1195,7 +1198,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		return NULL;
 	}
 
-	if (label == AUTO_PICK_LEGACY_LABEL) {
+	if (unlikely(label == AUTO_PICK_LEGACY_LABEL)) {
 		bn = prog ? prog : basename((char *)argv[0]); /* prog for auto labels is kp.kp_kproc.p_comm */
 		snprintf(auto_label, sizeof(auto_label), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", bn);
 		label = auto_label;
@@ -1211,7 +1214,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 		return NULL;
 	}
 
-	if (label == auto_label) {
+	if (unlikely(label == auto_label)) {
 		snprintf((char *)j->label, strlen(label) + 1, "%p.%s", j, bn);
 	} else {
 		strcpy((char *)j->label, label);
@@ -1429,7 +1432,7 @@ job_import_bool(job_t j, const char *key, bool value)
 		break;
 	}
 
-	if (!found_key) {
+	if (unlikely(!found_key)) {
 		job_log(j, LOG_WARNING, "Unknown key for boolean: %s", key);
 	}
 }
@@ -1531,7 +1534,7 @@ job_import_string(job_t j, const char *key, const char *value)
 		break;
 	}
 
-	if (where2put) {
+	if (likely(where2put)) {
 		job_assumes(j, (*where2put = strdup(value)) != NULL);
 	} else {
 		job_log(j, LOG_WARNING, "Unknown key: %s", key);
@@ -1821,7 +1824,7 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 	const char **argv = NULL;
 	job_t j;
 
-	if (!launchd_assumes(pload != NULL)) {
+	if (!jobmgr_assumes(jm, pload != NULL)) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1901,10 +1904,8 @@ job_find(const char *label)
 	job_t ji;
 
 	LIST_FOREACH(ji, &label_hash[hash_label(label)], label_hash_sle) {
-		if (ji->removal_pending) {
-			continue; /* 5351245 */
-		} else if (ji->mgr->shutting_down) {
-			continue; /* 5488633 */
+		if (unlikely(ji->removal_pending || ji->mgr->shutting_down)) {
+			continue; /* 5351245 and 5488633 respectively */
 		}
 
 		if (strcmp(ji->label, label) == 0) {
@@ -1919,21 +1920,15 @@ job_find(const char *label)
 job_t
 jobmgr_find_by_pid(jobmgr_t jm, pid_t p, bool create_anon)
 {
-	job_t ji = NULL;
+	job_t ji;
 
 	LIST_FOREACH(ji, &jm->active_jobs[ACTIVE_JOB_HASH(p)], pid_hash_sle) {
 		if (ji->p == p) {
-			break;
+			return ji;
 		}
 	}
 
-	if (ji) {
-		return ji;
-	} else if (create_anon) {
-		return job_new_anonymous(jm, p);
-	} else {
-		return NULL;
-	}
+	return create_anon ? job_new_anonymous(jm, p) : NULL;
 }
 
 job_t 
@@ -2013,7 +2008,7 @@ job_mig_destructor(job_t j)
 	 * 'j' can be invalid at this point. We should fix this up after Leopard ships.
 	 */
 
-	if (j && j != workaround_5477111 && j->unload_at_mig_return) {
+	if (unlikely(j && (j != workaround_5477111) && j->unload_at_mig_return)) {
 		job_log(j, LOG_NOTICE, "Unloading PID %u at MIG return.", j->p);
 		job_remove(j);
 	}
@@ -2466,7 +2461,7 @@ job_callback_timer(job_t j, void *ident)
 			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %llu seconds ago...", td);
 		} else {
 			job_force_sampletool(j);
-			if (j->debug_before_kill) {
+			if (unlikely(j->debug_before_kill)) {
 				job_log(j, LOG_NOTICE, "Exit timeout elapsed. Entering the kernel debugger.");
 				job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
 			}
@@ -2506,7 +2501,7 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 	}
 }
 
-void
+INTERNAL_ABI void
 jobmgr_callback(void *obj, struct kevent *kev)
 {
 	jobmgr_t jm = obj;
@@ -2515,9 +2510,7 @@ jobmgr_callback(void *obj, struct kevent *kev)
 	switch (kev->filter) {
 	case EVFILT_PROC:
 		jobmgr_reap_bulk(jm, kev);
-		if (launchd_assumes(root_jobmgr != NULL)) {
-			root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
-		}
+		root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
 		break;
 	case EVFILT_SIGNAL:
 		switch (kev->ident) {
@@ -2566,7 +2559,7 @@ jobmgr_callback(void *obj, struct kevent *kev)
 	}
 }
 
-void
+INTERNAL_ABI void
 job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
@@ -2887,7 +2880,7 @@ jobmgr_setup_env_from_other_jobs(jobmgr_t jm)
 		jobmgr_setup_env_from_other_jobs(jm->parentmgr);
 	}
 
-	LIST_FOREACH(ji, &jm->jobs, sle) {
+	LIST_FOREACH(ji, &jm->global_env_jobs, global_env_sle) {
 		SLIST_FOREACH(ei, &ji->global_env, sle) {
 			setenv(ei->key, ei->value, 1);
 		}
@@ -3239,7 +3232,7 @@ extract_rcsid_substr(const char *i, char *o, size_t osz)
 	}
 }
 
-bool
+void
 jobmgr_log_bug(jobmgr_t jm, unsigned int line)
 {
 	static const char *file;
@@ -3263,11 +3256,9 @@ jobmgr_log_bug(jobmgr_t jm, unsigned int line)
 	} else {
 		runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
 	}
-
-	return false;
 }
 
-bool
+void
 job_log_bug(job_t j, unsigned int line)
 {
 	static const char *file;
@@ -3291,8 +3282,6 @@ job_log_bug(job_t j, unsigned int line)
 	} else {
 		runtime_syslog(LOG_NOTICE, "Bug: %s:%u (%s):%u", file, line, buf, saved_errno);
 	}
-
-	return false;
 }
 
 void
@@ -3784,6 +3773,9 @@ envitem_new(job_t j, const char *k, const char *v, bool global)
 	strcpy(ei->value, v);
 
 	if (global) {
+		if (SLIST_EMPTY(&j->global_env)) {
+			LIST_INSERT_HEAD(&j->mgr->global_env_jobs, j, global_env_sle);
+		}
 		SLIST_INSERT_HEAD(&j->global_env, ei, sle);
 	} else {
 		SLIST_INSERT_HEAD(&j->env, ei, sle);
@@ -3799,6 +3791,9 @@ envitem_delete(job_t j, struct envitem *ei, bool global)
 {
 	if (global) {
 		SLIST_REMOVE(&j->global_env, ei, envitem, sle);
+		if (SLIST_EMPTY(&j->global_env)) {
+			LIST_REMOVE(j, global_env_sle);
+		}
 	} else {
 		SLIST_REMOVE(&j->env, ei, envitem, sle);
 	}
@@ -3950,11 +3945,11 @@ job_keepalive(job_t j)
 	 * We definitely need to revisit this after Leopard ships. Please see
 	 * launchctl.c for the other half of this hack.
 	 */
-	if (j->mgr->global_on_demand_cnt > 0 && strcmp(j->label, "com.apple.kextd") != 0) {
+	if (unlikely(j->mgr->global_on_demand_cnt > 0 && strcmp(j->label, "com.apple.kextd") != 0)) {
 		return false;
 	}
 #else
-	if (j->mgr->global_on_demand_cnt > 0) {
+	if (unlikely(j->mgr->global_on_demand_cnt > 0)) {
 		return false;
 	}
 #endif
@@ -3976,7 +3971,7 @@ job_keepalive(job_t j)
 			continue;
 		}
 		if (status.mps_msgcount) {
-			job_log(j, LOG_DEBUG, "KeepAlive check: job restarted due to %d queued Mach messages on service: %s",
+			job_log(j, LOG_DEBUG, "KeepAlive check: %d queued Mach messages on service: %s",
 					status.mps_msgcount, ms->name);
 			return true;
 		}
@@ -4139,7 +4134,7 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_lo
 	ms->gen_num = 1;
 	ms->per_pid = pid_local;
 
-	if (*serviceport == MACH_PORT_NULL) {
+	if (likely(*serviceport == MACH_PORT_NULL)) {
 		if (!job_assumes(j, launchd_mport_create_recv(&ms->port) == KERN_SUCCESS)) {
 			goto out_bad;
 		}
@@ -4187,16 +4182,16 @@ job_setup_exception_port(job_t j, task_t target_task)
 	thread_state_flavor_t f = 0;
 	mach_port_t exc_port = the_exception_server;
 
-	if (j->alt_exc_handler) {
+	if (unlikely(j->alt_exc_handler)) {
 		ms = jobmgr_lookup_service(j->mgr, j->alt_exc_handler, true, 0);
-		if (ms) {
+		if (likely(ms)) {
 			exc_port = machservice_port(ms);
 		} else {
 			job_log(j, LOG_WARNING, "Falling back to default Mach exception handler. Could not find: %s", j->alt_exc_handler);
 		}
-	} else if (j->internal_exc_handler) {
+	} else if (unlikely(j->internal_exc_handler)) {
 		exc_port = runtime_get_kernel_port();
-	} else if (!exc_port) {
+	} else if (unlikely(!exc_port)) {
 		return;
 	}
 
@@ -4206,7 +4201,7 @@ job_setup_exception_port(job_t j, task_t target_task)
 	f = x86_THREAD_STATE;
 #endif
 
-	if (target_task) {
+	if (likely(target_task)) {
 		job_assumes(j, task_set_exception_ports(target_task, EXC_MASK_CRASH, exc_port,
 					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
 	} else if (getpid() == 1 && the_exception_server) {
@@ -4221,7 +4216,7 @@ job_setup_exception_port(job_t j, task_t target_task)
 void
 job_set_exeception_port(job_t j, mach_port_t port)
 {
-	if (!the_exception_server) {
+	if (unlikely(!the_exception_server)) {
 		the_exception_server = port;
 		job_setup_exception_port(j, 0);
 	} else {
@@ -4298,13 +4293,12 @@ machservice_setup(launch_data_t obj, const char *key, void *context)
 	struct machservice *ms;
 	mach_port_t p = MACH_PORT_NULL;
 
-	if ((ms = jobmgr_lookup_service(j->mgr, key, false, 0))) {
+	if (unlikely(ms = jobmgr_lookup_service(j->mgr, key, false, 0))) {
 		job_log(j, LOG_WARNING, "Conflict with job: %s over Mach service: %s", ms->job->label, key);
 		return;
 	}
 
-	if ((ms = machservice_new(j, key, &p, false)) == NULL) {
-		job_log_error(j, LOG_WARNING, "Cannot add service: %s", key);
+	if (!job_assumes(j, (ms = machservice_new(j, key, &p, false)) != NULL)) {
 		return;
 	}
 
@@ -4325,7 +4319,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 		jobmgr_do_garbage_collection(jmi);
 	}
 
-	if (!jm->shutting_down) {
+	if (likely(!jm->shutting_down)) {
 		return jm;
 	}
 
@@ -4393,7 +4387,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 	size_t i, kp_cnt = 0, kp_skipped = 0, len = 10*1024*1024;
 	struct kinfo_proc *kp;
 
-	if (jm->parentmgr || getpid() != 1) {
+	if (likely(jm->parentmgr || getpid() != 1)) {
 		return;
 	}
 
@@ -4413,7 +4407,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 		const char *z = (kp[i].kp_proc.p_stat == SZOMB) ? "zombie " : "";
 		const char *n = kp[i].kp_proc.p_comm;
 
-		if (p_i == 0 || p_i == 1) {
+		if (unlikely(p_i == 0 || p_i == 1)) {
 			kp_skipped++;
 			continue;
 		}
@@ -4462,7 +4456,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 
 	launchd_assert(offsetof(struct jobmgr_s, kqjobmgr_callback) == 0);
 
-	if (jm && requestorport == MACH_PORT_NULL) {
+	if (unlikely(jm && requestorport == MACH_PORT_NULL)) {
 		jobmgr_log(jm, LOG_ERR, "Mach sub-bootstrap create request requires a requester port");
 		return NULL;
 	}
@@ -4609,7 +4603,7 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 
 	if (jm == root_jobmgr) {
 		if (port == inherited_bootstrap_port) {
-			launchd_assumes(launchd_mport_deallocate(port) == KERN_SUCCESS);
+			jobmgr_assumes(jm, launchd_mport_deallocate(port) == KERN_SUCCESS);
 			inherited_bootstrap_port = MACH_PORT_NULL;
 
 			return jobmgr_shutdown(jm);
@@ -4638,24 +4632,31 @@ struct machservice *
 jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid)
 {
 	struct machservice *ms;
+	job_t target_j;
 
 	if (target_pid) {
-		jobmgr_assumes(jm, !check_parent);
-	}
+		//jobmgr_assumes(jm, !check_parent);
 
-	LIST_FOREACH(ms, &jm->ms_hash[hash_ms(name)], name_hash_sle) {
-		if ((target_pid && ms->per_pid && ms->job->p == target_pid) || (!target_pid && !ms->per_pid)) {
-			if (strcmp(name, ms->name) == 0) {
+		if (unlikely((target_j = jobmgr_find_by_pid(jm, target_pid, false)) == NULL)) {
+			return NULL;
+		}
+
+		SLIST_FOREACH(ms, &target_j->machservices, sle) {
+			if (ms->per_pid && strcmp(name, ms->name) == 0) {
 				return ms;
 			}
 		}
-	}
 
-	if (jm->parentmgr == NULL) {
 		return NULL;
 	}
 
-	if (!check_parent) {
+	LIST_FOREACH(ms, &jm->ms_hash[hash_ms(name)], name_hash_sle) {
+		if (!ms->per_pid && strcmp(name, ms->name) == 0) {
+			return ms;
+		}
+	}
+
+	if (jm->parentmgr == NULL || !check_parent) {
 		return NULL;
 	}
 
@@ -4695,7 +4696,7 @@ machservice_name(struct machservice *ms)
 void
 machservice_delete(job_t j, struct machservice *ms, bool port_died)
 {
-	if (ms->debug_on_close) {
+	if (unlikely(ms->debug_on_close)) {
 		job_log(j, LOG_NOTICE, "About to enter kernel debugger because of Mach port: 0x%x", ms->port);
 		job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
 	}
@@ -4706,7 +4707,7 @@ machservice_delete(job_t j, struct machservice *ms, bool port_died)
 
 	job_assumes(j, launchd_mport_deallocate(ms->port) == KERN_SUCCESS);
 
-	if (ms->port == the_exception_server) {
+	if (unlikely(ms->port == the_exception_server)) {
 		the_exception_server = 0;
 	}
 
@@ -5276,7 +5277,7 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
 #ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	if (getpid() == 1) {
-		if (ldc.euid && server_uid && (ldc.euid != server_uid)) {
+		if (unlikely(ldc.euid && server_uid && (ldc.euid != server_uid))) {
 			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
 					server_cmd, ldc.euid, server_uid);
 			server_uid = ldc.euid;
@@ -5284,7 +5285,7 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 	} else
 #endif
 	if (getuid()) {
-		if (server_uid != getuid()) {
+		if (unlikely(server_uid != getuid())) {
 			job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
 					server_cmd, getuid(), server_uid);
 		}
@@ -5293,7 +5294,7 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 
 	js = job_new_via_mach_init(j, server_cmd, server_uid, on_demand);
 
-	if (js == NULL) {
+	if (unlikely(js == NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
@@ -5313,11 +5314,11 @@ job_mig_send_signal(job_t j, mach_port_t srp, name_t targetlabel, int sig)
 
 	runtime_get_caller_creds(&ldc);
 
-	if (ldc.euid != 0 && ldc.euid != getuid()) {
+	if (unlikely(ldc.euid != 0 && ldc.euid != getuid())) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (!(otherj = job_find(targetlabel))) {
+	if (unlikely(!(otherj = job_find(targetlabel)))) {
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 
@@ -5374,7 +5375,7 @@ job_mig_log_drain(job_t j, mach_port_t srp, vm_offset_t *outval, mach_msg_type_n
 
 	runtime_get_caller_creds(&ldc);
 
-	if (ldc.euid) {
+	if (unlikely(ldc.euid)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5398,11 +5399,11 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (inkey && ldc.euid && ldc.euid != getuid()) {
+	if (unlikely(inkey && ldc.euid && ldc.euid != getuid())) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (inkey && outkey && !job_assumes(j, inkey == outkey)) {
+	if (unlikely(inkey && outkey && !job_assumes(j, inkey == outkey))) {
 		return 1;
 	}
 
@@ -5422,7 +5423,7 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 		return 1;
 	}
 
-	if (invalCnt && !job_assumes(j, (input_obj = launch_data_unpack((void *)inval, invalCnt, NULL, 0, &data_offset, NULL)) != NULL)) {
+	if (unlikely(invalCnt && !job_assumes(j, (input_obj = launch_data_unpack((void *)inval, invalCnt, NULL, 0, &data_offset, NULL)) != NULL))) {
 		goto out_bad;
 	}
 
@@ -5492,11 +5493,11 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (inkey && ldc.euid && ldc.euid != getuid()) {
+	if (unlikely(inkey && ldc.euid && ldc.euid != getuid())) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (inkey && outkey && !job_assumes(j, inkey == outkey)) {
+	if (unlikely(inkey && outkey && !job_assumes(j, inkey == outkey))) {
 		return 1;
 	}
 
@@ -5627,7 +5628,7 @@ job_mig_post_fork_ping(job_t j, task_t child_task)
 
 		errno = task_set_special_port(child_task, ms->special_port_num, ms->port);
 
-		if (errno) {
+		if (unlikely(errno)) {
 			int desired_log_level = LOG_ERR;
 
 			if (j->anonymous) {
@@ -5661,13 +5662,13 @@ job_mig_reboot2(job_t j, uint64_t flags)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (getpid() != 1) {
+	if (unlikely(getpid() != 1)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	runtime_get_caller_creds(&ldc);
 
-	if (ldc.euid) {
+	if (unlikely(ldc.euid)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5702,7 +5703,7 @@ job_mig_getsocket(job_t j, name_t spr)
 
 	ipc_server_init();
 
-	if (!sockpath) {
+	if (unlikely(!sockpath)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
@@ -5730,7 +5731,7 @@ job_mig_log(job_t j, int pri, int err, logmsg_t msg)
 void
 ensure_root_bkgd_setup(void)
 {
-	if (background_jobmgr || getpid() != 1) {
+	if (likely(background_jobmgr) || getpid() != 1) {
 		return;
 	}
 
@@ -5756,7 +5757,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 	runtime_get_caller_creds(&ldc);
 
-	if (getpid() != 1) {
+	if (unlikely(getpid() != 1)) {
 		job_log(j, LOG_ERR, "Only PID 1 supports per user launchd lookups.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -5791,7 +5792,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		break;
 	}
 
-	if (ji == NULL) {
+	if (unlikely(ji == NULL)) {
 		struct machservice *ms;
 		char lbuf[1024];
 
@@ -5843,12 +5844,12 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 
 	ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
 
-	if (ms == NULL) {
+	if (unlikely(ms == NULL)) {
 		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 
-	if ((jo = machservice_job(ms)) != j) {
+	if (unlikely((jo = machservice_job(ms)) != j)) {
 		static pid_t last_warned_pid;
 
 		if (last_warned_pid != ldc.pid) {
@@ -5858,7 +5859,7 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
-	if (machservice_active(ms)) {
+	if (unlikely(machservice_active(ms))) {
 		job_log(j, LOG_WARNING, "Check-in of Mach service failed. Already active: %s", servicename);
 		return BOOTSTRAP_SERVICE_ACTIVE;
 	}
@@ -5894,7 +5895,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 	 * 92) is a rogue application (not our UID, not root and not a child of
 	 * us). We'll have to reconcile this design friction at a later date.
 	 */
-	if (j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.uid != getuid() && ldc.uid != 92) {
+	if (unlikely(j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.uid != getuid() && ldc.uid != 92)) {
 		if (getpid() == 1) {
 			return VPROC_ERR_TRY_PER_USER;
 		} else {
@@ -5904,7 +5905,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 	
 	ms = jobmgr_lookup_service(j->mgr, servicename, false, flags & BOOTSTRAP_PER_PID_SERVICE ? ldc.pid : 0);
 
-	if (ms) {
+	if (unlikely(ms)) {
 		if (machservice_job(ms) != j) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
@@ -5916,8 +5917,8 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 		machservice_delete(j, ms, false);
 	}
 
-	if (serviceport != MACH_PORT_NULL) {
-		if ((ms = machservice_new(j, servicename, &serviceport, flags & BOOTSTRAP_PER_PID_SERVICE ? true : false))) {
+	if (likely(serviceport != MACH_PORT_NULL)) {
+		if (likely(ms = machservice_new(j, servicename, &serviceport, flags & BOOTSTRAP_PER_PID_SERVICE ? true : false))) {
 			machservice_request_notifications(ms);
 		} else {
 			return BOOTSTRAP_NO_MEMORY;
@@ -5940,11 +5941,11 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 
 	runtime_get_caller_creds(&ldc);
 
-	if (getpid() == 1 && j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.euid != 0) {
+	if (unlikely(getpid() == 1 && j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.euid != 0)) {
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
-	if (!mspolicy_check(j, servicename, flags & BOOTSTRAP_PER_PID_SERVICE)) {
+	if (unlikely(!mspolicy_check(j, servicename, flags & BOOTSTRAP_PER_PID_SERVICE))) {
 		job_log(j, LOG_NOTICE, "Policy denied Mach service lookup: %s", servicename);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -5957,15 +5958,15 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 
 	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
 		ms = NULL;
-	} else if (ms && ms->per_user_hack) {
+	} else if (ms && unlikely(ms->per_user_hack)) {
 		ms = NULL;
 	}
 
 	if (ms) {
-		launchd_assumes(machservice_port(ms) != MACH_PORT_NULL);
+		job_assumes(j, machservice_port(ms) != MACH_PORT_NULL);
 		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 
-		if (j->lastlookup == ms && j->lastlookup_gennum == ms->gen_num && !j->per_user) {
+		if (unlikely(j->lastlookup == ms && j->lastlookup_gennum == ms->gen_num && !j->per_user)) {
 			job_log(ms->job, LOG_APPLEONLY, "Performance: Please fix the framework to cache the Mach port for service: %s", servicename);
 		}
 
@@ -6048,12 +6049,12 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 	}
 
 	mig_allocate((vm_address_t *)&service_names, cnt * sizeof(service_names[0]));
-	if (!launchd_assumes(service_names != NULL)) {
+	if (!job_assumes(j, service_names != NULL)) {
 		goto out_bad;
 	}
 
 	mig_allocate((vm_address_t *)&service_actives, cnt * sizeof(service_actives[0]));
-	if (!launchd_assumes(service_actives != NULL)) {
+	if (!job_assumes(j, service_actives != NULL)) {
 		goto out_bad;
 	}
 
@@ -6067,7 +6068,7 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 		}
 	}
 
-	launchd_assumes(cnt == cnt2);
+	job_assumes(j, cnt == cnt2);
 
 out:
 	*servicenamesp = service_names;
@@ -6108,7 +6109,7 @@ job_reparent_hack(job_t j, const char *where)
 	}
 
 	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
-		if (jmi->shutting_down) {
+		if (unlikely(jmi->shutting_down)) {
 			continue;
 		} else if (strcasecmp(jmi->name, where) == 0) {
 			goto jm_found;
@@ -6223,7 +6224,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 			 */
 
 			SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
-				if (jmi->shutting_down) {
+				if (unlikely(jmi->shutting_down)) {
 					continue;
 				} else if (strcasecmp(jmi->name, session_type) == 0) {
 					jobmgr_shutdown(jmi);
@@ -6281,13 +6282,13 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 		j_for_service = jobmgr_find_by_pid(jmr, target_pid, true);
 
-		if (!j_for_service) {
+		if (unlikely(!j_for_service)) {
 			/* The PID probably exited */
 			job_assumes(j, launchd_mport_deallocate(l2l_ports[l2l_i]) == KERN_SUCCESS);
 			continue;
 		}
 
-		if ((ms = machservice_new(j_for_service, serv_name, &l2l_ports[l2l_i], serv_perpid))) {
+		if (likely(ms = machservice_new(j_for_service, serv_name, &l2l_ports[l2l_i], serv_perpid))) {
 			machservice_request_notifications(ms);
 		}
 	}
@@ -6333,16 +6334,19 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	jm = j->mgr;
 
-	if (getpid() != 1) {
+	if (unlikely(getpid() != 1)) {
 		job_log(j, LOG_ERR, "Only the system launchd will transfer Mach sub-bootstraps.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
-	} else if (jobmgr_parent(jm) == NULL) {
+	}
+	if (unlikely(jobmgr_parent(jm) == NULL)) {
 		job_log(j, LOG_ERR, "Root Mach bootstrap cannot be transferred.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
-	} else if (strcasecmp(jm->name, VPROCMGR_SESSION_AQUA) == 0) {
+	}
+	if (unlikely(strcasecmp(jm->name, VPROCMGR_SESSION_AQUA) == 0)) {
 		job_log(j, LOG_ERR, "Cannot transfer a setup GUI session.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
-	} else if (!j->anonymous) {
+	}
+	if (unlikely(!j->anonymous)) {
 		job_log(j, LOG_ERR, "Only the anonymous job can transfer Mach sub-bootstraps.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -6370,7 +6374,7 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 	}
 
 	mig_allocate((vm_address_t *)&ports, cnt * sizeof(ports[0]));
-	if (!launchd_assumes(ports != NULL)) {
+	if (!job_assumes(j, ports != NULL)) {
 		goto out_bad;
 	}
 
@@ -6412,7 +6416,7 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 		}
 	}
 
-	launchd_assumes(cnt == cnt2);
+	job_assumes(j, cnt == cnt2);
 
 	packed_size = launch_data_pack(outdata_obj_array, (void *)*outdata, *outdataCnt, NULL, NULL);
 	if (!job_assumes(j, packed_size != 0)) {
@@ -6467,13 +6471,13 @@ job_mig_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 	}
 
 	/* Since we use recursion, we need an artificial depth for subsets */
-	if (bsdepth > 100) {
+	if (unlikely(bsdepth > 100)) {
 		job_log(j, LOG_ERR, "Mach sub-bootstrap create request failed. Depth greater than: %d", bsdepth);
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if ((jmr = jobmgr_new(j->mgr, requestorport, MACH_PORT_NULL, false, NULL)) == NULL) {
-		if (requestorport == MACH_PORT_NULL) {
+	if (!job_assumes(j, (jmr = jobmgr_new(j->mgr, requestorport, MACH_PORT_NULL, false, NULL)) != NULL)) {
+		if (unlikely(requestorport == MACH_PORT_NULL)) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
 		return BOOTSTRAP_NO_MEMORY;
@@ -6492,18 +6496,18 @@ job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (job_prog(j)[0] == '\0') {
+	if (unlikely(job_prog(j)[0] == '\0')) {
 		job_log(j, LOG_ERR, "Mach service creation requires a target server: %s", servicename);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (!j->legacy_mach_job) {
+	if (unlikely(!j->legacy_mach_job)) {
 		job_log(j, LOG_ERR, "bootstrap_create_service() is only allowed against legacy Mach jobs: %s", servicename);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	ms = jobmgr_lookup_service(j->mgr, servicename, false, 0);
-	if (ms) {
+	if (unlikely(ms)) {
 		job_log(j, LOG_DEBUG, "Mach service creation attempt for failed. Already exists: %s", servicename);
 		return BOOTSTRAP_NAME_IN_USE;
 	}
@@ -6513,15 +6517,11 @@ job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 	*serviceportp = MACH_PORT_NULL;
 	ms = machservice_new(j, servicename, serviceportp, false);
 
-	if (!launchd_assumes(ms != NULL)) {
-		goto out_bad;
+	if (!job_assumes(j, ms != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
 	}
 
 	return BOOTSTRAP_SUCCESS;
-
-out_bad:
-	launchd_assumes(launchd_mport_close_recv(*serviceportp) == KERN_SUCCESS);
-	return BOOTSTRAP_NO_MEMORY;
 }
 
 kern_return_t
@@ -6544,7 +6544,7 @@ job_mig_uncork_fork(job_t j)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (!j->stall_before_exec) {
+	if (unlikely(!j->stall_before_exec)) {
 		job_log(j, LOG_WARNING, "Attempt to uncork a job that isn't in the middle of a fork().");
 		return 1;
 	}
@@ -6563,6 +6563,12 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	if (unlikely(!SLIST_EMPTY(&j->mspolicies))) {
+		job_log(j, LOG_WARNING, "Jobs that have policies assigned to them may not set policies.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+
 	target_j = jobmgr_find_by_pid(j->mgr, target_pid, true);
 
 	if (unlikely(target_j == NULL)) {
@@ -6572,24 +6578,15 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (!job_assumes(j, (target_j = jobmgr_find_by_pid(j->mgr, target_pid, true)) != NULL)) {
-		return BOOTSTRAP_NO_MEMORY;
-	}
+	job_log(j, LOG_DEBUG, "Setting policy on job \"%s\" for Mach service: %s", target_j->label, target_service);
+	if (target_service[0]) {
+		bool r = mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE, false);
 
-	if (SLIST_EMPTY(&j->mspolicies)) {
-		job_log(j, LOG_DEBUG, "Setting policy on job \"%s\" for Mach service: %s", target_j->label, target_service);
-		if (target_service[0]) {
-			bool r = mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE, false);
-
-			if (unlikely(!r) && job_assumes(j, errno == EEXIST)) {
-				job_log(j, LOG_ERR, "Tried to update a known policy on PID %u: %s", target_pid, target_service);
-			}
-		} else {
-			target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
+		if (unlikely(!r) && job_assumes(j, errno == EEXIST)) {
+			job_log(j, LOG_ERR, "Tried to update a known policy on PID %u: %s", target_pid, target_service);
 		}
 	} else {
-		job_log(j, LOG_WARNING, "Jobs that have policies assigned to them may not set policies.");
-		return BOOTSTRAP_NOT_PRIVILEGED;
+		target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
 	}
 
 	return 0;
@@ -6609,7 +6606,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (getpid() == 1 && ldc.euid && ldc.uid) {
+	if (unlikely(getpid() == 1 && ldc.euid && ldc.uid)) {
 		job_log(j, LOG_DEBUG, "Punting spawn to per-user-context");
 		return VPROC_ERR_TRY_PER_USER;
 	}

@@ -93,15 +93,15 @@ struct ldcred {
  * Use launchd_assert() for core initialization routines.
  */
 #define launchd_assumes(e)	\
-	(likely(e) ? true : _log_launchd_bug(__rcs_file_version__, __FILE__, __LINE__, #e))
+	(unlikely(!(e)) ? _log_launchd_bug(__rcs_file_version__, __FILE__, __LINE__, #e), false : true)
 
 #define launchd_assert(e)	if (__builtin_constant_p(e)) { char __compile_time_assert__[e ? 1 : -1] __attribute__((unused)); } else if (!launchd_assumes(e)) { abort(); }
 
-INTERNAL_ABI bool _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
+INTERNAL_ABI void _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
-typedef void (*kq_callback)(void *, struct kevent *);
+typedef INTERNAL_ABI void (*kq_callback)(void *, struct kevent *);
 typedef boolean_t (*mig_callback)(mach_msg_header_t *, mach_msg_header_t *);
-typedef void (*timeout_callback)(void);
+typedef INTERNAL_ABI void (*timeout_callback)(void);
 
 INTERNAL_ABI mach_port_t runtime_get_kernel_port(void);
 
