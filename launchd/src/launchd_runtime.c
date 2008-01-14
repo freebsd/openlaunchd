@@ -1049,16 +1049,19 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		}
 
 		/* we have another request message */
-
+#if 0
 		if (!launchd_assumes(mig_cb_table != NULL)) {
 			break;
 		}
+#endif
 
 		the_demux = mig_cb_table[MACH_PORT_INDEX(bufRequest->Head.msgh_local_port)];
 
+#if 0
 		if (!launchd_assumes(the_demux != NULL)) {
 			break;
 		}
+#endif
 
 		record_caller_creds(&bufRequest->Head);
 
@@ -1334,7 +1337,7 @@ runtime_log_push(void)
 		return;
 	}
 
-	if (!shutdown_in_progress && !fake_shutdown_in_progress) {
+	if (likely(!shutdown_in_progress && !fake_shutdown_in_progress)) {
 		runtime_log_uncork_pending_drain();
 		return;
 	}

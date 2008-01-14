@@ -535,7 +535,7 @@ job_watch(job_t j)
 INTERNAL_ABI void
 job_stop(job_t j)
 {
-	if (!j->p || j->anonymous) {
+	if (unlikely(!j->p || j->anonymous)) {
 		return;
 	}
 
@@ -1938,8 +1938,7 @@ job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid)
 	job_t ji;
 
 	if (jm->jm_port == mport) {
-		jobmgr_assumes(jm, (ji = jobmgr_find_by_pid(jm, upid, true)) != NULL);
-		return ji;
+		return jobmgr_find_by_pid(jm, upid, true);
 	}
 
 	SLIST_FOREACH(jmi, &jm->submgrs, sle) {
@@ -2340,7 +2339,7 @@ job_log_stdouterr(job_t j)
 void
 job_kill(job_t j)
 {
-	if (!j->p || j->anonymous) {
+	if (unlikely(!j->p || j->anonymous)) {
 		return;
 	}
 
@@ -4850,12 +4849,6 @@ job_get_bs(job_t j)
 	return NULL;
 }
 
-INTERNAL_ABI bool
-job_is_anonymous(job_t j)
-{
-	return j->anonymous;
-}
-
 void
 job_force_sampletool(job_t j)
 {
@@ -5956,13 +5949,15 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
 	}
 
-	if (ms && machservice_hidden(ms) && !job_active(machservice_job(ms))) {
-		ms = NULL;
-	} else if (ms && unlikely(ms->per_user_hack)) {
-		ms = NULL;
+	if (likely(ms)) {
+		if (machservice_hidden(ms) && !job_active(machservice_job(ms))) {
+			ms = NULL;
+		} else if (unlikely(ms->per_user_hack)) {
+			ms = NULL;
+		}
 	}
 
-	if (ms) {
+	if (likely(ms)) {
 		job_assumes(j, machservice_port(ms) != MACH_PORT_NULL);
 		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 
