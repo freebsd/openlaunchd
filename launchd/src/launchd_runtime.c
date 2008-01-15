@@ -1021,13 +1021,16 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 
 		tmp_options = options;
 
-		if (unlikely(mr == MACH_SEND_INVALID_DEST || mr == MACH_SEND_TIMED_OUT)) {
+		/* It looks like the compiler doesn't optimize switch(unlikely(...)) */
+		if (unlikely(mr)) switch (mr) {
+		case MACH_SEND_INVALID_DEST:
+		case MACH_SEND_TIMED_OUT:
 			/* We need to clean up and start over. */
 			if (bufReply->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX) {
 				mach_msg_destroy(&bufReply->Head);
 			}
 			continue;
-		} else if (unlikely(mr == MACH_RCV_TIMED_OUT)) {
+		case MACH_RCV_TIMED_OUT:
 			if (to != MACH_MSG_TIMEOUT_NONE) {
 				if (runtime_busy_cnt == 0) {
 					launchd_shutdown();
@@ -1036,7 +1039,8 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 				}
 			}
 			continue;
-		} else if (!launchd_assumes(mr == MACH_MSG_SUCCESS)) {
+		default:
+			launchd_assumes(mr == MACH_MSG_SUCCESS);
 			continue;
 		}
 
@@ -1076,25 +1080,28 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 
 		if (the_demux(&bufRequest->Head, &bufReply->Head) == FALSE) {
 			/* XXX - also gross */
-			if (bufRequest->Head.msgh_id == MACH_NOTIFY_NO_SENDERS) {
+			if (likely(bufRequest->Head.msgh_id == MACH_NOTIFY_NO_SENDERS)) {
 				notify_server(&bufRequest->Head, &bufReply->Head);
 			}
 		}
 
+		/* bufReply is a union. If MACH_MSGH_BITS_COMPLEX is set, then bufReply->RetCode is assumed to be zero. */
 		if (!(bufReply->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX)) {
-			if (bufReply->RetCode == MIG_NO_REPLY) {
-				bufReply->Head.msgh_remote_port = MACH_PORT_NULL;
-			} else if ((bufReply->RetCode != KERN_SUCCESS) && (bufRequest->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX)) {
-				/* destroy the request - but not the reply port */
-				bufRequest->Head.msgh_remote_port = MACH_PORT_NULL;
-				mach_msg_destroy(&bufRequest->Head);
+			if (unlikely(bufReply->RetCode != KERN_SUCCESS)) {
+				if (likely(bufReply->RetCode == MIG_NO_REPLY)) {
+					bufReply->Head.msgh_remote_port = MACH_PORT_NULL;
+				} else if (bufRequest->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX) {
+					/* destroy the request - but not the reply port */
+					bufRequest->Head.msgh_remote_port = MACH_PORT_NULL;
+					mach_msg_destroy(&bufRequest->Head);
+				}
 			}
 		}
 
-		if (bufReply->Head.msgh_remote_port != MACH_PORT_NULL) {
+		if (likely(bufReply->Head.msgh_remote_port != MACH_PORT_NULL)) {
 			tmp_options |= MACH_SEND_MSG;
 
-			if (MACH_MSGH_BITS_REMOTE(bufReply->Head.msgh_bits) != MACH_MSG_TYPE_MOVE_SEND_ONCE) {
+			if (unlikely(MACH_MSGH_BITS_REMOTE(bufReply->Head.msgh_bits) != MACH_MSG_TYPE_MOVE_SEND_ONCE)) {
 				tmp_options |= MACH_SEND_TIMEOUT;
 			}
 		}
