@@ -121,6 +121,8 @@ static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
 static sigset_t sigign_set;
 static FILE *ourlogfile;
 bool pid1_magic;
+bool do_apple_internal_logging;
+
 
 INTERNAL_ABI mach_port_t
 runtime_get_kernel_port(void)
@@ -1145,7 +1147,7 @@ INTERNAL_ABI int
 runtime_fsync(int fd)
 {
 #if 0
-	if (do_apple_internal_logging()) {
+	if (do_apple_internal_logging) {
 		return fcntl(fd, F_FULLFSYNC, NULL);
 	} else {
 		return fsync(fd);
@@ -1187,7 +1189,7 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 	char newmsg[10000];
 
 	if (attr->priority == LOG_APPLEONLY) {
-		if (do_apple_internal_logging()) {
+		if (do_apple_internal_logging) {
 			attr->priority = LOG_NOTICE;
 		} else {
 			return;
@@ -1552,19 +1554,6 @@ launchd_log_vm_stats(void)
 	launchd_mport_deallocate(mhs);
 }
 
-INTERNAL_ABI bool
-do_apple_internal_logging(void)
-{
-	static int apple_internal_logging = 1;
-	struct stat sb;
-
-	if (unlikely(apple_internal_logging == 1)) {
-		apple_internal_logging = stat("/AppleInternal", &sb);
-	}
-
-	return (apple_internal_logging == 0);
-}
-
 INTERNAL_ABI int64_t
 runtime_get_wall_time(void)
 {
@@ -1612,11 +1601,17 @@ runtime_opaque_time_to_nano(uint64_t o)
 void
 do_file_init(void)
 {
+	struct stat sb;
+
 	launchd_assert(mach_timebase_info(&tbi) == 0);
 	tbi_float_val = tbi.numer;
 	tbi_float_val /= tbi.denom;
 
 	if (getpid() == 1) {
 		pid1_magic = true;
+	}
+
+	if (stat("/AppleInternal", &sb) != -1) {
+		do_apple_internal_logging = true;
 	}
 }

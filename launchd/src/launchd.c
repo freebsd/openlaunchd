@@ -77,7 +77,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #define LAUNCHD_CONF ".launchd.conf"
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
-#define SHUTDOWN_LOG_DIR "/var/log/shutdown"
 
 
 extern char **environ;
@@ -93,7 +92,6 @@ static bool get_network_state(void);
 static void monitor_networking_state(void);
 static void fatal_signal_handler(int sig, siginfo_t *si, void *uap);
 static void handle_pid1_crashes_separately(void);
-static void prep_shutdown_log_dir(void);
 
 static bool re_exec_in_single_user_mode;
 static void *crash_addr;
@@ -236,12 +234,6 @@ _fd(int fd)
 	return fd;
 }
 
-void
-prep_shutdown_log_dir(void)
-{
-	launchd_assumes(mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST);
-}
-
 INTERNAL_ABI void
 launchd_shutdown(void)
 {
@@ -259,7 +251,6 @@ launchd_shutdown(void)
 		 * http://howto.apple.com/db.cgi?Debugging_Apps_Non-Responsive_At_Shutdown
 		 */
 		runtime_setlogmask(LOG_UPTO(LOG_DEBUG));
-		prep_shutdown_log_dir();
 	}
 
 	runtime_log_push();

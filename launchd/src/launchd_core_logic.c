@@ -96,6 +96,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
 #define LAUNCHD_SIGKILL_TIMER 5
 
+#define SHUTDOWN_LOG_DIR "/var/log/shutdown"
 
 #define TAKE_SUBSET_NAME	"TakeSubsetName"
 #define TAKE_SUBSET_PID		"TakeSubsetPID"
@@ -714,7 +715,7 @@ jobmgr_shutdown(jobmgr_t jm)
 		}
 	}
 
-	if (do_apple_internal_logging() && jm->parentmgr == NULL && pid1_magic) {
+	if (do_apple_internal_logging && jm->parentmgr == NULL && pid1_magic) {
 		runtime_set_timeout(still_alive_with_check, 5);
 	}
 
@@ -4862,10 +4863,14 @@ job_force_sampletool(job_t j)
 	int wstatus;
 	pid_t sp;
 
-	if (!do_apple_internal_logging()) {
+	if (!do_apple_internal_logging) {
 		return;
 	}
 	
+	if (!job_assumes(j, mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST)) {
+		return;
+	}
+
 	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
 	snprintf(logfile, sizeof(logfile), SHUTDOWN_LOG_DIR "/%s-%u.sample.txt", j->label, j->p);
 

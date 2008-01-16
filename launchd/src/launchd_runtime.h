@@ -104,6 +104,7 @@ typedef boolean_t (*mig_callback)(mach_msg_header_t *, mach_msg_header_t *);
 typedef INTERNAL_ABI void (*timeout_callback)(void);
 
 extern bool pid1_magic;
+extern bool do_apple_internal_logging;
 
 INTERNAL_ABI mach_port_t runtime_get_kernel_port(void);
 
@@ -129,8 +130,6 @@ INTERNAL_ABI bool runtime_get_caller_creds(struct ldcred *ldc);
 INTERNAL_ABI const char *signal_to_C_name(unsigned int sig);
 INTERNAL_ABI const char *reboot_flags_to_C_names(unsigned int flags);
 INTERNAL_ABI const char *proc_flags_to_C_names(unsigned int flags);
-
-INTERNAL_ABI bool do_apple_internal_logging(void);
 
 INTERNAL_ABI int kevent_bulk_mod(struct kevent *kev, size_t kev_cnt);
 INTERNAL_ABI int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);

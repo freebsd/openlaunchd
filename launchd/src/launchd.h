@@ -26,8 +26,6 @@
 #include "libbootstrap_public.h"
 #include "launchd_runtime.h"
 
-#define SHUTDOWN_LOG_DIR "/var/log/shutdown"
-
 struct kevent;
 struct conncb;
 
