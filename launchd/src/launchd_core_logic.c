@@ -365,7 +365,7 @@ struct job_s {
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     legacy_LS_job:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
 		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1,
-		     poll_for_vfs_changes:1, can_kickstart:1, __junk:11;
+		     poll_for_vfs_changes:1, deny_job_creation:1, __junk:11;
 	mode_t mask;
 	const char label[0];
 };
@@ -1643,10 +1643,10 @@ policy_setup(launch_data_t obj, const char *key, void *context)
 	bool found_key = false;
 
 	switch (key[0]) {
-	case 'c':
-	case 'C':
-		if (strcasecmp(key, LAUNCH_JOBPOLICY_CANKICKSTARTOTHERJOBS) == 0) {
-			j->can_kickstart = launch_data_get_bool(obj);
+	case 'd':
+	case 'D':
+		if (strcasecmp(key, LAUNCH_JOBPOLICY_DENYCREATINGOTHERJOBS) == 0) {
+			j->deny_job_creation = launch_data_get_bool(obj);
 			found_key = true;
 		}
 		break;
@@ -5296,6 +5296,10 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	if (unlikely(j->deny_job_creation)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
 	runtime_get_caller_creds(&ldc);
 
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
@@ -6582,14 +6586,19 @@ job_mig_embedded_kickstart(job_t j, name_t targetlabel, pid_t *out_pid, mach_por
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
-	if (!j->can_kickstart || (ldc.euid != 0 && ldc.euid != geteuid())) {
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-
 	if (unlikely(!(otherj = job_find(targetlabel)))) {
 		return BOOTSTRAP_UNKNOWN_SERVICE;
+	}
+
+	runtime_get_caller_creds(&ldc);
+
+	if (ldc.euid != 0 && ldc.euid != geteuid()
+#if TARGET_OS_EMBEDDED
+			&& j->username && otherj->username
+			&& strcmp(j->username, otherj->username) != 0
+#endif
+			) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	otherj = job_dispatch(otherj, true);
@@ -6688,6 +6697,10 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (unlikely(j->deny_job_creation)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	if (unlikely(pid1_magic && ldc.euid && ldc.uid)) {
