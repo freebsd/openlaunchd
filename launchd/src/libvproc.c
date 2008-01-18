@@ -389,6 +389,7 @@ _vprocmgr_log_drain(vproc_t vp __attribute__((unused)), pthread_mutex_t *mutex, 
 {
 	mach_msg_type_number_t outdata_cnt, tmp_cnt;
 	vm_offset_t outdata = 0;
+	struct timeval tv;
 	struct logmsg_s *lm;
 
 	if (!func) {
@@ -411,7 +412,10 @@ _vprocmgr_log_drain(vproc_t vp __attribute__((unused)), pthread_mutex_t *mutex, 
 		lm->msg += (size_t)lm;
 		lm->session_name += (size_t)lm;
 
-		func(&lm->when, lm->from_pid, lm->about_pid, lm->sender_uid, lm->sender_gid, lm->pri,
+		tv.tv_sec = lm->when / USEC_PER_SEC;
+		tv.tv_usec = lm->when % USEC_PER_SEC;
+
+		func(&tv, lm->from_pid, lm->about_pid, lm->sender_uid, lm->sender_gid, lm->pri,
 				lm->from_name, lm->about_name, lm->session_name, lm->msg);
 
 		tmp_cnt -= lm->obj_sz;
@@ -550,6 +554,26 @@ reboot2(uint64_t flags)
 	}
 
 	return reboot2;
+}
+
+vproc_err_t
+_vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name)
+{
+	if (vproc_mig_embedded_kickstart(bootstrap_port, (char *)label, out_pid, out_port_name) == 0) {
+		return NULL;
+	}
+
+	return (vproc_err_t)_vproc_kickstart_by_label;
+}
+
+vproc_err_t
+_vproc_wait_by_label(const char *label, int *out_wstatus)
+{
+	if (vproc_mig_embedded_wait(bootstrap_port, (char *)label, out_wstatus) == 0) {
+		return NULL;
+	}
+
+	return (vproc_err_t)_vproc_wait_by_label;
 }
 
 vproc_err_t

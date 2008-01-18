@@ -325,7 +325,7 @@ struct job_s {
 	cpu_type_t *j_binpref;
 	size_t j_binpref_cnt;
 	mach_port_t j_port;
-	mach_port_t wait_reply_port;
+	mach_port_t wait_reply_port;	/* we probably should switch to a list of waiters */
 	uid_t mach_uid;
 	jobmgr_t mgr;
 	char **argv;
@@ -365,7 +365,7 @@ struct job_s {
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     legacy_LS_job:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
 		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1,
-		     poll_for_vfs_changes:1, __junk:12;
+		     poll_for_vfs_changes:1, can_kickstart:1, __junk:11;
 	mode_t mask;
 	const char label[0];
 };
@@ -1636,12 +1636,41 @@ job_import_opaque(job_t j, const char *key, launch_data_t value)
 	}
 }
 
+static void
+policy_setup(launch_data_t obj, const char *key, void *context)
+{
+	job_t j = context;
+	bool found_key = false;
+
+	switch (key[0]) {
+	case 'c':
+	case 'C':
+		if (strcasecmp(key, LAUNCH_JOBPOLICY_CANKICKSTARTOTHERJOBS) == 0) {
+			j->can_kickstart = launch_data_get_bool(obj);
+			found_key = true;
+		}
+		break;
+	default:
+		break;
+	}
+
+	if (unlikely(!found_key)) {
+		job_log(j, LOG_WARNING, "Unknown policy: %s", key);
+	}
+}
+
 void
 job_import_dictionary(job_t j, const char *key, launch_data_t value)
 {
 	launch_data_t tmp;
 
 	switch (key[0]) {
+	case 'p':
+	case 'P':
+		if (strcasecmp(key, LAUNCH_JOBKEY_POLICIES) == 0) {
+			launch_data_dict_iterate(value, policy_setup, j);
+		}
+		break;
 	case 'k':
 	case 'K':
 		if (strcasecmp(key, LAUNCH_JOBKEY_KEEPALIVE) == 0) {
@@ -6522,6 +6551,61 @@ job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
 	}
 
 	return BOOTSTRAP_SUCCESS;
+}
+
+kern_return_t
+job_mig_embedded_wait(job_t j, name_t targetlabel, integer_t *waitstatus)
+{
+	job_t otherj;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (unlikely(!(otherj = job_find(targetlabel)))) {
+		return BOOTSTRAP_UNKNOWN_SERVICE;
+	}
+
+	*waitstatus = j->last_exit_status;
+
+	return 0;
+}
+
+kern_return_t
+job_mig_embedded_kickstart(job_t j, name_t targetlabel, pid_t *out_pid, mach_port_t *out_name_port)
+{
+	struct ldcred ldc;
+	kern_return_t kr;
+	job_t otherj;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	runtime_get_caller_creds(&ldc);
+
+	if (!j->can_kickstart || (ldc.euid != 0 && ldc.euid != geteuid())) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	if (unlikely(!(otherj = job_find(targetlabel)))) {
+		return BOOTSTRAP_UNKNOWN_SERVICE;
+	}
+
+	otherj = job_dispatch(otherj, true);
+
+	if (!job_assumes(j, otherj && otherj->p)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	kr = task_name_for_pid(mach_task_self(), otherj->p, out_name_port);
+	if (!job_assumes(j, kr == 0)) {
+		return kr;
+	}
+
+	*out_pid = otherj->p;
+
+	return 0;
 }
 
 kern_return_t

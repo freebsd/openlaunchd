@@ -61,6 +61,8 @@ typedef void (*_vprocmgr_log_drain_callback_t)(struct timeval *when, pid_t from_
 vproc_err_t _vprocmgr_log_drain(vproc_t vp, pthread_mutex_t *optional_mutex_around_callback, _vprocmgr_log_drain_callback_t func);
 
 vproc_err_t _vproc_send_signal_by_label(const char *label, int sig);
+vproc_err_t _vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name);
+vproc_err_t _vproc_wait_by_label(const char *label, int *out_wstatus);
 
 void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
