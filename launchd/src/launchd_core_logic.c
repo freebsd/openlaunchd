@@ -414,7 +414,6 @@ static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid) __attribute__((malloc
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv) __attribute__((malloc, nonnull(1,2), warn_unused_result));
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond) __attribute__((malloc, nonnull, warn_unused_result));
 static const char *job_prog(job_t j);
-static jobmgr_t job_get_bs(job_t j);
 static void job_kill(job_t j);
 static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
@@ -1991,23 +1990,22 @@ job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid)
 INTERNAL_ABI job_t 
 job_mig_intran(mach_port_t p)
 {
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t jr;
 
-	runtime_get_caller_creds(&ldc);
 
-	jr = job_mig_intran2(root_jobmgr, p, ldc.pid);
+	jr = job_mig_intran2(root_jobmgr, p, ldc->pid);
 
 	if (!jobmgr_assumes(root_jobmgr, jr != NULL)) {
 		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, 0 };
 		struct kinfo_proc kp;
 		size_t len = sizeof(kp);
 
-		mib[3] = ldc.pid;
+		mib[3] = ldc->pid;
 
 		if (jobmgr_assumes(root_jobmgr, sysctl(mib, 4, &kp, &len, NULL, 0) != -1)
 				&& jobmgr_assumes(root_jobmgr, len == sizeof(kp))) {
-			jobmgr_log(root_jobmgr, LOG_ERR, "%s() was confused by PID %u UID %u EUID %u Mach Port 0x%x: %s", __func__, ldc.pid, ldc.uid, ldc.euid, p, kp.kp_proc.p_comm);
+			jobmgr_log(root_jobmgr, LOG_ERR, "%s() was confused by PID %u UID %u EUID %u Mach Port 0x%x: %s", __func__, ldc->pid, ldc->uid, ldc->euid, p, kp.kp_proc.p_comm);
 		}
 	}
 
@@ -4869,16 +4867,6 @@ job_ack_no_senders(job_t j)
 	job_dispatch(j, false);
 }
 
-jobmgr_t 
-job_get_bs(job_t j)
-{
-	if (job_assumes(j, j->mgr != NULL)) {
-		return j->mgr;
-	}
-
-	return NULL;
-}
-
 void
 job_force_sampletool(job_t j)
 {
@@ -5289,7 +5277,7 @@ cronemu_min(struct tm *wtm, int min)
 kern_return_t
 job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_portp)
 {
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t js;
 
 	if (!launchd_assumes(j != NULL)) {
@@ -5300,18 +5288,16 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
 
 #define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
 #ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	if (pid1_magic) {
-		if (unlikely(ldc.euid && server_uid && (ldc.euid != server_uid))) {
+		if (unlikely(ldc->euid && server_uid && (ldc->euid != server_uid))) {
 			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
-					server_cmd, ldc.euid, server_uid);
-			server_uid = ldc.euid;
+					server_cmd, ldc->euid, server_uid);
+			server_uid = ldc->euid;
 		}
 	} else
 #endif
@@ -5336,16 +5322,14 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 kern_return_t
 job_mig_send_signal(job_t j, mach_port_t srp, name_t targetlabel, int sig)
 {
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t otherj;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
-	if (unlikely(ldc.euid != 0 && ldc.euid != getuid())) {
+	if (unlikely(ldc->euid != 0 && ldc->euid != getuid())) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5380,7 +5364,7 @@ job_mig_send_signal(job_t j, mach_port_t srp, name_t targetlabel, int sig)
 kern_return_t
 job_mig_log_forward(job_t j, vm_offset_t inval, mach_msg_type_number_t invalCnt)
 {
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -5390,23 +5374,19 @@ job_mig_log_forward(job_t j, vm_offset_t inval, mach_msg_type_number_t invalCnt)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
-	return runtime_log_forward(ldc.euid, ldc.egid, inval, invalCnt);
+	return runtime_log_forward(ldc->euid, ldc->egid, inval, invalCnt);
 }
 
 kern_return_t
 job_mig_log_drain(job_t j, mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
 {
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
-	if (unlikely(ldc.euid)) {
+	if (unlikely(ldc->euid)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5422,15 +5402,13 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 	launch_data_t input_obj, output_obj;
 	size_t data_offset = 0;
 	size_t packed_size;
-	struct ldcred ldc;
-
-	runtime_get_caller_creds(&ldc);
+	struct ldcred *ldc = runtime_get_caller_creds();
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (unlikely(inkey && ldc.euid && ldc.euid != getuid())) {
+	if (unlikely(inkey && ldc->euid && ldc->euid != getuid())) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5515,16 +5493,14 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 {
 	const char *action;
 	kern_return_t kr = 0;
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	int oldmask;
-
-	runtime_get_caller_creds(&ldc);
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (unlikely(inkey && ldc.euid && ldc.euid != getuid())) {
+	if (unlikely(inkey && ldc->euid && ldc->euid != getuid())) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5686,7 +5662,7 @@ job_mig_reboot2(job_t j, uint64_t flags)
 {
 	char who_started_the_reboot[2048] = "";
 	struct kinfo_proc kp;
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	pid_t pid_to_log;
 
 	if (!launchd_assumes(j != NULL)) {
@@ -5697,13 +5673,11 @@ job_mig_reboot2(job_t j, uint64_t flags)
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
-	if (unlikely(ldc.euid)) {
+	if (unlikely(ldc->euid)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	for (pid_to_log = ldc.pid; pid_to_log; pid_to_log = kp.kp_eproc.e_ppid) {
+	for (pid_to_log = ldc->pid; pid_to_log; pid_to_log = kp.kp_eproc.e_ppid) {
 		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, pid_to_log };
 		size_t who_offset, len = sizeof(kp);
 
@@ -5777,7 +5751,7 @@ ensure_root_bkgd_setup(void)
 kern_return_t
 job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 {
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t ji;
 
 	if (!launchd_assumes(j != NULL)) {
@@ -5786,15 +5760,13 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 	job_log(j, LOG_DEBUG, "Looking up per user launchd for UID: %u", which_user);
 
-	runtime_get_caller_creds(&ldc);
-
 	if (unlikely(!pid1_magic)) {
 		job_log(j, LOG_ERR, "Only PID 1 supports per user launchd lookups.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (ldc.euid || ldc.uid) {
-		which_user = ldc.euid ? ldc.euid : ldc.uid;
+	if (ldc->euid || ldc->uid) {
+		which_user = ldc->euid ?: ldc->uid;
 	}
 
 	*up_cont = MACH_PORT_NULL;
@@ -5864,14 +5836,12 @@ kern_return_t
 job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 {
 	struct machservice *ms;
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t jo;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
-
-	runtime_get_caller_creds(&ldc);
 
 	ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
 
@@ -5883,9 +5853,9 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 	if (unlikely((jo = machservice_job(ms)) != j)) {
 		static pid_t last_warned_pid;
 
-		if (last_warned_pid != ldc.pid) {
+		if (last_warned_pid != ldc->pid) {
 			job_log(j, LOG_NOTICE, "Check-in of Mach service failed. The service \"%s\" is owned by: %s", servicename, jo->label);
-			last_warned_pid = ldc.pid;
+			last_warned_pid = ldc->pid;
 		}
 
 		return BOOTSTRAP_NOT_PRIVILEGED;
@@ -5907,13 +5877,11 @@ kern_return_t
 job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t flags)
 {
 	struct machservice *ms;
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
-
-	runtime_get_caller_creds(&ldc);
 
 	if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && !j->legacy_LS_job) {
 		job_log(j, LOG_APPLEONLY, "Performance: bootstrap_register() is deprecated. Service: %s", servicename);
@@ -5926,7 +5894,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 	 * 92) is a rogue application (not our UID, not root and not a child of
 	 * us). We'll have to reconcile this design friction at a later date.
 	 */
-	if (unlikely(j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.uid != getuid() && ldc.uid != 92)) {
+	if (unlikely(j->anonymous && j->mgr->parentmgr == NULL && ldc->uid != 0 && ldc->uid != getuid() && ldc->uid != 92)) {
 		if (pid1_magic) {
 			return VPROC_ERR_TRY_PER_USER;
 		} else {
@@ -5934,7 +5902,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 		}
 	}
 	
-	ms = jobmgr_lookup_service(j->mgr, servicename, false, flags & BOOTSTRAP_PER_PID_SERVICE ? ldc.pid : 0);
+	ms = jobmgr_lookup_service(j->mgr, servicename, false, flags & BOOTSTRAP_PER_PID_SERVICE ? ldc->pid : 0);
 
 	if (unlikely(ms)) {
 		if (machservice_job(ms) != j) {
@@ -5963,16 +5931,14 @@ kern_return_t
 job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serviceportp, pid_t target_pid, uint64_t flags)
 {
 	struct machservice *ms;
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	kern_return_t kr;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
-	if (unlikely(pid1_magic && j->anonymous && job_get_bs(j)->parentmgr == NULL && ldc.uid != 0 && ldc.euid != 0)) {
+	if (unlikely(pid1_magic && j->anonymous && j->mgr->parentmgr == NULL && ldc->uid != 0 && ldc->euid != 0)) {
 		return VPROC_ERR_TRY_PER_USER;
 	}
 
@@ -6014,7 +5980,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		job_assumes(j, vproc_mig_look_up2_forward(inherited_bootstrap_port, srp, servicename, 0, 0) == 0);
 		/* The previous routine moved the reply port, we're forced to return MIG_NO_REPLY now */
 		return MIG_NO_REPLY;
-	} else if (pid1_magic && j->anonymous && ldc.euid >= 500 && strcasecmp(job_get_bs(j)->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
+	} else if (pid1_magic && j->anonymous && ldc->euid >= 500 && strcasecmp(j->mgr->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 		/*
 		 * 5240036 Should start background session when a lookup of CCacheServer occurs
 		 *
@@ -6182,20 +6148,18 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 	mach_port_t reqport, rcvright;
 	kern_return_t kr = 1;
 	launch_data_t out_obj_array = NULL;
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	jobmgr_t jmr = NULL;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
 	if (target_subset == MACH_PORT_NULL) {
 		job_t j2;
 
 		if (j->mgr->session_initialized) {
-			if (ldc.uid == 0 && pid1_magic) {
+			if (ldc->uid == 0 && pid1_magic) {
 				if (strcmp(j->mgr->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 					job_t ji, jn;
 
@@ -6233,7 +6197,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 				kr = BOOTSTRAP_NOT_PRIVILEGED;
 				goto out;
 			}
-		} else if (ldc.uid == 0 && pid1_magic && strcmp(session_type, VPROCMGR_SESSION_STANDARDIO) == 0) {
+		} else if (ldc->uid == 0 && pid1_magic && strcmp(session_type, VPROCMGR_SESSION_STANDARDIO) == 0) {
 			ensure_root_bkgd_setup();
 
 			SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
@@ -6275,7 +6239,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 		kr = 0;
 		goto out;
-	} else if (job_mig_intran2(root_jobmgr, target_subset, ldc.pid)) {
+	} else if (job_mig_intran2(root_jobmgr, target_subset, ldc->pid)) {
 		job_log(j, LOG_ERR, "Moving a session to ourself is bogus.");
 
 		kr = BOOTSTRAP_NOT_PRIVILEGED;
@@ -6578,7 +6542,7 @@ job_mig_embedded_wait(job_t j, name_t targetlabel, integer_t *waitstatus)
 kern_return_t
 job_mig_embedded_kickstart(job_t j, name_t targetlabel, pid_t *out_pid, mach_port_t *out_name_port)
 {
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	kern_return_t kr;
 	job_t otherj;
 
@@ -6590,9 +6554,7 @@ job_mig_embedded_kickstart(job_t j, name_t targetlabel, pid_t *out_pid, mach_por
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 
-	runtime_get_caller_creds(&ldc);
-
-	if (ldc.euid != 0 && ldc.euid != geteuid()
+	if (ldc->euid != 0 && ldc->euid != geteuid()
 #if TARGET_OS_EMBEDDED
 			&& j->username && otherj->username
 			&& strcmp(j->username, otherj->username) != 0
@@ -6624,8 +6586,7 @@ job_mig_wait(job_t j, mach_port_t srp, integer_t *waitstatus)
 		return BOOTSTRAP_NO_MEMORY;
 	}
 #if 0
-	struct ldcred ldc;
-	runtime_get_caller_creds(&ldc);
+	struct ldcred *ldc = runtime_get_caller_creds();
 #endif
 	return job_handle_mpm_wait(j, srp, waitstatus);
 }
@@ -6661,7 +6622,6 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-
 	target_j = jobmgr_find_by_pid(j->mgr, target_pid, true);
 
 	if (unlikely(target_j == NULL)) {
@@ -6680,6 +6640,7 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		}
 	} else {
 		target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
+		target_j->deny_job_creation = (bool)(flags & BOOTSTRAP_DENY_JOB_CREATION);
 	}
 
 	return 0;
@@ -6690,10 +6651,8 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 {
 	launch_data_t input_obj = NULL;
 	size_t data_offset = 0;
-	struct ldcred ldc;
+	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t jr;
-
-	runtime_get_caller_creds(&ldc);
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -6703,7 +6662,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (unlikely(pid1_magic && ldc.euid && ldc.uid)) {
+	if (unlikely(pid1_magic && ldc->euid && ldc->uid)) {
 		job_log(j, LOG_DEBUG, "Punting spawn to per-user-context");
 		return VPROC_ERR_TRY_PER_USER;
 	}
@@ -6730,7 +6689,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 	job_reparent_hack(jr, NULL);
 
 	if (pid1_magic) {
-		jr->mach_uid = ldc.uid;
+		jr->mach_uid = ldc->uid;
 	}
 
 	jr->legacy_LS_job = true;

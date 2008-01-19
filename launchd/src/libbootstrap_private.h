@@ -29,6 +29,7 @@ __BEGIN_DECLS
 
 #define BOOTSTRAP_PER_PID_SERVICE	0x1
 #define BOOTSTRAP_ALLOW_LOOKUP		0x2
+#define BOOTSTRAP_DENY_JOB_CREATION	0x4
 
 kern_return_t bootstrap_register2(mach_port_t bp, name_t service_name, mach_port_t sp, uint64_t flags);
 

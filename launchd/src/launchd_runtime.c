@@ -96,7 +96,7 @@ static mig_callback *mig_cb_table;
 static size_t mig_cb_table_sz;
 static timeout_callback runtime_idle_callback;
 static mach_msg_timeout_t runtime_idle_timeout;
-static audit_token_t *au_tok;
+static struct ldcred ldc;
 static size_t runtime_busy_cnt;
 
 
@@ -960,26 +960,18 @@ record_caller_creds(mach_msg_header_t *mh)
 
 	trailer_size = tp->msgh_trailer_size - (mach_msg_size_t)(sizeof(mach_msg_trailer_type_t) - sizeof(mach_msg_trailer_size_t));
 
-	if (unlikely(trailer_size < (mach_msg_size_t)sizeof(audit_token_t))) {
-		au_tok = NULL;
-		return;
+	if (launchd_assumes(trailer_size >= (mach_msg_size_t)sizeof(audit_token_t))) {
+		audit_token_to_au32(tp->msgh_audit, /* audit UID */ NULL, &ldc.euid,
+				&ldc.egid, &ldc.uid, &ldc.gid, &ldc.pid,
+				/* au_asid_t */ NULL, /* au_tid_t */ NULL);
 	}
 
-	au_tok = &tp->msgh_audit;
 }
 
-INTERNAL_ABI bool
-runtime_get_caller_creds(struct ldcred *ldc)
+INTERNAL_ABI struct ldcred *
+runtime_get_caller_creds(void)
 {
-	if (unlikely(!au_tok)) {
-		return false;
-	}
-
-	audit_token_to_au32(*au_tok, /* audit UID */ NULL, &ldc->euid,
-			&ldc->egid, &ldc->uid, &ldc->gid, &ldc->pid,
-			/* au_asid_t */ NULL, /* au_tid_t */ NULL);
-
-	return true;
+	return &ldc;
 }
 
 void

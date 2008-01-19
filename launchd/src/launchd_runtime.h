@@ -125,7 +125,7 @@ INTERNAL_ABI int runtime_fsync(int fd);
 INTERNAL_ABI void runtime_set_timeout(timeout_callback to_cb, unsigned int sec);
 INTERNAL_ABI kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size);
 INTERNAL_ABI kern_return_t runtime_remove_mport(mach_port_t name);
-INTERNAL_ABI bool runtime_get_caller_creds(struct ldcred *ldc);
+INTERNAL_ABI struct ldcred *runtime_get_caller_creds(void);
 
 INTERNAL_ABI const char *signal_to_C_name(unsigned int sig);
 INTERNAL_ABI const char *reboot_flags_to_C_names(unsigned int flags);
