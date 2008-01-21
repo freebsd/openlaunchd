@@ -2083,6 +2083,8 @@ job_log_stray_pg(job_t j)
 	size_t i, kp_cnt, len = 10*1024*1024;
 	struct kinfo_proc *kp;
 
+	runtime_ktrace(RTKT_LAUNCHD_FINDING_STRAY_PG, j->p, 0, 0);
+
 	if (!job_assumes(j, (kp = malloc(len)) != NULL)) {
 		return;
 	}
@@ -2925,6 +2927,9 @@ job_log_pids_with_weird_uids(job_t j)
 	if (!job_assumes(j, kp != NULL)) {
 		return;
 	}
+
+	runtime_ktrace(RTKT_LAUNCHD_FINDING_WEIRD_UIDS, j->p, u, 0);
+
 	if (!job_assumes(j, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
 		goto out;
 	}
@@ -3266,6 +3271,8 @@ jobmgr_log_bug(jobmgr_t jm, unsigned int line)
 	int saved_errno = errno;
 	char buf[100];
 
+	runtime_ktrace1(RTKT_LAUNCHD_BUG);
+
 	extract_rcsid_substr(__rcs_file_version__, buf, sizeof(buf));
 
 	if (!file) {
@@ -3291,6 +3298,8 @@ job_log_bug(job_t j, unsigned int line)
 	static const char *file;
 	int saved_errno = errno;
 	char buf[100];
+
+	runtime_ktrace1(RTKT_LAUNCHD_BUG);
 
 	extract_rcsid_substr(__rcs_file_version__, buf, sizeof(buf));
 
@@ -4421,6 +4430,9 @@ jobmgr_log_stray_children(jobmgr_t jm)
 	if (!jobmgr_assumes(jm, (kp = malloc(len)) != NULL)) {
 		return;
 	}
+
+	runtime_ktrace0(RTKT_LAUNCHD_FINDING_ALL_STRAYS);
+
 	if (!jobmgr_assumes(jm, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
 		goto out;
 	}
@@ -5432,6 +5444,7 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 		return 1;
 	}
 
+	runtime_ktrace0(RTKT_LAUNCHD_DATA_UNPACK);
 	if (unlikely(invalCnt && !job_assumes(j, (input_obj = launch_data_unpack((void *)inval, invalCnt, NULL, 0, &data_offset, NULL)) != NULL))) {
 		goto out_bad;
 	}
@@ -5442,6 +5455,7 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 			goto out_bad;
 		}
 		jobmgr_export_env_from_other_jobs(j->mgr, output_obj);
+		runtime_ktrace0(RTKT_LAUNCHD_DATA_PACK);
 		if (!job_assumes(j, launch_data_pack(output_obj, (void *)*outval, *outvalCnt, NULL, NULL) != 0)) {
 			goto out_bad;
 		}
@@ -5452,6 +5466,7 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 			goto out_bad;
 		}
 		ipc_revoke_fds(output_obj);
+		runtime_ktrace0(RTKT_LAUNCHD_DATA_PACK);
 		packed_size = launch_data_pack(output_obj, (void *)*outval, *outvalCnt, NULL, NULL);
 		if (!job_assumes(j, packed_size != 0)) {
 			goto out_bad;
@@ -6415,6 +6430,7 @@ job_mig_take_subset(job_t j, mach_port_t *reqport, mach_port_t *rcvright,
 
 	job_assumes(j, cnt == cnt2);
 
+	runtime_ktrace0(RTKT_LAUNCHD_DATA_PACK);
 	packed_size = launch_data_pack(outdata_obj_array, (void *)*outdata, *outdataCnt, NULL, NULL);
 	if (!job_assumes(j, packed_size != 0)) {
 		goto out_bad;
@@ -6671,6 +6687,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return 1;
 	}
 
+	runtime_ktrace0(RTKT_LAUNCHD_DATA_UNPACK);
 	if (!job_assumes(j, (input_obj = launch_data_unpack((void *)indata, indataCnt, NULL, 0, &data_offset, NULL)) != NULL)) {
 		return 1;
 	}

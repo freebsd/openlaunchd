@@ -45,6 +45,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/fcntl.h>
+#include <sys/kdebug.h>
 #include <bsm/libbsm.h>
 #include <malloc/malloc.h>
 #include <unistd.h>
@@ -86,7 +87,7 @@ static pthread_t demand_thread;
 
 static void *mport_demand_loop(void *arg);
 static void *kqueue_demand_loop(void *arg);
-static void log_kevent_struct(int level, struct kevent *kev, int indx);
+static void log_kevent_struct(int level, struct kevent *kev_base, int indx);
 
 static boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 static void record_caller_creds(mach_msg_header_t *mh);
@@ -347,8 +348,9 @@ signal_to_C_name(unsigned int sig)
 }
 
 void
-log_kevent_struct(int level, struct kevent *kev, int indx)
+log_kevent_struct(int level, struct kevent *kev_base, int indx)
 {
+	struct kevent *kev = &kev_base[indx];
 	const char *filter_str;
 	char ident_buf[100];
 	char filter_buf[100];
@@ -547,7 +549,7 @@ x_handle_mport(mach_port_t junk __attribute__((unused)))
 				(*((kq_callback *)kev.udata))(kev.udata, &kev);
 #if 0
 			} else {
-				log_kevent_struct(LOG_ERR, &kev);
+				log_kevent_struct(LOG_ERR, &kev, 0);
 			}
 #endif
 			/* the callback may have tainted our ability to continue this for loop */
@@ -601,17 +603,19 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 		if (launchd_assumes(malloc_size(kev.udata) || dladdr(kev.udata, &dli))) {
 #endif
 		for (i = 0; i < bulk_kev_cnt; i++) {
-			log_kevent_struct(LOG_DEBUG, &kev[i], i);
+			log_kevent_struct(LOG_DEBUG, kev, i);
 		}
 		for (i = 0; i < bulk_kev_cnt; i++) {
 			bulk_kev_i = i;
 			if (kev[i].filter) {
+				runtime_ktrace(RTKT_LAUNCHD_BSD_KEVENT|DBG_FUNC_START, kev[i].ident, kev[i].filter, kev[i].fflags);
 				(*((kq_callback *)kev[i].udata))(kev[i].udata, &kev[i]);
+				runtime_ktrace0(RTKT_LAUNCHD_BSD_KEVENT|DBG_FUNC_END);
 			}
 		}
 #if 0
 		} else {
-			log_kevent_struct(LOG_ERR, &kev);
+			log_kevent_struct(LOG_ERR, &kev, 0);
 		}
 #endif
 	}
@@ -1072,12 +1076,16 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			no_hang_fd = _fd(open("/dev/autofs_nowait", 0));
 		}
 
+		runtime_ktrace(RTKT_LAUNCHD_MACH_IPC|DBG_FUNC_START, bufRequest->Head.msgh_local_port, bufRequest->Head.msgh_id, (int)the_demux);
+
 		if (the_demux(&bufRequest->Head, &bufReply->Head) == FALSE) {
 			/* XXX - also gross */
 			if (likely(bufRequest->Head.msgh_id == MACH_NOTIFY_NO_SENDERS)) {
 				notify_server(&bufRequest->Head, &bufReply->Head);
 			}
 		}
+
+		runtime_ktrace(RTKT_LAUNCHD_MACH_IPC|DBG_FUNC_END, bufReply->Head.msgh_remote_port, bufReply->Head.msgh_bits, bufReply->RetCode);
 
 		/* bufReply is a union. If MACH_MSGH_BITS_COMPLEX is set, then bufReply->RetCode is assumed to be zero. */
 		if (!(bufReply->Head.msgh_bits & MACH_MSGH_BITS_COMPLEX)) {
@@ -1099,6 +1107,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 				tmp_options |= MACH_SEND_TIMEOUT;
 			}
 		}
+
 	}
 }
 
@@ -1309,14 +1318,38 @@ runtime_log_uncork_pending_drain(void)
 	mig_deallocate(outval, outvalCnt);
 }
 
-#if 0
-void
-runtime_kernel_trace(void *code, void *a, void *b, void *c, void *d)
+INTERNAL_ABI void
+runtime_ktrace1(runtime_ktrace_code_t code)
 {
-	/* Request codes from Joe S. */
-	syscall(180 , code, a, b, c, d);
+	void *ra = __builtin_extract_return_addr(__builtin_return_address(1));
+
+	/* This syscall returns EINVAL when the trace isn't enabled. */
+	if (do_apple_internal_logging) {
+		syscall(180, code, 0, 0, 0, (int)ra);
+	}
 }
-#endif
+
+INTERNAL_ABI void
+runtime_ktrace0(runtime_ktrace_code_t code)
+{
+	void *ra = __builtin_extract_return_addr(__builtin_return_address(0));
+
+	/* This syscall returns EINVAL when the trace isn't enabled. */
+	if (do_apple_internal_logging) {
+		syscall(180, code, 0, 0, 0, (int)ra);
+	}
+}
+
+INTERNAL_ABI void
+runtime_ktrace(runtime_ktrace_code_t code, int a, int b, int c)
+{
+	void *ra = __builtin_extract_return_addr(__builtin_return_address(0));
+
+	/* This syscall returns EINVAL when the trace isn't enabled. */
+	if (do_apple_internal_logging) {
+		syscall(180, code, a, b, c, (int)ra);
+	}
+}
 
 INTERNAL_ABI void
 runtime_log_push(void)

@@ -243,6 +243,8 @@ launchd_shutdown(void)
 		return;
 	}
 
+	runtime_ktrace0(RTKT_LAUNCHD_EXITING);
+
 	shutdown_in_progress = true;
 
 	if (pid1_magic) {
@@ -390,6 +392,8 @@ _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const
 	char buf[100];
 	const char *file = strrchr(path, '/');
 	char *rcs_rev_tmp = strchr(rcs_rev, ' ');
+
+	runtime_ktrace1(RTKT_LAUNCHD_BUG);
 
 	if (!file) {
 		file = path;
