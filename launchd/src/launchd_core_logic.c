@@ -21,6 +21,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "config.h"
 #include "launchd_core_logic.h"
 
+#include <TargetConditionals.h>
 #include <mach/mach.h>
 #include <mach/mach_error.h>
 #include <mach/boolean.h>
@@ -72,7 +73,12 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <ctype.h>
 #include <glob.h>
 #include <spawn.h>
+#if HAVE_SANDBOX
 #include <sandbox.h>
+#endif
+#if HAVE_QUARANTINE
+#include <quarantine.h>
+#endif
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
@@ -213,7 +219,9 @@ struct limititem {
 static bool limititem_update(job_t j, int w, rlim_t r);
 static void limititem_delete(job_t j, struct limititem *li);
 static void limititem_setup(launch_data_t obj, const char *key, void *context);
+#if HAVE_SANDBOX
 static void seatbelt_setup_flags(launch_data_t obj, const char *key, void *context);
+#endif
 
 typedef enum {
 	NETWORK_UP = 1,
@@ -340,10 +348,14 @@ struct job_s {
 	char *alt_exc_handler;
 	struct machservice *lastlookup;
 	unsigned int lastlookup_gennum;
+#if HAVE_SANDBOX
 	char *seatbelt_profile;
 	uint64_t seatbelt_flags;
+#endif
+#if HAVE_QUARANTINE
 	void *quarantine_data;
 	size_t quarantine_data_sz;
+#endif
 	pid_t p;
 	int argc;
 	int last_exit_status;
@@ -896,12 +908,16 @@ job_remove(job_t j)
 	if (j->alt_exc_handler) {
 		free(j->alt_exc_handler);
 	}
+#if HAVE_SANDBOX
 	if (j->seatbelt_profile) {
 		free(j->seatbelt_profile);
 	}
+#endif
+#if HAVE_QUARANTINE
 	if (j->quarantine_data) {
 		free(j->quarantine_data);
 	}
+#endif
 	if (j->j_binpref) {
 		free(j->j_binpref);
 	}
@@ -1525,8 +1541,10 @@ job_import_string(job_t j, const char *key, const char *value)
 			} else {
 				j->stdin_fd = 0;
 			}
+#if HAVE_SANDBOX
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXPROFILE) == 0) {
 			where2put = &j->seatbelt_profile;
+#endif
 		}
 		break;
 	default:
@@ -1604,8 +1622,10 @@ job_import_integer(job_t j, const char *key, long long value)
 
 				job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j) != -1);
 			}
+#if HAVE_SANDBOX
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXFLAGS) == 0) {
 			j->seatbelt_flags = value;
+#endif
 		}
 
 		break;
@@ -1621,6 +1641,7 @@ job_import_opaque(job_t j, const char *key, launch_data_t value)
 	switch (key[0]) {
 	case 'q':
 	case 'Q':
+#if HAVE_QUARANTINE
 		if (strcasecmp(key, LAUNCH_JOBKEY_QUARANTINEDATA) == 0) {
 			size_t tmpsz = launch_data_get_opaque_size(value);
 
@@ -1629,6 +1650,7 @@ job_import_opaque(job_t j, const char *key, launch_data_t value)
 				j->quarantine_data_sz = tmpsz;
 			}
 		}
+#endif
 		break;
 	default:
 		break;
@@ -1708,8 +1730,10 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 			calendarinterval_new_from_obj(j, value);
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SOFTRESOURCELIMITS) == 0) {
 			launch_data_dict_iterate(value, limititem_setup, j);
+#if HAVE_SANDBOX
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXFLAGS) == 0) {
 			launch_data_dict_iterate(value, seatbelt_setup_flags, j);
+#endif
 		}
 		break;
 	case 'h':
@@ -2835,6 +2859,7 @@ job_start_child(job_t j)
 		job_assumes(j, binpref_out_cnt == j->j_binpref_cnt);
 	}
 
+#if HAVE_QUARANTINE
 	if (j->quarantine_data) {
 		qtn_proc_t qp;
 
@@ -2844,7 +2869,9 @@ job_start_child(job_t j)
 			}
 		}
 	}
+#endif
 
+#if HAVE_SANDBOX
 	if (j->seatbelt_profile) {
 		char *seatbelt_err_buf = NULL;
 
@@ -2855,6 +2882,7 @@ job_start_child(job_t j)
 			goto out_bad;
 		}
 	}
+#endif
 
 	psf = j->prog ? posix_spawn : posix_spawnp;
 
@@ -3891,6 +3919,7 @@ limititem_delete(job_t j, struct limititem *li)
 	free(li);
 }
 
+#if HAVE_SANDBOX
 void
 seatbelt_setup_flags(launch_data_t obj, const char *key, void *context)
 {
@@ -3909,6 +3938,7 @@ seatbelt_setup_flags(launch_data_t obj, const char *key, void *context)
 		j->seatbelt_flags |= SANDBOX_NAMED;
 	}
 }
+#endif
 
 void
 limititem_setup(launch_data_t obj, const char *key, void *context)
@@ -4235,6 +4265,10 @@ job_setup_exception_port(job_t j, task_t target_task)
 	f = PPC_THREAD_STATE64;
 #elif defined(__i386__)
 	f = x86_THREAD_STATE;
+#elif defined(__arm__)
+	f = ARM_THREAD_STATE;
+#else
+#error "unknown architecture"
 #endif
 
 	if (likely(target_task)) {
@@ -5904,6 +5938,8 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 
 	job_log(j, LOG_DEBUG, "%sMach service registration attempt: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 
+	/* 5641783 for the embedded hack */
+#if !TARGET_OS_EMBEDDED
 	/*
 	 * From a per-user/session launchd's perspective, SecurityAgent (UID
 	 * 92) is a rogue application (not our UID, not root and not a child of
@@ -5916,6 +5952,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
 	}
+#endif
 	
 	ms = jobmgr_lookup_service(j->mgr, servicename, false, flags & BOOTSTRAP_PER_PID_SERVICE ? ldc->pid : 0);
 
@@ -5953,9 +5990,12 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
+	/* 5641783 for the embedded hack */
+#if !TARGET_OS_EMBEDDED
 	if (unlikely(pid1_magic && j->anonymous && j->mgr->parentmgr == NULL && ldc->uid != 0 && ldc->euid != 0)) {
 		return VPROC_ERR_TRY_PER_USER;
 	}
+#endif
 
 	if (unlikely(!mspolicy_check(j, servicename, flags & BOOTSTRAP_PER_PID_SERVICE))) {
 		job_log(j, LOG_NOTICE, "Policy denied Mach service lookup: %s", servicename);

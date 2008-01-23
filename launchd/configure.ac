@@ -1,12 +1,12 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_PREREQ(2.59)
+AC_PREREQ(2.61)
 
 AC_INIT([launchd],[1.0],[launchd-bug-reports@group.apple.com])
 AC_CONFIG_SRCDIR([src/launchd.c])
 AM_INIT_AUTOMAKE
-AM_CONFIG_HEADER([src/config.h])
+AC_CONFIG_HEADERS([src/config.h])
 
 # Checks for programs.
 AC_PROG_CC
@@ -37,14 +37,26 @@ AC_FUNC_FORK
 AC_PROG_GCC_TRADITIONAL
 AC_FUNC_LSTAT
 AC_FUNC_LSTAT_FOLLOWS_SLASHED_SYMLINK
-AC_FUNC_MALLOC
 AC_FUNC_MKTIME
-AC_FUNC_MMAP
-AC_FUNC_REALLOC
 AC_FUNC_SELECT_ARGTYPES
 AC_TYPE_SIGNAL
 AC_FUNC_STAT
-AC_CHECK_FUNCS([atexit dup2 gethostname gettimeofday memmove memset mkdir munmap rmdir select setenv socket strcasecmp strchr strdup strerror strrchr strstr strtol])
+AC_CHECK_FUNCS([atexit dup2 gethostname gettimeofday malloc mmap memmove memset mkdir munmap realloc rmdir select setenv socket strcasecmp strchr strdup strerror strrchr strstr strtol])
+
+# check for a Security framework that includes session support
+ac_func_search_save_LIBS=$LIBS
+LIBS="-framework Security $ac_func_search_save_LIBS"
+AC_CHECK_FUNC([SessionCreate],
+	      [AC_DEFINE(HAVE_SECURITY, 1, [Define to 1 if you have the Security framework])
+	      AC_SUBST(LIBS_SECURITY,"-framework Security")
+	      AC_SUBST(WEAKLIBS_SECURITY,"-weak_framework Security")])
+LIBS=$ac_func_search_save_LIBS
+
+# check for seatbelt
+AC_CHECK_FUNC([sandbox_init],[AC_DEFINE(HAVE_SANDBOX, 1, [Define to 1 if you have the sandbox library])])
+
+# check for quarantine
+AC_CHECK_FUNC([_qtn_proc_init_with_data],[AC_DEFINE(HAVE_QUARANTINE, 1, [Define to 1 if you have the quarantine library])])
 
 AC_CONFIG_FILES([Makefile
                  src/Makefile])

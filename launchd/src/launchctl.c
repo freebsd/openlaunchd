@@ -30,7 +30,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
 #include <TargetConditionals.h>
-#if !TARGET_OS_EMBEDDED
+#if HAVE_SECURITY
 #include <Security/Security.h>
 #include <Security/AuthSession.h>
 #endif
@@ -1434,10 +1434,12 @@ system_specific_bootstrap(bool sflag)
 		assumes(acct("/var/account/acct") != -1);
 	}
 
+#if !TARGET_OS_EMBEDDED
 	if (path_check("/etc/fstab")) {
 		const char *mount_tool[] = { "mount", "-vat", "nonfs", NULL };
 		assumes(fwexec(mount_tool, NULL) != -1);
 	}
+#endif
 
 	if (path_check("/etc/rc.installer_cleanup")) {
 		const char *rccleanup_tool[] = { _PATH_BSHELL, "/etc/rc.installer_cleanup", "multiuser", NULL };
@@ -1538,9 +1540,9 @@ system_specific_bootstrap(bool sflag)
 void
 do_BootCache_magic(BootCache_action_t what)
 {
-	const char *bcc_tool[] = { "BootCacheControl", "-f", "/var/db/BootCache.playlist", NULL, NULL };
+	const char *bcc_tool[] = { "/usr/sbin/BootCacheControl", "-f", "/var/db/BootCache.playlist", NULL, NULL };
 
-	if (is_safeboot()) {
+	if (is_safeboot() || !path_check(bcc_tool[0])) {
 		return;
 	}
 
@@ -1617,7 +1619,7 @@ bootstrap_cmd(int argc, char *const argv[])
 			the_argc += 1;
 		}
 
-#if !TARGET_OS_EMBEDDED
+#if HAVE_SECURITY
 		if (strcasecmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0) {
 			assumes(SessionCreate(sessionKeepCurrentBootstrap, 0) == 0);
 		}
@@ -2782,8 +2784,15 @@ out:
 	 *
 	 * assumes(mount(sfs.f_fstypename, "/", MNT_UPDATE, NULL) != -1);
 	 */
-
-	assumes(fwexec(remount_tool, NULL) != -1);
+#if TARGET_OS_EMBEDDED
+	if (path_check("/etc/fstab")) {
+		const char *mount_tool[] = { "mount", "-vat", "nonfs", NULL };
+		assumes(fwexec(mount_tool, true) != -1);
+	} else
+#endif
+	{
+		assumes(fwexec(remount_tool, NULL) != -1);
+	}
 
 	fix_bogus_file_metadata();
 }

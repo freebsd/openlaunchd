@@ -201,6 +201,7 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 
 	if (spawn_attrs) switch (struct_version) {
 	case 2:
+#if HAVE_QUARANTINE
 		if (spawn_attrs->spawn_quarantine) {
 			char qbuf[QTN_SERIALIZED_DATA_MAX];
 			size_t qbuf_sz = QTN_SERIALIZED_DATA_MAX;
@@ -210,6 +211,7 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 				launch_data_dict_insert(in_obj, tmp, LAUNCH_JOBKEY_QUARANTINEDATA);
 			}
 		}
+#endif
 
 		if (spawn_attrs->spawn_seatbelt_profile) {
 			tmp = launch_data_new_string(spawn_attrs->spawn_seatbelt_profile);

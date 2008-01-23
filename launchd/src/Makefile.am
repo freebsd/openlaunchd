@@ -39,8 +39,8 @@ libexec_PROGRAMS = launchproxy
 
 sysconf_DATA = hostconfig rc.common rc.netboot
 
-launchctl_CFLAGS = $(AM_CFLAGS) -isystem /System/Library/Frameworks/System.framework/PrivateHeaders
-launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit -framework Security -weak_library /usr/lib/libedit.dylib
+launchctl_CFLAGS = $(AM_CFLAGS) -isystem $(SDKROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
+launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
 
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
@@ -53,7 +53,7 @@ launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vpr
 launchd_runtime.c:: notifyServer.h launchd_internal.h mach_excServer.h
 launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h job_forward.h
 
-launchproxy_LDFLAGS = -weak_framework Security
+launchproxy_LDFLAGS = $(LIBS_SECURITY)
 
 job_forwardUser.c job_forward.h: $(srcdir)/protocol_job_forward.defs
 	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/protocol_job_forward.defs

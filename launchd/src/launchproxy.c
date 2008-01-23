@@ -17,9 +17,11 @@
  * 
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
+#if HAVE_SECURITY
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
+#endif
 #include <sys/types.h>
 #include <sys/select.h>
 #include <sys/event.h>
@@ -40,7 +42,7 @@
 
 #include "launch.h"
 
-#if __GNUC__ >= 4
+#if __GNUC__ >= 4 && HAVE_SECURITY
 OSStatus SessionCreate(SessionCreationFlags flags, SessionAttributeBits attributes) __attribute__((weak));
 #endif
 
@@ -184,6 +186,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 
 			setpgid(0, 0);
 
+#if HAVE_SECURITY
 			if ((tmp = launch_data_dict_lookup(resp, LAUNCH_JOBKEY_SESSIONCREATE)) && launch_data_get_bool(tmp)) {
 				if (SessionCreate) {
 					OSStatus scr = SessionCreate(0, 0);
@@ -193,6 +196,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 					syslog(LOG_NOTICE, "%s: SessionCreate == NULL!", prog);
 				}
 			}
+#endif
 			fcntl(r, F_SETFL, 0);
 			fcntl(r, F_SETFD, 1);
 			dup2(r, STDIN_FILENO);
