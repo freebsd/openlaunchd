@@ -2410,7 +2410,13 @@ job_kill(job_t j)
 void
 job_log_chidren_without_exec(job_t j)
 {
+	/* <rdar://problem/5701343> ER: Add a KERN_PROC_PPID sysctl */
+#ifdef KERN_PROC_PPID
+	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PPID, j->p };
+#else
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
+#endif
+	int mib_sz = sizeof(mib) / sizeof(mib[0]);
 	size_t i, kp_cnt, len = 10*1024*1024;
 	struct kinfo_proc *kp;
 
@@ -2421,20 +2427,24 @@ job_log_chidren_without_exec(job_t j)
 	if (!job_assumes(j, (kp = malloc(len)) != NULL)) {
 		return;
 	}
-	if (!job_assumes(j, sysctl(mib, 3, kp, &len, NULL, 0) != -1)) {
+	if (!job_assumes(j, sysctl(mib, mib_sz, kp, &len, NULL, 0) != -1)) {
 		goto out;
 	}
 
 	kp_cnt = len / sizeof(struct kinfo_proc);
 
 	for (i = 0; i < kp_cnt; i++) {
+#ifndef KERN_PROC_PPID
 		if (kp[i].kp_eproc.e_ppid != j->p) {
 			continue;
-		} else if (kp[i].kp_proc.p_flag & P_EXEC) {
+		}
+#endif
+		if (kp[i].kp_proc.p_flag & P_EXEC) {
 			continue;
 		}
 
 		job_log(j, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn()");
+		break;
 	}
 
 out:
