@@ -2390,7 +2390,7 @@ job_log_chidren_without_exec(job_t j)
 	size_t i, kp_cnt, len = 10*1024*1024;
 	struct kinfo_proc *kp;
 
-	if (j->anonymous || j->per_user) {
+	if (!do_apple_internal_logging || j->anonymous || j->per_user) {
 		return;
 	}
 
