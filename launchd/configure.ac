@@ -62,5 +62,7 @@ AC_CONFIG_FILES([Makefile
                  src/Makefile])
 
 AM_CONDITIONAL(LIBS_ONLY, test "$RC_ProjectName" = launchd_libs)
+AM_CONDITIONAL(DO_EMBEDDED_MAGIC, test $(tconf --test TARGET_OS_EMBEDDED) = YES)
+
 
 AC_OUTPUT

@@ -34,7 +34,11 @@ install-data-hook:
 else
 
 bin_PROGRAMS = launchctl wait4path
+if DO_EMBEDDED_MAGIC
+sbin_PROGRAMS = launchd
+else
 sbin_PROGRAMS = launchd SystemStarter
+endif
 libexec_PROGRAMS = launchproxy
 
 sysconf_DATA = hostconfig rc.common rc.netboot
@@ -42,9 +46,12 @@ sysconf_DATA = hostconfig rc.common rc.netboot
 launchctl_CFLAGS = $(AM_CFLAGS) -isystem $(SDKROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
 launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
 
+if DO_EMBEDDED_MAGIC
+else
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
+endif
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks # -fomit-frame-pointer # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
 launchd_LDFLAGS = -lbsm
@@ -75,7 +82,11 @@ man1_MANS = wait4path.1 launchctl.1
 
 man5_MANS = launchd.plist.5 launchd.conf.5
 
+if DO_EMBEDDED_MAGIC
+man8_MANS = launchd.8 launchproxy.8
+else
 man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 launchproxy.8
+endif
 
 install-data-hook:
 	mkdir -p $(DESTDIR)/usr/libexec
@@ -88,7 +99,6 @@ install-data-hook:
 	mkdir -p $(DESTDIR)/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
 	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
-	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	cp $(srcdir)/liblaunch_public.h $(DESTDIR)/usr/include/launch.h
 	cp $(srcdir)/libvproc_public.h $(DESTDIR)/usr/include/vproc.h
 	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
@@ -97,6 +107,10 @@ install-data-hook:
 	cp $(srcdir)/liblaunch_private.h $(DESTDIR)/usr/local/include/launch_priv.h
 	cp $(srcdir)/libvproc_private.h $(DESTDIR)/usr/local/include/vproc_priv.h
 	cp $(srcdir)/reboot2.h $(DESTDIR)/usr/local/include/reboot2.h
+if DO_EMBEDDED_MAGIC
+else
+	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 	cp $(srcdir)/com.apple.SystemStarter.plist $(DESTDIR)/System/Library/LaunchDaemons
+endif
 
 endif

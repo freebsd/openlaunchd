@@ -702,6 +702,8 @@ LIBS_SECURITY
 WEAKLIBS_SECURITY
 LIBS_ONLY_TRUE
 LIBS_ONLY_FALSE
+DO_EMBEDDED_MAGIC_TRUE
+DO_EMBEDDED_MAGIC_FALSE
 LTLIBOBJS'
 ac_subst_files=''
       ac_precious_vars='build_alias
@@ -7861,6 +7863,15 @@ else
   LIBS_ONLY_FALSE=
 fi
 
+ if test $(tconf --test TARGET_OS_EMBEDDED) = YES; then
+  DO_EMBEDDED_MAGIC_TRUE=
+  DO_EMBEDDED_MAGIC_FALSE='#'
+else
+  DO_EMBEDDED_MAGIC_TRUE='#'
+  DO_EMBEDDED_MAGIC_FALSE=
+fi
+
+
 
 cat >confcache <<\_ACEOF
 # This file is a shell script that caches the results of configure
@@ -7976,6 +7987,13 @@ if test -z "${LIBS_ONLY_TRUE}" && test -z "${LIBS_ONLY_FALSE}"; then
   { { echo "$as_me:$LINENO: error: conditional \"LIBS_ONLY\" was never defined.
 Usually this means the macro was only invoked conditionally." >&5
 echo "$as_me: error: conditional \"LIBS_ONLY\" was never defined.
+Usually this means the macro was only invoked conditionally." >&2;}
+   { (exit 1); exit 1; }; }
+fi
+if test -z "${DO_EMBEDDED_MAGIC_TRUE}" && test -z "${DO_EMBEDDED_MAGIC_FALSE}"; then
+  { { echo "$as_me:$LINENO: error: conditional \"DO_EMBEDDED_MAGIC\" was never defined.
+Usually this means the macro was only invoked conditionally." >&5
+echo "$as_me: error: conditional \"DO_EMBEDDED_MAGIC\" was never defined.
 Usually this means the macro was only invoked conditionally." >&2;}
    { (exit 1); exit 1; }; }
 fi
@@ -8597,10 +8615,12 @@ LIBS_SECURITY!$LIBS_SECURITY$ac_delim
 WEAKLIBS_SECURITY!$WEAKLIBS_SECURITY$ac_delim
 LIBS_ONLY_TRUE!$LIBS_ONLY_TRUE$ac_delim
 LIBS_ONLY_FALSE!$LIBS_ONLY_FALSE$ac_delim
+DO_EMBEDDED_MAGIC_TRUE!$DO_EMBEDDED_MAGIC_TRUE$ac_delim
+DO_EMBEDDED_MAGIC_FALSE!$DO_EMBEDDED_MAGIC_FALSE$ac_delim
 LTLIBOBJS!$LTLIBOBJS$ac_delim
 _ACEOF
 
-  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 86; then
+  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 88; then
     break
   elif $ac_last_try; then
     { { echo "$as_me:$LINENO: error: could not make $CONFIG_STATUS" >&5

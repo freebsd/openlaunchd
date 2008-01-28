@@ -33,8 +33,11 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 @LIBS_ONLY_FALSE@bin_PROGRAMS = launchctl$(EXEEXT) wait4path$(EXEEXT)
-@LIBS_ONLY_FALSE@sbin_PROGRAMS = launchd$(EXEEXT) \
-@LIBS_ONLY_FALSE@	SystemStarter$(EXEEXT)
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@sbin_PROGRAMS =  \
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@	launchd$(EXEEXT) \
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@	SystemStarter$(EXEEXT)
+@DO_EMBEDDED_MAGIC_TRUE@@LIBS_ONLY_FALSE@sbin_PROGRAMS =  \
+@DO_EMBEDDED_MAGIC_TRUE@@LIBS_ONLY_FALSE@	launchd$(EXEEXT)
 @LIBS_ONLY_FALSE@libexec_PROGRAMS = launchproxy$(EXEEXT)
 subdir = src
 DIST_COMMON = $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
@@ -80,10 +83,9 @@ libexecPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 sbinPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS) $(libexec_PROGRAMS) $(sbin_PROGRAMS)
 am__SystemStarter_SOURCES_DIST = StartupItems.c IPC.c SystemStarter.c
-@LIBS_ONLY_FALSE@am_SystemStarter_OBJECTS =  \
-@LIBS_ONLY_FALSE@	SystemStarter-StartupItems.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	SystemStarter-IPC.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	SystemStarter-SystemStarter.$(OBJEXT)
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@am_SystemStarter_OBJECTS = SystemStarter-StartupItems.$(OBJEXT) \
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@	SystemStarter-IPC.$(OBJEXT) \
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@	SystemStarter-SystemStarter.$(OBJEXT)
 SystemStarter_OBJECTS = $(am_SystemStarter_OBJECTS)
 SystemStarter_LDADD = $(LDADD)
 SystemStarter_LINK = $(CCLD) $(SystemStarter_CFLAGS) $(CFLAGS) \
@@ -253,16 +255,17 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc.common rc.netboot
 @LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -isystem $(SDKROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
 @LIBS_ONLY_FALSE@launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
-@LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-@LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
-@LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks # -fomit-frame-pointer # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
 @LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = $(LIBS_SECURITY)
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
-@LIBS_ONLY_FALSE@man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 launchproxy.8
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 launchproxy.8
+@DO_EMBEDDED_MAGIC_TRUE@@LIBS_ONLY_FALSE@man8_MANS = launchd.8 launchproxy.8
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -1212,7 +1215,6 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/Library/LaunchAgents
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/System/Library/LaunchAgents
 @LIBS_ONLY_FALSE@	mkdir -p $(DESTDIR)/System/Library/LaunchDaemons
-@LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
 @LIBS_ONLY_FALSE@	cp $(srcdir)/liblaunch_public.h $(DESTDIR)/usr/include/launch.h
 @LIBS_ONLY_FALSE@	cp $(srcdir)/libvproc_public.h $(DESTDIR)/usr/include/vproc.h
 @LIBS_ONLY_FALSE@	cp $(srcdir)/libbootstrap_public.h $(DESTDIR)/usr/include/servers/bootstrap.h
@@ -1221,7 +1223,8 @@ protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServe
 @LIBS_ONLY_FALSE@	cp $(srcdir)/liblaunch_private.h $(DESTDIR)/usr/local/include/launch_priv.h
 @LIBS_ONLY_FALSE@	cp $(srcdir)/libvproc_private.h $(DESTDIR)/usr/local/include/vproc_priv.h
 @LIBS_ONLY_FALSE@	cp $(srcdir)/reboot2.h $(DESTDIR)/usr/local/include/reboot2.h
-@LIBS_ONLY_FALSE@	cp $(srcdir)/com.apple.SystemStarter.plist $(DESTDIR)/System/Library/LaunchDaemons
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@	cp $(srcdir)/StartupItemContext $(DESTDIR)/usr/libexec
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@	cp $(srcdir)/com.apple.SystemStarter.plist $(DESTDIR)/System/Library/LaunchDaemons
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:
