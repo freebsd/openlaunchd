@@ -17,6 +17,7 @@
  * 
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
+#include "config.h"
 #if HAVE_SECURITY
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
