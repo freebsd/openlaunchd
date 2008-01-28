@@ -67,7 +67,7 @@ typedef struct _launch *launch_t;
 
 launch_t launchd_fdopen(int);
 int launchd_getfd(launch_t);
-void launchd_close(launch_t, typeof(close) closefunc);
+void launchd_close(launch_t, __typeof__(close) closefunc);
 
 launch_data_t   launch_data_new_errno(int);
 bool		launch_data_set_errno(launch_data_t, int);
