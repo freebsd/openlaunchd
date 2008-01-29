@@ -242,7 +242,11 @@ sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -Dmig_external=__private_extern__
+CWARN = -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror # -Wconversion -Wstrict-aliasing=2
+CTUNE = -fvisibility=hidden -fdiagnostics-show-option # -fstrict-aliasing
+CMISC = -isysroot $(SDKROOT) -F$(SDKROOT)/System/Library/PrivateFrameworks -D__MigTypeCheck=1 -Dmig_external=__private_extern__
+AM_CFLAGS = $(CTUNE) $(CMISC) $(CWARN)
+AM_LDFLAGS = -Wl,-syslibroot,$(SDKROOT)
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
 	     notifyServer.c notifyServer.h job_replyUser.c job_reply.h __version.c mach_excServer.c mach_excServer.h
@@ -254,14 +258,14 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
 @LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc.common rc.netboot
 @LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -isystem $(SDKROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
-@LIBS_ONLY_FALSE@launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
+@LIBS_ONLY_FALSE@launchctl_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
 @DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
+@DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit
 @DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
-@LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks # -fomit-frame-pointer # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
-@LIBS_ONLY_FALSE@launchd_LDFLAGS = -lbsm
+@LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks
+@LIBS_ONLY_FALSE@launchd_LDFLAGS = $(AM_LDFLAGS) -lbsm
 @LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
-@LIBS_ONLY_FALSE@launchproxy_LDFLAGS = $(LIBS_SECURITY)
+@LIBS_ONLY_FALSE@launchproxy_LDFLAGS = $(AM_LDFLAGS) $(LIBS_SECURITY)
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
 @DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@man8_MANS = StartupItemContext.8 SystemStarter.8 rc.8 launchd.8 launchproxy.8

@@ -1,4 +1,8 @@
-AM_CFLAGS = -F/System/Library/PrivateFrameworks -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror -D__MigTypeCheck=1 -fvisibility=hidden -Dmig_external=__private_extern__
+CWARN = -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wpadded -Wstrict-overflow=4 -Wmissing-prototypes -Wmissing-declarations -Werror # -Wconversion -Wstrict-aliasing=2
+CTUNE = -fvisibility=hidden -fdiagnostics-show-option # -fstrict-aliasing
+CMISC = -isysroot $(SDKROOT) -F$(SDKROOT)/System/Library/PrivateFrameworks -D__MigTypeCheck=1 -Dmig_external=__private_extern__
+AM_CFLAGS = $(CTUNE) $(CMISC) $(CWARN)
+AM_LDFLAGS = -Wl,-syslibroot,$(SDKROOT)
 
 CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protocol_vprocServer.h		\
 	     launchd_internal.h launchd_internalServer.h launchd_internalServer.c launchd_internalUser.c	\
@@ -44,23 +48,23 @@ libexec_PROGRAMS = launchproxy
 sysconf_DATA = hostconfig rc.common rc.netboot
 
 launchctl_CFLAGS = $(AM_CFLAGS) -isystem $(SDKROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
-launchctl_LDFLAGS = -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
+launchctl_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
 
 if DO_EMBEDDED_MAGIC
 else
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-SystemStarter_LDFLAGS = -framework CoreFoundation -framework IOKit
+SystemStarter_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 endif
 
-launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks # -fomit-frame-pointer # -Wconversion # -Wstrict-aliasing=2 -fstrict-aliasing
-launchd_LDFLAGS = -lbsm
+launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks
+launchd_LDFLAGS = $(AM_LDFLAGS) -lbsm
 launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
 
 launchd_runtime.c:: notifyServer.h launchd_internal.h mach_excServer.h
 launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h job_forward.h
 
-launchproxy_LDFLAGS = $(LIBS_SECURITY)
+launchproxy_LDFLAGS = $(AM_LDFLAGS) $(LIBS_SECURITY)
 
 job_forwardUser.c job_forward.h: $(srcdir)/protocol_job_forward.defs
 	mig $(MIGFLAGS) -sheader /dev/null -server /dev/null $(srcdir)/protocol_job_forward.defs
