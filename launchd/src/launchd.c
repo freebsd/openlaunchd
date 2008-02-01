@@ -23,7 +23,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "config.h"
 #include "launchd.h"
 
-#if HAVE_SECURITY_FRAMEWORK
+#if HAVE_SECURITY
 #include <Security/Authorization.h>
 #include <Security/AuthorizationTags.h>
 #include <Security/AuthSession.h>
@@ -283,7 +283,7 @@ launchd_single_user(void)
 INTERNAL_ABI void
 launchd_SessionCreate(void)
 {
-#if HAVE_SECURITY_FRAMEWORK
+#if HAVE_SECURITY
 	OSStatus (*sescr)(SessionCreationFlags flags, SessionAttributeBits attributes);
 	void *seclib;
 
