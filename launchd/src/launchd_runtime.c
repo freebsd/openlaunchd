@@ -131,6 +131,8 @@ runtime_get_kernel_port(void)
 	return launchd_internal_port;
 }
 
+// static const char *__crashreporter_info__ = "";
+
 static int internal_mask_pri = LOG_UPTO(LOG_NOTICE);
 //static int internal_mask_pri = LOG_UPTO(LOG_DEBUG);
 
