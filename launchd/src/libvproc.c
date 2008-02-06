@@ -32,6 +32,9 @@
 #include <unistd.h>
 #include <syslog.h>
 #include <pthread.h>
+#if HAVE_QUARANTINE
+#include <quarantine.h>
+#endif
 
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
