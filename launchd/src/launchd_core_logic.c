@@ -461,6 +461,7 @@ static bool cronemu_hour(struct tm *wtm, int hour, int min);
 static bool cronemu_min(struct tm *wtm, int min);
 
 /* miscellaneous file local functions */
+static size_t get_kern_max_proc(void);
 static void ensure_root_bkgd_setup(void);
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
@@ -2104,8 +2105,14 @@ void
 job_log_stray_pg(job_t j)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PGRP, j->p };
-	size_t i, kp_cnt, len = 10*1024*1024;
+	size_t i, kp_cnt, len = sizeof(struct kinfo_proc) * get_kern_max_proc();
 	struct kinfo_proc *kp;
+
+#if TARGET_OS_EMBEDDED
+	if (!do_apple_internal_logging) {
+		return;
+	}
+#endif
 
 	runtime_ktrace(RTKT_LAUNCHD_FINDING_STRAY_PG, j->p, 0, 0);
 
@@ -2417,7 +2424,7 @@ job_log_chidren_without_exec(job_t j)
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
 #endif
 	int mib_sz = sizeof(mib) / sizeof(mib[0]);
-	size_t i, kp_cnt, len = 10*1024*1024;
+	size_t i, kp_cnt, len = sizeof(struct kinfo_proc) * get_kern_max_proc();
 	struct kinfo_proc *kp;
 
 	if (!do_apple_internal_logging || j->anonymous || j->per_user) {
@@ -2958,9 +2965,16 @@ void
 job_log_pids_with_weird_uids(job_t j)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
-	size_t i, kp_cnt, len = 10*1024*1024;
-	struct kinfo_proc *kp = malloc(len);
+	size_t i, kp_cnt, len = sizeof(struct kinfo_proc) * get_kern_max_proc();
+	struct kinfo_proc *kp;
 	uid_t u = j->mach_uid;
+
+#if TARGET_OS_EMBEDDED
+	if (!do_apple_internal_logging) {
+		return;
+	}
+#endif
+	kp = malloc(len);
 
 	if (!job_assumes(j, kp != NULL)) {
 		return;
@@ -4464,8 +4478,14 @@ void
 jobmgr_log_stray_children(jobmgr_t jm)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
-	size_t i, kp_cnt = 0, kp_skipped = 0, len = 10*1024*1024;
+	size_t i, kp_cnt = 0, kp_skipped = 0, len = sizeof(struct kinfo_proc) * get_kern_max_proc();
 	struct kinfo_proc *kp;
+
+#if TARGET_OS_EMBEDDED
+	if (!do_apple_internal_logging) {
+		return;
+	}
+#endif
 
 	if (likely(jm->parentmgr || !pid1_magic)) {
 		return;
@@ -6964,4 +6984,16 @@ do_unmounts(void)
 			}
 		}
 	} while ((returned == (sizeof(buf) / sizeof(buf[0]))) && (found > 0));
+}
+
+size_t
+get_kern_max_proc(void)
+{
+	int mib[] = { CTL_KERN, KERN_MAXPROC };
+	int max = 100;
+	size_t max_sz = sizeof(max);
+	
+	launchd_assumes(sysctl(mib, 2, &max, &max_sz, NULL, 0) != -1);
+	
+	return max;
 }
