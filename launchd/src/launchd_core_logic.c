@@ -1149,7 +1149,8 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (jp && !jp->anonymous && unlikely(!(kp.kp_proc.p_flag & P_EXEC))) {
-		job_log(jp, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn()");
+		job_log(jp, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn(). Child PID %u",
+				kp.kp_proc.p_pid);
 	}
 
 
@@ -2450,8 +2451,8 @@ job_log_chidren_without_exec(job_t j)
 			continue;
 		}
 
-		job_log(j, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn()");
-		break;
+		job_log(j, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn(). Child PID %u",
+				kp[i].kp_proc.p_pid);
 	}
 
 out:
@@ -6051,7 +6052,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
 
 		if (unlikely(j->lastlookup == ms && j->lastlookup_gennum == ms->gen_num && !j->per_user)) {
-			job_log(ms->job, LOG_APPLEONLY, "Performance: Please fix the framework to cache the Mach port for service: %s", servicename);
+			job_log(j, LOG_APPLEONLY, "Performance: Please fix the framework that talks to \"%s\" to cache the Mach port for service: %s", ms->job->label, servicename);
 		}
 
 		j->lastlookup = ms;
