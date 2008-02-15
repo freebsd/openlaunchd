@@ -1469,7 +1469,11 @@ system_specific_bootstrap(bool sflag)
 
 	_vproc_set_global_on_demand(true);
 
-	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d", NULL };
+	char *load_launchd_items[] = { "load", "-D", "all", "/etc/mach_init.d",
+#if TARGET_OS_EMBEDDED
+		"/var/mobile/Library/LaunchAgents",
+#endif
+		NULL };
 
 	if (is_safeboot()) {
 		load_launchd_items[2] = "system";
