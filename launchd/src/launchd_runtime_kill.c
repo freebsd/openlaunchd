@@ -18,15 +18,19 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-#if !defined(__LP64__) && !defined(__arm__)
-#define _NONSTD_SOURCE 1
+#if defined(__LP64__)
+/* ??? No way to get the old behavior */
 #define old_kill(x, y) kill(x, y)
-#define old_killpg(x, y) killpg(x, y)
-#else
+#define old_killpg(x, y) kill(-(x), y)
+#elif defined(__arm__)
 /* ??? No blessed way to get the old behavior */
 extern int __kill(int, int, int);
 #define old_kill(x, y) __kill(x, y, 0)
 #define old_killpg(x, y) __kill(-(x), y, 0)
+#else
+#define _NONSTD_SOURCE 1
+#define old_kill(x, y) kill(x, y)
+#define old_killpg(x, y) killpg(x, y)
 #endif
 #include <signal.h>
 

@@ -163,7 +163,7 @@ typedef enum {
 /* All of these log the return address as "arg4" */
 INTERNAL_ABI void runtime_ktrace1(runtime_ktrace_code_t code);
 INTERNAL_ABI void runtime_ktrace0(runtime_ktrace_code_t code);
-INTERNAL_ABI void runtime_ktrace(runtime_ktrace_code_t code, int a, int b, int c);
+INTERNAL_ABI void runtime_ktrace(runtime_ktrace_code_t code, long a, long b, long c);
 
 
 #define LOG_APPLEONLY 0x4141504c /* AAPL in hex */

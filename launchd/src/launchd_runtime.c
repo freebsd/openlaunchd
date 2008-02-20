@@ -113,6 +113,7 @@ static void logmsg_remove(struct logmsg_s *lm);
 
 static void do_file_init(void) __attribute__((constructor));
 static mach_timebase_info_data_t tbi;
+static uint64_t tbi_safe_math_max;
 static double tbi_float_val;
 
 static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
@@ -1078,7 +1079,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			no_hang_fd = _fd(open("/dev/autofs_nowait", 0));
 		}
 
-		runtime_ktrace(RTKT_LAUNCHD_MACH_IPC|DBG_FUNC_START, bufRequest->Head.msgh_local_port, bufRequest->Head.msgh_id, (int)the_demux);
+		runtime_ktrace(RTKT_LAUNCHD_MACH_IPC|DBG_FUNC_START, bufRequest->Head.msgh_local_port, bufRequest->Head.msgh_id, (long)the_demux);
 
 		if (the_demux(&bufRequest->Head, &bufReply->Head) == FALSE) {
 			/* XXX - also gross */
@@ -1327,7 +1328,7 @@ runtime_ktrace1(runtime_ktrace_code_t code)
 
 	/* This syscall returns EINVAL when the trace isn't enabled. */
 	if (do_apple_internal_logging) {
-		syscall(180, code, 0, 0, 0, (int)ra);
+		syscall(180, code, 0, 0, 0, (long)ra);
 	}
 }
 
@@ -1338,18 +1339,18 @@ runtime_ktrace0(runtime_ktrace_code_t code)
 
 	/* This syscall returns EINVAL when the trace isn't enabled. */
 	if (do_apple_internal_logging) {
-		syscall(180, code, 0, 0, 0, (int)ra);
+		syscall(180, code, 0, 0, 0, (long)ra);
 	}
 }
 
 INTERNAL_ABI void
-runtime_ktrace(runtime_ktrace_code_t code, int a, int b, int c)
+runtime_ktrace(runtime_ktrace_code_t code, long a, long b, long c)
 {
 	void *ra = __builtin_extract_return_addr(__builtin_return_address(0));
 
 	/* This syscall returns EINVAL when the trace isn't enabled. */
 	if (do_apple_internal_logging) {
-		syscall(180, code, a, b, c, (int)ra);
+		syscall(180, code, a, b, c, (long)ra);
 	}
 }
 
@@ -1612,7 +1613,13 @@ runtime_opaque_time_to_nano(uint64_t o)
 #else
 	if (tbi.numer != tbi.denom) {
 #endif
-		if (o < INT32_MAX) {
+#ifdef __LP64__
+		__uint128_t tmp = o;
+		tmp *= tbi.numer;
+		tmp /= tbi.denom;
+		o = tmp;
+#else
+		if (o <= tbi_safe_math_max) {
 			o *= tbi.numer;
 			o /= tbi.denom;
 		} else {
@@ -1620,6 +1627,7 @@ runtime_opaque_time_to_nano(uint64_t o)
 			d *= tbi_float_val;
 			o = d;
 		}
+#endif
 	}
 
 	return o;
@@ -1633,6 +1641,7 @@ do_file_init(void)
 	launchd_assert(mach_timebase_info(&tbi) == 0);
 	tbi_float_val = tbi.numer;
 	tbi_float_val /= tbi.denom;
+	tbi_safe_math_max = UINT64_MAX / tbi.numer;
 
 	if (getpid() == 1) {
 		pid1_magic = true;
