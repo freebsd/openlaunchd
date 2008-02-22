@@ -104,7 +104,7 @@ vproc_dirty_count(void);
  * @function vproc_standby_retain
  *
  * @abstract
- * Call this API when registering notfications. For example: timers network
+ * Call this API when registering notifications. For example: timers network
  * state change, or when monitoring keyboard/mouse events.
  */
 void vproc_standby_retain(void);
@@ -113,7 +113,7 @@ void vproc_standby_retain(void);
  * @function vproc_standby_release
  *
  * @abstract
- * Call this API when deregistering notfications.
+ * Call this API when deregistering notifications.
  */
 void vproc_standby_release(void);
 
