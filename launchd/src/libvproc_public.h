@@ -101,6 +101,9 @@ vproc_transaction_complete(void *handle);
 /*!
  * @function vproc_standby_prepare
  *
+ * @result
+ * Returns an opaque handle to be passed to vproc_standby_complete().
+ *
  * @abstract
  * Call this API before registering notifications. For example: timers network
  * state change, or when monitoring keyboard/mouse events.
@@ -110,6 +113,9 @@ vproc_standby_prepare(void);
 
 /*!
  * @function vproc_standby_complete
+ *
+ * @param
+ * The handle previously created with vproc_standby_prepare().
  *
  * @abstract
  * Call this API when deregistering notifications.
