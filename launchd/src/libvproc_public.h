@@ -39,14 +39,15 @@ const char *vproc_strerror(vproc_err_t r);
  *
  * Processes have two reference counts associated with them:
  *
- * Dirty	Tracks dirty data that needs to be flushed later.
- * Standby	Tracks any case where future work is expected.
+ * Transactions Tracks unfinished work. For example: saving a modified
+ *		document.
+ * Standby	Tracks outstanding callbacks from external subsystems.
  *
- * Processes that have no dirty data are called "clean."
- * Processes that are not standing by are called "idle."
+ * Descriptive aliases:
  *
- * These two reference counts are used to prevent the application from
- * prematurely exiting.
+ * A process with no outstanding transactions is called "clean."
+ * A process with outstanding transactions is called "dirty."
+ * A process with no standby work is called "idle."
  *
  * Sometimes, the operating system needs processes to exit. Unix has two
  * primary signals to kill applications:
@@ -55,79 +56,69 @@ const char *vproc_strerror(vproc_err_t r);
  * SIGTERM	Catchable by the application.
  *
  * If a process is clean, the operating system is free to SIGKILL it at
- * shutdown or logout.
+ * shutdown or logout. This behavior is opt in.
  *
  * If a process is clean and idle, the operating system may send SIGKILL after
- * a application specified timeout.
+ * a application specified timeout. This behavior is opt in.
  *
  * If a process is dirty and idle, the operating system may send SIGTERM after
- * a application specified timeout.
+ * a application specified timeout. This behavior is opt in.
  *
  *
  * launchd jobs should update their property lists accordingly.
  *
- * LaunchServicese uses private API to coordinate whether GUI applications
+ * LaunchServices uses private API to coordinate whether GUI applications
  * have opted into this design.
  */
 
 /*!
- * @function vproc_dirty_retain
+ * @function vproc_transaction_prepare
+ *
+ * @result
+ * Returns an opaque handle to be passed to vproc_transaction_complete().
  *
  * @abstract
  * Call this API before creating data that needs to be saved via I/O later.
  */
-void
-vproc_dirty_retain(void);
+void *
+vproc_transaction_prepare(void);
 
 /*!
- * @function vproc_dirty_release
+ * @function vproc_transaction_complete
+ *
+ * @param
+ * The handle previously created with vproc_transaction_prepare().
  *
  * @abstract
- * Call this API after the dirty data has either been flushed or otherwise resolved.
+ * Call this API after the data has either been flushed or otherwise resolved.
+ *
+ * @discussion
+ * Calling this API with the same handle more than once is undefined.
  */
 void
-vproc_dirty_release(void);
+vproc_transaction_complete(void *handle);
 
 /*!
- * @function vproc_dirty_count
- *
- * @result
- * Zero if the program is clean. Non-zero if the program contains dirty data.
+ * @function vproc_standby_prepare
  *
  * @abstract
- * A simple API to discover whether the program is dirty or not.
- */
-size_t
-vproc_dirty_count(void);
-
-/*!
- * @function vproc_standby_retain
- *
- * @abstract
- * Call this API when registering notifications. For example: timers network
+ * Call this API before registering notifications. For example: timers network
  * state change, or when monitoring keyboard/mouse events.
  */
-void vproc_standby_retain(void);
+void *
+vproc_standby_prepare(void);
 
 /*!
- * @function vproc_standby_release
+ * @function vproc_standby_complete
  *
  * @abstract
  * Call this API when deregistering notifications.
- */
-void vproc_standby_release(void);
-
-/*!
- * @function vproc_standby_count
  *
- * @result
- * Zero if the program is idle. Non-zero if the program contains outstanding event sources registered.
- *
- * @abstract
- * A simple API to discover whether the program is idle or not.
+ * @discussion
+ * Calling this API with the same handle more than once is undefined.
  */
-size_t
-size_t vproc_standby_count(void);
+void
+vproc_standby_complete(void *handle);
 
 #pragma GCC visibility pop
 
