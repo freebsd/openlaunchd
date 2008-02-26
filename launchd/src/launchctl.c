@@ -152,6 +152,7 @@ static bool do_single_user_mode2(void);
 static void read_launchd_conf(void);
 static bool job_disabled_logic(launch_data_t obj);
 static void fix_bogus_file_metadata(void);
+static void do_file_init(void) __attribute__((constructor));
 
 typedef enum {
 	BOOTCACHE_START = 1,
@@ -220,6 +221,7 @@ static const struct {
 static bool istty;
 static bool verbose;
 static bool is_managed;
+static bool do_apple_internal_magic;
 
 int
 main(int argc, char *const argv[])
@@ -1481,7 +1483,6 @@ system_specific_bootstrap(bool sflag)
 
 	assumes(load_and_unload_cmd(4, load_launchd_items) == 0);
 
-#ifdef __ppc__
 	/*
 	 * 5066316
 	 *
@@ -1524,9 +1525,10 @@ system_specific_bootstrap(bool sflag)
 	 * fine. Remember: IPC is the preferred way to serialize operations.
 	 *
 	 */
-	mach_timespec_t w = { 5, 0 };
-	IOKitWaitQuiet(kIOMasterPortDefault, &w);
-#endif
+	if (!do_apple_internal_magic) {
+		mach_timespec_t w = { 5, 0 };
+		IOKitWaitQuiet(kIOMasterPortDefault, &w);
+	}
 
 	do_BootCache_magic(BOOTCACHE_TAG);
 
@@ -3180,5 +3182,15 @@ do_bootroot_magic(void)
 
 	if (WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == EX_OSFILE) {
 		assumes(reboot(RB_AUTOBOOT) != -1);
+	}
+}
+
+void
+do_file_init(void)
+{
+	struct stat sb;
+
+	if (stat("/AppleInternal", &sb) == 0) {
+		do_apple_internal_magic = true;
 	}
 }

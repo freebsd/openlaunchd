@@ -4028,22 +4028,17 @@ job_keepalive(job_t j)
 	struct machservice *ms;
 	struct stat sb;
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
+	bool is_not_kextd = (do_apple_internal_logging || (strcmp(j->label, "com.apple.kextd") != 0));
 
-#ifdef __ppc__
 	/*
 	 * 5066316
 	 *
 	 * We definitely need to revisit this after Leopard ships. Please see
 	 * launchctl.c for the other half of this hack.
 	 */
-	if (unlikely(j->mgr->global_on_demand_cnt > 0 && strcmp(j->label, "com.apple.kextd") != 0)) {
+	if (unlikely(j->mgr->global_on_demand_cnt > 0 && is_not_kextd)) {
 		return false;
 	}
-#else
-	if (unlikely(j->mgr->global_on_demand_cnt > 0)) {
-		return false;
-	}
-#endif
 
 	if (j->start_pending) {
 		job_log(j, LOG_DEBUG, "KeepAlive check: Pent-up non-IPC launch criteria.");
