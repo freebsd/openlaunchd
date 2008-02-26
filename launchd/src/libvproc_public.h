@@ -67,9 +67,17 @@ const char *vproc_strerror(vproc_err_t r);
  *
  * launchd jobs should update their property lists accordingly.
  *
- * LaunchServices uses private API to coordinate whether GUI applications
+ * LaunchServices uses private methods to coordinate whether GUI applications
  * have opted into this design.
  */
+
+/*!
+ * @typedef	vproc_transaction_t
+ *
+ * @abstract
+ * An opaque handle used to track outstanding transactions.
+ */
+typedef struct vproc_transaction_s *vproc_transaction_t;
 
 /*!
  * @function vproc_transaction_prepare
@@ -80,7 +88,7 @@ const char *vproc_strerror(vproc_err_t r);
  * @abstract
  * Call this API before creating data that needs to be saved via I/O later.
  */
-void *
+vproc_transaction_t
 vproc_transaction_prepare(void);
 
 /*!
@@ -96,7 +104,15 @@ vproc_transaction_prepare(void);
  * Calling this API with the same handle more than once is undefined.
  */
 void
-vproc_transaction_complete(void *handle);
+vproc_transaction_complete(vproc_transaction_t handle);
+
+/*!
+ * @typedef	vproc_standby_t
+ *
+ * @abstract
+ * An opaque handle used to track outstanding standby requests.
+ */
+typedef struct vproc_standby_s *vproc_standby_t;
 
 /*!
  * @function vproc_standby_prepare
@@ -108,7 +124,7 @@ vproc_transaction_complete(void *handle);
  * Call this API before registering notifications. For example: timers network
  * state change, or when monitoring keyboard/mouse events.
  */
-void *
+vproc_standby_t
 vproc_standby_prepare(void);
 
 /*!
@@ -124,7 +140,7 @@ vproc_standby_prepare(void);
  * Calling this API with the same handle more than once is undefined.
  */
 void
-vproc_standby_complete(void *handle);
+vproc_standby_complete(vproc_standby_t handle);
 
 #pragma GCC visibility pop
 
