@@ -5594,6 +5594,9 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	job_log(j, LOG_DEBUG, "%s key: %u", action, inkey ? inkey : outkey);
 
 	switch (outkey) {
+	case VPROC_GSK_ABANDON_PROCESS_GROUP:
+		*outval = j->abandon_pg;
+		break;
 	case VPROC_GSK_LAST_EXIT_STATUS:
 		*outval = j->last_exit_status;
 		break;
@@ -5637,6 +5640,9 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 	}
 
 	switch (inkey) {
+	case VPROC_GSK_ABANDON_PROCESS_GROUP:
+		j->abandon_pg = (bool)inval;
+		break;
 	case VPROC_GSK_GLOBAL_ON_DEMAND:
 		kr = job_set_global_on_demand(j, (bool)inval) ? 0 : 1;
 		break;

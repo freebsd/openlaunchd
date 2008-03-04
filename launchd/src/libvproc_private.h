@@ -48,6 +48,7 @@ typedef enum {
 	VPROC_GSK_ALLJOBS,
 	VPROC_GSK_GLOBAL_LOG_MASK,
 	VPROC_GSK_GLOBAL_UMASK,
+	VPROC_GSK_ABANDON_PROCESS_GROUP,
 } vproc_gsk_t;
 
 vproc_err_t vproc_swap_integer(vproc_t vp, vproc_gsk_t key, int64_t *inval, int64_t *outval);
