@@ -3190,7 +3190,7 @@ do_file_init(void)
 {
 	struct stat sb;
 
-	if (stat("/AppleInternal", &sb) == 0) {
+	if (stat("/AppleInternal", &sb) == 0 && stat("/var/db/disableAppleInternal", &sb) == -1) {
 		do_apple_internal_magic = true;
 	}
 }

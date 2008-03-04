@@ -1647,7 +1647,7 @@ do_file_init(void)
 		pid1_magic = true;
 	}
 
-	if (stat("/AppleInternal", &sb) != -1) {
+	if (stat("/AppleInternal", &sb) == 0 && stat("/var/db/disableAppleInternal", &sb) == -1) {
 		do_apple_internal_logging = true;
 	}
 }
