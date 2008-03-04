@@ -6011,6 +6011,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 	struct machservice *ms;
 	struct ldcred *ldc = runtime_get_caller_creds();
 	kern_return_t kr;
+	bool per_pid_lookup = flags & BOOTSTRAP_PER_PID_SERVICE;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
@@ -6023,12 +6024,12 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 	}
 #endif
 
-	if (unlikely(!mspolicy_check(j, servicename, flags & BOOTSTRAP_PER_PID_SERVICE))) {
+	if (unlikely(!mspolicy_check(j, servicename, per_pid_lookup))) {
 		job_log(j, LOG_NOTICE, "Policy denied Mach service lookup: %s", servicename);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
-	if (flags & BOOTSTRAP_PER_PID_SERVICE) {
+	if (per_pid_lookup) {
 		ms = jobmgr_lookup_service(j->mgr, servicename, false, target_pid);
 	} else {
 		ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
@@ -6044,9 +6045,10 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 
 	if (likely(ms)) {
 		job_assumes(j, machservice_port(ms) != MACH_PORT_NULL);
-		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
+		job_log(j, LOG_DEBUG, "%sMach service lookup: %s", per_pid_lookup ? "Per PID " : "", servicename);
 
-		if (unlikely(j->lastlookup == ms && j->lastlookup_gennum == ms->gen_num && !j->per_user)) {
+		if (unlikely(!per_pid_lookup && j->lastlookup == ms && j->lastlookup_gennum == ms->gen_num && !j->per_user)) {
+			/* we need to think more about the per_pid_lookup logic before logging about repeated lookups */
 			job_log(j, LOG_APPLEONLY, "Performance: Please fix the framework that talks to \"%s\" to cache the Mach port for service: %s", ms->job->label, servicename);
 		}
 
@@ -6056,7 +6058,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		*serviceportp = machservice_port(ms);
 
 		kr = BOOTSTRAP_SUCCESS;
-	} else if (!(flags & BOOTSTRAP_PER_PID_SERVICE) && (inherited_bootstrap_port != MACH_PORT_NULL)) {
+	} else if (!per_pid_lookup && (inherited_bootstrap_port != MACH_PORT_NULL)) {
 		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
 		job_assumes(j, vproc_mig_look_up2_forward(inherited_bootstrap_port, srp, servicename, 0, 0) == 0);
 		/* The previous routine moved the reply port, we're forced to return MIG_NO_REPLY now */
@@ -6070,7 +6072,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		 */
 		return VPROC_ERR_TRY_PER_USER;
 	} else {
-		job_log(j, LOG_DEBUG, "%sMach service lookup failed: %s", flags & BOOTSTRAP_PER_PID_SERVICE ? "Per PID " : "", servicename);
+		job_log(j, LOG_DEBUG, "%sMach service lookup failed: %s", per_pid_lookup ? "Per PID " : "", servicename);
 		kr = BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 
