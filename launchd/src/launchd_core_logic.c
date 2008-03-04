@@ -4003,7 +4003,7 @@ job_useless(job_t j)
 	} else if (j->removal_pending) {
 		job_log(j, LOG_DEBUG, "Exited while removal was pending.");
 		return true;
-	} else if (j->mgr->shutting_down) {
+	} else if (j->mgr->shutting_down && j->mgr->hopefully_first_cnt == 0) {
 		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %lu/%lu", total_children, total_anon_children);
 		return true;
 	} else if (j->legacy_mach_job) {
