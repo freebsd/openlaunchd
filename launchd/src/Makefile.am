@@ -1,6 +1,6 @@
 CWARN = -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wmissing-prototypes -Wmissing-declarations -Werror # gcc4.2: -Wstrict-overflow=4 # -Wpadded -Wconversion -Wstrict-aliasing=2
 CTUNE = -fvisibility=hidden # gcc4.2: -fdiagnostics-show-option # -fstrict-aliasing
-CMISC = -isysroot $(SDKROOT) -F$(SDKROOT)/System/Library/PrivateFrameworks -D__MigTypeCheck=1 -Dmig_external=__private_extern__
+CMISC = -isysroot $(SDKROOT) -F$(SDKROOT)/System/Library/PrivateFrameworks -D__MigTypeCheck=1 -Dmig_external=__private_extern__ -D_DARWIN_USE_64_BIT_INODE=1
 AM_CFLAGS = $(CTUNE) $(CMISC) $(CWARN)
 AM_LDFLAGS = -Wl,-syslibroot,$(SDKROOT)
 
