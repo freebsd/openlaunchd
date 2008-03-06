@@ -5928,7 +5928,7 @@ job_mig_check_in2(job_t j, name_t servicename, mach_port_t *serviceportp, uint64
 			return BOOTSTRAP_NO_MEMORY;
 		}
 
-		ms->delete_on_destruction = true; /* parity with bootstrap_register() */
+		ms->delete_on_destruction = !j->legacy_mach_job;
 		job_checkin(j);
 
 		if (!(j->anonymous || j->legacy_LS_job || j->legacy_mach_job)) {
