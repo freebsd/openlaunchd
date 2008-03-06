@@ -50,10 +50,11 @@ routine reboot2(
 		__bs_port	: job_t;
 		__flags		: uint64_t);
 
-routine check_in(
-			__bs_port	: job_t;
-			__service_name	: name_t;
-		out	__service_port	: mach_port_move_receive_t);
+routine check_in2(
+		__bs_port	: job_t;
+		__service_name	: name_t;
+	out	__service_port	: mach_port_move_receive_t;
+		__flags		: uint64_t);
 
 routine register2(
 		__bs_port	: job_t;

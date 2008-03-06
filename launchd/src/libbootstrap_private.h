@@ -35,6 +35,8 @@ kern_return_t bootstrap_register2(mach_port_t bp, name_t service_name, mach_port
 
 kern_return_t bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t target_pid, uint64_t flags);
 
+kern_return_t bootstrap_check_in2(mach_port_t bp, name_t service_name, mach_port_t *sp, uint64_t flags);
+
 kern_return_t bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_user, mach_port_t *sp);
 
 kern_return_t bootstrap_set_policy(mach_port_t bp, pid_t target_pid, uint64_t flags, const char *target_service);

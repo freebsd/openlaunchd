@@ -140,8 +140,9 @@ struct machservice {
 	job_t			job;
 	unsigned int		gen_num;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1, kUNCServer:1,
-					per_user_hack:1, debug_on_close:1, per_pid:1, special_port_num:24;
+	unsigned int		isActive:1, reset:1, recv:1, hide:1,
+				kUNCServer:1, per_user_hack:1, debug_on_close:1, per_pid:1,
+				delete_on_destruction:1, special_port_num:23;
 	const char		name[0];
 };
 
@@ -4888,6 +4889,7 @@ INTERNAL_ABI bool
 job_ack_port_destruction(mach_port_t p)
 {
 	struct machservice *ms;
+	job_t j;
 
 	LIST_FOREACH(ms, &port_hash[HASH_PORT(p)], port_hash_sle) {
 		if (ms->recv && (ms->port == p)) {
@@ -4895,18 +4897,23 @@ job_ack_port_destruction(mach_port_t p)
 		}
 	}
 
-	if (!ms) {
+	if (!jobmgr_assumes(root_jobmgr, ms != NULL)) {
 		return false;
 	}
 
+	j = ms->job;
+
+	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
+
 	ms->isActive = false;
 
-	if (ms->reset) {
-		machservice_resetport(ms->job, ms);
+	if (ms->delete_on_destruction) {
+		machservice_delete(j, ms, false);
+	} else if (ms->reset) {
+		machservice_resetport(j, ms);
 	}
 
-	job_log(ms->job, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
-	job_dispatch(ms->job, false);
+	job_dispatch(j, false);
 
 	root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
 
@@ -5901,26 +5908,27 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 }
 
 kern_return_t
-job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
+job_mig_check_in2(job_t j, name_t servicename, mach_port_t *serviceportp, uint64_t flags)
 {
-	struct machservice *ms;
+	bool per_pid_service = flags & BOOTSTRAP_PER_PID_SERVICE;
 	struct ldcred *ldc = runtime_get_caller_creds();
+	struct machservice *ms;
 	job_t jo;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
+	ms = jobmgr_lookup_service(j->mgr, servicename, false, per_pid_service ? ldc->pid : 0);
 
 	if (ms == NULL) {
 		*serviceportp = MACH_PORT_NULL;
-		ms = machservice_new(j, servicename, serviceportp, false);
 
-		if (unlikely(ms == NULL)) {
+		if (unlikely((ms = machservice_new(j, servicename, serviceportp, per_pid_service)) == NULL)) {
 			return BOOTSTRAP_NO_MEMORY;
 		}
 
+		ms->delete_on_destruction = true; /* parity with bootstrap_register() */
 		job_checkin(j);
 
 		if (!(j->anonymous || j->legacy_LS_job || j->legacy_mach_job)) {

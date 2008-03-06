@@ -116,7 +116,13 @@ bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp)
 kern_return_t
 bootstrap_check_in(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
-	return vproc_mig_check_in(bp, service_name, sp);
+	return vproc_mig_check_in2(bp, service_name, sp, 0);
+}
+
+kern_return_t
+bootstrap_check_in2(mach_port_t bp, name_t service_name, mach_port_t *sp, uint64_t flags)
+{
+	return vproc_mig_check_in2(bp, service_name, sp, flags);
 }
 
 kern_return_t
