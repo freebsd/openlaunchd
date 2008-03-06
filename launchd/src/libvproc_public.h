@@ -94,7 +94,7 @@ vproc_transaction_prepare(void);
 /*!
  * @function vproc_transaction_complete
  *
- * @param
+ * @param	handle
  * The handle previously created with vproc_transaction_prepare().
  *
  * @abstract
@@ -130,7 +130,7 @@ vproc_standby_prepare(void);
 /*!
  * @function vproc_standby_complete
  *
- * @param
+ * @param	handle
  * The handle previously created with vproc_standby_prepare().
  *
  * @abstract

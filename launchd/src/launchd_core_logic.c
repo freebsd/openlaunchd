@@ -425,7 +425,6 @@ static void job_log_chidren_without_exec(job_t j);
 static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid) __attribute__((malloc, nonnull, warn_unused_result));
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv) __attribute__((malloc, nonnull(1,2), warn_unused_result));
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond) __attribute__((malloc, nonnull, warn_unused_result));
-static const char *job_prog(job_t j);
 static void job_kill(job_t j);
 static void job_uncork_fork(job_t j);
 static void job_log_stdouterr(job_t j);
@@ -4133,18 +4132,6 @@ job_keepalive(job_t j)
 }
 
 const char *
-job_prog(job_t j)
-{
-	if (j->prog) {
-		return j->prog;
-	} else if (likely(j->argv)) {
-		return j->argv[0];
-	} else {
-		return "";
-	}
-}
-
-const char *
 job_active(job_t j)
 {
 	struct machservice *ms;
@@ -5926,9 +5913,15 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 
 	ms = jobmgr_lookup_service(j->mgr, servicename, true, 0);
 
-	if (unlikely(ms == NULL)) {
-		job_log(j, LOG_DEBUG, "Check-in of Mach service failed. Unknown: %s", servicename);
-		return BOOTSTRAP_UNKNOWN_SERVICE;
+	if (ms == NULL) {
+		*serviceportp = MACH_PORT_NULL;
+		ms = machservice_new(j, servicename, serviceportp, false);
+
+		if (unlikely(ms == NULL)) {
+			return BOOTSTRAP_NO_MEMORY;
+		}
+
+		job_checkin(j);
 	}
 
 	if (unlikely((jo = machservice_job(ms)) != j)) {
@@ -6571,43 +6564,6 @@ job_mig_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 	}
 
 	*subsetportp = jmr->jm_port;
-	return BOOTSTRAP_SUCCESS;
-}
-
-kern_return_t
-job_mig_create_service(job_t j, name_t servicename, mach_port_t *serviceportp)
-{
-	struct machservice *ms;
-
-	if (!launchd_assumes(j != NULL)) {
-		return BOOTSTRAP_NO_MEMORY;
-	}
-
-	if (unlikely(job_prog(j)[0] == '\0')) {
-		job_log(j, LOG_ERR, "Mach service creation requires a target server: %s", servicename);
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-
-	if (unlikely(!j->legacy_mach_job)) {
-		job_log(j, LOG_ERR, "bootstrap_create_service() is only allowed against legacy Mach jobs: %s", servicename);
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-
-	ms = jobmgr_lookup_service(j->mgr, servicename, false, 0);
-	if (unlikely(ms)) {
-		job_log(j, LOG_DEBUG, "Mach service creation attempt for failed. Already exists: %s", servicename);
-		return BOOTSTRAP_NAME_IN_USE;
-	}
-
-	job_checkin(j);
-
-	*serviceportp = MACH_PORT_NULL;
-	ms = machservice_new(j, servicename, serviceportp, false);
-
-	if (!job_assumes(j, ms != NULL)) {
-		return BOOTSTRAP_NO_MEMORY;
-	}
-
 	return BOOTSTRAP_SUCCESS;
 }
 

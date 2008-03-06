@@ -94,10 +94,7 @@ routine subset(
 		__requestor_port: mach_port_t;
 	out	__subset_port	: mach_port_make_send_t);
 
-routine create_service(
-		__bs_port	: job_t;
-		__service_name	: name_t;
-	out	__service_port	: mach_port_t);
+skip;	/* create_service prior to 10.6 */
 
 routine take_subset(
 		__bs_port	: job_t;

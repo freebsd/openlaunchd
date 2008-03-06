@@ -100,7 +100,17 @@ bootstrap_register2(mach_port_t bp, name_t service_name, mach_port_t sp, uint64_
 kern_return_t
 bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp)
 {
-	return vproc_mig_create_service(bp, service_name, sp);
+	kern_return_t kr;
+
+	if ((kr = bootstrap_check_in(bp, service_name, sp))) {
+		return kr;
+	}
+
+	if ((kr = mach_port_mod_refs(mach_task_self(), *sp, MACH_PORT_RIGHT_RECEIVE, -1))) {
+		return kr;
+	}
+
+	return bootstrap_look_up(bp, service_name, sp);
 }
 
 kern_return_t
@@ -160,19 +170,22 @@ bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t t
 kern_return_t
 bootstrap_status(mach_port_t bp, name_t service_name, bootstrap_status_t *service_active)
 {
+	kern_return_t kr;
 	mach_port_t p;
+
+	if ((kr = bootstrap_look_up(bp, service_name, &p))) {
+		return kr;
+	}
+
+	mach_port_deallocate(mach_task_self(), p);
+	*service_active = BOOTSTRAP_STATUS_ACTIVE;
 
 	if (bootstrap_check_in(bp, service_name, &p) == BOOTSTRAP_SUCCESS) {
 		mach_port_mod_refs(mach_task_self(), p, MACH_PORT_RIGHT_RECEIVE, -1);
 		*service_active = BOOTSTRAP_STATUS_ON_DEMAND;
-		return BOOTSTRAP_SUCCESS;
-	} else if (bootstrap_look_up(bp, service_name, &p) == BOOTSTRAP_SUCCESS) {
-		mach_port_deallocate(mach_task_self(), p);
-		*service_active = BOOTSTRAP_STATUS_ACTIVE;
-		return BOOTSTRAP_SUCCESS;
 	}
 
-	return BOOTSTRAP_UNKNOWN_SERVICE;
+	return BOOTSTRAP_SUCCESS;
 }
 
 kern_return_t

@@ -233,13 +233,16 @@ kern_return_t bootstrap_parent(
  *
  * This API is deprecated. Old scenarios and recommendations:
  *
- * 1) If the code was registering a well known name, please switch to launchd.
+ * 1) Code that used to call bootstrap_check_in() and then bootstrap_register()
+ *    can now always call bootstrap_check_in().
  *
- * 2) If the code was registering a dynamically generated string and passing
+ * 2) If the code was registering a well known name, please switch to launchd.
+ *
+ * 3) If the code was registering a dynamically generated string and passing
  *    the string to other applications, please rewrite the code to send a Mach
  *    send-right directly.
  *
- * 3) If the launchd job maintained an optional Mach service, please reserve
+ * 4) If the launchd job maintained an optional Mach service, please reserve
  *    the name with launchd and control the presense of the service through
  *    ownership of the Mach receive right like so.
  *
@@ -261,26 +264,27 @@ kern_return_t bootstrap_parent(
  *		Returns BOOTSTRAP_NAME_IN_USE, if service has already been
  *			register or checked-in.
  */
-kern_return_t bootstrap_register(
-		mach_port_t bp,
-		name_t service_name,
-		mach_port_t sp)
-		AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_5;
+AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_5
+kern_return_t
+bootstrap_register(mach_port_t bp, name_t service_name, mach_port_t sp);
 
 /*
  * bootstrap_create_service()
  *
- * Creates a service named "service_name" and returns send rights to that
+ * Creates a service named "service_name" and returns a send right to that
  * port in "service_port."  The port may later be checked in as if this
  * port were configured in the bootstrap configuration file.
+ *
+ * This API is deprecated. Please call bootstrap_check_in() instead.
  *
  * Errors:	Returns appropriate kernel errors on rpc failure.
  *		Returns BOOTSTRAP_SERVICE_ACTIVE, if service already exists.
  */
-kern_return_t bootstrap_create_service(
-		mach_port_t bp,
-		name_t service_name,
-		mach_port_t *sp);
+#ifdef AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_6
+AVAILABLE_MAC_OS_X_VERSION_10_0_AND_LATER_BUT_DEPRECATED_IN_MAC_OS_X_VERSION_10_6
+#endif
+kern_return_t
+bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp);
 
 /*
  * bootstrap_check_in()

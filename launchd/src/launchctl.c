@@ -1794,9 +1794,9 @@ submit_mach_jobs(launch_data_t jobs)
 			fprintf(stderr, "%s: bootstrap_create_server(): %d\n", getprogname(), kr);
 			continue;
 		}
-		if ((kr = bootstrap_create_service(msr, (char*)sn, &msv)) != KERN_SUCCESS) {
+		if ((kr = bootstrap_check_in(msr, (char*)sn, &msv)) != KERN_SUCCESS) {
 			fprintf(stderr, "%s: bootstrap_create_service(): %d\n", getprogname(), kr);
-			mach_port_destroy(mach_task_self(), msr);
+			mach_port_mod_refs(mach_task_self(), msv, MACH_PORT_RIGHT_RECEIVE, -1);
 			continue;
 		}
 		launch_data_dict_insert(oai, launch_data_new_machport(msr), MACHINIT_JOBKEY_SERVERPORT);
