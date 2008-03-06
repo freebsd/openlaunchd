@@ -5922,6 +5922,10 @@ job_mig_check_in(job_t j, name_t servicename, mach_port_t *serviceportp)
 		}
 
 		job_checkin(j);
+
+		if (!(j->anonymous || j->legacy_LS_job || j->legacy_mach_job)) {
+			job_log(j, LOG_NOTICE, "Please add the following service to the configuration file for this job: %s", servicename);
+		}
 	}
 
 	if (unlikely((jo = machservice_job(ms)) != j)) {
