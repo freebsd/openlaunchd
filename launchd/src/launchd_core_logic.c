@@ -99,7 +99,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "job_forward.h"
 
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
-#define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
+#define LAUNCHD_DEFAULT_EXIT_TIMEOUT 2
 #define LAUNCHD_SIGKILL_TIMER 5
 
 #define SHUTDOWN_LOG_DIR "/var/log/shutdown"
