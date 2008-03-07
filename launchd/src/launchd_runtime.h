@@ -105,6 +105,7 @@ typedef INTERNAL_ABI void (*timeout_callback)(void);
 
 extern bool pid1_magic;
 extern bool do_apple_internal_logging;
+extern bool low_level_debug;
 
 INTERNAL_ABI mach_port_t runtime_get_kernel_port(void);
 

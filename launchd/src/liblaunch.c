@@ -732,7 +732,8 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 	return r;
 }
 
-int launchd_msg_send(launch_t lh, launch_data_t d)
+int
+launchd_msg_send(launch_t lh, launch_data_t d)
 {
 	struct launch_msg_header lmh;
 	struct cmsghdr *cm = NULL;
@@ -948,7 +949,8 @@ out:
 	return resp;
 }
 
-int launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
+int
+launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
 {
 	struct cmsghdr *cm = alloca(4096); 
 	launch_data_t rmsg = NULL;
@@ -1039,7 +1041,8 @@ out_bad:
 	return -1;
 }
 
-launch_data_t launch_data_copy(launch_data_t o)
+launch_data_t
+launch_data_copy(launch_data_t o)
 {
 	launch_data_t r = launch_data_alloc(o->type);
 	size_t i;
@@ -1090,14 +1093,16 @@ launchd_batch_query(void)
 	return false;
 }
 
-static int _fd(int fd)
+int
+_fd(int fd)
 {
 	if (fd >= 0)
 		fcntl(fd, F_SETFD, 1);
 	return fd;
 }
 
-launch_data_t launch_data_new_errno(int e)
+launch_data_t
+launch_data_new_errno(int e)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_ERRNO);
 
@@ -1107,7 +1112,8 @@ launch_data_t launch_data_new_errno(int e)
 	return r;
 }
 
-launch_data_t launch_data_new_fd(int fd)
+launch_data_t
+launch_data_new_fd(int fd)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_FD);
 
@@ -1117,7 +1123,8 @@ launch_data_t launch_data_new_fd(int fd)
 	return r;
 }
 
-launch_data_t launch_data_new_machport(mach_port_t p)
+launch_data_t
+launch_data_new_machport(mach_port_t p)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_MACHPORT);
 
@@ -1127,7 +1134,8 @@ launch_data_t launch_data_new_machport(mach_port_t p)
 	return r;
 }
 
-launch_data_t launch_data_new_integer(long long n)
+launch_data_t
+launch_data_new_integer(long long n)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_INTEGER);
 
@@ -1137,7 +1145,8 @@ launch_data_t launch_data_new_integer(long long n)
 	return r;
 }
 
-launch_data_t launch_data_new_bool(bool b)
+launch_data_t
+launch_data_new_bool(bool b)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_BOOL);
 
@@ -1147,7 +1156,8 @@ launch_data_t launch_data_new_bool(bool b)
 	return r;
 }
 
-launch_data_t launch_data_new_real(double d)
+launch_data_t
+launch_data_new_real(double d)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_REAL);
 
@@ -1157,7 +1167,8 @@ launch_data_t launch_data_new_real(double d)
 	return r;
 }
 
-launch_data_t launch_data_new_string(const char *s)
+launch_data_t
+launch_data_new_string(const char *s)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_STRING);
 
@@ -1172,7 +1183,8 @@ launch_data_t launch_data_new_string(const char *s)
 	return r;
 }
 
-launch_data_t launch_data_new_opaque(const void *o, size_t os)
+launch_data_t
+launch_data_new_opaque(const void *o, size_t os)
 {
 	launch_data_t r = launch_data_alloc(LAUNCH_DATA_OPAQUE);
 

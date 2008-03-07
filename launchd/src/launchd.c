@@ -106,12 +106,13 @@ bool network_up;
 int
 main(int argc, char *const *argv)
 {
+	const char *stdouterr_path = low_level_debug ? _PATH_CONSOLE : _PATH_DEVNULL;
 	bool sflag = false;
 	int ch;
 
 	testfd_or_openfd(STDIN_FILENO, _PATH_DEVNULL, O_RDONLY);
-	testfd_or_openfd(STDOUT_FILENO, _PATH_DEVNULL, O_WRONLY);
-	testfd_or_openfd(STDERR_FILENO, _PATH_DEVNULL, O_WRONLY);
+	testfd_or_openfd(STDOUT_FILENO, stdouterr_path, O_WRONLY);
+	testfd_or_openfd(STDERR_FILENO, stdouterr_path, O_WRONLY);
 
 	while ((ch = getopt(argc, argv, "s")) != -1) {
 		switch (ch) {

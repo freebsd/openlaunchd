@@ -124,6 +124,7 @@ static sigset_t sigign_set;
 static FILE *ourlogfile;
 bool pid1_magic;
 bool do_apple_internal_logging;
+bool low_level_debug;
 
 
 INTERNAL_ABI mach_port_t
@@ -135,7 +136,6 @@ runtime_get_kernel_port(void)
 // static const char *__crashreporter_info__ = "";
 
 static int internal_mask_pri = LOG_UPTO(LOG_NOTICE);
-//static int internal_mask_pri = LOG_UPTO(LOG_DEBUG);
 
 
 INTERNAL_ABI void
@@ -1205,6 +1205,12 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 	}
 
 	vsnprintf(newmsg, sizeof(newmsg), message, args);
+
+	if (unlikely(low_level_debug)) {
+		fprintf(stderr, "%s %u\t%s %u\t%s\n", attr->from_name, attr->from_pid,
+				attr->about_name, attr->about_pid, newmsg);
+	}
+
 	logmsg_add(attr, saved_errno, newmsg);
 }
 
@@ -1649,5 +1655,10 @@ do_file_init(void)
 
 	if (stat("/AppleInternal", &sb) == 0 && stat("/var/db/disableAppleInternal", &sb) == -1) {
 		do_apple_internal_logging = true;
+	}
+
+	if (stat("/var/db/.debug_launchd", &sb) == 0) {
+		internal_mask_pri = LOG_UPTO(LOG_DEBUG);
+		low_level_debug = true;
 	}
 }
