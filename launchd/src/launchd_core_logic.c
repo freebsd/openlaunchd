@@ -172,7 +172,10 @@ struct socketgroup {
 	SLIST_ENTRY(socketgroup) sle;
 	int *fds;
 	unsigned int junkfds:1, fd_cnt:31;
-	char name[0];
+	union {
+		const char name[0];
+		char name_init[0];
+	};
 };
 
 static bool socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds);
@@ -204,7 +207,10 @@ static void calendarinterval_sanity_check(void);
 struct envitem {
 	SLIST_ENTRY(envitem) sle;
 	char *value;
-	char key[0];
+	union {
+		const char key[0];
+		char key_init[0];
+	};
 };
 
 static bool envitem_new(job_t j, const char *k, const char *v, bool global);
@@ -244,7 +250,10 @@ struct semaphoreitem {
 	SLIST_ENTRY(semaphoreitem) sle;
 	semaphore_reason_t why;
 	int fd;
-	char what[0];
+	union {
+		const char what[0];
+		char what_init[0];
+	};
 };
 
 struct semaphoreitem_dict_iter_context {
@@ -282,7 +291,10 @@ struct jobmgr_s {
 	unsigned int hopefully_first_cnt;
 	unsigned int normal_active_cnt;
 	unsigned int sent_stop_to_normal_jobs:1, sent_stop_to_hopefully_last_jobs:1, shutting_down:1, session_initialized:1, __junk:28;
-	char name[0];
+	union {
+		const char name[0];
+		char name_init[0];
+	};
 };
 
 #define jobmgr_assumes(jm, e)	\
@@ -3499,11 +3511,10 @@ semaphoreitem_ignore(job_t j, struct semaphoreitem *si)
 void
 semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 {
-	char parentdir_path[PATH_MAX], *which_path = si->what;
+	char *parentdir, tmp_path[PATH_MAX];
+	const char *which_path = si->what;
 	int saved_errno = 0;
 	int fflags = 0;
-	
-	strlcpy(parentdir_path, dirname(si->what), sizeof(parentdir_path));
 
 	switch (si->why) {
 	case PATH_EXISTS:
@@ -3520,11 +3531,18 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 		return;
 	}
 
+	/* dirname() may modify tmp_path */
+	strlcpy(tmp_path, si->what, sizeof(tmp_path));
+
+	if (!job_assumes(j, (parentdir = dirname(tmp_path)))) {
+		return;
+	}
+
 	/* See 5321044 for why we do the do-while loop and 5415523 for why ENOENT is checked */
 	do {
 		if (si->fd == -1) {
 			if ((si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY))) == -1) {
-				which_path = parentdir_path;
+				which_path = parentdir;
 				si->fd = _fd(open(which_path, O_EVTONLY|O_NOCTTY));
 			}
 		}
@@ -3765,7 +3783,7 @@ socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd_cnt, bool j
 	}
 
 	memcpy(sg->fds, fds, fd_cnt * sizeof(int));
-	strcpy(sg->name, name);
+	strcpy(sg->name_init, name);
 
 	SLIST_INSERT_HEAD(&j->sockets, sg, sle);
 
@@ -3857,8 +3875,8 @@ envitem_new(job_t j, const char *k, const char *v, bool global)
 		return false;
 	}
 
-	strcpy(ei->key, k);
-	ei->value = ei->key + strlen(k) + 1;
+	strcpy(ei->key_init, k);
+	ei->value = ei->key_init + strlen(k) + 1;
 	strcpy(ei->value, v);
 
 	if (global) {
@@ -4555,7 +4573,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	}
 
 	jmr->kqjobmgr_callback = jobmgr_callback;
-	strcpy(jmr->name, name ? name : "Under construction");
+	strcpy(jmr->name_init, name ? name : "Under construction");
 
 	jmr->req_port = requestorport;
 
@@ -4603,7 +4621,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	}
 
 	if (!name) {
-		sprintf(jmr->name, "%u", MACH_PORT_INDEX(jmr->jm_port));
+		sprintf(jmr->name_init, "%u", MACH_PORT_INDEX(jmr->jm_port));
 	}
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
@@ -5045,7 +5063,7 @@ semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 	si->why = why;
 
 	if (what) {
-		strcpy(si->what, what);
+		strcpy(si->what_init, what);
 	}
 
 	SLIST_INSERT_HEAD(&j->semaphores, si, sle);
@@ -6325,7 +6343,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		}
 
 		jobmgr_log(j->mgr, LOG_DEBUG, "Renaming to: %s", session_type);
-		strcpy(j->mgr->name, session_type);
+		strcpy(j->mgr->name_init, session_type);
 
 		if (job_assumes(j, (j2 = jobmgr_init_session(j->mgr, session_type, false)))) {
 			job_assumes(j, job_dispatch(j2, true));
