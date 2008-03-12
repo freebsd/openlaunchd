@@ -114,6 +114,19 @@ main(int argc, char *const *argv)
 	testfd_or_openfd(STDOUT_FILENO, stdouterr_path, O_WRONLY);
 	testfd_or_openfd(STDERR_FILENO, stdouterr_path, O_WRONLY);
 
+#if 0
+	if (pid1_magic) {
+		if (!getenv("DYLD_INSERT_LIBRARIES")) {
+			setenv("DYLD_INSERT_LIBRARIES", "/usr/lib/libgmalloc.dylib", 1);
+			setenv("MALLOC_STRICT_SIZE", "1", 1);
+			execv(argv[0], argv);
+		} else {
+			unsetenv("DYLD_INSERT_LIBRARIES");
+			unsetenv("MALLOC_STRICT_SIZE");
+		}
+	}
+#endif
+
 	while ((ch = getopt(argc, argv, "s")) != -1) {
 		switch (ch) {
 		case 's': sflag = true; break;	/* single user */

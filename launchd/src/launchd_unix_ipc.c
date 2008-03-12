@@ -81,9 +81,9 @@ ipc_clean_up(void)
 	}
 
 	if (-1 == unlink(sockpath)) {
-		runtime_syslog(LOG_WARNING, "unlink(\"%s\"): %m", sockpath);
+		runtime_syslog(LOG_WARNING, "unlink(\"%s\"): %s", sockpath, strerror(errno));
 	} else if (-1 == rmdir(sockdir)) {
-		runtime_syslog(LOG_WARNING, "rmdir(\"%s\"): %m", sockdir);
+		runtime_syslog(LOG_WARNING, "rmdir(\"%s\"): %s", sockdir, strerror(errno));
 	}
 }
 
@@ -115,18 +115,18 @@ ipc_server_init(void)
 				stat(ourdir, &sb);
 				if (!S_ISDIR(sb.st_mode)) {
 					errno = EEXIST;
-					runtime_syslog(LOG_ERR, "mkdir(\"%s\"): %m", LAUNCHD_SOCK_PREFIX);
+					runtime_syslog(LOG_ERR, "mkdir(\"%s\"): %s", LAUNCHD_SOCK_PREFIX, strerror(errno));
 					goto out_bad;
 				}
 			} else {
-				runtime_syslog(LOG_ERR, "mkdir(\"%s\"): %m", ourdir);
+				runtime_syslog(LOG_ERR, "mkdir(\"%s\"): %s", ourdir, strerror(errno));
 				goto out_bad;
 			}
 		}
 	} else {
 		snprintf(ourdir, sizeof(ourdir), _PATH_TMP "launchd-%u.XXXXXX", getpid());
 		if (mkdtemp(ourdir) == NULL) {
-			runtime_syslog(LOG_ERR, "Could not create critical directory \"%s\": %m", ourdir);
+			runtime_syslog(LOG_ERR, "Could not create critical directory \"%s\": %s", ourdir, strerror(errno));
 			goto out_bad;
 		}
 		snprintf(sun.sun_path, sizeof(sun.sun_path), "%s/sock", ourdir);
@@ -134,7 +134,7 @@ ipc_server_init(void)
 
 	if (unlink(sun.sun_path) == -1 && errno != ENOENT) {
 		if (errno != EROFS) {
-			runtime_syslog(LOG_ERR, "unlink(\"thesocket\"): %m");
+			runtime_syslog(LOG_ERR, "unlink(\"thesocket\"): %s", strerror(errno));
 		}
 		goto out_bad;
 	}
@@ -149,18 +149,18 @@ ipc_server_init(void)
 
 	if (r == -1) {
 		if (errno != EROFS) {
-			runtime_syslog(LOG_ERR, "bind(\"thesocket\"): %m");
+			runtime_syslog(LOG_ERR, "bind(\"thesocket\"): %s", strerror(errno));
 		}
 		goto out_bad;
 	}
 
 	if (listen(fd, SOMAXCONN) == -1) {
-		runtime_syslog(LOG_ERR, "listen(\"thesocket\"): %m");
+		runtime_syslog(LOG_ERR, "listen(\"thesocket\"): %s", strerror(errno));
 		goto out_bad;
 	}
 
 	if (kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &kqipc_listen_callback) == -1) {
-		runtime_syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %m");
+		runtime_syslog(LOG_ERR, "kevent_mod(\"thesocket\", EVFILT_READ): %s", strerror(errno));
 		goto out_bad;
 	}
 
@@ -214,7 +214,7 @@ ipc_callback(void *obj, struct kevent *kev)
 	if (kev->filter == EVFILT_READ) {
 		if (launchd_msg_recv(c->conn, ipc_readmsg, c) == -1 && errno != EAGAIN) {
 			if (errno != ECONNRESET) {
-				runtime_syslog(LOG_DEBUG, "%s(): recv: %m", __func__);
+				runtime_syslog(LOG_DEBUG, "%s(): recv: %s", __func__, strerror(errno));
 			}
 			ipc_close(c);
 		}
@@ -222,7 +222,7 @@ ipc_callback(void *obj, struct kevent *kev)
 		r = launchd_msg_send(c->conn, NULL);
 		if (r == -1) {
 			if (errno != EAGAIN) {
-				runtime_syslog(LOG_DEBUG, "%s(): send: %m", __func__);
+				runtime_syslog(LOG_DEBUG, "%s(): send: %s", __func__, strerror(errno));
 				ipc_close(c);
 			}
 		} else if (r == 0) {
@@ -323,7 +323,7 @@ ipc_readmsg(launch_data_t msg, void *context)
 		if (errno == EAGAIN) {
 			kevent_mod(launchd_getfd(rmc.c->conn), EVFILT_WRITE, EV_ADD, 0, 0, &rmc.c->kqconn_callback);
 		} else {
-			runtime_syslog(LOG_DEBUG, "launchd_msg_send() == -1: %m");
+			runtime_syslog(LOG_DEBUG, "launchd_msg_send() == -1: %s", strerror(errno));
 			ipc_close(rmc.c);
 		}
 	}
