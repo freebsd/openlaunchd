@@ -3514,18 +3514,17 @@ semaphoreitem_watch(job_t j, struct semaphoreitem *si)
 	char *parentdir, tmp_path[PATH_MAX];
 	const char *which_path = si->what;
 	int saved_errno = 0;
-	int fflags = 0;
+	int fflags = NOTE_DELETE|NOTE_RENAME;
 
 	switch (si->why) {
-	case PATH_EXISTS:
-		fflags = NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_EXTEND|NOTE_WRITE;
-		break;
-	case PATH_MISSING:
-		fflags = NOTE_DELETE|NOTE_RENAME;
-		break;
 	case DIR_NOT_EMPTY:
 	case PATH_CHANGES:
-		fflags = NOTE_DELETE|NOTE_RENAME|NOTE_REVOKE|NOTE_EXTEND|NOTE_WRITE|NOTE_ATTRIB|NOTE_LINK;
+		fflags |= NOTE_ATTRIB|NOTE_LINK;
+		/* fall through */
+	case PATH_EXISTS:
+		fflags |= NOTE_REVOKE|NOTE_EXTEND|NOTE_WRITE;
+		/* fall through */
+	case PATH_MISSING:
 		break;
 	default:
 		return;
