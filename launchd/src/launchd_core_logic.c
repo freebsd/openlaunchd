@@ -1209,6 +1209,7 @@ job_t
 job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv)
 {
 	const char *const *argv_tmp = argv;
+	char tmp_path[PATH_MAX];
 	char auto_label[1000];
 	const char *bn = NULL;
 	char *co;
@@ -1229,7 +1230,12 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	}
 
 	if (unlikely(label == AUTO_PICK_LEGACY_LABEL)) {
-		bn = prog ? prog : basename((char *)argv[0]); /* prog for auto labels is kp.kp_kproc.p_comm */
+		if (prog) {
+			bn = prog;
+		} else {
+			strlcpy(tmp_path, argv[0], sizeof(tmp_path));
+			bn = basename(tmp_path); /* prog for auto labels is kp.kp_kproc.p_comm */
+		}
 		snprintf(auto_label, sizeof(auto_label), "%s.%s", sizeof(void *) == 8 ? "0xdeadbeeffeedface" : "0xbabecafe", bn);
 		label = auto_label;
 		/* This is so we can do gross things later. See NOTE_EXEC for anonymous jobs */

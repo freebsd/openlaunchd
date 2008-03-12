@@ -40,6 +40,22 @@
 #include <pwd.h>
 #include <assert.h>
 
+#ifdef __LP64__
+/* workaround: 5723161 */
+#ifndef __DARWIN_ALIGN32
+#define	__DARWIN_ALIGN32(x)	(((size_t)(x) + 3) & ~3)
+#endif
+#undef	CMSG_DATA
+#define	CMSG_DATA(cmsg)	\
+	((uint8_t *)(cmsg) + __DARWIN_ALIGN32(sizeof(struct cmsghdr)))
+#undef	CMSG_SPACE
+#define	CMSG_SPACE(l)	\
+	(__DARWIN_ALIGN32(sizeof(struct cmsghdr)) + __DARWIN_ALIGN32(l))
+#undef	CMSG_LEN
+#define	CMSG_LEN(l)	\
+	(__DARWIN_ALIGN32(sizeof(struct cmsghdr)) + (l))
+#endif
+
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
 #include "libvproc_private.h"
@@ -119,11 +135,11 @@ struct _launch_data {
 				uint64_t opaque_size;
 			};
 		};
-		int fd;
-		mach_port_t mp;
-		int err;
-		long long number;
-		uint32_t boolean; /* We'd use 'bool' but this struct needs to be used under Rosetta, and sizeof(bool) is different between PowerPC and Intel */
+		int64_t fd;
+		uint64_t  mp;
+		uint64_t err;
+		int64_t number;
+		uint64_t boolean; /* We'd use 'bool' but this struct needs to be used under Rosetta, and sizeof(bool) is different between PowerPC and Intel */
 		double float_num;
 	};
 };
