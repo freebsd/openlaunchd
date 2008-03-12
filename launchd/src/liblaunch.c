@@ -1224,8 +1224,8 @@ create_and_switch_to_per_session_launchd(const char *login __attribute__((unused
 		if (bootstrap_create_server(bootstrap_port, BEZEL_UI_PATH, target_user, true, &bezel_ui_server) == BOOTSTRAP_SUCCESS) {
 			mach_port_t srv;
 
-			if (bootstrap_create_service(bezel_ui_server, BEZEL_UI_SERVICE, &srv) == BOOTSTRAP_SUCCESS) {
-				mach_port_deallocate(mach_task_self(), srv);
+			if (bootstrap_check_in(bezel_ui_server, BEZEL_UI_SERVICE, &srv) == BOOTSTRAP_SUCCESS) {
+				mach_port_mod_refs(mach_task_self(), srv, MACH_PORT_RIGHT_RECEIVE, -1);
 			}
 
 			mach_port_deallocate(mach_task_self(), bezel_ui_server);

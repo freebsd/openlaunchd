@@ -1791,11 +1791,11 @@ submit_mach_jobs(launch_data_t jobs)
 			cmd = launch_data_get_string(tmp);
 
 		if ((kr = bootstrap_create_server(bootstrap_port, (char *)cmd, u, d, &msr)) != KERN_SUCCESS) {
-			fprintf(stderr, "%s: bootstrap_create_server(): %d\n", getprogname(), kr);
+			fprintf(stderr, "%s: bootstrap_create_server(): %s\n", getprogname(), bootstrap_strerror(kr));
 			continue;
 		}
 		if ((kr = bootstrap_check_in(msr, (char*)sn, &msv)) != KERN_SUCCESS) {
-			fprintf(stderr, "%s: bootstrap_create_service(): %d\n", getprogname(), kr);
+			fprintf(stderr, "%s: bootstrap_check_in(): %s\n", getprogname(), bootstrap_strerror(kr));
 			mach_port_mod_refs(mach_task_self(), msv, MACH_PORT_RIGHT_RECEIVE, -1);
 			continue;
 		}
