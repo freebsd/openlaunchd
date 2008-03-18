@@ -166,6 +166,7 @@ static void launch_msg_getmsgs(launch_data_t m, void *context);
 static launch_data_t launch_msg_internal(launch_data_t d);
 static void launch_mach_checkin_service(launch_data_t obj, const char *key, void *context);
 
+static launch_t in_flight_msg_recv_client;
 static pthread_once_t _lc_once = PTHREAD_ONCE_INIT;
 
 static struct _launch_client {
@@ -581,6 +582,10 @@ out_bad:
 void
 launchd_close(launch_t lh, typeof(close) closefunc)
 {
+	if (in_flight_msg_recv_client == lh) {
+		in_flight_msg_recv_client = NULL;
+	}
+
 	if (lh->sendbuf)
 		free(lh->sendbuf);
 	if (lh->sendfds)
@@ -1030,7 +1035,15 @@ launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
 			goto out_bad;
 		}
 
+		in_flight_msg_recv_client = lh;
+
 		cb(rmsg, context);
+
+		/* launchd and only launchd can call launchd_close() as a part of the callback */
+		if (in_flight_msg_recv_client == NULL) {
+			r = 0;
+			break;
+		}
 
 		lh->recvlen -= data_offset;
 		if (lh->recvlen > 0) {
