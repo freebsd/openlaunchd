@@ -66,17 +66,17 @@
  */
 extern void __OSBogusByteSwap__(void);
 
-#define host2big(x)				\
+#define host2wire(x)				\
 	({ typeof (x) _X, _x = (x);		\
 	 switch (sizeof(_x)) {			\
 	 case 8:				\
-	 	_X = OSSwapHostToBigInt64(_x);	\
+	 	_X = OSSwapHostToLittleInt64(_x);	\
 	 	break;				\
 	 case 4:				\
-	 	_X = OSSwapHostToBigInt32(_x);	\
+	 	_X = OSSwapHostToLittleInt32(_x);	\
 	 	break;				\
 	 case 2:				\
-	 	_X = OSSwapHostToBigInt16(_x);	\
+	 	_X = OSSwapHostToLittleInt16(_x);	\
 	 	break;				\
 	 case 1:				\
 	 	_X = _x;			\
@@ -89,17 +89,17 @@ extern void __OSBogusByteSwap__(void);
 	 })
 
 
-#define big2host(x)				\
+#define big2wire(x)				\
 	({ typeof (x) _X, _x = (x);		\
 	 switch (sizeof(_x)) {			\
 	 case 8:				\
-	 	_X = OSSwapBigToHostInt64(_x);	\
+	 	_X = OSSwapLittleToHostInt64(_x);	\
 	 	break;				\
 	 case 4:				\
-	 	_X = OSSwapBigToHostInt32(_x);	\
+	 	_X = OSSwapLittleToHostInt32(_x);	\
 	 	break;				\
 	 case 2:				\
-	 	_X = OSSwapBigToHostInt16(_x);	\
+	 	_X = OSSwapLittleToHostInt16(_x);	\
 	 	break;				\
 	 case 1:				\
 	 	_X = _x;			\
@@ -612,30 +612,30 @@ launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t
 
 	where += total_data_len;
 
-	o_in_w->type = host2big(d->type);
+	o_in_w->type = host2wire(d->type);
 
 	switch (d->type) {
 	case LAUNCH_DATA_INTEGER:
-		o_in_w->number = host2big(d->number);
+		o_in_w->number = host2wire(d->number);
 		break;
 	case LAUNCH_DATA_REAL:
-		o_in_w->float_num = host2big(d->float_num);
+		o_in_w->float_num = host2wire(d->float_num);
 		break;
 	case LAUNCH_DATA_BOOL:
-		o_in_w->boolean = host2big(d->boolean);
+		o_in_w->boolean = host2wire(d->boolean);
 		break;
 	case LAUNCH_DATA_ERRNO:
-		o_in_w->err = host2big(d->err);
+		o_in_w->err = host2wire(d->err);
 		break;
 	case LAUNCH_DATA_FD:
-		o_in_w->fd = host2big(d->fd);
+		o_in_w->fd = host2wire(d->fd);
 		if (fd_where && d->fd != -1) {
 			fd_where[*fd_cnt] = d->fd;
 			(*fd_cnt)++;
 		}
 		break;
 	case LAUNCH_DATA_STRING:
-		o_in_w->string_len = host2big(d->string_len);
+		o_in_w->string_len = host2wire(d->string_len);
 		total_data_len += ROUND_TO_64BIT_WORD_SIZE(strlen(d->string) + 1);
 		if (total_data_len > len) {
 			return 0;
@@ -643,7 +643,7 @@ launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t
 		memcpy(where, d->string, strlen(d->string) + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
-		o_in_w->opaque_size = host2big(d->opaque_size);
+		o_in_w->opaque_size = host2wire(d->opaque_size);
 		total_data_len += ROUND_TO_64BIT_WORD_SIZE(d->opaque_size);
 		if (total_data_len > len) {
 			return 0;
@@ -652,7 +652,7 @@ launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t
 		break;
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
-		o_in_w->_array_cnt = host2big(d->_array_cnt);
+		o_in_w->_array_cnt = host2wire(d->_array_cnt);
 		total_data_len += d->_array_cnt * sizeof(uint64_t);
 		if (total_data_len > len) {
 			return 0;
@@ -686,10 +686,10 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		return NULL;
 	*data_offset += sizeof(struct _launch_data);
 
-	switch (big2host(r->type)) {
+	switch (big2wire(r->type)) {
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
-		tmpcnt = big2host(r->_array_cnt);
+		tmpcnt = big2wire(r->_array_cnt);
 		if ((data_size - *data_offset) < (tmpcnt * sizeof(uint64_t))) {
 			errno = EAGAIN;
 			return NULL;
@@ -704,7 +704,7 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		r->_array_cnt = tmpcnt;
 		break;
 	case LAUNCH_DATA_STRING:
-		tmpcnt = big2host(r->string_len);
+		tmpcnt = big2wire(r->string_len);
 		if ((data_size - *data_offset) < (tmpcnt + 1)) {
 			errno = EAGAIN;
 			return NULL;
@@ -714,7 +714,7 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		*data_offset += ROUND_TO_64BIT_WORD_SIZE(tmpcnt + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
-		tmpcnt = big2host(r->opaque_size);
+		tmpcnt = big2wire(r->opaque_size);
 		if ((data_size - *data_offset) < tmpcnt) {
 			errno = EAGAIN;
 			return NULL;
@@ -730,16 +730,16 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		}
 		break;
 	case LAUNCH_DATA_INTEGER:
-		r->number = big2host(r->number);
+		r->number = big2wire(r->number);
 		break;
 	case LAUNCH_DATA_REAL:
-		r->float_num = big2host(r->float_num);
+		r->float_num = big2wire(r->float_num);
 		break;
 	case LAUNCH_DATA_BOOL:
-		r->boolean = big2host(r->boolean);
+		r->boolean = big2wire(r->boolean);
 		break;
 	case LAUNCH_DATA_ERRNO:
-		r->err = big2host(r->err);
+		r->err = big2wire(r->err);
 	case LAUNCH_DATA_MACHPORT:
 		break;
 	default:
@@ -748,7 +748,7 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		break;
 	}
 
-	r->type = big2host(r->type);
+	r->type = big2wire(r->type);
 
 	return r;
 }
@@ -788,9 +788,9 @@ launchd_msg_send(launch_t lh, launch_data_t d)
 
 		lh->sendfdcnt = fd_slots_used;
 
-		msglen = lh->sendlen + sizeof(struct launch_msg_header); /* type promotion to make the host2big() macro work right */
-		lmh.len = host2big(msglen);
-		lmh.magic = host2big(LAUNCH_MSG_HEADER_MAGIC);
+		msglen = lh->sendlen + sizeof(struct launch_msg_header); /* type promotion to make the host2wire() macro work right */
+		lmh.len = host2wire(msglen);
+		lmh.magic = host2wire(LAUNCH_MSG_HEADER_MAGIC);
 
 		iov[0].iov_base = &lmh;
 		iov[0].iov_len = sizeof(lmh);
@@ -1019,9 +1019,9 @@ launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
 		if (lh->recvlen < sizeof(struct launch_msg_header))
 			goto need_more_data;
 
-		tmplen = big2host(lmhp->len);
+		tmplen = big2wire(lmhp->len);
 
-		if (big2host(lmhp->magic) != LAUNCH_MSG_HEADER_MAGIC || tmplen <= sizeof(struct launch_msg_header)) {
+		if (big2wire(lmhp->magic) != LAUNCH_MSG_HEADER_MAGIC || tmplen <= sizeof(struct launch_msg_header)) {
 			errno = EBADRPC;
 			goto out_bad;
 		}
