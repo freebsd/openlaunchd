@@ -1161,7 +1161,7 @@ job_new_anonymous(jobmgr_t jm, pid_t anonpid)
 	}
 
 	if (jp && !jp->anonymous && unlikely(!(kp.kp_proc.p_flag & P_EXEC))) {
-		job_log(jp, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn(). Child PID %u",
+		job_log(jp, LOG_APPLEONLY, "Called *fork(). Please switch to posix_spawn*(), pthreads or launchd. Child PID %u",
 				kp.kp_proc.p_pid);
 	}
 
