@@ -4183,7 +4183,7 @@ job_active(job_t j)
 	}
 
 	SLIST_FOREACH(ms, &j->machservices, sle) {
-		if (ms->recv && ms->isActive) {
+		if (ms->recv && machservice_active(ms)) {
 			return "Mach service is still active";
 		}
 	}
@@ -4720,7 +4720,7 @@ jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 		}
 
 		LIST_FOREACH_SAFE(ms, &port_hash[HASH_PORT(port)], port_hash_sle, next_ms) {
-			if (ms->port == port) {
+			if (ms->port == port && !ms->recv) {
 				machservice_delete(ms->job, ms, true);
 			}
 		}
@@ -4811,7 +4811,7 @@ machservice_delete(job_t j, struct machservice *ms, bool port_died)
 		job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
 	}
 
-	if (ms->recv && job_assumes(j, !ms->isActive)) {
+	if (ms->recv && job_assumes(j, !machservice_active(ms)) {
 		job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	}
 
