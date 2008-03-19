@@ -159,19 +159,23 @@ int main(int argc __attribute__((unused)), char *argv[])
 			syslog(LOG_DEBUG, "accept(): %m");
 			goto out;
 		} else {
-			char fromhost[NI_MAXHOST];
-			char fromport[NI_MAXSERV];
-			int gni_r;
+			if (ss.ss_family == AF_INET || ss.ss_family == AF_INET6) {
+				char fromhost[NI_MAXHOST];
+				char fromport[NI_MAXSERV];
+				int gni_r;
 
-			gni_r = getnameinfo((struct sockaddr *)&ss, slen,
-					fromhost, sizeof(fromhost),
-					fromport, sizeof(fromport),
-					NI_NUMERICHOST | NI_NUMERICSERV);
+				gni_r = getnameinfo((struct sockaddr *)&ss, slen,
+						fromhost, sizeof(fromhost),
+						fromport, sizeof(fromport),
+						NI_NUMERICHOST | NI_NUMERICSERV);
 
-			if (gni_r) {
-				syslog(LOG_WARNING, "%s: getnameinfo(): %s", prog, gai_strerror(gni_r));
+				if (gni_r) {
+					syslog(LOG_WARNING, "%s: getnameinfo(): %s", prog, gai_strerror(gni_r));
+				} else {
+					syslog(LOG_INFO, "%s: Connection from: %s on port: %s", prog, fromhost, fromport);
+				}
 			} else {
-				syslog(LOG_INFO, "%s: Connection from: %s on port: %s", prog, fromhost, fromport);
+				syslog(LOG_WARNING, "%s: getnameinfo() only supports IPv4/IPv6. Connection from address family: %u", prog, ss.ss_family);
 			}
 
 			switch (fork()) {
