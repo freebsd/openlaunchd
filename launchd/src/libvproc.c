@@ -412,10 +412,10 @@ _vprocmgr_log_drain(vproc_t vp __attribute__((unused)), pthread_mutex_t *mutex, 
 	}
 
 	for (lm = (struct logmsg_s *)outdata; tmp_cnt > 0; lm = ((void *)lm + lm->obj_sz)) {
-		lm->from_name += (size_t)lm;
-		lm->about_name += (size_t)lm;
-		lm->msg += (size_t)lm;
-		lm->session_name += (size_t)lm;
+		lm->from_name = (char *)lm + lm->from_name_offset;
+		lm->about_name = (char *)lm + lm->about_name_offset;
+		lm->msg = (char *)lm + lm->msg_offset;
+		lm->session_name = (char *)lm + lm->session_name_offset;
 
 		tv.tv_sec = lm->when / USEC_PER_SEC;
 		tv.tv_usec = lm->when % USEC_PER_SEC;

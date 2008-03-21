@@ -58,7 +58,10 @@ kern_return_t _vprocmgr_getsocket(name_t);
 
 
 struct logmsg_s {
-	STAILQ_ENTRY(logmsg_s) sqe;
+	union {
+		STAILQ_ENTRY(logmsg_s) sqe;
+		uint64_t __pad;
+	};
 	int64_t when;
 	pid_t from_pid;
 	pid_t about_pid;
@@ -66,10 +69,22 @@ struct logmsg_s {
 	gid_t sender_gid;
 	int err_num;
 	int pri;
-	const char *from_name;
-	const char *about_name;
-	const char *session_name;
-	const char *msg;
+	union {
+		const char *from_name;
+		uint64_t from_name_offset;
+	};
+	union {
+		const char *about_name;
+		uint64_t about_name_offset;
+	};
+	union {
+		const char *session_name;
+		uint64_t session_name_offset;
+	};
+	union {
+		const char *msg;
+		uint64_t msg_offset;
+	};
 	size_t obj_sz;
 	char data[0];
 };

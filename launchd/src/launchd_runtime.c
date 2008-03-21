@@ -1282,10 +1282,10 @@ runtime_log_pack(vm_offset_t *outval, mach_msg_type_number_t *outvalCnt)
 	offset = (void *)*outval;
 
 	while ((lm = STAILQ_FIRST(&logmsg_queue))) {
-		lm->from_name -= (size_t)lm;
-		lm->about_name -= (size_t)lm;
-		lm->msg -= (size_t)lm;
-		lm->session_name -= (size_t)lm;
+		lm->from_name_offset = lm->from_name - (char *)lm;
+		lm->about_name_offset = lm->about_name - (char *)lm;
+		lm->msg_offset = lm->msg - (char *)lm;
+		lm->session_name_offset = lm->session_name - (char *)lm;
 
 		memcpy(offset, lm, lm->obj_sz);
 		
