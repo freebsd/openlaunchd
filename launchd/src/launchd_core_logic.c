@@ -304,6 +304,7 @@ static jobmgr_t jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t t
 static job_t jobmgr_import2(jobmgr_t jm, launch_data_t pload);
 static jobmgr_t jobmgr_parent(jobmgr_t jm);
 static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
+static bool jobmgr_label_test(jobmgr_t jm, const char *str);
 static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_remove(jobmgr_t jm);
@@ -1956,10 +1957,7 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 	if (unlikely((j = job_find(label)) != NULL)) {
 		errno = EEXIST;
 		return NULL;
-	} else if (unlikely(label[0] == '\0' || (strncasecmp(label, "", strlen("com.apple.launchd")) == 0) ||
-			(strtol(label, NULL, 10) != 0))) {
-		jobmgr_log(jm, LOG_ERR, "Somebody attempted to use a reserved prefix for a label: %s", label);
-		/* the empty string, com.apple.launchd and number prefixes for labels are reserved */
+	} else if (unlikely(!jobmgr_label_test(jm, label))) {
 		errno = EINVAL;
 		return NULL;
 	}
@@ -1969,6 +1967,40 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 	}
 
 	return j;
+}
+
+bool
+jobmgr_label_test(jobmgr_t jm, const char *str)
+{
+	char *endstr = NULL;
+	const char *ptr;
+
+	if (str[0] == '\0') {
+		jobmgr_log(jm, LOG_ERR, "Empty job labels are not allowed");
+		return false;
+	}
+
+	for (ptr = str; *ptr; ptr++) {
+		if (iscntrl(*ptr)) {
+			jobmgr_log(jm, LOG_ERR, "ASCII control characters are not allowed in job labels. Index: %td Value: 0x%hhx", ptr - str, *ptr);
+			return false;
+		}
+	}
+
+	strtoll(str, &endstr, 0);
+
+	if (str != endstr) {
+		jobmgr_log(jm, LOG_ERR, "Job labels are not allowed to begin with numbers: %s", str);
+		return false;
+	}
+
+	if ((strncasecmp(str, "com.apple.launchd", strlen("com.apple.launchd")) == 0) ||
+			(strncasecmp(str, "com.apple.launchctl", strlen("com.apple.launchctl")) == 0)) {
+		jobmgr_log(jm, LOG_ERR, "Job labels are not allowed to use a reserved prefix: %s", str);
+		return false;
+	}
+
+	return true;
 }
 
 INTERNAL_ABI job_t 
