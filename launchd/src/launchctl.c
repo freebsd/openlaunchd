@@ -318,10 +318,17 @@ void
 read_launchd_conf(void)
 {
 	char s[1000], *c, *av[100];
+	const char *file;
 	size_t len, i;
 	FILE *f;
 
-	if (!(f = fopen("/etc/launchd.conf", "r"))) {
+	if (getppid() == 1) {
+		file = "/etc/launchd.conf";
+	} else {
+		file = "/etc/launchd-user.conf";
+	}
+
+	if (!(f = fopen(file, "r"))) {
 		return;
 	}
 
@@ -1625,11 +1632,12 @@ bootstrap_cmd(int argc, char *const argv[])
 			the_argc += 1;
 		}
 
-#if HAVE_SECURITY
 		if (strcasecmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0) {
+			read_launchd_conf();
+#if HAVE_SECURITY
 			assumes(SessionCreate(sessionKeepCurrentBootstrap, 0) == 0);
-		}
 #endif
+		}
 
 		return load_and_unload_cmd(the_argc, load_launchd_items);
 	}
