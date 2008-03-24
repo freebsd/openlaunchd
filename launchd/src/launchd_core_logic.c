@@ -4843,7 +4843,7 @@ machservice_delete(job_t j, struct machservice *ms, bool port_died)
 		job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
 	}
 
-	if (ms->recv && job_assumes(j, !machservice_active(ms)) {
+	if (ms->recv && job_assumes(j, !machservice_active(ms))) {
 		job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	}
 
