@@ -2231,6 +2231,7 @@ job_reap(job_t j)
 
 	if (j->shmem) {
 		job_assumes(j, munmap(j->shmem, getpagesize()) == 0);
+		j->shmem = NULL;
 	}
 
 	if (unlikely(j->weird_bootstrap)) {
@@ -5443,6 +5444,11 @@ job_mig_setup_shmem(job_t j, mach_port_t *shmem_port)
 	}
 
 	if (unlikely(j->anonymous)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	if (unlikely(j->shmem)) {
+		job_log(j, LOG_ERR, "Tried to setup shared memory more than once");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 

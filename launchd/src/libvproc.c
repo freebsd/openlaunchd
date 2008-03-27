@@ -54,6 +54,7 @@ const char *__crashreporter_info__; /* this should get merged with other version
 
 static int64_t cached_pid = -1;
 static struct vproc_shmem_s *vproc_shmem;
+static pthread_once_t shmem_inited = PTHREAD_ONCE_INIT;
 
 static void
 vproc_shmem_init(void)
@@ -94,8 +95,8 @@ _basic_vproc_transaction_begin(void)
 	int64_t newval;
 
 	if (unlikely(vproc_shmem == NULL)) {
-		vproc_shmem_init();
-		if (vproc_shmem == NULL) {
+		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
+		if (po_r != 0 || vproc_shmem == NULL) {
 			return;
 		}
 	}
@@ -147,8 +148,8 @@ vproc_standby_begin(vproc_t vp __attribute__((unused)))
 	int64_t newval;
 
 	if (unlikely(vproc_shmem == NULL)) {
-		vproc_shmem_init();
-		if (vproc_shmem == NULL) {
+		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
+		if (po_r != 0 || vproc_shmem == NULL) {
 			return NULL;
 		}
 	}
