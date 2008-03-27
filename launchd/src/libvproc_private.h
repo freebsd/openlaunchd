@@ -78,6 +78,9 @@ vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, const char *session
 
 void _basic_vproc_transaction_begin(void);
 void _basic_vproc_transaction_end(void);
+size_t _basic_vproc_transaction_count(void);
+void _basic_vproc_transaction_try_exit(int status);
+
 
 #pragma GCC visibility pop
 

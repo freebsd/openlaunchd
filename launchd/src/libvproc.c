@@ -92,7 +92,7 @@ vproc_transaction_begin(vproc_t vp __attribute__((unused)))
 void
 _basic_vproc_transaction_begin(void)
 {
-	int64_t newval;
+	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
 
 	if (unlikely(vproc_shmem == NULL)) {
 		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
@@ -114,6 +114,30 @@ _basic_vproc_transaction_begin(void)
 	}
 }
 
+size_t
+_basic_vproc_transaction_count(void)
+{
+	return likely(vproc_shmem) ? vproc_shmem->vp_shmem_transaction_cnt : INT32_MAX;
+}
+
+void
+_basic_vproc_transaction_try_exit(int status)
+{
+	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
+
+	if (unlikely(vproc_shmem == NULL)) {
+		return;
+	}
+
+	vproc_shmem->vp_shmem_flags |= VPROC_SHMEM_EXITING;
+
+	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
+
+	if (newval < 0) {
+		_exit(status);
+	}
+}
+
 void
 vproc_transaction_end(vproc_t vp __attribute__((unused)), vproc_transaction_t vpt)
 {
@@ -128,7 +152,9 @@ vproc_transaction_end(vproc_t vp __attribute__((unused)), vproc_transaction_t vp
 void
 _basic_vproc_transaction_end(void)
 {
-	int32_t newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
+	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
+
+	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
 
 	if (unlikely(newval < 0)) {
 		if (vproc_shmem->vp_shmem_flags & VPROC_SHMEM_EXITING) {
@@ -145,7 +171,7 @@ vproc_standby_t
 vproc_standby_begin(vproc_t vp __attribute__((unused)))
 {
 	vproc_standby_t vpsb = (vproc_standby_t)vproc_shmem_init; /* we need a "random" variable that is testable */
-	int64_t newval;
+	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
 
 	if (unlikely(vproc_shmem == NULL)) {
 		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
@@ -167,7 +193,7 @@ vproc_standby_begin(vproc_t vp __attribute__((unused)))
 void
 vproc_standby_end(vproc_t vp __attribute__((unused)), vproc_standby_t vpt)
 {
-	int32_t newval;
+	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
 
 	if (unlikely(vpt != (vproc_standby_t)vproc_shmem_init)) {
 		__crashreporter_info__ = "Bogus standby handle passed to vproc_standby_end() ";
