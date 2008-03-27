@@ -4128,7 +4128,7 @@ job_keepalive(job_t j)
 	 * We definitely need to revisit this after Leopard ships. Please see
 	 * launchctl.c for the other half of this hack.
 	 */
-	if (unlikely(j->mgr->global_on_demand_cnt > 0 && is_not_kextd)) {
+	if (unlikely((j->mgr->shutting_down || j->mgr->global_on_demand_cnt > 0) && is_not_kextd)) {
 		return false;
 	}
 
