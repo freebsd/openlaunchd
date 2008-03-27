@@ -2238,7 +2238,13 @@ job_reap(job_t j)
 		 */
 		job_log_stray_pg(j);
 		if (!j->abandon_pg) {
-			job_assumes(j, runtime_killpg(j->p, SIGTERM) != -1 || errno == ESRCH);
+			if (unlikely(runtime_killpg(j->p, SIGTERM) == -1 && errno != ESRCH)) {
+#ifdef __LP64__
+				job_log(j, LOG_APPLEONLY, "Bug: 5487498");
+#else
+				job_assumes(j, false);
+#endif
+			}
 		}
 
 		/*
