@@ -50,6 +50,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <sys/pipe.h>
+#include <sys/mman.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -360,6 +361,7 @@ struct job_s {
 	char *stdoutpath;
 	char *stderrpath;
 	char *alt_exc_handler;
+	struct vproc_shmem_s *shmem;
 	struct machservice *lastlookup;
 	unsigned int lastlookup_gennum;
 #if HAVE_SANDBOX
@@ -384,14 +386,14 @@ struct job_s {
 	uint64_t start_time;
 	uint32_t min_run_time;
 	uint32_t start_interval;
-	unsigned short checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
+	bool checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
 		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
 		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, start_pending:1,
 		     globargv:1, wait4debugger:1, internal_exc_handler:1, stall_before_exec:1, only_once:1,
 		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
 		     legacy_LS_job:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
 		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1,
-		     poll_for_vfs_changes:1, deny_job_creation:1, __junk:11;
+		     poll_for_vfs_changes:1, deny_job_creation:1, kill_via_shmem:1, sent_kill_via_shmem:1;
 	mode_t mask;
 	const char label[0];
 };
@@ -561,19 +563,40 @@ job_watch(job_t j)
 INTERNAL_ABI void
 job_stop(job_t j)
 {
+	int32_t newval = 1;
+
 	if (unlikely(!j->p || j->anonymous)) {
 		return;
 	}
 
-	job_assumes(j, runtime_kill(j->p, SIGTERM) != -1);
-	j->sent_sigterm_time = runtime_get_opaque_time();
-
-	if (j->exit_timeout) {
-		job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
-					EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
+	if (j->kill_via_shmem) {
+		if (j->shmem) {
+			if (!j->sent_kill_via_shmem) {
+				j->shmem->vp_shmem_flags |= VPROC_SHMEM_EXITING;
+				newval = __sync_sub_and_fetch(&j->shmem->vp_shmem_transaction_cnt, 1);
+				j->sent_kill_via_shmem = true;
+			} else {
+				newval = j->shmem->vp_shmem_transaction_cnt;
+			}
+		} else {
+			newval = -1;
+		}
 	}
 
-	job_log(j, LOG_DEBUG, "Sent SIGTERM signal");
+	j->sent_sigterm_time = runtime_get_opaque_time();
+
+	if (newval < 0) {
+		job_kill(j);
+	} else {
+		job_assumes(j, runtime_kill(j->p, SIGTERM) != -1);
+
+		if (j->exit_timeout) {
+			job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
+						EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
+		}
+
+		job_log(j, LOG_DEBUG, "Sent SIGTERM signal");
+	}
 }
 
 INTERNAL_ABI launch_data_t
@@ -1453,6 +1476,9 @@ job_import_bool(job_t j, const char *key, bool value)
 		if (strcasecmp(key, LAUNCH_JOBKEY_ENABLEGLOBBING) == 0) {
 			j->globargv = value;
 			found_key = true;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_ENABLETRANSACTIONS) == 0) {
+			j->kill_via_shmem = value;
+			found_key = true;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_ENTERKERNELDEBUGGERBEFOREKILL) == 0) {
 			j->debug_before_kill = value;
 			found_key = true;
@@ -2203,6 +2229,10 @@ job_reap(job_t j)
 
 	job_log(j, LOG_DEBUG, "Reaping");
 
+	if (j->shmem) {
+		job_assumes(j, munmap(j->shmem, getpagesize()) == 0);
+	}
+
 	if (unlikely(j->weird_bootstrap)) {
 		mach_msg_size_t mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
 
@@ -2335,6 +2365,7 @@ job_reap(job_t j)
 	}
 	j->last_exit_status = status;
 	j->sent_sigkill = false;
+	j->sent_kill_via_shmem = false;
 	j->p = 0;
 
 	/*
@@ -5399,6 +5430,36 @@ cronemu_min(struct tm *wtm, int min)
 	}
 
 	return true;
+}
+
+kern_return_t
+job_mig_setup_shmem(job_t j, mach_port_t *shmem_port)
+{
+	memory_object_size_t size_of_page, size_of_page_orig;
+	kern_return_t kr;
+
+	if (!launchd_assumes(j != NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (unlikely(j->anonymous)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+
+	size_of_page_orig = size_of_page = getpagesize();
+
+	if (!job_assumes(j, j->shmem = mmap(NULL, size_of_page, PROT_READ|PROT_WRITE, MAP_ANON, -1, 0))) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	kr = mach_make_memory_entry_64(mach_task_self(), &size_of_page,
+			(memory_object_offset_t)((long)j->shmem), VM_PROT_DEFAULT, shmem_port, 0);
+
+	if (job_assumes(j, kr == 0)) {
+		job_assumes(j, size_of_page == size_of_page_orig);
+	}
+
+	return kr;
 }
 
 kern_return_t

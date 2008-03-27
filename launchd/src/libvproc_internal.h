@@ -33,6 +33,14 @@ typedef char * logmsg_t;
 typedef pid_t * pid_array_t;
 typedef mach_port_t vproc_mig_t;
 
+#define VPROC_SHMEM_EXITING	0x1
+
+struct vproc_shmem_s {
+	int32_t vp_shmem_transaction_cnt;
+	int32_t vp_shmem_standby_cnt;
+	int32_t vp_shmem_flags;
+};
+
 #ifdef protocol_vproc_MSG_COUNT
 /* HACK */
 #include "launchd_core_logic.h"

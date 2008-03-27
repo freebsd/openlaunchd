@@ -67,8 +67,8 @@ const char *vproc_strerror(vproc_err_t r);
  *
  * launchd jobs should update their property lists accordingly.
  *
- * LaunchServices uses private methods to coordinate whether GUI applications
- * have opted into this design.
+ * We plan to have LaunchServices use private methods to coordinate
+ * whether GUI applications have opted into this design.
  */
 
 /*!
@@ -80,22 +80,28 @@ const char *vproc_strerror(vproc_err_t r);
 typedef struct vproc_transaction_s *vproc_transaction_t;
 
 /*!
- * @function vproc_transaction_prepare
+ * @function vproc_transaction_begin
+ *
+ * @param	virtual_proc
+ * This is meant for future API improvements. Pass NULL for now.
  *
  * @result
- * Returns an opaque handle to be passed to vproc_transaction_complete().
+ * Returns an opaque handle to be passed to vproc_transaction_end().
  *
  * @abstract
  * Call this API before creating data that needs to be saved via I/O later.
  */
 vproc_transaction_t
-vproc_transaction_prepare(void);
+vproc_transaction_begin(vproc_t virtual_proc);
 
 /*!
- * @function vproc_transaction_complete
+ * @function vproc_transaction_end
+ *
+ * @param	virtual_proc
+ * This is meant for future API improvements. Pass NULL for now.
  *
  * @param	handle
- * The handle previously created with vproc_transaction_prepare().
+ * The handle previously created with vproc_transaction_begin().
  *
  * @abstract
  * Call this API after the data has either been flushed or otherwise resolved.
@@ -104,7 +110,7 @@ vproc_transaction_prepare(void);
  * Calling this API with the same handle more than once is undefined.
  */
 void
-vproc_transaction_complete(vproc_transaction_t handle);
+vproc_transaction_end(vproc_t virtual_proc, vproc_transaction_t handle);
 
 /*!
  * @typedef	vproc_standby_t
@@ -115,23 +121,29 @@ vproc_transaction_complete(vproc_transaction_t handle);
 typedef struct vproc_standby_s *vproc_standby_t;
 
 /*!
- * @function vproc_standby_prepare
+ * @function vproc_standby_begin
+ *
+ * @param	virtual_proc
+ * This is meant for future API improvements. Pass NULL for now.
  *
  * @result
- * Returns an opaque handle to be passed to vproc_standby_complete().
+ * Returns an opaque handle to be passed to vproc_standby_end().
  *
  * @abstract
  * Call this API before registering notifications. For example: timers network
  * state change, or when monitoring keyboard/mouse events.
  */
 vproc_standby_t
-vproc_standby_prepare(void);
+vproc_standby_begin(vproc_t virtual_proc);
 
 /*!
- * @function vproc_standby_complete
+ * @function vproc_standby_end
+ *
+ * @param	virtual_proc
+ * This is meant for future API improvements. Pass NULL for now.
  *
  * @param	handle
- * The handle previously created with vproc_standby_prepare().
+ * The handle previously created with vproc_standby_begin().
  *
  * @abstract
  * Call this API when deregistering notifications.
@@ -140,7 +152,7 @@ vproc_standby_prepare(void);
  * Calling this API with the same handle more than once is undefined.
  */
 void
-vproc_standby_complete(vproc_standby_t handle);
+vproc_standby_end(vproc_t virtual_proc, vproc_standby_t handle);
 
 #pragma GCC visibility pop
 

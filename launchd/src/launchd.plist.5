@@ -123,6 +123,16 @@ This flag causes
 to use the
 .Xr glob 3
 mechanism to update the program arguments before invocation.
+.It Sy EnableTransactions <boolean>
+This flag instructs
+.Nm launchd
+that the job promises to use
+.Xr vproc_transaction_begin 3
+and
+.Xr vproc_transaction_end 3
+to track outstanding transactions that need to be reconciled before the process can safely terminate. If no outstanding transactions are in progress, then
+.Nm launchd
+is free to send the SIGKILL signal.
 .It Sy OnDemand <boolean>
 This key was used in Mac OS X 10.4 to control whether a job was kept alive or not. The default was true.
 This key has been deprecated and replaced in Mac OS X 10.5 with the more powerful KeepAlive option.

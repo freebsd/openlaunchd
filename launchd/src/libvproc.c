@@ -32,6 +32,7 @@
 #include <unistd.h>
 #include <syslog.h>
 #include <pthread.h>
+#include <signal.h>
 #if HAVE_QUARANTINE
 #include <quarantine.h>
 #endif
@@ -44,9 +45,141 @@
 
 #include "reboot2.h"
 
+#define likely(x)	__builtin_expect((bool)(x), true)
+#define unlikely(x)	__builtin_expect((bool)(x), false)
+
 static mach_port_t get_root_bootstrap_port(void);
 
+const char *__crashreporter_info__; /* this should get merged with other versions of the symbol */
+
 static int64_t cached_pid = -1;
+static struct vproc_shmem_s *vproc_shmem;
+
+static void
+vproc_shmem_init(void)
+{
+	vm_address_t vm_addr = 0;
+	mach_port_t shmem_port;
+	kern_return_t kr;
+
+	kr = vproc_mig_setup_shmem(bootstrap_port, &shmem_port);
+
+	if (unlikely(kr)) {
+		abort();
+	}
+
+	kr = vm_map_64(mach_task_self(), &vm_addr, getpagesize(), 0, true, shmem_port, 0, false,
+			VM_PROT_READ|VM_PROT_WRITE, VM_PROT_READ|VM_PROT_WRITE, VM_INHERIT_NONE);
+
+	if (unlikely(kr)) {
+		abort();
+	}
+
+	vproc_shmem = (struct vproc_shmem_s *)vm_addr;
+}
+
+vproc_transaction_t
+vproc_transaction_begin(vproc_t vp __attribute__((unused)))
+{
+	vproc_transaction_t vpt = (vproc_transaction_t)vproc_shmem_init; /* we need a "random" variable that is testable */
+
+	_basic_vproc_transaction_begin();
+
+	return vpt;
+}
+
+void
+_basic_vproc_transaction_begin(void)
+{
+	int64_t newval;
+
+	if (unlikely(vproc_shmem == NULL)) {
+		vproc_shmem_init();
+		if (vproc_shmem == NULL) {
+			return;
+		}
+	}
+
+	newval = __sync_add_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
+
+	if (unlikely(newval < 1)) {
+		if (vproc_shmem->vp_shmem_flags & VPROC_SHMEM_EXITING) {
+			raise(SIGKILL);
+			__crashreporter_info__ = "raise(SIGKILL) failed";
+		} else {
+			__crashreporter_info__ = "Unbalanced: vproc_transaction_begin()";
+		}
+		abort();
+	}
+}
+
+void
+vproc_transaction_end(vproc_t vp __attribute__((unused)), vproc_transaction_t vpt)
+{
+	if (unlikely(vpt != (vproc_transaction_t)vproc_shmem_init)) {
+		__crashreporter_info__ = "Bogus transaction handle passed to vproc_transaction_end() ";
+		abort();
+	}
+
+	_basic_vproc_transaction_end();
+}
+
+void
+_basic_vproc_transaction_end(void)
+{
+	int32_t newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
+
+	if (unlikely(newval < 0)) {
+		if (vproc_shmem->vp_shmem_flags & VPROC_SHMEM_EXITING) {
+			raise(SIGKILL);
+			__crashreporter_info__ = "raise(SIGKILL) failed";
+		} else {
+			__crashreporter_info__ = "Unbalanced: vproc_transaction_end()";
+		}
+		abort();
+	}
+}
+
+vproc_standby_t
+vproc_standby_begin(vproc_t vp __attribute__((unused)))
+{
+	vproc_standby_t vpsb = (vproc_standby_t)vproc_shmem_init; /* we need a "random" variable that is testable */
+	int64_t newval;
+
+	if (unlikely(vproc_shmem == NULL)) {
+		vproc_shmem_init();
+		if (vproc_shmem == NULL) {
+			return NULL;
+		}
+	}
+
+	newval = __sync_add_and_fetch(&vproc_shmem->vp_shmem_standby_cnt, 1);
+
+	if (unlikely(newval < 1)) {
+		__crashreporter_info__ = "Unbalanced: vproc_standby_begin()";
+		abort();
+	}
+
+	return vpsb;
+}
+
+void
+vproc_standby_end(vproc_t vp __attribute__((unused)), vproc_standby_t vpt)
+{
+	int32_t newval;
+
+	if (unlikely(vpt != (vproc_standby_t)vproc_shmem_init)) {
+		__crashreporter_info__ = "Bogus standby handle passed to vproc_standby_end() ";
+		abort();
+	}
+
+	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_standby_cnt, 1);
+
+	if (unlikely(newval < 0)) {
+		__crashreporter_info__ = "Unbalanced: vproc_standby_end()";
+		abort();
+	}
+}
 
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright, launch_data_t *outval,

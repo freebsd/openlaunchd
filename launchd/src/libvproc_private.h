@@ -76,6 +76,9 @@ void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(print
 
 vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type);
 
+void _basic_vproc_transaction_begin(void);
+void _basic_vproc_transaction_end(void);
+
 #pragma GCC visibility pop
 
 __END_DECLS

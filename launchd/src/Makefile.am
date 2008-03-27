@@ -1,5 +1,5 @@
 CWARN = -Wall -Wextra -Waggregate-return -Wfloat-equal -Wshadow -Wpacked -Wmissing-prototypes -Wmissing-declarations -Werror # gcc4.2: -Wstrict-overflow=4 # -Wpadded -Wconversion -Wstrict-aliasing=2
-CTUNE = -fvisibility=hidden # gcc4.2: -fdiagnostics-show-option # -fstrict-aliasing
+CTUNE = -fvisibility=hidden -freorder-blocks # gcc4.2: -fdiagnostics-show-option # -fstrict-aliasing
 CMISC = -isysroot $(SDKROOT) -F$(SDKROOT)/System/Library/PrivateFrameworks -D__MigTypeCheck=1 -Dmig_external=__private_extern__ -D_DARWIN_USE_64_BIT_INODE=1
 AM_CFLAGS = $(CTUNE) $(CMISC) $(CWARN)
 AM_LDFLAGS = -Wl,-syslibroot,$(SDKROOT)
@@ -57,7 +57,7 @@ SystemStarter_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 endif
 
-launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS) -freorder-blocks
+launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 launchd_LDFLAGS = $(AM_LDFLAGS) -lbsm
 launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
 
