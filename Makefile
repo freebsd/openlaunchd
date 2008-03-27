@@ -24,6 +24,8 @@ ifeq ($(shell tconf --test TARGET_OS_EMBEDDED),NO)
 	mkdir -p $(DSTROOT)/System/Library/StartupItems
 	chmod 755 $(DSTROOT)/System/Library/StartupItems
 endif
+	-lipo -remove ppc64 -output $(DSTROOT)/sbin/SystemStarter $(DSTROOT)/sbin/SystemStarter
+	-lipo -remove x86_64 -output $(DSTROOT)/sbin/SystemStarter $(DSTROOT)/sbin/SystemStarter
 	rm -rf $(DSTROOT)/usr/local/lib/system
 	cp $(OBJROOT)/src/launchd $(SYMROOT)
 	cp $(OBJROOT)/src/launchctl $(SYMROOT)
