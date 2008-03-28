@@ -69,6 +69,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launch.h"
 #include "launchd.h"
 #include "launchd_core_logic.h"
+#include "libvproc_public.h"
+#include "libvproc_private.h"
 #include "libvproc_internal.h"
 #include "job_reply.h"
 
@@ -99,6 +101,7 @@ static timeout_callback runtime_idle_callback;
 static mach_msg_timeout_t runtime_idle_timeout;
 static struct ldcred ldc;
 static size_t runtime_busy_cnt;
+static size_t runtime_standby_cnt;
 
 
 static STAILQ_HEAD(, logmsg_s) logmsg_queue = STAILQ_HEAD_INITIALIZER(logmsg_queue);
@@ -989,6 +992,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 	mig_callback the_demux;
 	mach_msg_timeout_t to;
 	mach_msg_return_t mr;
+	size_t busy_cnt;
 
 	options = MACH_RCV_MSG|MACH_RCV_TRAILER_ELEMENTS(MACH_RCV_TRAILER_AUDIT) |
 		MACH_RCV_TRAILER_TYPE(MACH_MSG_TRAILER_FORMAT_0);
@@ -996,6 +1000,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 	tmp_options = options;
 
 	for (;;) {
+		busy_cnt = runtime_busy_cnt + runtime_standby_cnt;
 		to = MACH_MSG_TIMEOUT_NONE;
 
 		if (unlikely(msg_size != max_msg_size)) {
@@ -1007,11 +1012,11 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			}
 		}
 
-		if ((tmp_options & MACH_RCV_MSG) && (runtime_idle_callback || (runtime_busy_cnt == 0))) {
+		if ((tmp_options & MACH_RCV_MSG) && (runtime_idle_callback || (busy_cnt == 0))) {
 			tmp_options |= MACH_RCV_TIMEOUT;
 
 			if (!(tmp_options & MACH_SEND_TIMEOUT)) {
-				to = runtime_busy_cnt ? runtime_idle_timeout : (RUNTIME_ADVISABLE_IDLE_TIMEOUT * 1000);
+				to = busy_cnt ? runtime_idle_timeout : (_vproc_standby_timeout() * 1000);
 			}
 		}
 
@@ -1033,7 +1038,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 			continue;
 		case MACH_RCV_TIMED_OUT:
 			if (to != MACH_MSG_TIMEOUT_NONE) {
-				if (runtime_busy_cnt == 0) {
+				if (busy_cnt == 0) {
 					launchd_shutdown();
 				} else if (runtime_idle_callback) {
 					runtime_idle_callback();
@@ -1477,13 +1482,37 @@ runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *
 INTERNAL_ABI void
 runtime_add_ref(void)
 {
+	if (!pid1_magic) {
+		_vproc_transaction_begin();
+	}
 	runtime_busy_cnt++;
 }
 
 INTERNAL_ABI void
 runtime_del_ref(void)
 {
+	if (!pid1_magic) {
+		_vproc_transaction_end();
+	}
 	runtime_busy_cnt--;
+}
+
+INTERNAL_ABI void
+runtime_add_weak_ref(void)
+{
+	if (!pid1_magic) {
+		_vproc_standby_begin();
+	}
+	runtime_standby_cnt++;
+}
+
+INTERNAL_ABI void
+runtime_del_weak_ref(void)
+{
+	if (!pid1_magic) {
+		_vproc_standby_end();
+	}
+	runtime_standby_cnt--;
 }
 
 kern_return_t

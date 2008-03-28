@@ -70,6 +70,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
+#include "libvproc_private.h"
 #include "libvproc_internal.h"
 #include "liblaunch_public.h"
 
@@ -158,6 +159,10 @@ main(int argc, char *const *argv)
 
 	if (pid1_magic) {
 		handle_pid1_crashes_separately();
+	} else {
+		/* prime shared memory before the 'bootstrap_port' global is set to zero */
+		_vproc_transaction_begin();
+		_vproc_transaction_end();
 	}
 
 	jobmgr_init(sflag);

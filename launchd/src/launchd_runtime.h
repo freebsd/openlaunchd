@@ -111,6 +111,8 @@ INTERNAL_ABI mach_port_t runtime_get_kernel_port(void);
 
 INTERNAL_ABI void runtime_add_ref(void);
 INTERNAL_ABI void runtime_del_ref(void);
+INTERNAL_ABI void runtime_add_weak_ref(void);
+INTERNAL_ABI void runtime_del_weak_ref(void);
 
 INTERNAL_ABI void launchd_runtime_init(void);
 INTERNAL_ABI void launchd_runtime_init2(void);

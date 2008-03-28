@@ -38,6 +38,7 @@ typedef mach_port_t vproc_mig_t;
 struct vproc_shmem_s {
 	int32_t vp_shmem_transaction_cnt;
 	int32_t vp_shmem_standby_cnt;
+	uint32_t vp_shmem_standby_timeout;
 	int32_t vp_shmem_flags;
 };
 

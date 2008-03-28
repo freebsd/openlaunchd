@@ -33,6 +33,7 @@
 #include <syslog.h>
 #include <pthread.h>
 #include <signal.h>
+#include <assert.h>
 #if HAVE_QUARANTINE
 #include <quarantine.h>
 #endif
@@ -65,16 +66,12 @@ vproc_shmem_init(void)
 
 	kr = vproc_mig_setup_shmem(bootstrap_port, &shmem_port);
 
-	if (unlikely(kr)) {
-		abort();
-	}
+	assert(kr == 0);
 
-	kr = vm_map_64(mach_task_self(), &vm_addr, getpagesize(), 0, true, shmem_port, 0, false,
+	kr = vm_map(mach_task_self(), &vm_addr, getpagesize(), 0, true, shmem_port, 0, false,
 			VM_PROT_READ|VM_PROT_WRITE, VM_PROT_READ|VM_PROT_WRITE, VM_INHERIT_NONE);
 
-	if (unlikely(kr)) {
-		abort();
-	}
+	assert(kr == 0);
 
 	vproc_shmem = (struct vproc_shmem_s *)vm_addr;
 }
@@ -84,13 +81,13 @@ vproc_transaction_begin(vproc_t vp __attribute__((unused)))
 {
 	vproc_transaction_t vpt = (vproc_transaction_t)vproc_shmem_init; /* we need a "random" variable that is testable */
 
-	_basic_vproc_transaction_begin();
+	_vproc_transaction_begin();
 
 	return vpt;
 }
 
 void
-_basic_vproc_transaction_begin(void)
+_vproc_transaction_begin(void)
 {
 	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
 
@@ -115,13 +112,25 @@ _basic_vproc_transaction_begin(void)
 }
 
 size_t
-_basic_vproc_transaction_count(void)
+_vproc_transaction_count(void)
 {
 	return likely(vproc_shmem) ? vproc_shmem->vp_shmem_transaction_cnt : INT32_MAX;
 }
 
+size_t
+_vproc_standby_count(void)
+{
+	return likely(vproc_shmem) ? vproc_shmem->vp_shmem_standby_cnt : INT32_MAX;
+}
+
+size_t
+_vproc_standby_timeout(void)
+{
+	return likely(vproc_shmem) ? vproc_shmem->vp_shmem_standby_timeout : 0;
+}
+
 void
-_basic_vproc_transaction_try_exit(int status)
+_vproc_transaction_try_exit(int status)
 {
 	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
 
@@ -146,11 +155,11 @@ vproc_transaction_end(vproc_t vp __attribute__((unused)), vproc_transaction_t vp
 		abort();
 	}
 
-	_basic_vproc_transaction_end();
+	_vproc_transaction_end();
 }
 
 void
-_basic_vproc_transaction_end(void)
+_vproc_transaction_end(void)
 {
 	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
 
@@ -171,12 +180,21 @@ vproc_standby_t
 vproc_standby_begin(vproc_t vp __attribute__((unused)))
 {
 	vproc_standby_t vpsb = (vproc_standby_t)vproc_shmem_init; /* we need a "random" variable that is testable */
+
+	_vproc_standby_begin();
+
+	return vpsb;
+}
+
+void
+_vproc_standby_begin(void)
+{
 	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
 
 	if (unlikely(vproc_shmem == NULL)) {
 		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
 		if (po_r != 0 || vproc_shmem == NULL) {
-			return NULL;
+			return;
 		}
 	}
 
@@ -186,19 +204,23 @@ vproc_standby_begin(vproc_t vp __attribute__((unused)))
 		__crashreporter_info__ = "Unbalanced: vproc_standby_begin()";
 		abort();
 	}
-
-	return vpsb;
 }
 
 void
 vproc_standby_end(vproc_t vp __attribute__((unused)), vproc_standby_t vpt)
 {
-	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
-
 	if (unlikely(vpt != (vproc_standby_t)vproc_shmem_init)) {
 		__crashreporter_info__ = "Bogus standby handle passed to vproc_standby_end() ";
 		abort();
 	}
+
+	_vproc_standby_end();
+}
+
+void
+_vproc_standby_end(void)
+{
+	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
 
 	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_standby_cnt, 1);
 

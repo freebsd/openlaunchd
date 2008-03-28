@@ -76,10 +76,15 @@ void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(print
 
 vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type);
 
-void _basic_vproc_transaction_begin(void);
-void _basic_vproc_transaction_end(void);
-size_t _basic_vproc_transaction_count(void);
-void _basic_vproc_transaction_try_exit(int status);
+void _vproc_standby_begin(void);
+void _vproc_standby_end(void);
+size_t _vproc_standby_count(void);
+size_t _vproc_standby_timeout(void);
+
+void _vproc_transaction_try_exit(int status);
+void _vproc_transaction_begin(void);
+void _vproc_transaction_end(void);
+size_t _vproc_transaction_count(void);
 
 
 #pragma GCC visibility pop

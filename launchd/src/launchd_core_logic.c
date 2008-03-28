@@ -563,6 +563,7 @@ job_watch(job_t j)
 INTERNAL_ABI void
 job_stop(job_t j)
 {
+	char extralog[100];
 	int32_t newval = 1;
 
 	if (unlikely(!j->p || j->anonymous)) {
@@ -595,7 +596,13 @@ job_stop(job_t j)
 						EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
 		}
 
-		job_log(j, LOG_DEBUG, "Sent SIGTERM signal");
+		if (j->kill_via_shmem) {
+			snprintf(extralog, sizeof(extralog), ": %d remaining transactions", j->shmem->vp_shmem_transaction_cnt + 1);
+		} else {
+			extralog[0] = '\0';
+		}
+
+		job_log(j, LOG_DEBUG, "Sent SIGTERM signal%s", extralog);
 	}
 }
 
@@ -803,7 +810,7 @@ jobmgr_remove(jobmgr_t jm)
 	}
 
 	if (jm->parentmgr) {
-		runtime_del_ref();
+		runtime_del_weak_ref();
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
 	} else if (pid1_magic) {
 		jobmgr_log(jm, LOG_DEBUG, "About to call: sync()");
@@ -959,7 +966,7 @@ job_remove(job_t j)
 		free(j->j_binpref);
 	}
 	if (j->start_interval) {
-		runtime_del_ref();
+		runtime_del_weak_ref();
 		job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 	}
 	if (j->poll_for_vfs_changes) {
@@ -1664,7 +1671,7 @@ job_import_integer(job_t j, const char *key, long long value)
 			} else if (unlikely(value > UINT32_MAX)) {
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_STARTINTERVAL);
 			} else {
-				runtime_add_ref();
+				runtime_add_weak_ref();
 				j->start_interval = value;
 
 				job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j) != -1);
@@ -2230,7 +2237,7 @@ job_reap(job_t j)
 	job_log(j, LOG_DEBUG, "Reaping");
 
 	if (j->shmem) {
-		job_assumes(j, munmap(j->shmem, getpagesize()) == 0);
+		job_assumes(j, vm_deallocate(mach_task_self(), (vm_address_t)j->shmem, getpagesize()) == 0);
 		j->shmem = NULL;
 	}
 
@@ -3791,7 +3798,7 @@ calendarinterval_new(job_t j, struct tm *w)
 	
 	calendarinterval_setalarm(j, ci);
 
-	runtime_add_ref();
+	runtime_add_weak_ref();
 
 	return true;
 }
@@ -3804,7 +3811,7 @@ calendarinterval_delete(job_t j, struct calendarinterval *ci)
 
 	free(ci);
 
-	runtime_del_ref();
+	runtime_del_weak_ref();
 }
 
 void
@@ -3862,7 +3869,7 @@ socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd_cnt, bool j
 
 	SLIST_INSERT_HEAD(&j->sockets, sg, sle);
 
-	runtime_add_ref();
+	runtime_add_weak_ref();
 
 	return true;
 }
@@ -3893,7 +3900,7 @@ socketgroup_delete(job_t j, struct socketgroup *sg)
 	free(sg->fds);
 	free(sg);
 
-	runtime_del_ref();
+	runtime_del_weak_ref();
 }
 
 void
@@ -4729,7 +4736,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	}
 
 	if (jmr->parentmgr) {
-		runtime_add_ref();
+		runtime_add_weak_ref();
 	}
 
 	return jmr;
@@ -5169,9 +5176,9 @@ semaphoreitem_runtime_mod_ref(struct semaphoreitem *si, bool add)
 	}
 
 	if (add) {
-		runtime_add_ref();
+		runtime_add_weak_ref();
 	} else {
-		runtime_del_ref();
+		runtime_del_weak_ref();
 	}
 }
 
@@ -5437,6 +5444,7 @@ kern_return_t
 job_mig_setup_shmem(job_t j, mach_port_t *shmem_port)
 {
 	memory_object_size_t size_of_page, size_of_page_orig;
+	vm_address_t vm_addr;
 	kern_return_t kr;
 
 	if (!launchd_assumes(j != NULL)) {
@@ -5444,6 +5452,7 @@ job_mig_setup_shmem(job_t j, mach_port_t *shmem_port)
 	}
 
 	if (unlikely(j->anonymous)) {
+		job_log(j, LOG_ERR, "Anonymous job tried to setup shared memory");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
@@ -5454,16 +5463,24 @@ job_mig_setup_shmem(job_t j, mach_port_t *shmem_port)
 
 	size_of_page_orig = size_of_page = getpagesize();
 
-	if (!job_assumes(j, j->shmem = mmap(NULL, size_of_page, PROT_READ|PROT_WRITE, MAP_ANON, -1, 0))) {
-		return BOOTSTRAP_NO_MEMORY;
+	kr = vm_allocate(mach_task_self(), &vm_addr, size_of_page, true);
+
+	if (!job_assumes(j, kr == 0)) {
+		return kr;
 	}
 
+	j->shmem = (typeof(j->shmem))vm_addr;
+	j->shmem->vp_shmem_standby_timeout = j->timeout;
+
 	kr = mach_make_memory_entry_64(mach_task_self(), &size_of_page,
-			(memory_object_offset_t)((long)j->shmem), VM_PROT_DEFAULT, shmem_port, 0);
+			(memory_object_offset_t)vm_addr, VM_PROT_READ|VM_PROT_WRITE, shmem_port, 0);
 
 	if (job_assumes(j, kr == 0)) {
 		job_assumes(j, size_of_page == size_of_page_orig);
 	}
+
+	/* no need to inherit this in child processes */
+	job_assumes(j, vm_inherit(mach_task_self(), (vm_address_t)j->shmem, size_of_page_orig, VM_INHERIT_NONE) == 0);
 
 	return kr;
 }
@@ -5776,7 +5793,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 			kr = 1;
 		} else if (inval) {
 			if (j->start_interval == 0) {
-				runtime_add_ref();
+				runtime_add_weak_ref();
 			} else {
 				/* Workaround 5225889 */
 				job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, j) != -1);
@@ -5786,7 +5803,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		} else if (j->start_interval) {
 			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
 			if (j->start_interval != 0) {
-				runtime_del_ref();
+				runtime_del_weak_ref();
 			}
 			j->start_interval = 0;
 		}
@@ -6014,6 +6031,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 
 		ji->mach_uid = which_user;
 		ji->per_user = true;
+		ji->kill_via_shmem = true;
 
 		if ((ms = machservice_new(ji, lbuf, up_cont, false)) == NULL) {
 			job_remove(ji);
