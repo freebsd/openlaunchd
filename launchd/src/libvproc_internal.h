@@ -94,7 +94,7 @@ struct logmsg_s {
 		const char *msg;
 		uint64_t msg_offset;
 	};
-	size_t obj_sz;
+	uint64_t obj_sz;
 	char data[0];
 };
 
