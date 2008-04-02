@@ -428,6 +428,7 @@ static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
 static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
 static void job_postfork_become_user(job_t j);
+static void job_postfork_test_user(job_t j);
 static void job_log_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
 static void job_setup_exception_port(job_t j, task_t target_task);
@@ -3109,6 +3110,77 @@ out:
 }
 
 void
+job_postfork_test_user(job_t j)
+{
+	/* This function is all about 5201578 */
+
+	const char *shell_env_var = getenv("SHELL");
+	const char *home_env_var = getenv("HOME");
+	const char *user_env_var = getenv("USER");
+	const char *logname_env_var = getenv("LOGNAME");
+	uid_t tmp_uid, local_uid = getuid();
+	gid_t tmp_gid, local_gid = getgid();
+	char shellpath[PATH_MAX];
+	char homedir[PATH_MAX];
+	char loginname[2000];
+	struct passwd *pwe;
+
+
+	if (!job_assumes(j, shell_env_var && home_env_var && user_env_var && logname_env_var
+				&& strcmp(user_env_var, logname_env_var) == 0)) {
+		goto out_bad;
+	}
+
+	if ((pwe = getpwnam(user_env_var)) == NULL) {
+		job_log(j, LOG_ERR, "The account \"%s\" has been deleted out from under us!", user_env_var);
+		goto out_bad;
+	}
+
+	/*
+	 * We must copy the results of getpw*().
+	 *
+	 * Why? Because subsequent API calls may call getpw*() as a part of
+	 * their implementation. Since getpw*() returns a [now thread scoped]
+	 * global, we must therefore cache the results before continuing.
+	 */
+
+	tmp_uid = pwe->pw_uid;
+	tmp_gid = pwe->pw_gid;
+
+	strlcpy(shellpath, pwe->pw_shell, sizeof(shellpath));
+	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
+	strlcpy(homedir, pwe->pw_dir, sizeof(homedir));
+
+	if (strcmp(shellpath, shell_env_var) != 0) {
+		job_log(j, LOG_ERR, "The %s environmental variable changed out from under us!", "SHELL");
+		goto out_bad;
+	}
+	if (strcmp(loginname, logname_env_var) != 0) {
+		job_log(j, LOG_ERR, "The %s environmental variable changed out from under us!", "USER");
+		goto out_bad;
+	}
+	if (strcmp(homedir, home_env_var) != 0) {
+		job_log(j, LOG_ERR, "The %s environmental variable changed out from under us!", "HOME");
+		goto out_bad;
+	}
+	if (local_uid != tmp_uid) {
+		job_log(j, LOG_ERR, "The %cID of the account (%u) changed out from under us (%u)!",
+				'U', tmp_uid, local_uid);
+		goto out_bad;
+	}
+	if (local_gid != tmp_gid) {
+		job_log(j, LOG_ERR, "The %cID of the account (%u) changed out from under us (%u)!",
+				'G', tmp_gid, local_gid);
+		goto out_bad;
+	}
+
+	return;
+out_bad:
+	job_assumes(j, runtime_kill(getppid(), SIGTERM) != -1);
+	_exit(EXIT_FAILURE);
+}
+
+void
 job_postfork_become_user(job_t j)
 {
 	char loginname[2000];
@@ -3121,7 +3193,7 @@ job_postfork_become_user(job_t j)
 	uid_t desired_uid = -1;
 
 	if (getuid() != 0) {
-		return;
+		return job_postfork_test_user(j);
 	}
 
 	/*
