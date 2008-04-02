@@ -286,7 +286,7 @@ CFMutableArrayRef StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 	while ((aState = NSGetNextSearchPathEnumeration(aState, aPath))) {
 		DIR *aDirectory;
 
-		strcpy(aPath + strlen(aPath), kStartupItemsPath);
+		strlcat(aPath, kStartupItemsPath, sizeof(aPath));
 		++aDomainIndex;
 
 		/* 5485016
@@ -923,28 +923,17 @@ int StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef an
 		anError = 0;
 	} else {
 		CFStringRef aBundlePathString = CFDictionaryGetValue(anItem, kBundlePathKey);
-		size_t aBundlePathCLength =
-		    CFStringGetMaximumSizeForEncoding(CFStringGetLength(aBundlePathString), kCFStringEncodingUTF8) + 1;
-		char *aBundlePath = (char *)malloc(aBundlePathCLength);
-		char anExecutable[PATH_MAX] = "";
+		char aBundlePath[PATH_MAX];
+		char anExecutable[PATH_MAX];
+		char *tmp;
 
-		if (!aBundlePath) {
-			syslog(LOG_EMERG, "malloc() failed; out of memory while running item %s", aBundlePathString);
-			return (anError);
-		}
-		if (!CFStringGetCString(aBundlePathString, aBundlePath, aBundlePathCLength, kCFStringEncodingUTF8)) {
+		if (!CFStringGetCString(aBundlePathString, aBundlePath, sizeof(aBundlePath), kCFStringEncodingUTF8)) {
 			CF_syslog(LOG_EMERG, CFSTR("Internal error while running item %@"), aBundlePathString);
 			return (anError);
 		}
 		/* Compute path to excecutable */
-		{
-			char           *tmp;
-			strncpy(anExecutable, aBundlePath, sizeof(anExecutable));	/* .../foo     */
-			tmp = rindex(anExecutable, '/');	/* /foo        */
-			strncat(anExecutable, tmp, strlen(tmp));	/* .../foo/foo */
-		}
-
-		free(aBundlePath);
+		tmp = rindex(aBundlePath, '/');
+		snprintf(anExecutable, sizeof(anExecutable), "%s%s", aBundlePath, tmp);
 
 		/**
 	         * Run the bundle
