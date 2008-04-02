@@ -4175,7 +4175,7 @@ job_useless(job_t j)
 	} else if (j->removal_pending) {
 		job_log(j, LOG_DEBUG, "Exited while removal was pending.");
 		return true;
-	} else if (j->mgr->shutting_down && j->mgr->hopefully_first_cnt == 0) {
+	} else if (j->mgr->shutting_down && (j->hopefully_exits_first || j->mgr->hopefully_first_cnt == 0)) {
 		job_log(j, LOG_DEBUG, "Exited while shutdown in progress. Processes remaining: %lu/%lu", total_children, total_anon_children);
 		return true;
 	} else if (j->legacy_mach_job) {
@@ -4202,13 +4202,17 @@ job_keepalive(job_t j)
 	bool good_exit = (WIFEXITED(j->last_exit_status) && WEXITSTATUS(j->last_exit_status) == 0);
 	bool is_not_kextd = (do_apple_internal_logging || (strcmp(j->label, "com.apple.kextd") != 0));
 
+	if (unlikely(j->mgr->shutting_down)) {
+		return false;
+	}
+
 	/*
 	 * 5066316
 	 *
 	 * We definitely need to revisit this after Leopard ships. Please see
 	 * launchctl.c for the other half of this hack.
 	 */
-	if (unlikely((j->mgr->shutting_down || j->mgr->global_on_demand_cnt > 0) && is_not_kextd)) {
+	if (unlikely((j->mgr->global_on_demand_cnt > 0) && is_not_kextd)) {
 		return false;
 	}
 
