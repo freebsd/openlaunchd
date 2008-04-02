@@ -187,9 +187,11 @@ INTERNAL_ABI void runtime_syslog(int pri, const char *message, ...) __attribute_
 INTERNAL_ABI void runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args) __attribute__((format(printf, 2, 0)));
 INTERNAL_ABI void runtime_log_push(void);
 
-INTERNAL_ABI int64_t runtime_get_wall_time(void);
-INTERNAL_ABI uint64_t runtime_get_opaque_time(void);
-INTERNAL_ABI uint64_t runtime_opaque_time_to_nano(uint64_t o);
+INTERNAL_ABI int64_t runtime_get_wall_time(void) __attribute__((warn_unused_result));
+INTERNAL_ABI uint64_t runtime_get_opaque_time(void) __attribute__((warn_unused_result));
+INTERNAL_ABI uint64_t runtime_get_opaque_time_of_event(void) __attribute__((pure, warn_unused_result));
+INTERNAL_ABI uint64_t runtime_opaque_time_to_nano(uint64_t o) __attribute__((const, warn_unused_result));
+INTERNAL_ABI uint64_t runtime_get_nanoseconds_since(uint64_t o) __attribute__((pure, warn_unused_result));
 
 INTERNAL_ABI kern_return_t launchd_set_bport(mach_port_t name);
 INTERNAL_ABI kern_return_t launchd_get_bport(mach_port_t *name);

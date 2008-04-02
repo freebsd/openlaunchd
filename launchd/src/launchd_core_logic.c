@@ -2326,13 +2326,12 @@ job_reap(job_t j)
 	}
 
 	if (j->sent_sigterm_time) {
-		uint64_t td_sec, td_usec, td = runtime_opaque_time_to_nano(runtime_get_opaque_time() - j->sent_sigterm_time);
+		uint64_t td_sec, td_usec, td = runtime_get_nanoseconds_since(j->sent_sigterm_time);
 
 		td_sec = td / NSEC_PER_SEC;
 		td_usec = (td % NSEC_PER_SEC) / NSEC_PER_USEC;
 
-		job_log(j, LOG_INFO, "Exited %lld.%06lld seconds after %s was sent",
-				td_sec, td_usec, signal_to_C_name(j->sent_sigkill ? SIGKILL : SIGTERM));
+		job_log(j, LOG_INFO, "Exited %lld.%06lld seconds after %s was sent", td_sec, td_usec, signal_to_C_name(SIGTERM));
 	}
 
 #if DO_RUSAGE_SUMMATION
@@ -2620,7 +2619,7 @@ job_callback_timer(job_t j, void *ident)
 		job_dispatch(j, false);
 	} else if (&j->exit_timeout == ident) {
 		if (j->sent_sigkill) {
-			uint64_t td = runtime_opaque_time_to_nano(runtime_get_opaque_time() - j->sent_sigterm_time);
+			uint64_t td = runtime_get_nanoseconds_since(j->sent_sigterm_time);
 
 			td /= NSEC_PER_SEC;
 			td -= j->exit_timeout;
@@ -2752,7 +2751,7 @@ job_callback(void *obj, struct kevent *kev)
 void
 job_start(job_t j)
 {
-	uint64_t td, tnow = runtime_get_opaque_time();
+	uint64_t td;
 	int spair[2];
 	int execspair[2];
 	int oepair[2];
@@ -2770,14 +2769,12 @@ job_start(job_t j)
 		return;
 	}
 
-	job_assumes(j, tnow > j->start_time);
-
 	/*
 	 * Some users adjust the wall-clock and then expect software to not notice.
 	 * Therefore, launchd must use an absolute clock instead of the wall clock
 	 * wherever possible.
 	 */
-	td = runtime_opaque_time_to_nano(tnow - j->start_time);
+	td = runtime_get_nanoseconds_since(j->start_time);
 	td /= NSEC_PER_SEC;
 
 	if (j->start_time && (td < j->min_run_time) && !j->legacy_mach_job && !j->inetcompat) {
@@ -2813,8 +2810,6 @@ job_start(job_t j)
 		job_assumes(j, fcntl(j->log_redirect_fd, F_SETFL, O_NONBLOCK) != -1);
 		job_assumes(j, kevent_mod(j->log_redirect_fd, EVFILT_READ, EV_ADD, 0, 0, j) != -1);
 	}
-
-	j->start_time = tnow;
 
 	switch (c = runtime_fork(j->weird_bootstrap ? j->j_port : j->mgr->jm_port)) {
 	case -1:
@@ -2852,6 +2847,8 @@ job_start(job_t j)
 		job_start_child(j);
 		break;
 	default:
+		j->start_time = runtime_get_opaque_time();
+
 		job_log(j, LOG_DEBUG, "Started as PID: %u", c);
 
 		j->start_pending = false;

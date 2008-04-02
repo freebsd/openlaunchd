@@ -117,6 +117,7 @@ static void logmsg_remove(struct logmsg_s *lm);
 static void do_file_init(void) __attribute__((constructor));
 static mach_timebase_info_data_t tbi;
 static uint64_t tbi_safe_math_max;
+static uint64_t time_of_mach_msg_return;
 static double tbi_float_val;
 
 static const int sigigns[] = { SIGHUP, SIGINT, SIGPIPE, SIGALRM, SIGTERM,
@@ -1025,6 +1026,8 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 		mr = mach_msg(&bufReply->Head, tmp_options, bufReply->Head.msgh_size,
 				msg_size, ipc_port_set, to, MACH_PORT_NULL);
 
+		time_of_mach_msg_return = runtime_get_opaque_time();
+
 		tmp_options = options;
 
 		/* It looks like the compiler doesn't optimize switch(unlikely(...)) */
@@ -1639,11 +1642,23 @@ runtime_get_opaque_time(void)
 }
 
 INTERNAL_ABI uint64_t
+runtime_get_opaque_time_of_event(void)
+{
+	return time_of_mach_msg_return;
+}
+
+INTERNAL_ABI uint64_t
+runtime_get_nanoseconds_since(uint64_t o)
+{
+	return runtime_opaque_time_to_nano(runtime_get_opaque_time_of_event() - o);
+}
+
+INTERNAL_ABI uint64_t
 runtime_opaque_time_to_nano(uint64_t o)
 {
-#if defined(__i386__)
+#if defined(__i386__) || defined(__x86_64__)
 	if (unlikely(tbi.numer != tbi.denom)) {
-#elif defined(__ppc__)
+#elif defined(__ppc__) || defined(__ppc64__)
 	if (likely(tbi.numer != tbi.denom)) {
 #else
 	if (tbi.numer != tbi.denom) {
