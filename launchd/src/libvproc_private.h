@@ -67,6 +67,7 @@ vproc_err_t _vproc_wait_by_label(const char *label, int *out_wstatus);
 
 void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
 void _vproc_log_error(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
+void _vproc_logv(int pri, int err, const char *msg, va_list ap) __attribute__((format(printf, 3, 0)));
 
 #define VPROCMGR_SESSION_LOGINWINDOW	"LoginWindow"
 #define VPROCMGR_SESSION_BACKGROUND	"Background"

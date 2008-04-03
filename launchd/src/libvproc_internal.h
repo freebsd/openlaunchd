@@ -99,7 +99,6 @@ struct logmsg_s {
 };
 
 
-void _vproc_logv(int pri, int err, const char *msg, va_list ap);
 vproc_err_t _vprocmgr_log_forward(mach_port_t mp, void *data, size_t len);
 
 
