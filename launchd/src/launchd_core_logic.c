@@ -3447,9 +3447,6 @@ calendarinterval_setalarm(job_t j, struct calendarinterval *ci)
 
 	head_later = LIST_FIRST(&sorted_calendar_events)->when_next;
 
-	/* Workaround 5225889 */
-	kevent_mod((uintptr_t)&sorted_calendar_events, EVFILT_TIMER, EV_DELETE, 0, 0, root_jobmgr);
-
 	if (job_assumes(j, kevent_mod((uintptr_t)&sorted_calendar_events, EVFILT_TIMER, EV_ADD, NOTE_ABSOLUTE|NOTE_SECONDS, head_later, root_jobmgr) != -1)) {
 		char time_string[100];
 		size_t time_string_len;
@@ -5867,9 +5864,6 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		} else if (inval) {
 			if (j->start_interval == 0) {
 				runtime_add_weak_ref();
-			} else {
-				/* Workaround 5225889 */
-				job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, j) != -1);
 			}
 			j->start_interval = inval;
 			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, j) != -1);

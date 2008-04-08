@@ -840,6 +840,12 @@ kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t 
 	case EVFILT_READ:
 	case EVFILT_WRITE:
 		break;
+	case EVFILT_TIMER:
+		/* Workaround 5225889 */
+		if (flags & EV_ADD) {
+			kevent_mod(ident, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+		}
+		/* fall through */
 	default:
 		flags |= EV_CLEAR;
 		break;
