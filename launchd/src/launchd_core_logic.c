@@ -308,6 +308,7 @@ static jobmgr_t jobmgr_do_garbage_collection(jobmgr_t jm);
 static bool jobmgr_label_test(jobmgr_t jm, const char *str);
 static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
 static void jobmgr_log_stray_children(jobmgr_t jm);
+static void jobmgr_kill_stray_child(jobmgr_t jm, pid_t p);
 static void jobmgr_remove(jobmgr_t jm);
 static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
 static job_t jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag);
@@ -595,6 +596,8 @@ job_stop(job_t j)
 		if (j->exit_timeout) {
 			job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
 						EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
+		} else {
+			job_log(j, LOG_DEBUG, "This job has an infinite exit timeout");
 		}
 
 		if (j->kill_via_shmem) {
@@ -2193,11 +2196,9 @@ job_log_stray_pg(job_t j)
 	size_t i, kp_cnt, len = sizeof(struct kinfo_proc) * get_kern_max_proc();
 	struct kinfo_proc *kp;
 
-#if TARGET_OS_EMBEDDED
 	if (!do_apple_internal_logging) {
 		return;
 	}
-#endif
 
 	runtime_ktrace(RTKT_LAUNCHD_FINDING_STRAY_PG, j->p, 0, 0);
 
@@ -3063,11 +3064,10 @@ job_log_pids_with_weird_uids(job_t j)
 	struct kinfo_proc *kp;
 	uid_t u = j->mach_uid;
 
-#if TARGET_OS_EMBEDDED
 	if (!do_apple_internal_logging) {
 		return;
 	}
-#endif
+
 	kp = malloc(len);
 
 	if (!job_assumes(j, kp != NULL)) {
@@ -4629,17 +4629,59 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 }
 
 void
+jobmgr_kill_stray_child(jobmgr_t jm, pid_t p)
+{
+	struct timespec ts = { 2, 0 };
+	uint64_t start, end, nanosec;
+	struct kevent kev;
+	int r, kq = kqueue();
+
+	if (!jobmgr_assumes(jm, kq != -1)) {
+		return;
+	}
+
+	EV_SET(&kev, p, EVFILT_PROC, EV_ADD, 0, 0, 0);
+
+	if (!jobmgr_assumes(jm, kevent(kq, &kev, 1, NULL, 0, NULL) != -1)) {
+		goto out;
+	}
+
+	start = runtime_get_opaque_time();
+
+	if (!jobmgr_assumes(jm, runtime_kill(p, SIGTERM) != -1)) {
+		goto out;
+	}
+
+	r = kevent(kq, NULL, 0, &kev, 1, &ts);
+
+	if (!jobmgr_assumes(jm, r == 0 || r == 1)) {
+		goto out;
+	}
+
+	if (r == 0 && jobmgr_assumes(jm, runtime_kill(p, SIGKILL) != -1)) {
+		jobmgr_assumes(jm, kevent(kq, NULL, 0, &kev, 1, NULL) == 1);
+	}
+
+	end = runtime_get_opaque_time();
+
+	nanosec = runtime_opaque_time_to_nano(end - start);
+
+	jobmgr_log(jm, LOG_DEBUG, "PID %u died after %llu nanoseconds", p, nanosec);
+
+out:
+	jobmgr_assumes(jm, runtime_close(kq) != -1);
+}
+
+void
 jobmgr_log_stray_children(jobmgr_t jm)
 {
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
 	size_t i, kp_cnt = 0, kp_skipped = 0, len = sizeof(struct kinfo_proc) * get_kern_max_proc();
 	struct kinfo_proc *kp;
 
-#if TARGET_OS_EMBEDDED
 	if (!do_apple_internal_logging) {
 		return;
 	}
-#endif
 
 	if (likely(jm->parentmgr || !pid1_magic)) {
 		return;
@@ -4671,10 +4713,7 @@ jobmgr_log_stray_children(jobmgr_t jm)
 
 		jobmgr_log(jm, LOG_WARNING, "Stray %sprocess at shutdown: PID %u PPID %u PGID %u %s", z, p_i, pp_i, pg_i, n);
 
-		/*
-		 * The kernel team requested that launchd not do this for Leopard.
-		 * jobmgr_assumes(jm, runtime_kill(p_i, SIGKILL) != -1);
-		 */
+		jobmgr_kill_stray_child(jm, p_i);
 	}
 
 out:
