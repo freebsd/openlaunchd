@@ -2507,7 +2507,7 @@ job_kill(job_t j)
 	job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
 				EV_ADD, NOTE_SECONDS, LAUNCHD_SIGKILL_TIMER, j) != -1);
 
-	job_log(j, LOG_DEBUG, "Sent SIGKILL signal.");
+	job_log(j, LOG_DEBUG, "Sent SIGKILL signal");
 }
 
 void
