@@ -6253,7 +6253,7 @@ job_mig_register2(job_t j, name_t servicename, mach_port_t serviceport, uint64_t
 			job_log(j, LOG_DEBUG, "Mach service registration failed. Already active: %s", servicename);
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
-		if (ms->recv) {
+		if (ms->recv && (serviceport != MACH_PORT_NULL)) {
 			job_log(j, LOG_ERR, "bootstrap_register() erroneous called instead of bootstrap_check_in(). Mach service: %s", servicename);
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
