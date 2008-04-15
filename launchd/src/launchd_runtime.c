@@ -1036,7 +1036,7 @@ launchd_runtime2(mach_msg_size_t msg_size, mig_reply_error_t *bufRequest, mig_re
 
 		tmp_options = options;
 
-		/* It looks like the compiler doesn't optimize switch(unlikely(...)) */
+		/* It looks like the compiler doesn't optimize switch(unlikely(...)) See: 5691066 */
 		if (unlikely(mr)) switch (mr) {
 		case MACH_SEND_INVALID_DEST:
 		case MACH_SEND_TIMED_OUT:
