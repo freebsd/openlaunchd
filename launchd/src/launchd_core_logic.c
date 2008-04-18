@@ -387,14 +387,54 @@ struct job_s {
 	uint64_t start_time;
 	uint32_t min_run_time;
 	uint32_t start_interval;
-	bool checkedin:1, anonymous:1, debug:1, inetcompat:1, inetcompat_wait:1,
-		     ondemand:1, session_create:1, low_pri_io:1, no_init_groups:1, priv_port_has_senders:1,
-		     importing_global_env:1, importing_hard_limits:1, setmask:1, legacy_mach_job:1, start_pending:1,
-		     globargv:1, wait4debugger:1, internal_exc_handler:1, stall_before_exec:1, only_once:1,
-		     currently_ignored:1, forced_peers_to_demand_mode:1, setnice:1, hopefully_exits_last:1, removal_pending:1,
-		     legacy_LS_job:1, sent_sigkill:1, debug_before_kill:1, weird_bootstrap:1, start_on_mount:1,
-		     per_user:1, hopefully_exits_first:1, deny_unknown_mslookups:1, unload_at_mig_return:1, abandon_pg:1,
-		     poll_for_vfs_changes:1, deny_job_creation:1, kill_via_shmem:1, sent_kill_via_shmem:1;
+#if 0
+	/* someday ... */
+	enum {
+		J_TYPE_ANONYMOUS = 1,
+		J_TYPE_LANCHSERVICES,
+		J_TYPE_MACHINIT,
+		J_TYPE_INETD,
+	} j_type;
+#endif
+	bool debug:1,				/* man launchd.plist --> Debug */
+	     ondemand:1,			/* man launchd.plist --> KeepAlive == false */
+	     session_create:1,			/* man launchd.plist --> SessionCreate */
+	     low_pri_io:1,			/* man launchd.plist --> LowPriorityIO */
+	     no_init_groups:1,			/* man launchd.plist --> InitGroups */
+	     priv_port_has_senders:1,		/* a legacy mach_init concept to make bootstrap_create_server/service() work */
+	     importing_global_env:1,		/* a hack during job importing */
+	     importing_hard_limits:1,		/* a hack during job importing */
+	     setmask:1,				/* man launchd.plist --> Umask */
+	     anonymous:1,			/* a process that launchd knows about, but isn't managed by launchd */
+	     checkedin:1,			/* a legacy mach_init concept to detect sick jobs */
+	     legacy_mach_job:1,			/* a job created via bootstrap_create_server() */
+	     legacy_LS_job:1,			/* a job created via spawn_via_launchd() */
+	     inetcompat:1,			/* a legacy job that wants inetd compatible semantics */
+	     inetcompat_wait:1,			/* a twist on inetd compatibility */
+	     start_pending:1,			/* an event fired and the job should start, but not necessarily right away */
+	     globargv:1,			/* man launchd.plist --> EnableGlobbing */
+	     wait4debugger:1,			/* man launchd.plist --> WaitForDebugger */
+	     internal_exc_handler:1,		/* MachExceptionHandler == true */
+	     stall_before_exec:1,		/* a hack to support an option of spawn_via_launchd() */
+	     only_once:1,			/* man launchd.plist --> LaunchOnlyOnce. Note: 5465184 Rename this to "HopefullyNeverExits" */
+	     currently_ignored:1,		/* Make job_ignore() /  job_watch() work. If these calls were balanced, then this wouldn't be necessarily. */
+	     forced_peers_to_demand_mode:1,	/* A job that forced all other jobs to be temporarily launch-on-demand */
+	     setnice:1,				/* man launchd.plist --> Nice */
+	     hopefully_exits_last:1,		/* man launchd.plist --> HopefullyExitsLast */
+	     removal_pending:1,			/* a job was asked to be unloaded/removed while running, we'll remove it after it exits */
+	     sent_sigkill:1,			/* job_kill() was called */
+	     debug_before_kill:1,		/* enter the kernel debugger before killing a job */
+	     weird_bootstrap:1,			/* a hack that launchd+launchctl use during jobmgr_t creation */
+	     start_on_mount:1,			/* man launchd.plist --> StartOnMount */
+	     per_user:1,			/* This job is a per-user launchd managed by the PID 1 launchd */
+	     hopefully_exits_first:1,		/* man launchd.plist --> HopefullyExitsFirst */
+	     deny_unknown_mslookups:1,		/* A flag for changing the behavior of bootstrap_look_up() */
+	     unload_at_mig_return:1,		/* A job thoroughly confused launchd. We need to unload it ASAP */
+	     abandon_pg:1,			/* man launchd.plist --> AbandonProcessGroup */
+	     poll_for_vfs_changes:1,		/* a hack to work around the fact that kqueues don't work on all filesystems */
+	     deny_job_creation:1,		/* Don't let this job create new 'job_t' objects in launchd */
+	     kill_via_shmem:1,			/* man launchd.plist --> EnableTransactions */
+	     sent_kill_via_shmem:1;		/* We need to 'kill_via_shmem' once-and-only-once */
 	mode_t mask;
 	const char label[0];
 };
