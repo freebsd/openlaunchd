@@ -46,6 +46,7 @@ __BEGIN_DECLS
 #define LAUNCH_KEY_BATCHCONTROL		"BatchControl"
 #define LAUNCH_KEY_BATCHQUERY		"BatchQuery"
 
+#define LAUNCH_JOBKEY_TRANSACTIONCOUNT	"TransactionCount"
 #define LAUNCH_JOBKEY_QUARANTINEDATA	"QuarantineData"
 #define LAUNCH_JOBKEY_SANDBOXPROFILE	"SandboxProfile"
 #define LAUNCH_JOBKEY_SANDBOXFLAGS	"SandboxFlags"

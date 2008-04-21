@@ -132,17 +132,12 @@ _vproc_standby_timeout(void)
 void
 _vproc_transaction_try_exit(int status)
 {
-	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
-
 	if (unlikely(vproc_shmem == NULL)) {
 		return;
 	}
 
-	vproc_shmem->vp_shmem_flags |= VPROC_SHMEM_EXITING;
-
-	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
-
-	if (newval < 0) {
+	if (__sync_bool_compare_and_swap(&vproc_shmem->vp_shmem_transaction_cnt, 0, -1)) {
+		vproc_shmem->vp_shmem_flags |= VPROC_SHMEM_EXITING;
 		_exit(status);
 	}
 }

@@ -701,6 +701,24 @@ job_export(job_t j)
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_PROGRAMARGUMENTS);
 	}
 
+	if (j->kill_via_shmem && (tmp = launch_data_new_bool(true))) {
+		uint32_t tmp_cnt = -1;
+
+		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_ENABLETRANSACTIONS);
+
+		if (j->shmem) {
+			tmp_cnt = j->shmem->vp_shmem_transaction_cnt;
+		}
+
+		if (j->sent_kill_via_shmem) {
+			tmp_cnt++;
+		}
+
+		if ((tmp = launch_data_new_integer(tmp_cnt))) {
+			launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_TRANSACTIONCOUNT);
+		}
+	}
+
 	if (j->session_create && (tmp = launch_data_new_bool(true))) {
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_SESSIONCREATE);
 	}
@@ -5708,6 +5726,25 @@ job_mig_send_signal(job_t j, mach_port_t srp, name_t targetlabel, int sig)
 		} else {
 			return 0;
 		}
+	} else if (sig == VPROC_MAGIC_TRYKILL_SIGNAL) {
+		if (!j->kill_via_shmem) {
+			return BOOTSTRAP_NOT_PRIVILEGED;
+		}
+
+		if (!j->shmem) {
+			j->sent_kill_via_shmem = true;
+			job_assumes(j, runtime_kill(otherj->p, SIGKILL) != -1);
+			return 0;
+		}
+
+		if (__sync_bool_compare_and_swap(&j->shmem->vp_shmem_transaction_cnt, 0, -1)) {
+			j->shmem->vp_shmem_flags |= VPROC_SHMEM_EXITING;
+			j->sent_kill_via_shmem = true;
+			job_assumes(j, runtime_kill(otherj->p, SIGKILL) != -1);
+			return 0;
+		}
+
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	} else if (otherj->p) {
 		job_assumes(j, runtime_kill(otherj->p, sig) != -1);
 	}
