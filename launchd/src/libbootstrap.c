@@ -37,7 +37,20 @@
 kern_return_t
 bootstrap_create_server(mach_port_t bp, cmd_t server_cmd, uid_t server_uid, boolean_t on_demand, mach_port_t *server_port)
 {
-	return vproc_mig_create_server(bp, server_cmd, server_uid, on_demand, server_port);
+	kern_return_t kr;
+
+	kr = vproc_mig_create_server(bp, server_cmd, server_uid, on_demand, server_port);
+
+	if (kr == VPROC_ERR_TRY_PER_USER) {
+		mach_port_t puc;
+
+		if (vproc_mig_lookup_per_user_context(bp, 0, &puc) == 0) {
+			kr = vproc_mig_create_server(puc, server_cmd, server_uid, on_demand, server_port);
+			mach_port_deallocate(mach_task_self(), puc);
+		}
+	}
+
+	return kr;
 }
 
 kern_return_t

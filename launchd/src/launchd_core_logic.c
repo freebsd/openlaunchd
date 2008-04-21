@@ -5650,18 +5650,12 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
 
-#define LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
-	/* XXX - This code should go away once the per session launchd is integrated with the rest of the system */
-#ifdef LET_MERE_MORTALS_ADD_SERVERS_TO_PID1
 	if (pid1_magic) {
-		if (unlikely(ldc->euid && server_uid && (ldc->euid != server_uid))) {
-			job_log(j, LOG_WARNING, "Server create: \"%s\": Will run as UID %d, not UID %d as they told us to",
-					server_cmd, ldc->euid, server_uid);
-			server_uid = ldc->euid;
+		if (ldc->euid || ldc->uid) {
+			job_log(j, LOG_WARNING, "Server create attempt moved to per-user launchd: %s", server_cmd);
+			return VPROC_ERR_TRY_PER_USER;
 		}
-	} else
-#endif
-	if (getuid()) {
+	} else {
 		if (unlikely(server_uid != getuid())) {
 			job_log(j, LOG_WARNING, "Server create: \"%s\": As UID %d, we will not be able to switch to UID %d",
 					server_cmd, getuid(), server_uid);
