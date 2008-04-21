@@ -702,7 +702,7 @@ job_export(job_t j)
 	}
 
 	if (j->kill_via_shmem && (tmp = launch_data_new_bool(true))) {
-		uint32_t tmp_cnt = -1;
+		int32_t tmp_cnt = -1;
 
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_ENABLETRANSACTIONS);
 
