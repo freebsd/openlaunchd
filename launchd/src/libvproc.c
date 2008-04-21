@@ -66,12 +66,14 @@ vproc_shmem_init(void)
 
 	kr = vproc_mig_setup_shmem(bootstrap_port, &shmem_port);
 
-	assert(kr == 0);
+	//assert(kr == 0);
+	if (kr) return;
 
 	kr = vm_map(mach_task_self(), &vm_addr, getpagesize(), 0, true, shmem_port, 0, false,
 			VM_PROT_READ|VM_PROT_WRITE, VM_PROT_READ|VM_PROT_WRITE, VM_INHERIT_NONE);
 
-	assert(kr == 0);
+	//assert(kr == 0);
+	if (kr) return;
 
 	vproc_shmem = (struct vproc_shmem_s *)vm_addr;
 }
