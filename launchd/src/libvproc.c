@@ -75,6 +75,10 @@ vproc_shmem_init(void)
 	//assert(kr == 0);
 	if (kr) return;
 
+	kr = mach_port_deallocate(mach_task_self(), shmem_port);
+
+	//assert(kr == 0);
+
 	vproc_shmem = (struct vproc_shmem_s *)vm_addr;
 }
 
