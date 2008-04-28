@@ -6374,7 +6374,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 	}
 
 	if (likely(ms)) {
-		if (machservice_hidden(ms) && !job_active(machservice_job(ms))) {
+		if (machservice_hidden(ms) && !machservice_active(ms)) {
 			ms = NULL;
 		} else if (unlikely(ms->per_user_hack)) {
 			ms = NULL;
