@@ -169,19 +169,46 @@ bootstrap_look_up(mach_port_t bp, name_t service_name, mach_port_t *sp)
 kern_return_t
 bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t target_pid, uint64_t flags)
 {
-	kern_return_t kr;
+	static pthread_mutex_t bslu2_lock = PTHREAD_MUTEX_INITIALIZER;
+	static mach_port_t prev_bp;
+	static mach_port_t prev_sp;
+	static name_t prev_name;
+	kern_return_t kr = 0;
 	mach_port_t puc;
 
+	pthread_mutex_lock(&bslu2_lock);
+
+	if (prev_sp) {
+	       	if ((bp == prev_bp) && (strncmp(prev_name, service_name, sizeof(name_t)) == 0)
+				&& (mach_port_mod_refs(mach_task_self(), prev_sp, MACH_PORT_RIGHT_SEND, 1) == 0)) {
+			*sp = prev_sp;
+			goto out;
+		} else {
+			mach_port_deallocate(mach_task_self(), prev_sp);
+			prev_sp = 0;
+		}
+	}
+
 	if ((kr = vproc_mig_look_up2(bp, service_name, sp, target_pid, flags)) != VPROC_ERR_TRY_PER_USER) {
-		return kr;
+		goto out;
 	}
 
 	if ((kr = vproc_mig_lookup_per_user_context(bp, 0, &puc)) != 0) {
-		return kr;
+		goto out;
 	}
 
 	kr = vproc_mig_look_up2(puc, service_name, sp, target_pid, flags);
 	mach_port_deallocate(mach_task_self(), puc);
+
+out:
+	if (kr == 0 && prev_sp == 0 && mach_port_mod_refs(mach_task_self(), *sp, MACH_PORT_RIGHT_SEND, 1) == 0) {
+		/* We're going to hold on to a send right as a MRU cache */
+		prev_bp = bp;
+		prev_sp = *sp;
+		strlcpy(prev_name, service_name, sizeof(name_t));
+	}
+
+	pthread_mutex_unlock(&bslu2_lock);
 
 	return kr;
 }
