@@ -2433,6 +2433,8 @@ job_reap(job_t j)
 	j->last_exit_status = status;
 	j->sent_sigkill = false;
 	j->sent_kill_via_shmem = false;
+	j->lastlookup = NULL;
+	j->lastlookup_gennum = 0;
 	j->p = 0;
 
 	/*
