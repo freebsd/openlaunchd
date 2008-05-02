@@ -324,8 +324,6 @@ static void jobmgr_log(jobmgr_t jm, int pri, const char *msg, ...) __attribute__
 /* static void jobmgr_log_error(jobmgr_t jm, int pri, const char *msg, ...) __attribute__((format(printf, 3, 4))); */
 static void jobmgr_log_bug(jobmgr_t jm, unsigned int line);
 
-#define DO_RUSAGE_SUMMATION 0
-
 #define AUTO_PICK_LEGACY_LABEL (const char *)(~0)
 
 struct job_s {
@@ -343,9 +341,7 @@ struct job_s {
 	SLIST_HEAD(, machservice) machservices;
 	SLIST_HEAD(, semaphoreitem) semaphores;
 	SLIST_HEAD(, waiting_for_removal) removal_watchers;
-#if DO_RUSAGE_SUMMATION
 	struct rusage ru;
-#endif
 	cpu_type_t *j_binpref;
 	size_t j_binpref_cnt;
 	mach_port_t j_port;
@@ -921,7 +917,6 @@ job_remove(job_t j)
 
 	ipc_close_all_with_job(j);
 
-#if DO_RUSAGE_SUMMATION
 	job_log(j, LOG_INFO, "Total rusage: utime %ld.%06u stime %ld.%06u maxrss %lu ixrss %lu idrss %lu isrss %lu minflt %lu majflt %lu nswap %lu inblock %lu oublock %lu msgsnd %lu msgrcv %lu nsignals %lu nvcsw %lu nivcsw %lu",
 			j->ru.ru_utime.tv_sec, j->ru.ru_utime.tv_usec,
 			j->ru.ru_stime.tv_sec, j->ru.ru_stime.tv_usec,
@@ -930,7 +925,6 @@ job_remove(job_t j)
 			j->ru.ru_nswap, j->ru.ru_inblock, j->ru.ru_oublock,
 			j->ru.ru_msgsnd, j->ru.ru_msgrcv,
 			j->ru.ru_nsignals, j->ru.ru_nvcsw, j->ru.ru_nivcsw);
-#endif
 
 	if (j->forced_peers_to_demand_mode) {
 		job_set_global_on_demand(j, false);
@@ -2393,7 +2387,6 @@ job_reap(job_t j)
 		job_log(j, LOG_INFO, "Exited %lld.%06lld seconds after %s was sent", td_sec, td_usec, signal_to_C_name(SIGTERM));
 	}
 
-#if DO_RUSAGE_SUMMATION
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
 	timeradd(&ru.ru_stime, &j->ru.ru_stime, &j->ru.ru_stime);
 	j->ru.ru_maxrss += ru.ru_maxrss;
@@ -2410,7 +2403,6 @@ job_reap(job_t j)
 	j->ru.ru_nsignals += ru.ru_nsignals;
 	j->ru.ru_nvcsw += ru.ru_nvcsw;
 	j->ru.ru_nivcsw += ru.ru_nivcsw;
-#endif
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
 		job_log(j, LOG_WARNING, "Exited with exit code: %d", WEXITSTATUS(status));
@@ -3171,7 +3163,6 @@ job_postfork_test_user(job_t j)
 {
 	/* This function is all about 5201578 */
 
-	const char *shell_env_var = getenv("SHELL");
 	const char *home_env_var = getenv("HOME");
 	const char *user_env_var = getenv("USER");
 	const char *logname_env_var = getenv("LOGNAME");
@@ -3183,7 +3174,7 @@ job_postfork_test_user(job_t j)
 	struct passwd *pwe;
 
 
-	if (!job_assumes(j, shell_env_var && home_env_var && user_env_var && logname_env_var
+	if (!job_assumes(j, home_env_var && user_env_var && logname_env_var
 				&& strcmp(user_env_var, logname_env_var) == 0)) {
 		goto out_bad;
 	}
@@ -3208,10 +3199,6 @@ job_postfork_test_user(job_t j)
 	strlcpy(loginname, pwe->pw_name, sizeof(loginname));
 	strlcpy(homedir, pwe->pw_dir, sizeof(homedir));
 
-	if (strcmp(shellpath, shell_env_var) != 0) {
-		job_log(j, LOG_ERR, "The %s environmental variable changed out from under us!", "SHELL");
-		goto out_bad;
-	}
 	if (strcmp(loginname, logname_env_var) != 0) {
 		job_log(j, LOG_ERR, "The %s environmental variable changed out from under us!", "USER");
 		goto out_bad;
@@ -3233,8 +3220,12 @@ job_postfork_test_user(job_t j)
 
 	return;
 out_bad:
+#if 0
 	job_assumes(j, runtime_kill(getppid(), SIGTERM) != -1);
 	_exit(EXIT_FAILURE);
+#else
+	job_log(j, LOG_WARNING, "In a future build of the OS, this error will be fatal.");
+#endif
 }
 
 void
