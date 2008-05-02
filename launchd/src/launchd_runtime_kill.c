@@ -18,40 +18,27 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-#if defined(__LP64__)
-/* ??? No way to get the old behavior */
-#define old_kill(x, y) kill(x, y)
-#define old_killpg(x, y) kill(-(x), y)
-#elif defined(__arm__)
-/* ??? No blessed way to get the old behavior */
-extern int __kill(int, int, int);
-#define old_kill(x, y) __kill(x, y, 0)
-#define old_killpg(x, y) __kill(-(x), y, 0)
-#else
-#define _NONSTD_SOURCE 1
-#define old_kill(x, y) kill(x, y)
-#define old_killpg(x, y) killpg(x, y)
-#endif
+#include <sys/syscall.h>
+#include <unistd.h>
 #include <signal.h>
 
 #include "launchd_runtime_kill.h"
 
-/*
- * POSIX defines consistency over correctness, and consequently kill/killpg now
- * returns EPERM instead of ESRCH.
- *
- * I've filed 5487498 to get a non-portable kill() variant, but for now,
- * defining _NONSTD_SOURCE gets us the old behavior.
- */
-
 int
 runtime_kill(pid_t pid, int sig)
 {
-	return old_kill(pid, sig);
+	/*
+	 * POSIX defines consistency over correctness, and consequently
+	 * kill/killpg now returns EPERM instead of ESRCH.
+	 *
+	 * I've filed 5487498 to get a non-portable kill().
+	 * We'll regretfully take advantage of implementation details for now.
+	 */
+	return syscall(SYS_kill, pid, sig, 0);
 }
 
 int
 runtime_killpg(pid_t pgrp, int sig)
 {
-	return old_killpg(pgrp, sig);
+	return runtime_kill(-pgrp, sig);
 }
