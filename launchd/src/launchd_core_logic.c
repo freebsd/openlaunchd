@@ -475,7 +475,7 @@ static void job_callback_proc(job_t j, int fflags);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static void job_log_stray_pg(job_t j);
-static void job_log_chidren_without_exec(job_t j);
+static void job_log_children_without_exec(job_t j);
 static job_t job_new_anonymous(jobmgr_t jm, pid_t anonpid) __attribute__((malloc, nonnull, warn_unused_result));
 static job_t job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *argv) __attribute__((malloc, nonnull(1,2), warn_unused_result));
 static job_t job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond) __attribute__((malloc, nonnull, warn_unused_result));
@@ -2564,7 +2564,7 @@ job_kill(job_t j)
 }
 
 void
-job_log_chidren_without_exec(job_t j)
+job_log_children_without_exec(job_t j)
 {
 	/* <rdar://problem/5701343> ER: Add a KERN_PROC_PPID sysctl */
 #ifdef KERN_PROC_PPID
@@ -2599,7 +2599,7 @@ job_log_chidren_without_exec(job_t j)
 			continue;
 		}
 
-		job_log(j, LOG_APPLEONLY, "Performance and sanity: fork() without exec*(). Please switch to posix_spawn(). Child PID %u",
+		job_log(j, LOG_APPLEONLY, "Called *fork(). Please switch to posix_spawn*(), pthreads or launchd. Child PID %u",
 				kp[i].kp_proc.p_pid);
 	}
 
@@ -2641,7 +2641,7 @@ job_callback_proc(job_t j, int fflags)
 
 	if (fflags & NOTE_FORK) {
 		job_log(j, LOG_DEBUG, "fork()ed%s", program_changed ? ". For this message only: We don't know whether this event happened before or after execve()." : "");
-		job_log_chidren_without_exec(j);
+		job_log_children_without_exec(j);
 	}
 
 	if (fflags & NOTE_EXIT) {
