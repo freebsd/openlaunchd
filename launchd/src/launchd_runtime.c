@@ -37,6 +37,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <mach/exception.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/proc.h>
 #include <sys/event.h>
@@ -147,6 +148,7 @@ launchd_runtime_init(void)
 {
 	mach_msg_size_t mxmsgsz;
 	pthread_attr_t attr;
+	pid_t p = getpid();
 
 	launchd_assert((mainkq = kqueue()) != -1);
 
@@ -175,6 +177,8 @@ launchd_runtime_init(void)
 	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
 	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
 	pthread_attr_destroy(&attr);
+
+	launchd_assumes(sysctlbyname("vfs.generic.noremotehang", NULL, NULL, &p, sizeof(p)) != -1);
 }
 
 INTERNAL_ABI void
@@ -731,6 +735,9 @@ runtime_fork(mach_port_t bsport)
 		launchd_assumes(sigprocmask(SIG_SETMASK, &oset, NULL) != -1);
 		launchd_assumes(launchd_set_bport(MACH_PORT_NULL) == KERN_SUCCESS);
 	} else {
+		pid_t p = -getpid();
+		launchd_assumes(sysctlbyname("vfs.generic.noremotehang", NULL, NULL, &p, sizeof(p)) != -1);
+
 		launchd_assumes(sigprocmask(SIG_SETMASK, &emptyset, NULL) != -1);
 	}
 
