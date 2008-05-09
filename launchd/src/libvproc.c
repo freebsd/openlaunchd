@@ -164,6 +164,10 @@ _vproc_transaction_end(void)
 {
 	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
 
+	if (unlikely(vproc_shmem == NULL)) {
+		return;
+	}
+
 	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
 
 	if (unlikely(newval < 0)) {
