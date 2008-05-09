@@ -99,8 +99,17 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "job_reply.h"
 #include "job_forward.h"
 
+/*
+ * LAUNCHD_SAMPLE_TIMEOUT
+ *   If the job hasn't exited in the given number of seconds after sending
+ *   it a SIGTERM, start sampling it.
+ * LAUNCHD_DEFAULT_EXIT_TIMEOUT
+ *   If the job hasn't exited in the given number of seconds after sending
+ *   it a SIGTERM, SIGKILL it. Can be overriden in the job plist.
+ */
 #define LAUNCHD_MIN_JOB_RUN_TIME 10
-#define LAUNCHD_DEFAULT_EXIT_TIMEOUT 2
+#define LAUNCHD_SAMPLE_TIMEOUT 2
+#define LAUNCHD_DEFAULT_EXIT_TIMEOUT 20
 #define LAUNCHD_SIGKILL_TIMER 5
 
 #define SHUTDOWN_LOG_DIR "/var/log/shutdown"
@@ -413,12 +422,13 @@ struct job_s {
 	     internal_exc_handler:1,		/* MachExceptionHandler == true */
 	     stall_before_exec:1,		/* a hack to support an option of spawn_via_launchd() */
 	     only_once:1,			/* man launchd.plist --> LaunchOnlyOnce. Note: 5465184 Rename this to "HopefullyNeverExits" */
-	     currently_ignored:1,		/* Make job_ignore() /  job_watch() work. If these calls were balanced, then this wouldn't be necessarily. */
+	     currently_ignored:1,		/* Make job_ignore() / job_watch() work. If these calls were balanced, then this wouldn't be necessarily. */
 	     forced_peers_to_demand_mode:1,	/* A job that forced all other jobs to be temporarily launch-on-demand */
 	     setnice:1,				/* man launchd.plist --> Nice */
 	     hopefully_exits_last:1,		/* man launchd.plist --> HopefullyExitsLast */
 	     removal_pending:1,			/* a job was asked to be unloaded/removed while running, we'll remove it after it exits */
 	     sent_sigkill:1,			/* job_kill() was called */
+	     sampled:1,				/* job_force_sampletool() was called (or is disabled) */
 	     debug_before_kill:1,		/* enter the kernel debugger before killing a job */
 	     weird_bootstrap:1,			/* a hack that launchd+launchctl use during jobmgr_t creation */
 	     start_on_mount:1,			/* man launchd.plist --> StartOnMount */
@@ -627,12 +637,27 @@ job_stop(job_t j)
 	if (newval < 0) {
 		job_kill(j);
 	} else {
+		/*
+		 * If sampling is enabled and SAMPLE_TIMEOUT is earlier than the job exit_timeout,
+		 * then set a timer for SAMPLE_TIMEOUT seconds after killing
+		 */
+		unsigned int exit_timeout = j->exit_timeout;
+		bool do_sample = do_apple_internal_logging;
+		unsigned int timeout = exit_timeout;
+
+		if (do_sample && (!exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < exit_timeout))) {
+			timeout = LAUNCHD_SAMPLE_TIMEOUT;
+		}
+
 		job_assumes(j, runtime_kill(j->p, SIGTERM) != -1);
 
-		if (j->exit_timeout) {
+		if (timeout) {
+			j->sampled = !do_sample;
 			job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
-						EV_ADD|EV_ONESHOT, NOTE_SECONDS, j->exit_timeout, j) != -1);
-		} else {
+						EV_ADD|EV_ONESHOT, NOTE_SECONDS, timeout, j) != -1);
+		}
+
+		if (!exit_timeout) {
 			job_log(j, LOG_DEBUG, "This job has an infinite exit timeout");
 		}
 
@@ -2424,6 +2449,7 @@ job_reap(job_t j)
 	}
 	j->last_exit_status = status;
 	j->sent_sigkill = false;
+	j->sampled = false;
 	j->sent_kill_via_shmem = false;
 	j->lastlookup = NULL;
 	j->lastlookup_gennum = 0;
@@ -2671,20 +2697,39 @@ job_callback_timer(job_t j, void *ident)
 		j->start_pending = true;
 		job_dispatch(j, false);
 	} else if (&j->exit_timeout == ident) {
+		/*
+		 * This block might be executed up to 3 times for a given (slow) job
+		 *  - once for the SAMPLE_TIMEOUT timer, at which point sampling is triggered
+		 *  - once for the exit_timeout timer, at which point:
+		 *          - sampling is performed if not triggered previously
+		 *          - SIGKILL is being sent to the job
+		 *  - once for the SIGKILL_TIMER timer, at which point we log an issue
+		 *    with the long SIGKILL
+		 */
 		if (j->sent_sigkill) {
 			uint64_t td = runtime_get_nanoseconds_since(j->sent_sigterm_time);
 
 			td /= NSEC_PER_SEC;
 			td -= j->exit_timeout;
 
-			job_log(j, LOG_ERR, "Did not die after sending SIGKILL %llu seconds ago...", td);
-		} else {
+			job_log(j, LOG_WARNING, "Did not die after sending SIGKILL %llu seconds ago...", td);
+		} else if (!j->sampled && (!j->exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < j->exit_timeout))) {
+			/* This should work even if the job changes its exit_timeout midstream */
+			job_log(j, LOG_NOTICE, "Sampling timeout elapsed (%u seconds). Sampling...", LAUNCHD_SAMPLE_TIMEOUT);
+			if (j->exit_timeout) {
+				unsigned int ttk = (j->exit_timeout - LAUNCHD_SAMPLE_TIMEOUT);
+				job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
+							EV_ADD|EV_ONESHOT, NOTE_SECONDS, ttk, j) != -1);
+				job_log(j, LOG_NOTICE, "Scheduled new exit timeout for %u seconds later", ttk);
+			}
 			job_force_sampletool(j);
+		} else {
+			job_force_sampletool(j); /* no-op if already done in previous pass */
 			if (unlikely(j->debug_before_kill)) {
-				job_log(j, LOG_NOTICE, "Exit timeout elapsed. Entering the kernel debugger.");
+				job_log(j, LOG_NOTICE, "Exit timeout elapsed. Entering the kernel debugger");
 				job_assumes(j, host_reboot(mach_host_self(), HOST_REBOOT_DEBUGGER) == KERN_SUCCESS);
 			}
-			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing.", j->exit_timeout);
+			job_log(j, LOG_WARNING, "Exit timeout elapsed (%u seconds). Killing", j->exit_timeout);
 			job_kill(j);
 		}
 	} else {
@@ -3394,7 +3439,7 @@ job_setup_attributes(job_t j)
 	if (j->stdin_fd) {
 		job_assumes(j, dup2(j->stdin_fd, STDIN_FILENO) != -1);
 	} else {
-		job_setup_fd(j, STDIN_FILENO,  j->stdinpath,  O_RDONLY|O_CREAT);
+		job_setup_fd(j, STDIN_FILENO, j->stdinpath, O_RDONLY|O_CREAT);
 	}
 	job_setup_fd(j, STDOUT_FILENO, j->stdoutpath, O_WRONLY|O_CREAT|O_APPEND);
 	job_setup_fd(j, STDERR_FILENO, j->stderrpath, O_WRONLY|O_CREAT|O_APPEND);
@@ -5206,10 +5251,15 @@ job_force_sampletool(job_t j)
 	int wstatus;
 	pid_t sp;
 
-	if (!do_apple_internal_logging) {
+	if (j->sampled) {
 		return;
 	}
-	
+	j->sampled = true;
+
+	if (!job_assumes(j, do_apple_internal_logging)) {
+		return;
+	}
+
 	if (!job_assumes(j, mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST)) {
 		return;
 	}
