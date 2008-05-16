@@ -5244,7 +5244,7 @@ job_force_sampletool(job_t j)
 	struct stat sb;
 	char logfile[PATH_MAX];
 	char pidstr[100];
-	char *sample_args[] = { "sample", pidstr, "1", "-mayDie", "-file", logfile, NULL };
+	char *sample_args[] = { "sample", pidstr, "1", "-unsupportedShowArch", "-mayDie", "-file", logfile, NULL };
 	char *contents = NULL;
 	int logfile_fd = -1;
 	int console_fd = -1;
