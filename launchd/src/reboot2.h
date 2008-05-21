@@ -26,6 +26,8 @@
 
 __BEGIN_DECLS
 
+#define RB2_FULLREBOOT	0x8000000000000000llu
+
 /* Returns NULL on success. Not NULL on failure */
 
 __attribute__((visibility("default"))) void *reboot2(uint64_t flags);

@@ -388,7 +388,7 @@ struct job_s {
 	unsigned int timeout;
 	unsigned int exit_timeout;
 	int stdout_err_fd;
-	uint64_t sent_sigterm_time;
+	uint64_t sent_signal_time;
 	uint64_t start_time;
 	uint32_t min_run_time;
 	uint32_t start_interval;
@@ -632,7 +632,7 @@ job_stop(job_t j)
 		}
 	}
 
-	j->sent_sigterm_time = runtime_get_opaque_time();
+	j->sent_signal_time = runtime_get_opaque_time();
 
 	if (newval < 0) {
 		job_kill(j);
@@ -662,7 +662,7 @@ job_stop(job_t j)
 		}
 
 		if (j->kill_via_shmem) {
-			snprintf(extralog, sizeof(extralog), ": %d remaining transactions", j->shmem->vp_shmem_transaction_cnt + 1);
+			snprintf(extralog, sizeof(extralog), ": %d remaining transactions", newval + 1);
 		} else {
 			extralog[0] = '\0';
 		}
@@ -2403,13 +2403,13 @@ job_reap(job_t j)
 		j->wait_reply_port = MACH_PORT_NULL;
 	}
 
-	if (j->sent_sigterm_time) {
-		uint64_t td_sec, td_usec, td = runtime_get_nanoseconds_since(j->sent_sigterm_time);
+	if (j->sent_signal_time) {
+		uint64_t td_sec, td_usec, td = runtime_get_nanoseconds_since(j->sent_signal_time);
 
 		td_sec = td / NSEC_PER_SEC;
 		td_usec = (td % NSEC_PER_SEC) / NSEC_PER_USEC;
 
-		job_log(j, LOG_INFO, "Exited %lld.%06lld seconds after %s was sent", td_sec, td_usec, signal_to_C_name(SIGTERM));
+		job_log(j, LOG_INFO, "Exited %llu.%06llu seconds after the first signal was sent", td_sec, td_usec);
 	}
 
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
@@ -2448,6 +2448,7 @@ job_reap(job_t j)
 		j->mgr->normal_active_cnt--;
 	}
 	j->last_exit_status = status;
+	j->sent_signal_time = 0;
 	j->sent_sigkill = false;
 	j->sampled = false;
 	j->sent_kill_via_shmem = false;
@@ -2707,7 +2708,7 @@ job_callback_timer(job_t j, void *ident)
 		 *    with the long SIGKILL
 		 */
 		if (j->sent_sigkill) {
-			uint64_t td = runtime_get_nanoseconds_since(j->sent_sigterm_time);
+			uint64_t td = runtime_get_nanoseconds_since(j->sent_signal_time);
 
 			td /= NSEC_PER_SEC;
 			td -= j->exit_timeout;
@@ -2888,8 +2889,6 @@ job_start(job_t j)
 		job_ignore(j);
 		return;
 	}
-
-	j->sent_sigterm_time = 0;
 
 	if (likely(!j->legacy_mach_job)) {
 		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
@@ -5251,9 +5250,10 @@ job_force_sampletool(job_t j)
 	int wstatus;
 	pid_t sp;
 
-	if (j->sampled) {
+	if (j->sampled || j->per_user) {
 		return;
 	}
+
 	j->sampled = true;
 
 	if (!job_assumes(j, do_apple_internal_logging)) {
@@ -7039,10 +7039,15 @@ job_mig_uncork_fork(job_t j)
 kern_return_t
 job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t target_service)
 {
+	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t target_j;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
+	}
+
+	if (unlikely(ldc->euid || ldc->uid)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
 	if (unlikely(!SLIST_EMPTY(&j->mspolicies))) {
