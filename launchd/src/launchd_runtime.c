@@ -602,33 +602,35 @@ kern_return_t
 x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 {
 	struct timespec ts = { 0, 0 };
-	struct kevent kev[BULK_KEV_MAX];
+	struct kevent *kevi, kev[BULK_KEV_MAX];
 	int i;
 
 	bulk_kev = kev;
 
 	if (launchd_assumes((bulk_kev_cnt = kevent(fd, NULL, 0, kev, BULK_KEV_MAX, &ts)) != -1)) {
-#if 0
-		Dl_info dli;
-
-		if (launchd_assumes(malloc_size(kev.udata) || dladdr(kev.udata, &dli))) {
-#endif
 		for (i = 0; i < bulk_kev_cnt; i++) {
 			log_kevent_struct(LOG_DEBUG, kev, i);
 		}
 		for (i = 0; i < bulk_kev_cnt; i++) {
 			bulk_kev_i = i;
-			if (kev[i].filter) {
-				runtime_ktrace(RTKT_LAUNCHD_BSD_KEVENT|DBG_FUNC_START, kev[i].ident, kev[i].filter, kev[i].fflags);
-				(*((kq_callback *)kev[i].udata))(kev[i].udata, &kev[i]);
+			kevi = &kev[i];
+
+			if (kevi->filter) {
+#if 1
+				Dl_info dli;
+
+				if (launchd_assumes(malloc_size(kevi->udata) || dladdr(kevi->udata, &dli))) {
+#endif
+				runtime_ktrace(RTKT_LAUNCHD_BSD_KEVENT|DBG_FUNC_START, kevi->ident, kevi->filter, kevi->fflags);
+				(*((kq_callback *)kevi->udata))(kevi->udata, kevi);
 				runtime_ktrace0(RTKT_LAUNCHD_BSD_KEVENT|DBG_FUNC_END);
+#if 1
+				} else {
+					log_kevent_struct(LOG_EMERG, kevi, 0);
+				}
+#endif
 			}
 		}
-#if 0
-		} else {
-			log_kevent_struct(LOG_ERR, &kev, 0);
-		}
-#endif
 	}
 
 	bulk_kev = NULL;
