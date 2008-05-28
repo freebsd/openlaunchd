@@ -7046,7 +7046,7 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (unlikely(ldc->euid || ldc->uid)) {
+	if (ldc->euid && (ldc->euid != getuid())) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
