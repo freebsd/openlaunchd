@@ -81,7 +81,7 @@ int main(int argc __attribute__((unused)), char *argv[])
 {
 	struct timespec timeout = { 10, 0 };
 	struct sockaddr_storage ss;
-	socklen_t slen = sizeof(ss);
+	socklen_t slen = (socklen_t)sizeof ss;
 	struct kevent kev;
 	int r, ec = EXIT_FAILURE;
 	launch_data_t tmp, resp, msg = launch_data_alloc(LAUNCH_DATA_STRING);
@@ -143,17 +143,17 @@ int main(int argc __attribute__((unused)), char *argv[])
 		}
 
 		if (w) {
-			dup2(kev.ident, STDIN_FILENO);
+			dup2((int)kev.ident, STDIN_FILENO);
 			if (dupstdout)
-				dup2(kev.ident, STDOUT_FILENO);
+				dup2((int)kev.ident, STDOUT_FILENO);
 			if (dupstderr)
-				dup2(kev.ident, STDERR_FILENO);
+				dup2((int)kev.ident, STDERR_FILENO);
 			execv(prog, argv + 1);
 			syslog(LOG_ERR, "execv(): %m");
 			exit(EXIT_FAILURE);
 		}
 
-		if ((r = accept(kev.ident, (struct sockaddr *)&ss, &slen)) == -1) {
+		if ((r = accept((int)kev.ident, (struct sockaddr *)&ss, &slen)) == -1) {
 			if (errno == EWOULDBLOCK)
 				continue;
 			syslog(LOG_DEBUG, "accept(): %m");
@@ -165,8 +165,8 @@ int main(int argc __attribute__((unused)), char *argv[])
 				int gni_r;
 
 				gni_r = getnameinfo((struct sockaddr *)&ss, slen,
-						fromhost, sizeof(fromhost),
-						fromport, sizeof(fromport),
+						fromhost, (socklen_t) sizeof fromhost,
+						fromport, (socklen_t) sizeof fromport,
 						NI_NUMERICHOST | NI_NUMERICSERV);
 
 				if (gni_r) {

@@ -96,7 +96,7 @@ struct load_unload_state {
 	launch_data_t pass1;
 	launch_data_t pass2;
 	char *session_type;
-	unsigned int editondisk:1, load:1, forceload:1, __pad:29;
+	bool editondisk:1, load:1, forceload:1;
 };
 
 static void myCFDictionaryApplyFunction(const void *key, const void *value, void *context);
@@ -319,7 +319,8 @@ read_launchd_conf(void)
 {
 	char s[1000], *c, *av[100];
 	const char *file;
-	size_t len, i;
+	size_t len;
+	int i;
 	FILE *f;
 
 	if (getppid() == 1) {
@@ -332,7 +333,7 @@ read_launchd_conf(void)
 		return;
 	}
 
-	while ((c = fgets(s, sizeof(s), f))) {
+	while ((c = fgets(s, (int) sizeof s, f))) {
 		len = strlen(c);
 		if (len && c[len - 1] == '\n') {
 			c[len - 1] = '\0';
@@ -916,7 +917,7 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 				return;
 			}
 			oldmask = umask(S_IRWXG|S_IRWXO);
-			if (bind(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+			if (bind(sfd, (struct sockaddr *)&sun, (socklen_t) sizeof sun) == -1) {
 				close(sfd);
 				umask(oldmask);
 				return;
@@ -929,7 +930,7 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 				close(sfd);
 				return;
 			}
-		} else if (connect(sfd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+		} else if (connect(sfd, (struct sockaddr *)&sun, (socklen_t) sizeof sun) == -1) {
 			close(sfd);
 			return;
 		}
@@ -1003,17 +1004,17 @@ sock_dict_edit_entry(launch_data_t tmp, const char *key, launch_data_t fdarray, 
 
 			if (hints.ai_flags & AI_PASSIVE) {
 				if (AF_INET6 == res->ai_family && -1 == setsockopt(sfd, IPPROTO_IPV6, IPV6_V6ONLY,
-							(void *)&sock_opt, sizeof(sock_opt))) {
+							(void *)&sock_opt, (socklen_t) sizeof sock_opt)) {
 					fprintf(stderr, "setsockopt(IPV6_V6ONLY): %m");
 					return;
 				}
 				if (mgroup) {
-					if (setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
+					if (setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, (void *)&sock_opt, (socklen_t) sizeof sock_opt) == -1) {
 						fprintf(stderr, "setsockopt(SO_REUSEPORT): %s\n", strerror(errno));
 						return;
 					}
 				} else {
-					if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, sizeof(sock_opt)) == -1) {
+					if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&sock_opt, (socklen_t) sizeof sock_opt) == -1) {
 						fprintf(stderr, "setsockopt(SO_REUSEADDR): %s\n", strerror(errno));
 						return;
 					}
@@ -1108,7 +1109,7 @@ do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgrou
 		if (AF_INET == family) {
 			memset(&mreq, 0, sizeof(mreq));
 			mreq.imr_multiaddr = ((struct sockaddr_in *)res->ai_addr)->sin_addr;
-			if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) == -1) {
+			if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, (socklen_t) sizeof mreq) == -1) {
 				fprintf(stderr, "setsockopt(IP_ADD_MEMBERSHIP): %s\n", strerror(errno));
 				continue;
 			}
@@ -1116,7 +1117,7 @@ do_mgroup_join(int fd, int family, int socktype, int protocol, const char *mgrou
 		} else if (AF_INET6 == family) {
 			memset(&m6req, 0, sizeof(m6req));
 			m6req.ipv6mr_multiaddr = ((struct sockaddr_in6 *)res->ai_addr)->sin6_addr;
-			if (setsockopt(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &m6req, sizeof(m6req)) == -1) {
+			if (setsockopt(fd, IPPROTO_IPV6, IPV6_JOIN_GROUP, &m6req, (socklen_t) sizeof m6req) == -1) {
 				fprintf(stderr, "setsockopt(IPV6_JOIN_GROUP): %s\n", strerror(errno));
 				continue;
 			}
@@ -1293,8 +1294,7 @@ int
 help_cmd(int argc, char *const argv[])
 {
 	FILE *where = stdout;
-	int l, cmdwidth = 0;
-	size_t i;
+	size_t i, l, cmdwidth = 0;
 	
 	if (argc == 0 || argv == NULL)
 		where = stderr;
@@ -1303,12 +1303,13 @@ help_cmd(int argc, char *const argv[])
 
 	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
 		l = strlen(cmds[i].name);
-		if (l > cmdwidth)
+		if (l > cmdwidth) {
 			cmdwidth = l;
+		}
 	}
 
 	for (i = 0; i < (sizeof cmds / sizeof cmds[0]); i++) {
-		fprintf(where, "\t%-*s\t%s\n", cmdwidth, cmds[i].name, cmds[i].desc);
+		fprintf(where, "\t%-*s\t%s\n", (int)cmdwidth, cmds[i].name, cmds[i].desc);
 	}
 
 	return 0;
@@ -2108,7 +2109,6 @@ int
 logupdate_cmd(int argc, char *const argv[])
 {
 	int64_t inval, outval;
-	int i, j, m = 0;
 	bool badargs = false, maskmode = false, onlymode = false, levelmode = false;
 	static const struct {
 		const char *name;
@@ -2123,7 +2123,8 @@ logupdate_cmd(int argc, char *const argv[])
 		{ "alert",	LOG_ALERT },
 		{ "emergency",	LOG_EMERG },
 	};
-	int logtblsz = sizeof logtbl / sizeof logtbl[0];
+	size_t i, j, logtblsz = sizeof logtbl / sizeof logtbl[0];
+	int m = 0;
 
 	if (argc >= 2) {
 		if (!strcmp(argv[1], "mask"))
@@ -2140,7 +2141,7 @@ logupdate_cmd(int argc, char *const argv[])
 		m = LOG_UPTO(LOG_DEBUG);
 
 	if (argc > 2 && (maskmode || onlymode)) {
-		for (i = 2; i < argc; i++) {
+		for (i = 2; i < (size_t)argc; i++) {
 			for (j = 0; j < logtblsz; j++) {
 				if (!strcmp(argv[i], logtbl[j].name)) {
 					if (maskmode)
@@ -2305,7 +2306,7 @@ limit_cmd(int argc __attribute__((unused)), char *const argv[])
 			for (i = 0; i < (lsz / sizeof(struct rlimit)); i++) {
 				if (argc == 2 && (size_t)which != i)
 					continue;
-				fprintf(stdout, "\t%-12s%-15s%-15s\n", num2name(i),
+				fprintf(stdout, "\t%-12s%-15s%-15s\n", num2name((int)i),
 						lim2str(lmts[i].rlim_cur, slimstr),
 						lim2str(lmts[i].rlim_max, hlimstr));
 			}
@@ -3114,7 +3115,7 @@ do_application_firewall_magic(int sfd, launch_data_t thejob)
 
 	if (assumes(prog != NULL)) {
 		/* The networking team has asked us to ignore the failure of this API if errno == ENOPROTOOPT */
-		assumes(setsockopt(sfd, SOL_SOCKET, SO_EXECPATH, prog, strlen(prog) + 1) != -1 || errno == ENOPROTOOPT);
+		assumes(setsockopt(sfd, SOL_SOCKET, SO_EXECPATH, prog, (socklen_t)(strlen(prog) + 1)) != -1 || errno == ENOPROTOOPT);
 	}
 }
 

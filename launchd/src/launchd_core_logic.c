@@ -188,7 +188,7 @@ struct socketgroup {
 	};
 };
 
-static bool socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds);
+static bool socketgroup_new(job_t j, const char *name, int *fds, size_t fd_cnt, bool junkfds);
 static void socketgroup_delete(job_t j, struct socketgroup *sg);
 static void socketgroup_watch(job_t j, struct socketgroup *sg);
 static void socketgroup_ignore(job_t j, struct socketgroup *sg);
@@ -357,6 +357,7 @@ struct job_s {
 	mach_port_t wait_reply_port;	/* we probably should switch to a list of waiters */
 	uid_t mach_uid;
 	jobmgr_t mgr;
+	size_t argc;
 	char **argv;
 	char *prog;
 	char *rootdir;
@@ -379,15 +380,14 @@ struct job_s {
 	size_t quarantine_data_sz;
 #endif
 	pid_t p;
-	int argc;
 	int last_exit_status;
 	int stdin_fd;
 	int fork_fd;
 	int log_redirect_fd;
 	int nice;
-	unsigned int timeout;
-	unsigned int exit_timeout;
 	int stdout_err_fd;
+	uint32_t timeout;
+	uint32_t exit_timeout;
 	uint64_t sent_signal_time;
 	uint64_t start_time;
 	uint32_t min_run_time;
@@ -711,7 +711,7 @@ job_export(job_t j)
 		launch_data_dict_insert(r, tmp, LAUNCH_JOBKEY_STANDARDERRORPATH);
 	}
 	if (likely(j->argv) && (tmp = launch_data_alloc(LAUNCH_DATA_ARRAY))) {
-		int i;
+		size_t i;
 
 		for (i = 0; i < j->argc; i++) {
 			if ((tmp2 = launch_data_new_string(j->argv[i]))) {
@@ -1069,7 +1069,7 @@ socketgroup_setup(launch_data_t obj, const char *key, void *context)
 {
 	launch_data_t tmp_oai;
 	job_t j = context;
-	unsigned int i, fd_cnt = 1;
+	size_t i, fd_cnt = 1;
 	int *fds;
 
 	if (launch_data_get_type(obj) == LAUNCH_DATA_ARRAY) {
@@ -1125,7 +1125,7 @@ job_setup_machport(job_t j)
 	}
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
-	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
+	mxmsgsz = (typeof(mxmsgsz)) sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
 	if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
 		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
@@ -1326,7 +1326,7 @@ job_new(jobmgr_t jm, const char *label, const char *prog, const char *const *arg
 	const char *bn = NULL;
 	char *co;
 	size_t minlabel_len;
-	int i, cc = 0;
+	size_t i, cc = 0;
 	job_t j;
 
 	launchd_assert(offsetof(struct job_s, kqjob_callback) == 0);
@@ -1706,15 +1706,21 @@ job_import_integer(job_t j, const char *key, long long value)
 			} else if (unlikely(value > UINT32_MAX)) {
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_EXITTIMEOUT);
 			} else {
-				j->exit_timeout = value;
+				j->exit_timeout = (typeof(j->exit_timeout)) value;
 			}
 		}
 		break;
 	case 'n':
 	case 'N':
 		if (strcasecmp(key, LAUNCH_JOBKEY_NICE) == 0) {
-			j->nice = value;
-			j->setnice = true;
+			if (unlikely(value < PRIO_MIN)) {
+				job_log(j, LOG_WARNING, "%s less than %d. Ignoring.", LAUNCH_JOBKEY_NICE, PRIO_MIN);
+			} else if (unlikely(value > PRIO_MAX)) {
+				job_log(j, LOG_WARNING, "%s is greater than %d. Ignoring.", LAUNCH_JOBKEY_NICE, PRIO_MAX);
+			} else {
+				j->nice = (typeof(j->nice)) value;
+				j->setnice = true;
+			}
 		}
 		break;
 	case 't':
@@ -1725,7 +1731,7 @@ job_import_integer(job_t j, const char *key, long long value)
 			} else if (unlikely(value > UINT32_MAX)) {
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_TIMEOUT);
 			} else {
-				j->timeout = value;
+				j->timeout = (typeof(j->timeout)) value;
 			}
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_THROTTLEINTERVAL) == 0) {
 			if (value < 0) {
@@ -1733,7 +1739,7 @@ job_import_integer(job_t j, const char *key, long long value)
 			} else if (value > UINT32_MAX) {
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_THROTTLEINTERVAL);
 			} else {
-				j->min_run_time = value;
+				j->min_run_time = (typeof(j->min_run_time)) value;
 			}
 		}
 		break;
@@ -1753,9 +1759,9 @@ job_import_integer(job_t j, const char *key, long long value)
 				job_log(j, LOG_WARNING, "%s is too large. Ignoring.", LAUNCH_JOBKEY_STARTINTERVAL);
 			} else {
 				runtime_add_weak_ref();
-				j->start_interval = value;
+				j->start_interval = (typeof(j->start_interval)) value;
 
-				job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, value, j) != -1);
+				job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, j) != -1);
 			}
 #if HAVE_SANDBOX
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_SANDBOXFLAGS) == 0) {
@@ -1948,7 +1954,7 @@ job_import_array(job_t j, const char *key, launch_data_t value)
 			if (job_assumes(j, j->j_binpref = malloc(value_cnt * sizeof(*j->j_binpref)))) {
 				j->j_binpref_cnt = value_cnt;
 				for (i = 0; i < value_cnt; i++) {
-					j->j_binpref[i] = launch_data_get_integer(launch_data_array_get_index(value, i));
+					j->j_binpref[i] = (cpu_type_t) launch_data_get_integer(launch_data_array_get_index(value, i));
 				}
 			}
 		}
@@ -2321,7 +2327,7 @@ job_reap(job_t j)
 	}
 
 	if (unlikely(j->weird_bootstrap)) {
-		mach_msg_size_t mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
+		mach_msg_size_t mxmsgsz = (typeof(mxmsgsz)) sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
 
 		if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
 			mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
@@ -2599,7 +2605,7 @@ job_log_children_without_exec(job_t j)
 #else
 	int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL };
 #endif
-	int mib_sz = sizeof(mib) / sizeof(mib[0]);
+	size_t mib_sz = sizeof(mib) / sizeof(mib[0]);
 	size_t i, kp_cnt, len = sizeof(struct kinfo_proc) * get_kern_max_proc();
 	struct kinfo_proc *kp;
 
@@ -2610,7 +2616,7 @@ job_log_children_without_exec(job_t j)
 	if (!job_assumes(j, (kp = malloc(len)) != NULL)) {
 		return;
 	}
-	if (!job_assumes(j, sysctl(mib, mib_sz, kp, &len, NULL, 0) != -1)) {
+	if (!job_assumes(j, sysctl(mib, (u_int) mib_sz, kp, &len, NULL, 0) != -1)) {
 		goto out;
 	}
 
@@ -2760,7 +2766,7 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 		jobmgr_reap_bulk(jmi, kev);
 	}
 
-	if ((j = jobmgr_find_by_pid(jm, kev->ident, false))) {
+	if ((j = jobmgr_find_by_pid(jm, (pid_t) kev->ident, false))) {
 		kev->udata = j;
 		job_callback(j, kev);
 	}
@@ -2835,11 +2841,11 @@ job_callback(void *obj, struct kevent *kev)
 	case EVFILT_PROC:
 		return job_callback_proc(j, kev->fflags);
 	case EVFILT_TIMER:
-		return job_callback_timer(j, (void *)kev->ident);
+		return job_callback_timer(j, (void *) kev->ident);
 	case EVFILT_VNODE:
 		return semaphoreitem_callback(j, kev);
 	case EVFILT_READ:
-		return job_callback_read(j, kev->ident);
+		return job_callback_read(j, (int) kev->ident);
 	case EVFILT_MACHPORT:
 		return (void)job_dispatch(j, true);
 	default:
@@ -3014,7 +3020,7 @@ job_start_child(job_t j)
 	glob_t g;
 	short spflags = POSIX_SPAWN_SETEXEC;
 	size_t binpref_out_cnt = 0;
-	int i;
+	size_t i;
 
 	if (JOB_BOOTCACHE_HACK_CHECK(j)) {
 		do_first_per_user_launchd_hack();
@@ -3885,10 +3891,17 @@ semaphoreitem_callback(job_t j, struct kevent *kev)
 	job_dispatch(j, false);
 }
 
+struct cal_dict_walk {
+	job_t j;
+	struct tm tmptm;
+};
+
 void
 calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void *context)
 {
-	struct tm *tmptm = context;
+	struct cal_dict_walk *cdw = context;
+	struct tm *tmptm = &cdw->tmptm;
+	job_t j = cdw->j;
 	int64_t val;
 
 	if (unlikely(LAUNCH_DATA_INTEGER != launch_data_get_type(obj))) {
@@ -3899,16 +3912,18 @@ calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void
 
 	val = launch_data_get_integer(obj);
 
-	if (strcasecmp(key, LAUNCH_JOBKEY_CAL_MINUTE) == 0) {
-		tmptm->tm_min = val;
+	if (val < 0) {
+		job_log(j, LOG_WARNING, "The interval for key \"%s\" is less than zero.", key);
+	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_MINUTE) == 0) {
+		tmptm->tm_min = (typeof(tmptm->tm_min)) val;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_HOUR) == 0) {
-		tmptm->tm_hour = val;
+		tmptm->tm_hour = (typeof(tmptm->tm_hour)) val;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_DAY) == 0) {
-		tmptm->tm_mday = val;
+		tmptm->tm_mday = (typeof(tmptm->tm_mday)) val;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_WEEKDAY) == 0) {
-		tmptm->tm_wday = val;
+		tmptm->tm_wday = (typeof(tmptm->tm_wday)) val;
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_MONTH) == 0) {
-		tmptm->tm_mon = val;
+		tmptm->tm_mon = (typeof(tmptm->tm_mon)) val;
 		tmptm->tm_mon -= 1; /* 4798263 cron compatibility */
 	}
 }
@@ -3916,15 +3931,16 @@ calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void
 bool
 calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 {
-	struct tm tmptm;
+	struct cal_dict_walk cdw;
 
-	memset(&tmptm, 0, sizeof(0));
+	cdw.j = j;
+	memset(&cdw.tmptm, 0, sizeof(0));
 
-	tmptm.tm_min = -1;
-	tmptm.tm_hour = -1;
-	tmptm.tm_mday = -1;
-	tmptm.tm_wday = -1;
-	tmptm.tm_mon = -1;
+	cdw.tmptm.tm_min = -1;
+	cdw.tmptm.tm_hour = -1;
+	cdw.tmptm.tm_mday = -1;
+	cdw.tmptm.tm_wday = -1;
+	cdw.tmptm.tm_mon = -1;
 
 	if (!job_assumes(j, obj != NULL)) {
 		return false;
@@ -3934,13 +3950,13 @@ calendarinterval_new_from_obj(job_t j, launch_data_t obj)
 		return false;
 	}
 
-	launch_data_dict_iterate(obj, calendarinterval_new_from_obj_dict_walk, &tmptm);
+	launch_data_dict_iterate(obj, calendarinterval_new_from_obj_dict_walk, &cdw);
 
-	if (unlikely(tmptm.tm_sec == -1)) {
+	if (unlikely(cdw.tmptm.tm_sec == -1)) {
 		return false;
 	}
 
-	return calendarinterval_new(j, &tmptm);
+	return calendarinterval_new(j, &cdw.tmptm);
 }
 
 bool
@@ -4008,7 +4024,7 @@ calendarinterval_callback(void)
 }
 
 bool
-socketgroup_new(job_t j, const char *name, int *fds, unsigned int fd_cnt, bool junkfds)
+socketgroup_new(job_t j, const char *name, int *fds, size_t fd_cnt, bool junkfds)
 {
 	struct socketgroup *sg = calloc(1, sizeof(struct socketgroup) + strlen(name) + 1);
 
@@ -4086,7 +4102,7 @@ socketgroup_kevent_mod(job_t j, struct socketgroup *sg, bool do_add)
 
 	for (i = 0; i < sg->fd_cnt; i++) {
 		job_assumes(j, kev[i].flags & EV_ERROR);
-		errno = kev[i].data;
+		errno = (typeof(errno)) kev[i].data;
 		job_assumes(j, kev[i].data == 0);
 	}
 }
@@ -4230,7 +4246,7 @@ void
 limititem_setup(launch_data_t obj, const char *key, void *context)
 {
 	job_t j = context;
-	int i, limits_cnt = (sizeof(launchd_keys2limits) / sizeof(launchd_keys2limits[0]));
+	size_t i, limits_cnt = (sizeof(launchd_keys2limits) / sizeof(launchd_keys2limits[0]));
 	rlim_t rl;
 
 	if (launch_data_get_type(obj) != LAUNCH_DATA_INTEGER) {
@@ -4581,14 +4597,15 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 
 	switch (launch_data_get_type(obj)) {
 	case LAUNCH_DATA_INTEGER:
-		which_port = launch_data_get_integer(obj);
+		which_port = (int)launch_data_get_integer(obj); /* XXX we should bound check this... */
 		if (strcasecmp(key, LAUNCH_JOBKEY_MACH_TASKSPECIALPORT) == 0) {
 			switch (which_port) {
 			case TASK_KERNEL_PORT:
 			case TASK_HOST_PORT:
 			case TASK_NAME_PORT:
 			case TASK_BOOTSTRAP_PORT:
-			/* I find it a little odd that zero isn't reserved in the header */
+			/* I find it a little odd that zero isn't reserved in the header.
+			 * Normally Mach is fairly good about this convention... */
 			case 0:
 				job_log(ms->job, LOG_WARNING, "Tried to set a reserved task special port: %d", which_port);
 				break;
@@ -4885,7 +4902,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 		}
 
 		if (trusted_fd) {
-			int dfd, lfd = strtol(trusted_fd, NULL, 10);
+			int dfd, lfd = (int) strtol(trusted_fd, NULL, 10);
 
 			if ((dfd = dup(lfd)) >= 0) {
 				jobmgr_assumes(jmr, runtime_close(dfd) != -1);
@@ -4911,7 +4928,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	}
 
 	/* Sigh... at the moment, MIG has maxsize == sizeof(reply union) */
-	mxmsgsz = sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
+	mxmsgsz = (typeof(mxmsgsz)) sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
 	if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
 		mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
 	}
@@ -5245,6 +5262,7 @@ job_force_sampletool(job_t j)
 	char pidstr[100];
 	char *sample_args[] = { "sample", pidstr, "1", "-unsupportedShowArch", "-mayDie", "-file", logfile, NULL };
 	char *contents = NULL;
+	size_t contents_sz;
 	int logfile_fd = -1;
 	int console_fd = -1;
 	int wstatus;
@@ -5308,17 +5326,23 @@ job_force_sampletool(job_t j)
 		goto out;
 	}
 
-	contents = malloc(sb.st_size);
+	if (sizeof (size_t) == 4 && !job_assumes(j, !(sb.st_size & 0xffffffff00000000llu))) {
+		goto out;
+	}
+
+	contents_sz = (size_t) sb.st_size;
+
+	contents = malloc(contents_sz);
 
 	if (!job_assumes(j, contents != NULL)) {
 		goto out;
 	}
 
-	if (!job_assumes(j, read(logfile_fd, contents, sb.st_size) == sb.st_size)) {
+	if (!job_assumes(j, read(logfile_fd, contents, contents_sz) == (ssize_t) contents_sz)) {
 		goto out;
 	}
 
-	job_assumes(j, write(console_fd, contents, sb.st_size) == sb.st_size);
+	job_assumes(j, write(console_fd, contents, contents_sz) == (ssize_t) contents_sz);
 
 out:
 	if (contents) {
@@ -6012,13 +6036,13 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		j->ondemand = !inval;
 		break;
 	case VPROC_GSK_START_INTERVAL:
-		if ((uint64_t)inval > UINT32_MAX) {
+		if (inval > UINT32_MAX || inval < 0) {
 			kr = 1;
 		} else if (inval) {
 			if (j->start_interval == 0) {
 				runtime_add_weak_ref();
 			}
-			j->start_interval = inval;
+			j->start_interval = (typeof(j->start_interval)) inval;
 			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, j->start_interval, j) != -1);
 		} else if (j->start_interval) {
 			job_assumes(j, kevent_mod((uintptr_t)&j->start_interval, EVFILT_TIMER, EV_DELETE, 0, 0, NULL) != -1);
@@ -6029,20 +6053,33 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		}
 		break;
 	case VPROC_GSK_IDLE_TIMEOUT:
-		if ((unsigned int)inval > 0) {
-			j->timeout = inval;
+		if (inval < 0 || inval > UINT32_MAX) {
+			kr = 1;
+		} else {
+			j->timeout = (typeof(j->timeout)) inval;
 		}
 		break;
 	case VPROC_GSK_EXIT_TIMEOUT:
-		if ((unsigned int)inval > 0) {
-			j->exit_timeout = inval;
+		if (inval < 0 || inval > UINT32_MAX) {
+			kr = 1;
+		} else {
+			j->exit_timeout = (typeof(j->exit_timeout)) inval;
 		}
 		break;
 	case VPROC_GSK_GLOBAL_LOG_MASK:
-		runtime_setlogmask(inval);
+		if (inval < 0 || inval > UINT32_MAX) {
+			kr = 1;
+		} else {
+			runtime_setlogmask((int) inval);
+		}
 		break;
 	case VPROC_GSK_GLOBAL_UMASK:
-		umask(inval);
+		launchd_assert(sizeof (mode_t) == 2);
+		if (inval < 0 || inval > UINT16_MAX) {
+			kr = 1;
+		} else {
+			umask((mode_t) inval);
+		}
 		break;
 	case 0:
 		break;
@@ -7073,7 +7110,7 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		}
 	} else {
 		target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
-		target_j->deny_job_creation = (bool)(flags & BOOTSTRAP_DENY_JOB_CREATION);
+		target_j->deny_job_creation = flags & BOOTSTRAP_DENY_JOB_CREATION;
 	}
 
 	return 0;
@@ -7307,7 +7344,7 @@ do_unmounts(void)
 	int r, i, found, returned;
 
 	do {
-		returned = getfsstat(buf, sizeof(buf), MNT_NOWAIT);
+		returned = getfsstat(buf, (int) sizeof(buf), MNT_NOWAIT);
 		found = 0;
 
 		if (!launchd_assumes(returned != -1)) {

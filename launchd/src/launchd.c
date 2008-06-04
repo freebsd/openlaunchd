@@ -398,7 +398,7 @@ pfsystem_callback(void *obj __attribute__((unused)), struct kevent *kev)
 	bool new_networking_state;
 	char buf[1024];
 
-	launchd_assumes(read(kev->ident, &buf, sizeof(buf)) != -1);
+	launchd_assumes(read((int)kev->ident, &buf, sizeof(buf)) != -1);
 
 	new_networking_state = get_network_state();
 
