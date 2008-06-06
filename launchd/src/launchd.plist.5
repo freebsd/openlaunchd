@@ -99,9 +99,13 @@ This flag corresponds to the "wait" or "nowait" option of inetd. If true, then t
 is called on behalf of the job, and the result is passed via the standard in/out/error descriptors.
 .El
 .It Sy LimitLoadToHosts <array of strings>
-This configuration file only applies to the hosts listed with this key.
+This configuration file only applies to the hosts listed with this key. Note: One should set kern.hostname in
+.Xr sysctl.conf 5
+for this feature to work reliably.
 .It Sy LimitLoadFromHosts <array of strings>
-This configuration file only applies to hosts NOT listed with this key.
+This configuration file only applies to hosts NOT listed with this key. Note: One should set kern.hostname in
+.Xr sysctl.conf 5
+for this feature to work reliably.
 .It Sy LimitLoadToSessionType <string>
 This configuration file only applies to sessions of the type specified. This key is used
 in concert with the -S flag to
