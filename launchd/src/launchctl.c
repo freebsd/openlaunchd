@@ -69,7 +69,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <readline/history.h>
 #include <dns_sd.h>
 #include <paths.h>
-#include <utmp.h>
 #include <utmpx.h>
 #include <bootfiles.h>
 #include <sysexits.h>
