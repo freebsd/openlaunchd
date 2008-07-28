@@ -356,11 +356,13 @@ launch_data_dict_iterate(launch_data_t dict, void (*cb)(launch_data_t, const cha
 {
 	size_t i;
 
-	if (LAUNCH_DATA_DICTIONARY != dict->type)
+	if (LAUNCH_DATA_DICTIONARY != dict->type) {
 		return;
+	}
 
-	for (i = 0; i < dict->_array_cnt; i += 2)
+	for (i = 0; i < dict->_array_cnt; i += 2) {
 		cb(dict->_array[i + 1], dict->_array[i]->string, context);
+	}
 }
 
 bool
@@ -372,8 +374,10 @@ launch_data_array_set_index(launch_data_t where, launch_data_t what, size_t ind)
 		where->_array_cnt = ind + 1;
 	}
 
-	if (where->_array[ind])
+	if (where->_array[ind]) {
 		launch_data_free(where->_array[ind]);
+	}
+
 	where->_array[ind] = what;
 	return true;
 }
@@ -381,11 +385,11 @@ launch_data_array_set_index(launch_data_t where, launch_data_t what, size_t ind)
 launch_data_t
 launch_data_array_get_index(launch_data_t where, size_t ind)
 {
-	if (LAUNCH_DATA_ARRAY != where->type)
+	if (LAUNCH_DATA_ARRAY != where->type || ind >= where->_array_cnt) {
 		return NULL;
-	if (ind < where->_array_cnt)
+	} else {
 		return where->_array[ind];
-	return NULL;
+	}
 }
 
 launch_data_t
