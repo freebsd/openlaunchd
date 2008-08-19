@@ -4176,9 +4176,7 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 		return;
 	}
 
-	if (fastpath(strcasecmp(key, LAUNCHD_TRUSTED_FD_ENV) == 0)) {
-		envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
-	}
+	envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
 }
 
 bool
