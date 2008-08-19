@@ -3662,13 +3662,13 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 	}
 
 	if (unlikely(j->debug)) {
-		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
+		oldmask = runtime_setlogmask(LOG_UPTO(LOG_DEBUG));
 	}
 
 	runtime_vsyslog(&attr, newmsg, ap);
 
 	if (unlikely(j->debug)) {
-		setlogmask(oldmask);
+		runtime_setlogmask(oldmask);
 	}
 }
 
@@ -4176,7 +4176,9 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 		return;
 	}
 
-	envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
+	if (fastpath(strcasecmp(key, LAUNCHD_TRUSTED_FD_ENV) == 0)) {
+		envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
+	}
 }
 
 bool
