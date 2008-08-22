@@ -3662,13 +3662,13 @@ job_logv(job_t j, int pri, int err, const char *msg, va_list ap)
 	}
 
 	if (unlikely(j->debug)) {
-		oldmask = runtime_setlogmask(LOG_UPTO(LOG_DEBUG));
+		oldmask = setlogmask(LOG_UPTO(LOG_DEBUG));
 	}
 
 	runtime_vsyslog(&attr, newmsg, ap);
 
 	if (unlikely(j->debug)) {
-		runtime_setlogmask(oldmask);
+		setlogmask(oldmask);
 	}
 }
 
@@ -4176,7 +4176,11 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 		return;
 	}
 
-	envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
+	if( strncmp(LAUNCHD_TRUSTED_FD_ENV, key, sizeof(LAUNCHD_TRUSTED_FD_ENV) - 1) ) {
+		envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
+	} else {
+		job_log(j, LOG_WARNING, "Ignoring reserved environmental variable: %s", key);
+	}
 }
 
 bool
