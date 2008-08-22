@@ -475,7 +475,6 @@ static void job_setup_attributes(job_t j);
 static bool job_setup_machport(job_t j);
 static void job_setup_fd(job_t j, int target_fd, const char *path, int flags);
 static void job_postfork_become_user(job_t j);
-static void job_enable_audit_for_user(job_t j, uid_t u, char *name);
 static void job_postfork_test_user(job_t j);
 static void job_log_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
@@ -3356,8 +3355,6 @@ job_postfork_become_user(job_t j)
 		desired_gid = gre->gr_gid;
 	}
 
-	job_enable_audit_for_user(j, desired_uid, loginname);
-
 	if (!job_assumes(j, setlogin(loginname) != -1)) {
 		_exit(EXIT_FAILURE);
 	}
@@ -3391,28 +3388,6 @@ job_postfork_become_user(job_t j)
 	setenv("HOME", homedir, 0);
 	setenv("USER", loginname, 0);
 	setenv("LOGNAME", loginname, 0);
-}
-
-void
-job_enable_audit_for_user(job_t j, uid_t u, char *name)
-{
-	auditinfo_t auinfo = {
-		.ai_auid = u,
-		.ai_asid = j->p,
-	};
-	long au_cond;
-
-	if (!job_assumes(j, auditon(A_GETCOND, &au_cond, sizeof(long)) == 0)) {
-		_exit(EXIT_FAILURE);
-	}
-
-	if (au_cond != AUC_NOAUDIT) {
-		if (!job_assumes(j, au_user_mask(name, &auinfo.ai_mask) == 0)) {
-			_exit(EXIT_FAILURE);
-		} else if (!job_assumes(j, setaudit(&auinfo) == 0)) {
-			_exit(EXIT_FAILURE);
-		}
-	}
 }
 
 void
@@ -4201,7 +4176,11 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 		return;
 	}
 
-	envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
+	if( strncmp(LAUNCHD_TRUSTED_FD_ENV, key, sizeof(LAUNCHD_TRUSTED_FD_ENV) - 1) ) {
+		envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
+	} else {
+		job_log(j, LOG_WARNING, "Ignoring reserved environmental variable: %s", key);
+	}
 }
 
 bool
