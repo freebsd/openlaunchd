@@ -1,6 +1,6 @@
 #!/bin/sh
 ##
-# Copyright 2002 Apple Computer, Inc.
+# Copyright 2002-2008 Apple Inc.
 #
 # This script configures NetBoot
 ##
@@ -105,7 +105,11 @@ network_mount()
 	return 1
     fi
     case "${mount_from}" in
-	afp:*) fstype=afp;;
+	afp:*)
+		fstype=afp
+		kextload /System/Library/Filesystems/AppleShare/asp_tcp.kext
+		kextload /System/Library/Filesystems/AppleShare/afpfs.kext
+		;;
  	nfs:*) fstype=nfs;;
 	*) echo "unknown network filesystem mount from ${mount_from}"
 	   return 1
