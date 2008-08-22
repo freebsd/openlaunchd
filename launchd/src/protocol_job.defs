@@ -67,6 +67,7 @@ routine look_up2(
 	sreplyport	__rport	: mach_port_make_send_once_t;
 		__service_name	: name_t;
 	out	__service_port	: mach_port_t;
+	UserAuditToken __server_cred:	audit_token_t;
 		__target_pid	: pid_t;
 		__flags		: uint64_t);
 

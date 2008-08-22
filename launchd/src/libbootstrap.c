@@ -141,6 +141,7 @@ bootstrap_check_in2(mach_port_t bp, name_t service_name, mach_port_t *sp, uint64
 kern_return_t
 bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_user, mach_port_t *sp)
 {
+	audit_token_t au_tok;
 	struct stat sb;
 	kern_return_t kr;
 	mach_port_t puc;
@@ -153,7 +154,7 @@ bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_use
 		return kr;
 	}
 
-	kr = vproc_mig_look_up2(puc, service_name, sp, 0, 0);
+	kr = vproc_mig_look_up2(puc, service_name, sp, &au_tok, 0, 0);
 	mach_port_deallocate(mach_task_self(), puc);
 
 	return kr;
@@ -173,6 +174,7 @@ bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t t
 	static mach_port_t prev_bp;
 	static mach_port_t prev_sp;
 	static name_t prev_name;
+	audit_token_t au_tok;
 	bool per_pid_lookup = flags & BOOTSTRAP_PER_PID_SERVICE;
 	kern_return_t kr = 0;
 	mach_port_t puc;
@@ -195,7 +197,7 @@ bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t t
 	}
 
 skip_cache:
-	if ((kr = vproc_mig_look_up2(bp, service_name, sp, target_pid, flags)) != VPROC_ERR_TRY_PER_USER) {
+	if ((kr = vproc_mig_look_up2(bp, service_name, sp, &au_tok, target_pid, flags)) != VPROC_ERR_TRY_PER_USER) {
 		goto out;
 	}
 
@@ -203,7 +205,7 @@ skip_cache:
 		goto out;
 	}
 
-	kr = vproc_mig_look_up2(puc, service_name, sp, target_pid, flags);
+	kr = vproc_mig_look_up2(puc, service_name, sp, &au_tok, target_pid, flags);
 	mach_port_deallocate(mach_task_self(), puc);
 
 out:
@@ -216,6 +218,27 @@ out:
 	}
 
 	pthread_mutex_unlock(&bslu2_lock);
+
+	if ((kr == 0) && (flags & BOOTSTRAP_PRIVILEGED_SERVER)) {
+		uid_t server_euid;
+
+		/*
+		 * The audit token magic is dependent on the per-user launchd
+		 * forwarding MIG requests to the root launchd when it cannot
+		 * find the answer locally.
+		 */
+
+		/* This API should be in Libsystem, but is not */
+		//audit_token_to_au32(au_tok, NULL, &server_euid, NULL, NULL, NULL, NULL, NULL, NULL);
+		
+		server_euid = au_tok.val[1];
+
+		if (server_euid) {
+			mach_port_deallocate(mach_task_self(), *sp);
+			kr = BOOTSTRAP_NOT_PRIVILEGED;
+		}
+
+	}
 
 	return kr;
 }

@@ -6507,6 +6507,7 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		kr = BOOTSTRAP_SUCCESS;
 	} else if (!per_pid_lookup && (inherited_bootstrap_port != MACH_PORT_NULL)) {
 		job_log(j, LOG_DEBUG, "Mach service lookup forwarded: %s", servicename);
+		/* Clients potentially check the audit token of the reply to verify that the returned send right is trustworthy. */
 		job_assumes(j, vproc_mig_look_up2_forward(inherited_bootstrap_port, srp, servicename, 0, 0) == 0);
 		/* The previous routine moved the reply port, we're forced to return MIG_NO_REPLY now */
 		return MIG_NO_REPLY;
