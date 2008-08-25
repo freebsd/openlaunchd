@@ -86,9 +86,9 @@ static int bulk_kev_i;
 static int bulk_kev_cnt;
 
 static pthread_t kqueue_demand_thread;
+static pthread_t demand_thread;
 
-static void mportset_callback(void);
-static kq_callback kqmportset_callback = (kq_callback)mportset_callback;
+static void *mport_demand_loop(void *arg);
 static void *kqueue_demand_loop(void *arg);
 static void log_kevent_struct(int level, struct kevent *kev_base, int indx);
 
@@ -155,8 +155,6 @@ launchd_runtime_init(void)
 	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &demand_port_set)) == KERN_SUCCESS);
 	launchd_assert((errno = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_PORT_SET, &ipc_port_set)) == KERN_SUCCESS);
 
-	launchd_assert(kevent_mod(demand_port_set, EVFILT_MACHPORT, EV_ADD, 0, 0, &kqmportset_callback) != -1);
-
 	launchd_assert(launchd_mport_create_recv(&launchd_internal_port) == KERN_SUCCESS);
 	launchd_assert(launchd_mport_make_send(launchd_internal_port) == KERN_SUCCESS);
 
@@ -174,6 +172,12 @@ launchd_runtime_init(void)
 	launchd_assert(pthread_create(&kqueue_demand_thread, &attr, kqueue_demand_loop, NULL) == 0);
 	pthread_attr_destroy(&attr);
 
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+	launchd_assert(pthread_create(&demand_thread, &attr, mport_demand_loop, NULL) == 0);
+	pthread_attr_destroy(&attr);
+
 	launchd_assumes(sysctlbyname("vfs.generic.noremotehang", NULL, NULL, &p, sizeof(p)) != -1);
 }
 
@@ -186,6 +190,25 @@ launchd_runtime_init2(void)
 		sigaddset(&sigign_set, sigigns[i]);
 		launchd_assumes(signal(sigigns[i], SIG_IGN) != SIG_ERR);
 	}
+}
+
+void *
+mport_demand_loop(void *arg __attribute__((unused)))
+{
+	mach_msg_empty_rcv_t dummy;
+	kern_return_t kr;
+
+	for (;;) {
+		kr = mach_msg(&dummy.header, MACH_RCV_MSG|MACH_RCV_LARGE, 0, 0, demand_port_set, 0, MACH_PORT_NULL);
+		if (unlikely(kr == MACH_RCV_PORT_CHANGED)) {
+			break;
+		} else if (!launchd_assumes(kr == MACH_RCV_TOO_LARGE)) {
+			continue;
+		}
+		launchd_assumes(handle_mport(launchd_internal_port) == 0);
+	}
+
+	return NULL;
 }
 
 INTERNAL_ABI const char *
@@ -508,8 +531,8 @@ log_kevent_struct(int level, struct kevent *kev_base, int indx)
 			indx, kev->udata, kev->data, ident_buf, filter_str, flags_buf, fflags_buf);
 }
 
-void
-mportset_callback(void)
+kern_return_t
+x_handle_mport(mach_port_t junk __attribute__((unused)))
 {
 	mach_port_name_array_t members;
 	mach_msg_type_number_t membersCnt;
@@ -519,7 +542,7 @@ mportset_callback(void)
 	unsigned int i;
 
 	if (!launchd_assumes((errno = mach_port_get_set_status(mach_task_self(), demand_port_set, &members, &membersCnt)) == KERN_SUCCESS)) {
-		return;
+		return 1;
 	}
 
 	for (i = 0; i < membersCnt; i++) {
@@ -547,6 +570,8 @@ mportset_callback(void)
 
 	launchd_assumes(vm_deallocate(mach_task_self(), (vm_address_t)members,
 				(vm_size_t) membersCnt * sizeof(mach_port_name_t)) == KERN_SUCCESS);
+
+	return 0;
 }
 
 void *
