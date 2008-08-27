@@ -608,16 +608,17 @@ size_t
 launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t *fd_cnt)
 {
 	launch_data_t o_in_w = where;
-	size_t i, rsz, total_data_len = sizeof(struct _launch_data);
+	size_t i, rsz, node_data_len = sizeof(struct _launch_data);
 
-	if (total_data_len > len) {
+	if (node_data_len > len) {
 		return 0;
 	}
 
-	where += total_data_len;
+	where += node_data_len;
 
 	o_in_w->type = host2wire(d->type);
 
+	size_t pad_len = 0;
 	switch (d->type) {
 	case LAUNCH_DATA_INTEGER:
 		o_in_w->number = host2wire(d->number);
@@ -640,44 +641,55 @@ launch_data_pack(launch_data_t d, void *where, size_t len, int *fd_where, size_t
 		break;
 	case LAUNCH_DATA_STRING:
 		o_in_w->string_len = host2wire(d->string_len);
-		total_data_len += ROUND_TO_64BIT_WORD_SIZE(strlen(d->string) + 1);
-		if (total_data_len > len) {
+		node_data_len += ROUND_TO_64BIT_WORD_SIZE(d->string_len + 1);
+		
+		if (node_data_len > len) {
 			return 0;
 		}
-		memcpy(where, d->string, strlen(d->string) + 1);
+		memcpy(where, d->string, d->string_len + 1);
+		
+		/* Zero padded data. */
+		pad_len = ROUND_TO_64BIT_WORD_SIZE(d->string_len + 1) - (d->string_len + 1);
+		bzero(where + d->string_len + 1, pad_len);
+		
 		break;
 	case LAUNCH_DATA_OPAQUE:
 		o_in_w->opaque_size = host2wire(d->opaque_size);
-		total_data_len += ROUND_TO_64BIT_WORD_SIZE(d->opaque_size);
-		if (total_data_len > len) {
+		node_data_len += ROUND_TO_64BIT_WORD_SIZE(d->opaque_size);
+		if (node_data_len > len) {
 			return 0;
 		}
 		memcpy(where, d->opaque, d->opaque_size);
+		
+		/* Zero padded data. */
+		pad_len = ROUND_TO_64BIT_WORD_SIZE(d->opaque_size) - d->opaque_size;
+		bzero(where + d->opaque_size, pad_len);
+		
 		break;
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
 		o_in_w->_array_cnt = host2wire(d->_array_cnt);
-		total_data_len += d->_array_cnt * sizeof(uint64_t);
-		if (total_data_len > len) {
+		node_data_len += d->_array_cnt * sizeof(uint64_t);
+		if (node_data_len > len) {
 			return 0;
 		}
 
 		where += d->_array_cnt * sizeof(uint64_t);
 
 		for (i = 0; i < d->_array_cnt; i++) {
-			rsz = launch_data_pack(d->_array[i], where, len - total_data_len, fd_where, fd_cnt);
+			rsz = launch_data_pack(d->_array[i], where, len - node_data_len, fd_where, fd_cnt);
 			if (rsz == 0) {
 				return 0;
 			}
 			where += rsz;
-			total_data_len += rsz;
+			node_data_len += rsz;
 		}
 		break;
 	default:
 		break;
 	}
 
-	return total_data_len;
+	return node_data_len;
 }
 
 launch_data_t
