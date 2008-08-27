@@ -472,12 +472,6 @@ adjust_rlimits(launch_data_t in)
 					gstr = "kern.maxfiles";
 					pstr = "kern.maxfilesperproc";
 					break;
-				case RLIMIT_NPROC:
-					/* kernel will not clamp to this value, we must */
-					if (gval > (2048 + 20)) {
-						gval = 2048 + 20;
-					}
-					break;
 				default:
 					break;
 				}
