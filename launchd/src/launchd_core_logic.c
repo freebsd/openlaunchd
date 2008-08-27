@@ -336,7 +336,7 @@ static void jobmgr_log_bug(jobmgr_t jm, unsigned int line);
 #define AUTO_PICK_LEGACY_LABEL (const char *)(~0)
 
 struct job_s {
-	kq_callback kqjob_callback;
+	kq_callback kqjob_callback; /* MUST be first element of this structure for benefit of launchd's run loop. */
 	LIST_ENTRY(job_s) sle;
 	LIST_ENTRY(job_s) pid_hash_sle;
 	LIST_ENTRY(job_s) label_hash_sle;
@@ -1053,6 +1053,11 @@ job_remove(job_t j)
 	}
 	if (j->poll_for_vfs_changes) {
 		job_assumes(j, kevent_mod((uintptr_t)&j->semaphores, EVFILT_TIMER, EV_DELETE, 0, 0, j) != -1);
+	}
+
+	if( j->exit_timeout ) {
+		/* Not a big deal if this fails. It means that the timer's already been freed. */
+		kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
 	}
 
 	kevent_mod((uintptr_t)j, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
@@ -6046,6 +6051,10 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		*outval = oldmask;
 		umask(oldmask);
 		break;
+	case VPROC_GSK_TRANSACTIONS_ENABLED:
+		job_log(j, LOG_DEBUG, "Reading transaction model status.");
+		*outval = j->kill_via_shmem;
+		break;
 	case 0:
 		*outval = 0;
 		break;
@@ -6110,6 +6119,15 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 			umask((mode_t) inval);
 		}
 		break;
+	case VPROC_GSK_TRANSACTIONS_ENABLED:
+		if( !job_assumes(j, inval != 0) ) {
+			job_log(j, LOG_WARNING, "Attempt to unregister from transaction model. This is not supported.");
+			kr = 1;
+		} else {
+			job_log(j, LOG_DEBUG, "Now participating in transaction model.");
+			j->kill_via_shmem = (bool)inval;
+			job_log(j, LOG_DEBUG, "j->kill_via_shmem = %s", j->kill_via_shmem ? "YES" : "NO");
+		}
 	case 0:
 		break;
 	default:

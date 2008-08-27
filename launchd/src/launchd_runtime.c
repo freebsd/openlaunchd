@@ -616,9 +616,15 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 			kevi = &kev[i];
 
 			if (kevi->filter) {
+/* Leave on for SnowLeopard development. We should really try and identify what bugs would 
+ * cause kevi->udata to be invalid.
+ */
 #if 1
 				Dl_info dli;
 
+				/* Check if kevi->udata was either malloc(3)ed or is a valid function pointer. 
+				 * If neither, it's probably an invalid pointer and we should log it. 
+				 */
 				if (launchd_assumes(malloc_size(kevi->udata) || dladdr(kevi->udata, &dli))) {
 #endif
 				runtime_ktrace(RTKT_LAUNCHD_BSD_KEVENT|DBG_FUNC_START, kevi->ident, kevi->filter, kevi->fflags);

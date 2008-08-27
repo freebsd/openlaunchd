@@ -56,6 +56,7 @@ const char *__crashreporter_info__; /* this should get merged with other version
 static int64_t cached_pid = -1;
 static struct vproc_shmem_s *vproc_shmem;
 static pthread_once_t shmem_inited = PTHREAD_ONCE_INIT;
+static uint64_t s_cached_transactions_enabled = 0;
 
 static void
 vproc_shmem_init(void)
@@ -95,8 +96,6 @@ vproc_transaction_begin(vproc_t vp __attribute__((unused)))
 void
 _vproc_transaction_begin(void)
 {
-	typeof(vproc_shmem->vp_shmem_transaction_cnt) newval;
-
 	if (unlikely(vproc_shmem == NULL)) {
 		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
 		if (po_r != 0 || vproc_shmem == NULL) {
@@ -104,17 +103,20 @@ _vproc_transaction_begin(void)
 		}
 	}
 
-	newval = __sync_add_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
-
-	if (unlikely(newval < 1)) {
-		if (vproc_shmem->vp_shmem_flags & VPROC_SHMEM_EXITING) {
-			raise(SIGKILL);
-			__crashreporter_info__ = "raise(SIGKILL) failed";
-		} else {
-			__crashreporter_info__ = "Unbalanced: vproc_transaction_begin()";
+	typeof(vproc_shmem->vp_shmem_transaction_cnt) old = 0;
+	do {
+		old = vproc_shmem->vp_shmem_transaction_cnt;
+		
+		if (unlikely(old < 0)) {
+			if (vproc_shmem->vp_shmem_flags & VPROC_SHMEM_EXITING) {
+				raise(SIGKILL);
+				__crashreporter_info__ = "raise(SIGKILL) failed";
+			} else {
+				__crashreporter_info__ = "Unbalanced: vproc_transaction_begin()";
+			}
+			abort();
 		}
-		abort();
-	}
+	} while( !__sync_bool_compare_and_swap(&vproc_shmem->vp_shmem_transaction_cnt, old, old + 1) );
 }
 
 size_t
@@ -643,6 +645,23 @@ vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t 
 			return NULL;
 		}
 		break;
+	case VPROC_GSK_TRANSACTIONS_ENABLED:
+		/* Shared memory region is required for transactions. */
+		if( unlikely(vproc_shmem == NULL) ) {
+			int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
+			if( po_r != 0 || vproc_shmem == NULL ) {
+				if( outval ) {
+					*outval = -1;
+				}
+				return (vproc_err_t)vproc_swap_integer;
+			}
+		}
+	
+		if( s_cached_transactions_enabled && outval ) {
+			*outval = s_cached_transactions_enabled;
+			return NULL;
+		}
+		break;
 	default:
 		break;
 	}
@@ -654,6 +673,10 @@ vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t 
 			break;
 		case VPROC_GSK_IS_MANAGED:
 			cached_is_managed = outval ? *outval : dummyval;
+			break;
+		case VPROC_GSK_TRANSACTIONS_ENABLED:
+			/* Once you're in the transaction model, you're in for good. Like the Mafia. */
+			s_cached_transactions_enabled = 1;
 			break;
 		default:
 			break;
