@@ -3111,7 +3111,7 @@ job_start_child(job_t j)
 	}
 
 	errno = psf(NULL, file2exec, NULL, &spattr, (char *const*)argv, environ);
-	job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", j->prog);
+	job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", file2exec);
 
 out_bad:
 	_exit(EXIT_FAILURE);
@@ -7132,6 +7132,8 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 	}
 
 	if (ldc->euid && (ldc->euid != getuid())) {
+		char *pidpath = j->prog ? j->prog : ( j->argv[0] ? j->argv[0] : NULL );
+		job_log(j, LOG_WARNING, "Returning BOOTSTRAP_NOT_PRIVILEGED to PID %d (%s) with uid = %d, euid = %d", ldc->pid, pidpath, ldc->uid, ldc->euid);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
