@@ -2529,7 +2529,7 @@ job_dispatch(job_t j, bool kickstart)
 			}
 		}
 	} else {
-		job_log(j, LOG_DEBUG, "Tried to dispatch an already active job.");
+		job_log(j, LOG_DEBUG, "Tried to dispatch an already active job (%s), kickstart = %s.", job_active(j), kickstart ? "YES" : "NO");
 	}
 
 	return j;
@@ -2703,10 +2703,13 @@ void
 job_callback_timer(job_t j, void *ident)
 {
 	if (j == ident) {
+		job_log(j, LOG_DEBUG, "j == ident (%p)", ident);
 		job_dispatch(j, true);
 	} else if (&j->semaphores == ident) {
+		job_log(j, LOG_DEBUG, "&j->semaphores == ident (%p)", ident);
 		job_dispatch(j, false);
 	} else if (&j->start_interval == ident) {
+		job_log(j, LOG_DEBUG, "&j->start_interval == ident (%p)", ident);
 		j->start_pending = true;
 		job_dispatch(j, false);
 	} else if (&j->exit_timeout == ident) {
@@ -7132,8 +7135,7 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 	}
 
 	if (ldc->euid && (ldc->euid != getuid())) {
-		char *pidpath = j->prog ? j->prog : ( j->argv[0] ? j->argv[0] : NULL );
-		job_log(j, LOG_WARNING, "Returning BOOTSTRAP_NOT_PRIVILEGED to PID %d (%s) with uid = %d, euid = %d", ldc->pid, pidpath, ldc->uid, ldc->euid);
+		job_log(j, LOG_ERR, "Denied Mach service policy update against PID %u due to mismatched credentials: UID/EUID %u/%u", target_pid, ldc->uid, ldc->euid);
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 

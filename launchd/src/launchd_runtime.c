@@ -632,7 +632,7 @@ x_handle_kqueue(mach_port_t junk __attribute__((unused)), integer_t fd)
 				runtime_ktrace0(RTKT_LAUNCHD_BSD_KEVENT|DBG_FUNC_END);
 #if 1
 				} else {
-					log_kevent_struct(LOG_EMERG, kevi, 0);
+					log_kevent_struct(LOG_EMERG, kevi, i);
 				}
 #endif
 			}
