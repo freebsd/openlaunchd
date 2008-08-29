@@ -23,16 +23,16 @@
  * Copyright, 1990.  All rights reserved.
  */
 
-type pid_t			= integer_t;
-type pid_array_t		= ^array [] of pid_t;
-type uid_t			= integer_t;
-type gid_t			= integer_t;
-type vproc_gsk_t		= integer_t;
-type logmsg_t			= c_string[*:2048];
-type cmd_t			= c_string[512];
-type name_t			= c_string[128];
-type name_array_t		= ^array [] of name_t;
-type bootstrap_status_t		= integer_t;
+type pid_t						= integer_t;
+type pid_array_t				= ^array [] of pid_t;
+type uid_t						= integer_t;
+type gid_t						= integer_t;
+type vproc_gsk_t				= integer_t;
+type logmsg_t					= c_string[*:2048];
+type cmd_t						= c_string[512];
+type name_t						= c_string[128];
+type name_array_t				= ^array [] of name_t;
+type bootstrap_status_t			= integer_t;
 type bootstrap_status_array_t	= ^array [] of bootstrap_status_t;
 
 type job_t = mach_port_t

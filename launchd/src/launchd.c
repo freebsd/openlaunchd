@@ -67,6 +67,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <setjmp.h>
 #include <spawn.h>
 #include <sched.h>
+#include <pthread.h>
 
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
@@ -96,9 +97,12 @@ static void monitor_networking_state(void);
 static void fatal_signal_handler(int sig, siginfo_t *si, void *uap);
 static void handle_pid1_crashes_separately(void);
 
+static void *update_thread(void *nothing);
+
 static bool re_exec_in_single_user_mode;
 static void *crash_addr;
 static pid_t crash_pid;
+static unsigned int g_sync_frequency = 30;
 
 bool shutdown_in_progress;
 bool fake_shutdown_in_progress;
@@ -165,6 +169,13 @@ main(int argc, char *const *argv)
 		_vproc_transaction_end();
 	}
 
+	if( pid1_magic ) {
+		/* Start the update thread -- rdar://problem/5039559&6153301 */
+		pthread_t t = NULL;
+		int err = pthread_create(&t, NULL, update_thread, NULL);
+		launchd_assumes(err == 0);
+	}
+
 	jobmgr_init(sflag);
 
 	launchd_runtime_init2();
@@ -185,6 +196,16 @@ handle_pid1_crashes_separately(void)
 	launchd_assumes(sigaction(SIGFPE, &fsa, NULL) != -1);
 	launchd_assumes(sigaction(SIGBUS, &fsa, NULL) != -1);
 	launchd_assumes(sigaction(SIGSEGV, &fsa, NULL) != -1);
+}
+
+void *update_thread(void *nothing __attribute__((unused)))
+{
+	while( g_sync_frequency ) {
+		sync();
+		sleep(g_sync_frequency);
+	}
+	
+	return NULL;
 }
 
 #define PID1_CRASH_LOGFILE "/var/log/launchd-pid1.crash"

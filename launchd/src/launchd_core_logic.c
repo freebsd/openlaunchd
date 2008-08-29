@@ -855,7 +855,9 @@ jobmgr_shutdown(jobmgr_t jm)
 	}
 
 	if (do_apple_internal_logging && jm->parentmgr == NULL && pid1_magic) {
-		runtime_set_timeout(still_alive_with_check, 5);
+		if( pid1_magic ) {
+			jobmgr_assumes(jm, kevent_mod((uintptr_t)jm, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, 5, jm));
+		}
 	}
 
 	return jobmgr_do_garbage_collection(jm);
@@ -2794,7 +2796,7 @@ jobmgr_callback(void *obj, struct kevent *kev)
 		break;
 	case EVFILT_SIGNAL:
 		switch (kev->ident) {
-		case SIGTERM:
+		case SIGTERM:			
 			return launchd_shutdown();
 		case SIGUSR1:
 			return calendarinterval_callback();
@@ -2832,6 +2834,9 @@ jobmgr_callback(void *obj, struct kevent *kev)
 	case EVFILT_TIMER:
 		if (jobmgr_assumes(jm, kev->ident == (uintptr_t)&sorted_calendar_events)) {
 			calendarinterval_callback();
+		} else if( kev->ident == (uintptr_t)jm ) {
+			jobmgr_log(jm, LOG_DEBUG, "Shutdown timer firing.");
+			still_alive_with_check();
 		}
 		break;
 	default:
@@ -7134,8 +7139,18 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	if (ldc->euid && (ldc->euid != getuid())) {
-		job_log(j, LOG_ERR, "Denied Mach service policy update against PID %u due to mismatched credentials: UID/EUID %u/%u", target_pid, ldc->uid, ldc->euid);
+	if (ldc->euid && (ldc->euid != getuid())) {		
+		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, target_pid };
+		struct kinfo_proc kp;
+		size_t len = sizeof(kp);
+
+		job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1);
+
+		uid_t kp_euid = kp.kp_eproc.e_ucred.cr_uid;
+		uid_t kp_uid = kp.kp_eproc.e_pcred.p_ruid;
+
+		job_log(j, LOG_ERR, "Denied Mach service policy update requested by UID/EUID %u/%u against PID %u with UID/EUID %u/%u due to mismatched credentials.", ldc->uid, ldc->euid, target_pid, kp_uid, kp_euid);
+
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 

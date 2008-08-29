@@ -306,7 +306,7 @@ bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp);
  */
 kern_return_t bootstrap_check_in(
 		mach_port_t bp,
-		name_t service_name,
+		const name_t service_name,
 		mach_port_t *sp);
 
 /*
@@ -321,7 +321,7 @@ kern_return_t bootstrap_check_in(
  */
 kern_return_t bootstrap_look_up(
 		mach_port_t bp,
-		name_t service_name,
+		const name_t service_name,
 		mach_port_t *sp);
 
 /*

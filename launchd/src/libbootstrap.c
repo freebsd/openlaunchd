@@ -127,19 +127,19 @@ bootstrap_create_service(mach_port_t bp, name_t service_name, mach_port_t *sp)
 }
 
 kern_return_t
-bootstrap_check_in(mach_port_t bp, name_t service_name, mach_port_t *sp)
+bootstrap_check_in(mach_port_t bp, const name_t service_name, mach_port_t *sp)
 {
-	return vproc_mig_check_in2(bp, service_name, sp, 0);
+	return vproc_mig_check_in2(bp, (char *)service_name, sp, 0);
 }
 
 kern_return_t
-bootstrap_check_in2(mach_port_t bp, name_t service_name, mach_port_t *sp, uint64_t flags)
+bootstrap_check_in2(mach_port_t bp, const name_t service_name, mach_port_t *sp, uint64_t flags)
 {
-	return vproc_mig_check_in2(bp, service_name, sp, flags);
+	return vproc_mig_check_in2(bp, (char *)service_name, sp, flags);
 }
 
 kern_return_t
-bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_user, mach_port_t *sp)
+bootstrap_look_up_per_user(mach_port_t bp, const name_t service_name, uid_t target_user, mach_port_t *sp)
 {
 	audit_token_t au_tok;
 	struct stat sb;
@@ -154,7 +154,7 @@ bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_use
 		return kr;
 	}
 
-	kr = vproc_mig_look_up2(puc, service_name, sp, &au_tok, 0, 0);
+	kr = vproc_mig_look_up2(puc, (char *)service_name, sp, &au_tok, 0, 0);
 	mach_port_deallocate(mach_task_self(), puc);
 
 	return kr;
@@ -162,13 +162,13 @@ bootstrap_look_up_per_user(mach_port_t bp, name_t service_name, uid_t target_use
 
 
 kern_return_t
-bootstrap_look_up(mach_port_t bp, name_t service_name, mach_port_t *sp)
+bootstrap_look_up(mach_port_t bp, const name_t service_name, mach_port_t *sp)
 {
 	return bootstrap_look_up2(bp, service_name, sp, 0, 0);
 }
 
 kern_return_t
-bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t target_pid, uint64_t flags)
+bootstrap_look_up2(mach_port_t bp, const name_t service_name, mach_port_t *sp, pid_t target_pid, uint64_t flags)
 {
 	static pthread_mutex_t bslu2_lock = PTHREAD_MUTEX_INITIALIZER;
 	static mach_port_t prev_bp;
@@ -197,7 +197,7 @@ bootstrap_look_up2(mach_port_t bp, name_t service_name, mach_port_t *sp, pid_t t
 	}
 
 skip_cache:
-	if ((kr = vproc_mig_look_up2(bp, service_name, sp, &au_tok, target_pid, flags)) != VPROC_ERR_TRY_PER_USER) {
+	if ((kr = vproc_mig_look_up2(bp, (char *)service_name, sp, &au_tok, target_pid, flags)) != VPROC_ERR_TRY_PER_USER) {
 		goto out;
 	}
 
@@ -205,7 +205,7 @@ skip_cache:
 		goto out;
 	}
 
-	kr = vproc_mig_look_up2(puc, service_name, sp, &au_tok, target_pid, flags);
+	kr = vproc_mig_look_up2(puc, (char *)service_name, sp, &au_tok, target_pid, flags);
 	mach_port_deallocate(mach_task_self(), puc);
 
 out:
