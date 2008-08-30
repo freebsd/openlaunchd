@@ -1415,11 +1415,6 @@ system_specific_bootstrap(bool sflag)
 	loopback_setup_ipv4();
 	loopback_setup_ipv6();
 
-	if (path_check("/etc/rc.server")) {
-		const char *rcserver_tool[] = { _PATH_BSHELL, "/etc/rc.server", NULL };
-		assumes(fwexec(rcserver_tool, NULL) != -1);
-	}
-
 	apply_sysctls_from_file("/etc/sysctl.conf");
 
 	if (path_check("/etc/rc.cdrom")) {
@@ -1435,6 +1430,11 @@ system_specific_bootstrap(bool sflag)
 		}
 	} else {
 		do_potential_fsck();
+	}
+
+	if (path_check("/etc/rc.server")) {
+		const char *rcserver_tool[] = { _PATH_BSHELL, "/etc/rc.server", NULL };
+		assumes(fwexec(rcserver_tool, NULL) != -1);
 	}
 
 	read_launchd_conf();
