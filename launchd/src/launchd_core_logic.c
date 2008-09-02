@@ -7133,11 +7133,13 @@ kern_return_t
 job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t target_service)
 {
 	struct ldcred *ldc = runtime_get_caller_creds();
-	job_t target_j;
+	job_t target_j = NULL;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
+
+	target_j = jobmgr_find_by_pid(j->mgr, target_pid, true);
 
 	if (ldc->euid && (ldc->euid != getuid())) {		
 		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, target_pid };
@@ -7145,21 +7147,24 @@ job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t tar
 		size_t len = sizeof(kp);
 
 		job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1);
+		job_assumes(j, len == sizeof(kp));
 
 		uid_t kp_euid = kp.kp_eproc.e_ucred.cr_uid;
 		uid_t kp_uid = kp.kp_eproc.e_pcred.p_ruid;
 
-		job_log(j, LOG_ERR, "Denied Mach service policy update requested by UID/EUID %u/%u against PID %u with UID/EUID %u/%u due to mismatched credentials.", ldc->uid, ldc->euid, target_pid, kp_uid, kp_euid);
+		if( ldc->euid == kp_euid ) {
+			job_log(j, LOG_WARNING, "Working around rdar://problem/5982485 and allowing job to set policy for PID %u. We should discuss having %s run under a per-user launchd.", target_pid, target_j->label);
+		} else {
+			job_log(j, LOG_ERR, "Denied Mach service policy update requested by UID/EUID %u/%u against PID %u with UID/EUID %u/%u due to mismatched credentials.", ldc->uid, ldc->euid, target_pid, kp_uid, kp_euid);
 
-		return BOOTSTRAP_NOT_PRIVILEGED;
+			return BOOTSTRAP_NOT_PRIVILEGED;
+		}
 	}
 
 	if (unlikely(!SLIST_EMPTY(&j->mspolicies))) {
 		job_log(j, LOG_WARNING, "Jobs that have policies assigned to them may not set policies.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
-
-	target_j = jobmgr_find_by_pid(j->mgr, target_pid, true);
 
 	if (unlikely(target_j == NULL)) {
 		if (job_assumes(j, errno == ESRCH)) {
