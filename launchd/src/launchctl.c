@@ -1390,12 +1390,19 @@ do_single_user_mode2(void)
 }
 
 static void
+exit_at_sigterm(int sig)
+{
+	if( sig == SIGTERM ) {
+		exit(EXIT_SUCCESS);
+	}
+}
+
+static void
 system_specific_bootstrap(bool sflag)
 {
 	int hnmib[] = { CTL_KERN, KERN_HOSTNAME };
 	struct kevent kev;
 	int kq;
-
 
 	do_sysversion_sysctl();
 
@@ -1419,6 +1426,11 @@ system_specific_bootstrap(bool sflag)
 
 	if (path_check("/etc/rc.cdrom")) {
 		const char *rccdrom_tool[] = { _PATH_BSHELL, "/etc/rc.cdrom", "multiuser", NULL };
+		
+		/* The bootstrapper should always be killable during install-time (rdar://problem/6103485). 
+		 * This is a special case for /etc/rc.cdrom, which runs a process and never exits.
+		 */
+		assumes(signal(SIGTERM, exit_at_sigterm) != SIG_ERR);
 		assumes(fwexec(rccdrom_tool, NULL) != -1);
 		assumes(reboot(RB_HALT) != -1);
 		_exit(EXIT_FAILURE);

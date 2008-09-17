@@ -16,10 +16,10 @@ if LIBS_ONLY
 noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 
 liblaunch_a_CFLAGS = -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
-liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
+liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c launchd_ktrace.c __version.c
 
 liblaunch_profile_a_CFLAGS = -pg -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
-liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
+liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c launchd_ktrace.c __version.c
 
 $(srcdir)/libvproc.c:: protocol_vproc.h
 
@@ -59,7 +59,7 @@ endif
 
 launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 launchd_LDFLAGS = $(AM_LDFLAGS) -lbsm
-launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
+launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c launchd_ktrace.c
 
 launchd_runtime.c:: notifyServer.h launchd_internal.h mach_excServer.h
 launchd_core_logic.c:: protocol_vproc.h job_reply.h protocol_vprocServer.h job_forward.h

@@ -55,23 +55,26 @@ ARFLAGS = cru
 liblaunch_a_AR = $(AR) $(ARFLAGS)
 liblaunch_a_LIBADD =
 am__liblaunch_a_SOURCES_DIST = liblaunch.c libvproc.c libbootstrap.c \
-	protocol_vprocUser.c __version.c
+	protocol_vprocUser.c launchd_ktrace.c __version.c
 @LIBS_ONLY_TRUE@am_liblaunch_a_OBJECTS =  \
 @LIBS_ONLY_TRUE@	liblaunch_a-liblaunch.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_a-libvproc.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_a-libbootstrap.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_a-protocol_vprocUser.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	liblaunch_a-launchd_ktrace.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_a-__version.$(OBJEXT)
 liblaunch_a_OBJECTS = $(am_liblaunch_a_OBJECTS)
 liblaunch_profile_a_AR = $(AR) $(ARFLAGS)
 liblaunch_profile_a_LIBADD =
 am__liblaunch_profile_a_SOURCES_DIST = liblaunch.c libvproc.c \
-	libbootstrap.c protocol_vprocUser.c __version.c
+	libbootstrap.c protocol_vprocUser.c launchd_ktrace.c \
+	__version.c
 @LIBS_ONLY_TRUE@am_liblaunch_profile_a_OBJECTS =  \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-liblaunch.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-libvproc.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-libbootstrap.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-protocol_vprocUser.$(OBJEXT) \
+@LIBS_ONLY_TRUE@	liblaunch_profile_a-launchd_ktrace.$(OBJEXT) \
 @LIBS_ONLY_TRUE@	liblaunch_profile_a-__version.$(OBJEXT)
 liblaunch_profile_a_OBJECTS = $(am_liblaunch_profile_a_OBJECTS)
 am__installdirs = "$(DESTDIR)$(bindir)" "$(DESTDIR)$(libexecdir)" \
@@ -99,7 +102,7 @@ am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 	launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c \
 	launchd_internalUser.c launchd_internalServer.c \
 	job_replyUser.c launchd_runtime.c launchd_runtime_kill.c \
-	job_forwardUser.c mach_excServer.c
+	job_forwardUser.c mach_excServer.c launchd_ktrace.c
 @LIBS_ONLY_FALSE@am_launchd_OBJECTS = launchd-launchd.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_core_logic.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_unix_ipc.$(OBJEXT) \
@@ -111,7 +114,8 @@ am__launchd_SOURCES_DIST = launchd.c launchd_core_logic.c \
 @LIBS_ONLY_FALSE@	launchd-launchd_runtime.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-launchd_runtime_kill.$(OBJEXT) \
 @LIBS_ONLY_FALSE@	launchd-job_forwardUser.$(OBJEXT) \
-@LIBS_ONLY_FALSE@	launchd-mach_excServer.$(OBJEXT)
+@LIBS_ONLY_FALSE@	launchd-mach_excServer.$(OBJEXT) \
+@LIBS_ONLY_FALSE@	launchd-launchd_ktrace.$(OBJEXT)
 launchd_OBJECTS = $(am_launchd_OBJECTS)
 launchd_LDADD = $(LDADD)
 launchd_LINK = $(CCLD) $(launchd_CFLAGS) $(CFLAGS) $(launchd_LDFLAGS) \
@@ -253,9 +257,9 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 
 @LIBS_ONLY_TRUE@noinst_LIBRARIES = liblaunch.a liblaunch_profile.a
 @LIBS_ONLY_TRUE@liblaunch_a_CFLAGS = -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
-@LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
+@LIBS_ONLY_TRUE@liblaunch_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c launchd_ktrace.c __version.c
 @LIBS_ONLY_TRUE@liblaunch_profile_a_CFLAGS = -pg -D__DARWIN_NON_CANCELABLE=1 $(AM_CFLAGS)
-@LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c __version.c
+@LIBS_ONLY_TRUE@liblaunch_profile_a_SOURCES = liblaunch.c libvproc.c libbootstrap.c protocol_vprocUser.c launchd_ktrace.c __version.c
 @LIBS_ONLY_FALSE@sysconf_DATA = hostconfig rc.common rc.netboot
 @LIBS_ONLY_FALSE@launchctl_CFLAGS = $(AM_CFLAGS) -isystem $(SDKROOT)/System/Library/Frameworks/System.framework/PrivateHeaders
 @LIBS_ONLY_FALSE@launchctl_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit $(LIBS_SECURITY) -weak_library /usr/lib/libedit.dylib
@@ -264,7 +268,7 @@ CLEANFILES = protocol_vproc.h protocol_vprocServer.c protocol_vprocUser.c protoc
 @DO_EMBEDDED_MAGIC_FALSE@@LIBS_ONLY_FALSE@SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 @LIBS_ONLY_FALSE@launchd_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
 @LIBS_ONLY_FALSE@launchd_LDFLAGS = $(AM_LDFLAGS) -lbsm
-@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c
+@LIBS_ONLY_FALSE@launchd_SOURCES = launchd.c launchd_core_logic.c launchd_unix_ipc.c protocol_vprocServer.c notifyServer.c launchd_internalUser.c launchd_internalServer.c job_replyUser.c launchd_runtime.c launchd_runtime_kill.c job_forwardUser.c mach_excServer.c launchd_ktrace.c
 @LIBS_ONLY_FALSE@launchproxy_LDFLAGS = $(AM_LDFLAGS) $(LIBS_SECURITY)
 @LIBS_ONLY_FALSE@man1_MANS = wait4path.1 launchctl.1
 @LIBS_ONLY_FALSE@man5_MANS = launchd.plist.5 launchd.conf.5
@@ -433,6 +437,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_core_logic.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_internalUser.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_ktrace.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_runtime_kill.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-launchd_unix_ipc.Po@am__quote@
@@ -441,11 +446,13 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchd-protocol_vprocServer.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/launchproxy.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_a-__version.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_a-launchd_ktrace.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_a-libbootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_a-liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_a-libvproc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_a-protocol_vprocUser.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-__version.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-launchd_ktrace.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-libbootstrap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-liblaunch.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/liblaunch_profile_a-libvproc.Po@am__quote@
@@ -522,6 +529,20 @@ liblaunch_a-protocol_vprocUser.obj: protocol_vprocUser.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -c -o liblaunch_a-protocol_vprocUser.obj `if test -f 'protocol_vprocUser.c'; then $(CYGPATH_W) 'protocol_vprocUser.c'; else $(CYGPATH_W) '$(srcdir)/protocol_vprocUser.c'; fi`
 
+liblaunch_a-launchd_ktrace.o: launchd_ktrace.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -MT liblaunch_a-launchd_ktrace.o -MD -MP -MF $(DEPDIR)/liblaunch_a-launchd_ktrace.Tpo -c -o liblaunch_a-launchd_ktrace.o `test -f 'launchd_ktrace.c' || echo '$(srcdir)/'`launchd_ktrace.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/liblaunch_a-launchd_ktrace.Tpo $(DEPDIR)/liblaunch_a-launchd_ktrace.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_ktrace.c' object='liblaunch_a-launchd_ktrace.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -c -o liblaunch_a-launchd_ktrace.o `test -f 'launchd_ktrace.c' || echo '$(srcdir)/'`launchd_ktrace.c
+
+liblaunch_a-launchd_ktrace.obj: launchd_ktrace.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -MT liblaunch_a-launchd_ktrace.obj -MD -MP -MF $(DEPDIR)/liblaunch_a-launchd_ktrace.Tpo -c -o liblaunch_a-launchd_ktrace.obj `if test -f 'launchd_ktrace.c'; then $(CYGPATH_W) 'launchd_ktrace.c'; else $(CYGPATH_W) '$(srcdir)/launchd_ktrace.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/liblaunch_a-launchd_ktrace.Tpo $(DEPDIR)/liblaunch_a-launchd_ktrace.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_ktrace.c' object='liblaunch_a-launchd_ktrace.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -c -o liblaunch_a-launchd_ktrace.obj `if test -f 'launchd_ktrace.c'; then $(CYGPATH_W) 'launchd_ktrace.c'; else $(CYGPATH_W) '$(srcdir)/launchd_ktrace.c'; fi`
+
 liblaunch_a-__version.o: __version.c
 @am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_a_CFLAGS) $(CFLAGS) -MT liblaunch_a-__version.o -MD -MP -MF $(DEPDIR)/liblaunch_a-__version.Tpo -c -o liblaunch_a-__version.o `test -f '__version.c' || echo '$(srcdir)/'`__version.c
 @am__fastdepCC_TRUE@	mv -f $(DEPDIR)/liblaunch_a-__version.Tpo $(DEPDIR)/liblaunch_a-__version.Po
@@ -591,6 +612,20 @@ liblaunch_profile_a-protocol_vprocUser.obj: protocol_vprocUser.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='protocol_vprocUser.c' object='liblaunch_profile_a-protocol_vprocUser.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-protocol_vprocUser.obj `if test -f 'protocol_vprocUser.c'; then $(CYGPATH_W) 'protocol_vprocUser.c'; else $(CYGPATH_W) '$(srcdir)/protocol_vprocUser.c'; fi`
+
+liblaunch_profile_a-launchd_ktrace.o: launchd_ktrace.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -MT liblaunch_profile_a-launchd_ktrace.o -MD -MP -MF $(DEPDIR)/liblaunch_profile_a-launchd_ktrace.Tpo -c -o liblaunch_profile_a-launchd_ktrace.o `test -f 'launchd_ktrace.c' || echo '$(srcdir)/'`launchd_ktrace.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/liblaunch_profile_a-launchd_ktrace.Tpo $(DEPDIR)/liblaunch_profile_a-launchd_ktrace.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_ktrace.c' object='liblaunch_profile_a-launchd_ktrace.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-launchd_ktrace.o `test -f 'launchd_ktrace.c' || echo '$(srcdir)/'`launchd_ktrace.c
+
+liblaunch_profile_a-launchd_ktrace.obj: launchd_ktrace.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -MT liblaunch_profile_a-launchd_ktrace.obj -MD -MP -MF $(DEPDIR)/liblaunch_profile_a-launchd_ktrace.Tpo -c -o liblaunch_profile_a-launchd_ktrace.obj `if test -f 'launchd_ktrace.c'; then $(CYGPATH_W) 'launchd_ktrace.c'; else $(CYGPATH_W) '$(srcdir)/launchd_ktrace.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/liblaunch_profile_a-launchd_ktrace.Tpo $(DEPDIR)/liblaunch_profile_a-launchd_ktrace.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_ktrace.c' object='liblaunch_profile_a-launchd_ktrace.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -c -o liblaunch_profile_a-launchd_ktrace.obj `if test -f 'launchd_ktrace.c'; then $(CYGPATH_W) 'launchd_ktrace.c'; else $(CYGPATH_W) '$(srcdir)/launchd_ktrace.c'; fi`
 
 liblaunch_profile_a-__version.o: __version.c
 @am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(liblaunch_profile_a_CFLAGS) $(CFLAGS) -MT liblaunch_profile_a-__version.o -MD -MP -MF $(DEPDIR)/liblaunch_profile_a-__version.Tpo -c -o liblaunch_profile_a-__version.o `test -f '__version.c' || echo '$(srcdir)/'`__version.c
@@ -829,6 +864,20 @@ launchd-mach_excServer.obj: mach_excServer.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='mach_excServer.c' object='launchd-mach_excServer.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-mach_excServer.obj `if test -f 'mach_excServer.c'; then $(CYGPATH_W) 'mach_excServer.c'; else $(CYGPATH_W) '$(srcdir)/mach_excServer.c'; fi`
+
+launchd-launchd_ktrace.o: launchd_ktrace.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-launchd_ktrace.o -MD -MP -MF $(DEPDIR)/launchd-launchd_ktrace.Tpo -c -o launchd-launchd_ktrace.o `test -f 'launchd_ktrace.c' || echo '$(srcdir)/'`launchd_ktrace.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-launchd_ktrace.Tpo $(DEPDIR)/launchd-launchd_ktrace.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_ktrace.c' object='launchd-launchd_ktrace.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_ktrace.o `test -f 'launchd_ktrace.c' || echo '$(srcdir)/'`launchd_ktrace.c
+
+launchd-launchd_ktrace.obj: launchd_ktrace.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -MT launchd-launchd_ktrace.obj -MD -MP -MF $(DEPDIR)/launchd-launchd_ktrace.Tpo -c -o launchd-launchd_ktrace.obj `if test -f 'launchd_ktrace.c'; then $(CYGPATH_W) 'launchd_ktrace.c'; else $(CYGPATH_W) '$(srcdir)/launchd_ktrace.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/launchd-launchd_ktrace.Tpo $(DEPDIR)/launchd-launchd_ktrace.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='launchd_ktrace.c' object='launchd-launchd_ktrace.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(launchd_CFLAGS) $(CFLAGS) -c -o launchd-launchd_ktrace.obj `if test -f 'launchd_ktrace.c'; then $(CYGPATH_W) 'launchd_ktrace.c'; else $(CYGPATH_W) '$(srcdir)/launchd_ktrace.c'; fi`
 install-man1: $(man1_MANS) $(man_MANS)
 	@$(NORMAL_INSTALL)
 	test -z "$(man1dir)" || $(MKDIR_P) "$(DESTDIR)$(man1dir)"

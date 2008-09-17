@@ -32,6 +32,7 @@ struct conncb;
 extern bool shutdown_in_progress;
 extern bool fake_shutdown_in_progress;
 extern bool network_up;
+extern bool g_force_old_kill_path;
 
 INTERNAL_ABI bool init_check_pid(pid_t);
 

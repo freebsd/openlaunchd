@@ -82,7 +82,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #define LAUNCHD_CONF ".launchd.conf"
 #define SECURITY_LIB "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-
 extern char **environ;
 
 INTERNAL_ABI static void pfsystem_callback(void *, struct kevent *);
@@ -107,6 +106,7 @@ static unsigned int g_sync_frequency = 30;
 bool shutdown_in_progress;
 bool fake_shutdown_in_progress;
 bool network_up;
+char g_username[128] = "__UnknownUserToLaunchd_DontPanic_NotImportant__";
 
 int
 main(int argc, char *const *argv)
@@ -157,6 +157,17 @@ main(int argc, char *const *argv)
 		pid1_magic_init();
 	} else {
 		ipc_server_init();
+		
+		runtime_log_push();
+
+		int64_t now = runtime_get_wall_time();
+		
+		struct passwd *pwent = getpwuid(getuid());
+		if( pwent ) {
+			strlcpy(g_username, pwent->pw_name, sizeof(g_username) - 1);
+		}
+		
+		runtime_syslog(LOG_NOTICE, "Per-user launchd for UID %u (%s) began at: %lld.%06llu", getuid(), g_username, now / USEC_PER_SEC, now % USEC_PER_SEC);
 	}
 
 	monitor_networking_state();
@@ -301,7 +312,8 @@ launchd_shutdown(void)
 
 	now = runtime_get_wall_time();
 
-	runtime_syslog(LOG_NOTICE, "Shutdown began at: %lld.%06llu", now / USEC_PER_SEC, now % USEC_PER_SEC);
+	char *term_who = pid1_magic ? "System shutdown" : "Per-user launchd termination";
+	runtime_syslog(LOG_NOTICE, "%s began at: %lld.%06llu", term_who, now / USEC_PER_SEC, now % USEC_PER_SEC);
 
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }

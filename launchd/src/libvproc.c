@@ -41,6 +41,7 @@
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
 #include "liblaunch_internal.h"
+#include "launchd_ktrace.h"
 
 #include "protocol_vproc.h"
 
@@ -83,6 +84,19 @@ vproc_shmem_init(void)
 	vproc_shmem = (struct vproc_shmem_s *)vm_addr;
 }
 
+static void
+vproc_client_init(void)
+{
+	char *val = getenv(LAUNCHD_DO_APPLE_INTERNAL_LOGGING);
+	if( val ) {
+		if( strncmp(val, "true", sizeof("true") - 1) == 0 ) {
+			do_apple_internal_logging = true;
+		}
+	}
+	
+	vproc_shmem_init();
+}
+
 vproc_transaction_t
 vproc_transaction_begin(vproc_t vp __attribute__((unused)))
 {
@@ -97,7 +111,7 @@ void
 _vproc_transaction_begin(void)
 {
 	if (unlikely(vproc_shmem == NULL)) {
-		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
+		int po_r = pthread_once(&shmem_inited, vproc_client_init);
 		if (po_r != 0 || vproc_shmem == NULL) {
 			return;
 		}
@@ -117,6 +131,8 @@ _vproc_transaction_begin(void)
 			abort();
 		}
 	} while( !__sync_bool_compare_and_swap(&vproc_shmem->vp_shmem_transaction_cnt, old, old + 1) );
+	
+	runtime_ktrace(RTKT_VPROC_TRANSACTION_INCREMENT, old + 1, 0, 0);
 }
 
 size_t
@@ -172,6 +188,7 @@ _vproc_transaction_end(void)
 
 	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_transaction_cnt, 1);
 
+	runtime_ktrace(RTKT_VPROC_TRANSACTION_DECREMENT, newval, 0, 0);
 	if (unlikely(newval < 0)) {
 		if (vproc_shmem->vp_shmem_flags & VPROC_SHMEM_EXITING) {
 			raise(SIGKILL);
@@ -199,7 +216,7 @@ _vproc_standby_begin(void)
 	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
 
 	if (unlikely(vproc_shmem == NULL)) {
-		int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
+		int po_r = pthread_once(&shmem_inited, vproc_client_init);
 		if (po_r != 0 || vproc_shmem == NULL) {
 			return;
 		}
@@ -228,6 +245,11 @@ void
 _vproc_standby_end(void)
 {
 	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
+
+	if( unlikely(vproc_shmem == NULL) ) {
+		__crashreporter_info__ = "Process called vproc_standby_end() when not enrolled in transaction model.";
+		abort();
+	}
 
 	newval = __sync_sub_and_fetch(&vproc_shmem->vp_shmem_standby_cnt, 1);
 
@@ -648,7 +670,7 @@ vproc_swap_integer(vproc_t vp __attribute__((unused)), vproc_gsk_t key, int64_t 
 	case VPROC_GSK_TRANSACTIONS_ENABLED:
 		/* Shared memory region is required for transactions. */
 		if( unlikely(vproc_shmem == NULL) ) {
-			int po_r = pthread_once(&shmem_inited, vproc_shmem_init);
+			int po_r = pthread_once(&shmem_inited, vproc_client_init);
 			if( po_r != 0 || vproc_shmem == NULL ) {
 				if( outval ) {
 					*outval = -1;

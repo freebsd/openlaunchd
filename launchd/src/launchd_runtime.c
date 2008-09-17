@@ -130,7 +130,7 @@ static FILE *ourlogfile;
 bool pid1_magic;
 bool do_apple_internal_logging;
 bool low_level_debug;
-
+bool g_force_old_kill_path = false;
 
 INTERNAL_ABI mach_port_t
 runtime_get_kernel_port(void)
@@ -1357,39 +1357,6 @@ runtime_log_uncork_pending_drain(void)
 }
 
 INTERNAL_ABI void
-runtime_ktrace1(runtime_ktrace_code_t code)
-{
-	void *ra = __builtin_extract_return_addr(__builtin_return_address(1));
-
-	/* This syscall returns EINVAL when the trace isn't enabled. */
-	if (do_apple_internal_logging) {
-		syscall(180, code, 0, 0, 0, (long)ra);
-	}
-}
-
-INTERNAL_ABI void
-runtime_ktrace0(runtime_ktrace_code_t code)
-{
-	void *ra = __builtin_extract_return_addr(__builtin_return_address(0));
-
-	/* This syscall returns EINVAL when the trace isn't enabled. */
-	if (do_apple_internal_logging) {
-		syscall(180, code, 0, 0, 0, (long)ra);
-	}
-}
-
-INTERNAL_ABI void
-runtime_ktrace(runtime_ktrace_code_t code, long a, long b, long c)
-{
-	void *ra = __builtin_extract_return_addr(__builtin_return_address(0));
-
-	/* This syscall returns EINVAL when the trace isn't enabled. */
-	if (do_apple_internal_logging) {
-		syscall(180, code, a, b, c, (long)ra);
-	}
-}
-
-INTERNAL_ABI void
 runtime_log_push(void)
 {
 	static pthread_mutex_t ourlock = PTHREAD_MUTEX_INITIALIZER;
@@ -1725,5 +1692,9 @@ do_file_init(void)
 	if (stat("/var/db/.debug_launchd", &sb) == 0) {
 		internal_mask_pri = LOG_UPTO(LOG_DEBUG);
 		low_level_debug = true;
+	}
+	
+	if( stat("/var/db/.launchd_disable_sudden_termination", &sb) == 0 ) {
+		g_force_old_kill_path = true;
 	}
 }

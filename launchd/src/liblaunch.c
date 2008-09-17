@@ -22,6 +22,7 @@
 #include "liblaunch_public.h"
 #include "liblaunch_private.h"
 #include "liblaunch_internal.h"
+#include "launchd_ktrace.h"
 
 #include <mach/mach.h>
 #include <libkern/OSByteOrder.h>
@@ -168,6 +169,8 @@ static void launch_mach_checkin_service(launch_data_t obj, const char *key, void
 
 static launch_t in_flight_msg_recv_client;
 static pthread_once_t _lc_once = PTHREAD_ONCE_INIT;
+
+bool do_apple_internal_logging = false;
 
 static struct _launch_client {
 	pthread_mutex_t mtx;

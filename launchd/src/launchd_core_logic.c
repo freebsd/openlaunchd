@@ -619,7 +619,7 @@ job_stop(job_t j)
 		return;
 	}
 
-	if (j->kill_via_shmem) {
+	if (j->kill_via_shmem && !g_force_old_kill_path) {
 		if (j->shmem) {
 			if (!j->sent_kill_via_shmem) {
 				j->shmem->vp_shmem_flags |= VPROC_SHMEM_EXITING;
@@ -631,6 +631,8 @@ job_stop(job_t j)
 		} else {
 			newval = -1;
 		}
+	} else if( j->kill_via_shmem ) {
+		job_log(j, LOG_DEBUG, "Stopping transactional job the old-fashioned way.");
 	}
 
 	j->sent_signal_time = runtime_get_opaque_time();
@@ -1861,7 +1863,7 @@ job_import_dictionary(job_t j, const char *key, launch_data_t value)
 	case 'E':
 		if (strcasecmp(key, LAUNCH_JOBKEY_ENVIRONMENTVARIABLES) == 0) {
 			launch_data_dict_iterate(value, envitem_setup, j);
-		}
+		}		
 		break;
 	case 'u':
 	case 'U':
@@ -3493,6 +3495,10 @@ job_setup_attributes(job_t j)
 		setenv(ei->key, ei->value, 1);
 	}
 
+	if( do_apple_internal_logging ) {
+		setenv(LAUNCHD_DO_APPLE_INTERNAL_LOGGING, "true", 1);
+	}
+
 	/*
 	 * We'd like to call setsid() unconditionally, but we have reason to
 	 * believe that prevents launchd from being able to send signals to
@@ -4214,7 +4220,7 @@ envitem_setup(launch_data_t obj, const char *key, void *context)
 		return;
 	}
 
-	if( strncmp(LAUNCHD_TRUSTED_FD_ENV, key, sizeof(LAUNCHD_TRUSTED_FD_ENV) - 1) ) {
+	if( strncmp(LAUNCHD_TRUSTED_FD_ENV, key, sizeof(LAUNCHD_TRUSTED_FD_ENV) - 1) != 0 ) {
 		envitem_new(j, key, launch_data_get_string(obj), j->importing_global_env);
 	} else {
 		job_log(j, LOG_WARNING, "Ignoring reserved environmental variable: %s", key);
@@ -5020,6 +5026,7 @@ jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag)
 
 	snprintf(thelabel, sizeof(thelabel), "com.apple.launchctl.%s", session_type);
 	bootstrapper = job_new(jm, thelabel, NULL, bootstrap_tool);
+	
 	if (jobmgr_assumes(jm, bootstrapper != NULL) && (jm->parentmgr || getuid())) {
 		char buf[100];
 
@@ -6134,7 +6141,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		} else {
 			job_log(j, LOG_DEBUG, "Now participating in transaction model.");
 			j->kill_via_shmem = (bool)inval;
-			job_log(j, LOG_DEBUG, "j->kill_via_shmem = %s", j->kill_via_shmem ? "YES" : "NO");
+			job_log(j, LOG_DEBUG, "j->kill_via_shmem = %s", j->kill_via_shmem ? "true" : "false");
 		}
 	case 0:
 		break;

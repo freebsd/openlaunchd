@@ -29,6 +29,7 @@
 #include <syslog.h>
 
 #include "launchd_runtime_kill.h"
+#include "launchd_ktrace.h"
 
 #if 0
 
@@ -104,8 +105,8 @@ typedef boolean_t (*mig_callback)(mach_msg_header_t *, mach_msg_header_t *);
 typedef INTERNAL_ABI void (*timeout_callback)(void);
 
 extern bool pid1_magic;
-extern bool do_apple_internal_logging;
 extern bool low_level_debug;
+extern char g_username[128];
 
 INTERNAL_ABI mach_port_t runtime_get_kernel_port(void);
 
@@ -141,33 +142,6 @@ INTERNAL_ABI pid_t runtime_fork(mach_port_t bsport);
 
 INTERNAL_ABI kern_return_t runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mach_msg_type_number_t invalCnt);
 INTERNAL_ABI kern_return_t runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt);
-
-#ifndef DBG_LAUNCHD
-#define DBG_LAUNCHD 34
-#endif
-
-/* Class(8) | SubClass(8) | Code(14) | Qual(2) */
-#define RTKT_CODE(c) ((DBG_LAUNCHD << 24) | (((c) & 0x3fffff) << 2))
-
-typedef enum {
-	RTKT_LAUNCHD_STARTING		= RTKT_CODE(1),
-	RTKT_LAUNCHD_EXITING		= RTKT_CODE(2),
-	RTKT_LAUNCHD_FINDING_STRAY_PG	= RTKT_CODE(3),
-	RTKT_LAUNCHD_FINDING_ALL_STRAYS	= RTKT_CODE(4),
-	RTKT_LAUNCHD_FINDING_EXECLESS	= RTKT_CODE(5),
-	RTKT_LAUNCHD_FINDING_WEIRD_UIDS	= RTKT_CODE(6),
-	RTKT_LAUNCHD_DATA_PACK		= RTKT_CODE(7),
-	RTKT_LAUNCHD_DATA_UNPACK	= RTKT_CODE(8),
-	RTKT_LAUNCHD_BUG		= RTKT_CODE(9),
-	RTKT_LAUNCHD_MACH_IPC		= RTKT_CODE(10),
-	RTKT_LAUNCHD_BSD_KEVENT		= RTKT_CODE(11),
-} runtime_ktrace_code_t;
-
-/* All of these log the return address as "arg4" */
-INTERNAL_ABI void runtime_ktrace1(runtime_ktrace_code_t code);
-INTERNAL_ABI void runtime_ktrace0(runtime_ktrace_code_t code);
-INTERNAL_ABI void runtime_ktrace(runtime_ktrace_code_t code, long a, long b, long c);
-
 
 #define LOG_APPLEONLY 0x4141504c /* AAPL in hex */
 
