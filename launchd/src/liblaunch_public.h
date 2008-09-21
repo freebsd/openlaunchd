@@ -20,7 +20,10 @@
 #ifndef _LAUNCH_H_
 #define _LAUNCH_H_
 
+#ifdef __APPLE__
 #include <mach/mach.h>
+#endif
+
 #include <sys/cdefs.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -181,7 +184,13 @@ launch_data_t	launch_data_array_get_index(const launch_data_t, size_t) __ld_gett
 size_t		launch_data_array_get_count(const launch_data_t) __ld_getter;
 
 launch_data_t	launch_data_new_fd(int) __ld_allocator;
+
+#ifdef __APPLE__
 launch_data_t	launch_data_new_machport(mach_port_t) __ld_allocator;
+#else
+#warning "Not building on Mac OS X, launch_data_new_machport() will not be defined"
+#endif
+
 launch_data_t	launch_data_new_integer(long long) __ld_allocator;
 launch_data_t	launch_data_new_bool(bool) __ld_allocator;
 launch_data_t	launch_data_new_real(double) __ld_allocator;
@@ -189,7 +198,13 @@ launch_data_t	launch_data_new_string(const char *) __ld_allocator;
 launch_data_t	launch_data_new_opaque(const void *, size_t) __ld_allocator;
 
 bool		launch_data_set_fd(launch_data_t, int) __ld_setter;
+
+#ifdef __APPLE__
 bool		launch_data_set_machport(launch_data_t, mach_port_t) __ld_setter;
+#else
+#warning "Not building on Mac OS X, launch_data_set_machport() will not be defined"
+#endif
+
 bool		launch_data_set_integer(launch_data_t, long long) __ld_setter;
 bool		launch_data_set_bool(launch_data_t, bool) __ld_setter;
 bool		launch_data_set_real(launch_data_t, double) __ld_setter;
@@ -197,7 +212,13 @@ bool		launch_data_set_string(launch_data_t, const char *) __ld_setter;
 bool		launch_data_set_opaque(launch_data_t, const void *, size_t) __ld_setter;
 
 int		launch_data_get_fd(const launch_data_t) __ld_getter;
+
+#ifdef __APPLE__
 mach_port_t	launch_data_get_machport(const launch_data_t) __ld_getter;
+#else
+#warning "Not building on Mac OS X, launch_data_get_machport() will not be defined"
+#endif
+
 long long	launch_data_get_integer(const launch_data_t) __ld_getter;
 bool		launch_data_get_bool(const launch_data_t) __ld_getter;
 double		launch_data_get_real(const launch_data_t) __ld_getter;
