@@ -188,7 +188,7 @@ launch_data_t	launch_data_new_fd(int) __ld_allocator;
 #ifdef __APPLE__
 launch_data_t	launch_data_new_machport(mach_port_t) __ld_allocator;
 #else
-#warning "Not building on Mac OS X, launch_data_new_machport() will not be defined"
+#warning "Not building on Darwin, launch_data_new_machport() will not be defined"
 #endif
 
 launch_data_t	launch_data_new_integer(long long) __ld_allocator;
@@ -202,7 +202,7 @@ bool		launch_data_set_fd(launch_data_t, int) __ld_setter;
 #ifdef __APPLE__
 bool		launch_data_set_machport(launch_data_t, mach_port_t) __ld_setter;
 #else
-#warning "Not building on Mac OS X, launch_data_set_machport() will not be defined"
+#warning "Not building on Darwin, launch_data_set_machport() will not be defined"
 #endif
 
 bool		launch_data_set_integer(launch_data_t, long long) __ld_setter;
@@ -216,7 +216,7 @@ int		launch_data_get_fd(const launch_data_t) __ld_getter;
 #ifdef __APPLE__
 mach_port_t	launch_data_get_machport(const launch_data_t) __ld_getter;
 #else
-#warning "Not building on Mac OS X, launch_data_get_machport() will not be defined"
+#warning "Not building on Darwin, launch_data_get_machport() will not be defined"
 #endif
 
 long long	launch_data_get_integer(const launch_data_t) __ld_getter;

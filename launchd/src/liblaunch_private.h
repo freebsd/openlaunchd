@@ -20,9 +20,18 @@
 #ifndef _LAUNCH_PRIV_H_
 #define _LAUNCH_PRIV_H_
 
+#ifdef __APPLE__
 #include <mach/mach.h>
+#endif
+
 #include <sys/types.h>
+
+#ifdef __APPLE__
 #include <launch.h>
+#else
+#warning "Not building on Darwin, not including launch.h which is a system include on Darwin"
+#endif
+
 #include <unistd.h>
 #include <paths.h>
 
@@ -113,8 +122,14 @@ struct spawn_via_launchd_attr {
 	const char *		spawn_chdir;
  	const char *const *	spawn_env;
  	const mode_t *		spawn_umask;
+#ifdef __APPLE__
  	mach_port_t *		spawn_observer_port;
  	const cpu_type_t *	spawn_binpref;
+#else
+#warning "Not building on Darwin, spawn_via_launchd_attr will be modified"
+	void *				spawn_observer_port; /* Putting an empty pointer in place to ensure alignment isn't fubared */
+	void *				spawn_binpref;
+#endif
 	size_t			spawn_binpref_cnt;
 	void *			spawn_quarantine;
 	const char *		spawn_seatbelt_profile;
@@ -128,9 +143,12 @@ pid_t _spawn_via_launchd(
 		const struct spawn_via_launchd_attr *spawn_attrs,
 		int struct_version);
 
+#ifdef __APPLE__
 kern_return_t mpm_wait(mach_port_t ajob, int *wstatus);
-
 kern_return_t mpm_uncork_fork(mach_port_t ajob);
+#else
+#warning "Not building on Darwin, mpm_wait() and mpm_uncork_fork() will not be defined"
+#endif
 
 
 __END_DECLS
