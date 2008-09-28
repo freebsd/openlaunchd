@@ -24,8 +24,11 @@
 #include "liblaunch_internal.h"
 #include "launchd_ktrace.h"
 
+#ifdef __APPLE__
 #include <mach/mach.h>
 #include <libkern/OSByteOrder.h>
+#endif
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/fcntl.h>
@@ -57,10 +60,12 @@
 	(__DARWIN_ALIGN32(sizeof(struct cmsghdr)) + (l))
 #endif
 
+#ifdef __APPLE__
 #include "libbootstrap_public.h"
 #include "libvproc_public.h"
 #include "libvproc_private.h"
 #include "libvproc_internal.h"
+#endif
 
 /* __OSBogusByteSwap__() must not really exist in the symbol namespace
  * in order for the following to generate an error at build time.
@@ -178,6 +183,7 @@ static struct _launch_client {
 	launch_data_t	async_resp;
 } *_lc = NULL;
 
+#ifdef __APPLE__
 void
 launch_client_init(void)
 {
@@ -240,6 +246,9 @@ out_bad:
 		free(_lc);
 	_lc = NULL;
 }
+#else
+#warning "Not building on Darwin, launch_client_init() will not defined!"
+#endif
 
 launch_data_t
 launch_data_alloc(launch_data_type_t t)
@@ -430,12 +439,16 @@ launch_data_set_fd(launch_data_t d, int fd)
 	return true;
 }
 
+#ifdef __APPLE__
 bool
 launch_data_set_machport(launch_data_t d, mach_port_t p)
 {
 	d->mp = p;
 	return true;
 }
+#else
+#warning "Not building on Darwin, launch_data_set_machport() will not be defined"
+#endif
 
 bool
 launch_data_set_integer(launch_data_t d, long long n)
@@ -497,11 +510,15 @@ launch_data_get_fd(launch_data_t d)
 	return d->fd;
 }
 
+#ifdef __APPLE__
 mach_port_t
 launch_data_get_machport(launch_data_t d)
 {
 	return d->mp;
 }
+#else
+#warning "Not building on Darwin, launch_data_get_machport() will not be defined"
+#endif
 
 long long
 launch_data_get_integer(launch_data_t d)
@@ -898,6 +915,7 @@ launch_msg_getmsgs(launch_data_t m, void *context)
 	}
 }
 
+#ifdef __APPLE__
 void
 launch_mach_checkin_service(launch_data_t obj, const char *key, void *context __attribute__((unused)))
 {
@@ -912,6 +930,9 @@ launch_mach_checkin_service(launch_data_t obj, const char *key, void *context __
 	if (result == BOOTSTRAP_SUCCESS)
 		launch_data_set_machport(obj, p);
 }
+#else 
+#warning "Not building on Darwin, launch_mach_checkin_service() will not be defined"
+#endif
 
 launch_data_t
 launch_msg(launch_data_t d)
@@ -934,6 +955,7 @@ launch_msg(launch_data_t d)
 	return r;
 }
 
+#ifdef __APPLE__
 launch_data_t
 launch_msg_internal(launch_data_t d)
 {
@@ -988,6 +1010,9 @@ out:
 
 	return resp;
 }
+#else
+#warning "Not building on Darwin, launch_msg_internal() will not be defined"
+#endif
 
 int
 launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
@@ -1121,6 +1146,7 @@ launch_data_copy(launch_data_t o)
 	return r;
 }
 
+#ifdef __APPLE__
 void
 launchd_batch_enable(bool b)
 {
@@ -1128,7 +1154,11 @@ launchd_batch_enable(bool b)
 
 	vproc_swap_integer(NULL, VPROC_GSK_GLOBAL_ON_DEMAND, &val, NULL);
 }
+#else
+#warning "Not building on Darwin, launchd_batch_enable() will not be defined"
+#endif
 
+#ifdef __APPLE__
 bool
 launchd_batch_query(void)
 {
@@ -1140,6 +1170,9 @@ launchd_batch_query(void)
 
 	return false;
 }
+#else
+#warning "Not building on Darwin, launchd_batch_query() will not be defined"
+#endif
 
 int
 _fd(int fd)
@@ -1171,6 +1204,7 @@ launch_data_new_fd(int fd)
 	return r;
 }
 
+#ifdef __APPLE__
 launch_data_t
 launch_data_new_machport(mach_port_t p)
 {
@@ -1181,6 +1215,9 @@ launch_data_new_machport(mach_port_t p)
 
 	return r;
 }
+#else
+#warning "Not building on Darwin, launch_data_new_machport() will not be defined"
+#endif
 
 launch_data_t
 launch_data_new_integer(long long n)
@@ -1247,12 +1284,17 @@ launch_data_new_opaque(const void *o, size_t os)
 	return r;
 }
 
+#ifdef __APPLE__
 void
 load_launchd_jobs_at_loginwindow_prompt(int flags __attribute__((unused)), ...)
 {
 	_vprocmgr_init("LoginWindow");
 }
+#else
+#warning "Not building on Darwin, load_launchd_jobs_at_loginwindow_prompt() will not be defined"
+#endif
 
+#ifdef __APPLE__
 pid_t
 create_and_switch_to_per_session_launchd(const char *login __attribute__((unused)), int flags __attribute__((unused)), ...)
 {
@@ -1282,3 +1324,6 @@ create_and_switch_to_per_session_launchd(const char *login __attribute__((unused
 
 	return 1;
 }
+#else
+#warning "Not building on Darwin, create_and_switch_to_per_session_launchd() will not be defined"
+#endif
