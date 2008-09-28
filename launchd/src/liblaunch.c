@@ -27,6 +27,17 @@
 #ifdef __APPLE__
 #include <mach/mach.h>
 #include <libkern/OSByteOrder.h>
+#else
+#include <sys/endian.h>
+/*
+ * NOTE: Minor hack to work around the big2wire macro which depends on 
+ * libkern/OSByteOrder.h, the sys/endian.h functions below /seem/ to serve the 
+ * same function on FreeBSD
+ */
+#define OSSwapLittleToHostInt16(x) le16toh(x)
+#define OSSwapLittleToHostInt32(x) le32toh(x)
+#define OSSwapLittleToHostInt64(x) le64toh(x)
+#define OSSwapHostToLittleInt64(x) htole64(x)
 #endif
 
 #include <sys/types.h>
@@ -248,6 +259,11 @@ out_bad:
 }
 #else
 #warning "Not building on Darwin, launch_client_init() will not defined!"
+/* XXX: Empty call to prevent linkage errors (TEMPORARY) */
+void launch_client_init(void)
+{
+	return;
+}
 #endif
 
 launch_data_t
@@ -1012,6 +1028,11 @@ out:
 }
 #else
 #warning "Not building on Darwin, launch_msg_internal() will not be defined"
+/* XXX: Empty call to prevent linkage errors (TEMPORARY) */
+launch_data_t launch_msg_internal(launch_data_t d)
+{
+	return NULL;
+}
 #endif
 
 int
