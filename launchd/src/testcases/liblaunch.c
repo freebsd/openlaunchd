@@ -14,11 +14,13 @@
 #include "liblaunch_internal.h"
 #include "launchd_ktrace.h"
 
-void launch_data_new_opaque_test()
+#include <sys/resource.h>
+
+void launch_data_alloc_test()
 {
-	const void *o = NULL;
-	launch_data_t op = launch_data_new_opaque(o, sizeof((1024 * sizeof(char))));
-	CU_ASSERT_PTR_NOT_NULL(op);
+	launch_data_t t = launch_data_alloc(LAUNCH_DATA_ARRAY);
+	CU_ASSERT_PTR_NOT_NULL(t);
+	CU_ASSERT_EQUAL(launch_data_get_type(t), LAUNCH_DATA_ARRAY);
 }
 
 int main(int argc, void *argv)
@@ -33,7 +35,7 @@ int main(int argc, void *argv)
 		return CU_get_error();
 	}
 
-	CU_add_test(tests, "launch_data_new_opaque", launch_data_new_opaque_test);
+	CU_add_test(tests, "launch_data_alloc_test", launch_data_alloc_test);
 
 	CU_basic_set_mode(CU_BRM_VERBOSE);
 	CU_basic_run_tests();
