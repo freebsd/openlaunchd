@@ -33,6 +33,8 @@
 #include <syslog.h>
 #include <assert.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <DiskArbitration/DiskArbitration.h>
+#include <DiskArbitration/DiskArbitrationPrivate.h>
 #include <NSSystemDirectories.h>
 #include "IPC.h"
 #include "StartupItems.h"
@@ -45,8 +47,9 @@ bool gNoRunFlag = false;
 
 static void     usage(void) __attribute__((noreturn));
 static int      system_starter(Action anAction, const char *aService);
-static void	displayErrorMessages(StartupContext aStartupContext);
+static void	displayErrorMessages(StartupContext aStartupContext, Action anAction);
 static pid_t	fwexec(const char *cmd, ...) __attribute__((sentinel));
+static void	autodiskmount(void);
 static void	dummy_sig(int signo __attribute__((unused)))
 {
 }
@@ -129,7 +132,6 @@ main(int argc, char *argv[])
 
 	mach_timespec_t w = { 600, 0 };
 	kern_return_t kr;
-	struct stat sb;
 
 	/*
 	 * Too many old StartupItems had implicit dependancies on "Network" via
@@ -144,11 +146,11 @@ main(int argc, char *argv[])
 	}
 
 	fwexec("/usr/sbin/ipconfig", "waitall", NULL);
-	fwexec("/sbin/autodiskmount", "-va", NULL);
+	autodiskmount(); /* wait for Disk Arbitration to report idle */
 
 	system_starter(kActionStart, NULL);
 
-	if (stat("/etc/rc.local", &sb) != -1) {
+	if (StartupItemSecurityCheck("/etc/rc.local")) {
 		fwexec(_PATH_BSHELL, "/etc/rc.local", NULL);
 	}
 
@@ -162,7 +164,7 @@ main(int argc, char *argv[])
 	assert(r != -1);
 	assert(kev.filter == EVFILT_SIGNAL && kev.ident == SIGTERM);
 
-	if (stat("/etc/rc.shutdown.local", &sb) != -1) {
+	if (StartupItemSecurityCheck("/etc/rc.shutdown.local")) {
 		fwexec(_PATH_BSHELL, "/etc/rc.shutdown.local", NULL);
 	}
 
@@ -214,14 +216,14 @@ checkForActivity(StartupContext aStartupContext)
  * print out any error messages to the log regarding non starting StartupItems
  */
 void 
-displayErrorMessages(StartupContext aStartupContext)
+displayErrorMessages(StartupContext aStartupContext, Action anAction)
 {
 	if (aStartupContext->aFailedList && CFArrayGetCount(aStartupContext->aFailedList) > 0) {
 		CFIndex         anItemCount = CFArrayGetCount(aStartupContext->aFailedList);
 		CFIndex         anItemIndex;
 
 
-		syslog(LOG_WARNING, "The following StartupItems failed to properly start:");
+		syslog(LOG_WARNING, "The following StartupItems failed to %s properly:", (anAction == kActionStart) ? "start" : "stop");
 
 		for (anItemIndex = 0; anItemIndex < anItemCount; anItemIndex++) {
 			CFMutableDictionaryRef anItem = (CFMutableDictionaryRef) CFArrayGetValueAtIndex(aStartupContext->aFailedList, anItemIndex);
@@ -349,7 +351,7 @@ system_starter(Action anAction, const char *aService_cstr)
 	/**
          * Good-bye.
          **/
-	displayErrorMessages(aStartupContext);
+	displayErrorMessages(aStartupContext, anAction);
 
 	/* clean up  */
 	if (aStartupContext->aStatusDict)
@@ -434,4 +436,22 @@ fwexec(const char *cmd, ...)
 	}
 
 	return -1;
+}
+
+static void
+autodiskmount_idle(void* context __attribute__((unused)))
+{
+	CFRunLoopStop(CFRunLoopGetCurrent());
+}
+
+static void
+autodiskmount(void)
+{
+	DASessionRef session = DASessionCreate(NULL);
+	if (session) {
+		DASessionScheduleWithRunLoop(session, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+		DARegisterIdleCallback(session, autodiskmount_idle, NULL);
+		CFRunLoopRun();
+		CFRelease(session);
+	}
 }
