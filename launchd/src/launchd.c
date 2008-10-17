@@ -107,6 +107,7 @@ bool shutdown_in_progress;
 bool fake_shutdown_in_progress;
 bool network_up;
 char g_username[128] = "__UnknownUserToLaunchd_DontPanic_NotImportant__";
+FILE *g_console = NULL;
 
 int
 main(int argc, char *const *argv)
@@ -149,6 +150,20 @@ main(int argc, char *const *argv)
 
 	launchd_runtime_init();
 
+	if( pid1_magic ) {
+		if( low_level_debug ) {
+			g_console = stdout;
+		} else {
+			if( !launchd_assumes((g_console = fopen(_PATH_CONSOLE, "w")) != NULL) ) {
+				g_console = stdout;
+			} else {
+				_fd(fileno(g_console));
+			}
+			
+			_fd(fileno(g_console));
+		}
+	}
+
 	if (NULL == getenv("PATH")) {
 		setenv("PATH", _PATH_STDPATH, 1);
 	}
@@ -168,6 +183,10 @@ main(int argc, char *const *argv)
 		}
 		
 		runtime_syslog(LOG_NOTICE, "Per-user launchd for UID %u (%s) began at: %lld.%06llu", getuid(), g_username, now / USEC_PER_SEC, now % USEC_PER_SEC);
+	}
+
+	if( pid1_magic ) {
+		runtime_syslog(LOG_NOTICE | LOG_CONSOLE, "*** launchd[1] has started up. ***");
 	}
 
 	monitor_networking_state();
@@ -274,7 +293,6 @@ pid1_magic_init(void)
 	launchd_assumes(setsid() != -1);
 	launchd_assumes(chdir("/") != -1);
 	launchd_assumes(setlogin("root") != -1);
-	launchd_assumes(mount("fdesc", "/dev", MNT_UNION, NULL) != -1);
 }
 
 

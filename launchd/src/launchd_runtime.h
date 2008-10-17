@@ -144,6 +144,7 @@ INTERNAL_ABI kern_return_t runtime_log_forward(uid_t forward_uid, gid_t forward_
 INTERNAL_ABI kern_return_t runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt);
 
 #define LOG_APPLEONLY 0x4141504c /* AAPL in hex */
+#define LOG_CONSOLE (1 << 31)
 
 struct runtime_syslog_attr {
 	const char *from_name;
@@ -158,7 +159,7 @@ struct runtime_syslog_attr {
 INTERNAL_ABI int runtime_setlogmask(int maskpri);
 INTERNAL_ABI void runtime_closelog(void);
 INTERNAL_ABI void runtime_syslog(int pri, const char *message, ...) __attribute__((format(printf, 2, 3)));
-INTERNAL_ABI void runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args) __attribute__((format(printf, 2, 0)));
+INTERNAL_ABI void runtime_vsyslog(struct runtime_syslog_attr *attr, bool log_to_console, const char *message, va_list args) __attribute__((format(printf, 3, 0)));
 INTERNAL_ABI void runtime_log_push(void);
 
 INTERNAL_ABI int64_t runtime_get_wall_time(void) __attribute__((warn_unused_result));

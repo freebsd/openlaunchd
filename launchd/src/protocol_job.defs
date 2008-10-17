@@ -170,11 +170,12 @@ routine log_forward(
 		__bs_port	: job_t;
 		__inval		: pointer_t);
 
-routine embedded_kickstart(
-		__bs_port	: job_t;
-		__label		: name_t;
-	out	__pid		: pid_t;
-	out	__name_port	: mach_port_t);
+routine kickstart(
+		__bs_port		: job_t;
+		__label			: name_t;
+	out	__pid			: pid_t;
+	out	__name_port		: mach_port_t;
+	out __obsrvr_port	: mach_port_make_send_t);
 
 routine embedded_wait(
 		__bs_port	: job_t;

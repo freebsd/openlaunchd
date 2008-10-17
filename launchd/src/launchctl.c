@@ -43,6 +43,10 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/sysctl.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#ifndef SO_EXECPATH
+/* This is just so it's easy for me to compile launchctl without buildit. */
+	#define SO_EXECPATH 0x1085
+#endif
 #include <sys/un.h>
 #include <sys/fcntl.h>
 #include <sys/event.h>
@@ -74,6 +78,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sysexits.h>
 #include <util.h>
 #include <spawn.h>
+#include <sys/syslimits.h>
 
 extern char **environ;
 
@@ -1449,6 +1454,13 @@ system_specific_bootstrap(bool sflag)
 		assumes(fwexec(rcserver_tool, NULL) != -1);
 	}
 
+#if TARGET_OS_EMBEDDED
+	if (path_check("/etc/rc.boot")) {
+		const char *rcboot_tool[] = { "/etc/rc.boot", NULL };
+		assumes(fwexec(rcboot_tool, true) != -1);
+	}
+#endif
+
 	read_launchd_conf();
 
 	if (path_check("/var/account/acct")) {
@@ -2269,7 +2281,7 @@ str2lim(const char *buf, rlim_t *res)
 }
 
 int
-limit_cmd(int argc __attribute__((unused)), char *const argv[])
+limit_cmd(int argc, char *const argv[])
 {
 	char slimstr[100];
 	char hlimstr[100];
@@ -2340,6 +2352,20 @@ limit_cmd(int argc __attribute__((unused)), char *const argv[])
 	lmts[which].rlim_cur = slim;
 	lmts[which].rlim_max = hlim;
 
+	bool maxfiles_exceeded = false;
+	if( argc > 2 ) {
+		maxfiles_exceeded = ( strncmp(argv[2], "unlimited", sizeof("unlimited")) == 0 );
+	}
+	
+	if( argc > 3 ) {
+		maxfiles_exceeded = ( maxfiles_exceeded || strncmp(argv[3], "unlimited", sizeof("unlimited")) == 0 );
+	}
+	
+	if( maxfiles_exceeded ) {
+		fprintf(stderr, "Neither the hard nor soft limit for \"maxfiles\" can be unlimited. Please use a numeric parameter for both.\n");
+		return 1;
+	}
+	
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmp = launch_data_new_opaque(lmts, lsz);
 	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETRESOURCELIMITS);
@@ -2784,7 +2810,7 @@ do_potential_fsck(void)
 			goto out;
 		}
 #endif
-
+		fprintf(stderr, "Running fsck on the boot volume...\n");
 		if (fwexec(fsck_tool, NULL) != -1) {
 			goto out;
 		}

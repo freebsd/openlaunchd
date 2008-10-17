@@ -210,20 +210,23 @@ launch_client_init(void)
 		
 		if (where && where[0] != '\0') {
 			strncpy(sun.sun_path, where, sizeof(sun.sun_path));
-		} else if (!getenv("SUDO_COMMAND") && _vprocmgr_getsocket(spath) == 0) {
+		} else if ((!getenv("SUDO_COMMAND") || geteuid() != 0) && _vprocmgr_getsocket(spath) == 0) {
 			size_t min_len;
 
 			min_len = sizeof(sun.sun_path) < sizeof(spath) ? sizeof(sun.sun_path) : sizeof(spath);
 
-			strncpy(sun.sun_path, spath, min_len);
+			strncpy(sun.sun_path, spath, min_len);	
 		} else {
 			strncpy(sun.sun_path, LAUNCHD_SOCK_PREFIX "/sock", sizeof(sun.sun_path));
 		}
 
-		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1)
+		if ((lfd = _fd(socket(AF_UNIX, SOCK_STREAM, 0))) == -1) {
 			goto out_bad;
-		if (-1 == connect(lfd, (struct sockaddr *)&sun, sizeof(sun)))
+		}
+			
+		if (-1 == connect(lfd, (struct sockaddr *)&sun, sizeof(sun))) {
 			goto out_bad;
+		}
 	}
 	if (!(_lc->l = launchd_fdopen(lfd)))
 		goto out_bad;
@@ -1256,18 +1259,20 @@ load_launchd_jobs_at_loginwindow_prompt(int flags __attribute__((unused)), ...)
 pid_t
 create_and_switch_to_per_session_launchd(const char *login __attribute__((unused)), int flags __attribute__((unused)), ...)
 {
-	mach_port_t bezel_ui_server;
-	struct stat sb;
 	uid_t target_user = geteuid() ? geteuid() : getuid();
 
 	if (_vprocmgr_move_subset_to_user(target_user, "Aqua")) {
 		return -1;
 	}
 
-#define BEZEL_UI_PATH "/System/Library/LoginPlugins/BezelServices.loginPlugin/Contents/Resources/BezelUI/BezelUIServer"
-#define BEZEL_UI_PLIST "/System/Library/LaunchAgents/com.apple.BezelUIServer.plist"
-#define BEZEL_UI_SERVICE "BezelUI"
+#define BEZEL_UI_HACK
+#ifdef BEZEL_UI_HACK
+	#define BEZEL_UI_PATH "/System/Library/LoginPlugins/BezelServices.loginPlugin/Contents/Resources/BezelUI/BezelUIServer"
+	#define BEZEL_UI_PLIST "/System/Library/LaunchAgents/com.apple.BezelUIServer.plist"
+	#define BEZEL_UI_SERVICE "BezelUI"
 
+	mach_port_t bezel_ui_server;
+	struct stat sb;
 	if (!(stat(BEZEL_UI_PLIST, &sb) == 0 && S_ISREG(sb.st_mode))) {
 		if (bootstrap_create_server(bootstrap_port, BEZEL_UI_PATH, target_user, true, &bezel_ui_server) == BOOTSTRAP_SUCCESS) {
 			mach_port_t srv;
@@ -1279,6 +1284,7 @@ create_and_switch_to_per_session_launchd(const char *login __attribute__((unused
 			mach_port_deallocate(mach_task_self(), bezel_ui_server);
 		}
 	}
+#endif
 
 	return 1;
 }

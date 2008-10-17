@@ -1201,22 +1201,24 @@ runtime_setlogmask(int maskpri)
 INTERNAL_ABI void
 runtime_syslog(int pri, const char *message, ...)
 {
+	bool log_to_console = pri & LOG_CONSOLE;
+	int _pri = pri & ~LOG_CONSOLE;
+	
 	struct runtime_syslog_attr attr = {
 		"com.apple.launchd", "com.apple.launchd",
 		pid1_magic ? "System" : "Background",
-		pri, getuid(), getpid(), getpid()
+		_pri, getuid(), getpid(), getpid()
 	};
 	va_list ap;
 
 	va_start(ap, message);
-
-	runtime_vsyslog(&attr, message, ap);
+	runtime_vsyslog(&attr, log_to_console, message, ap);
 
 	va_end(ap);
 }
 
 INTERNAL_ABI void
-runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args)
+runtime_vsyslog(struct runtime_syslog_attr *attr, bool echo_to_console, const char *message, va_list args)
 {
 	int saved_errno = errno;
 	char newmsg[10000];
@@ -1235,8 +1237,8 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 
 	vsnprintf(newmsg, sizeof(newmsg), message, args);
 
-	if (unlikely(low_level_debug)) {
-		fprintf(stderr, "%s %u\t%s %u\t%s\n", attr->from_name, attr->from_pid,
+	if (unlikely(low_level_debug) || echo_to_console) {
+		fprintf(g_console, "%s %u\t%s %u\t%s\n", attr->from_name, attr->from_pid,
 				attr->about_name, attr->about_pid, newmsg);
 	}
 
