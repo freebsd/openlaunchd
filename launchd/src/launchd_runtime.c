@@ -1245,7 +1245,6 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, bool echo_to_console, const ch
 	logmsg_add(attr, saved_errno, newmsg);
 }
 
-
 bool
 logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg)
 {

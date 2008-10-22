@@ -386,7 +386,7 @@ ipc_readmsg2(launch_data_t data, const char *cmd, void *context)
 		resp = launch_data_new_errno(errno);
 	} else if (!strcmp(cmd, LAUNCH_KEY_REMOVEJOB)) {
 		if ((j = job_find(launch_data_get_string(data))) != NULL) {
-			job_remove(j);
+			job_remove(j, false);
 			errno = 0;
 		}
 		resp = launch_data_new_errno(errno);

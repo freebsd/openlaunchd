@@ -45,7 +45,7 @@ INTERNAL_ABI bool job_is_anonymous(job_t j);
 INTERNAL_ABI launch_data_t job_export(job_t j);
 INTERNAL_ABI void job_stop(job_t j);
 INTERNAL_ABI void job_checkin(job_t j);
-INTERNAL_ABI void job_remove(job_t j);
+INTERNAL_ABI void job_remove(job_t j, bool force);
 INTERNAL_ABI job_t job_import(launch_data_t pload);
 INTERNAL_ABI launch_data_t job_import_bulk(launch_data_t pload);
 INTERNAL_ABI job_t job_mig_intran(mach_port_t mp);

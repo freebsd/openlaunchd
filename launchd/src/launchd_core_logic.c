@@ -328,7 +328,7 @@ static bool jobmgr_label_test(jobmgr_t jm, const char *str);
 static void jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev);
 static void jobmgr_log_stray_children(jobmgr_t jm);
 static void jobmgr_kill_stray_child(jobmgr_t jm, pid_t p);
-static void jobmgr_remove(jobmgr_t jm, bool skip_formalities);
+static void jobmgr_remove(jobmgr_t jm, bool expect_real_jobs);
 static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
 static void jobmgr_dequeue_next_sample(jobmgr_t jm);
 static job_t jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag);
@@ -852,7 +852,7 @@ jobmgr_still_alive_with_check(jobmgr_t jm)
 		if( total_children == 0 ) {
 			jobmgr_log(jm, LOG_DEBUG | LOG_CONSOLE, "No more non-anonymous children left. Shutting down the system.");
 			jobmgr_log_stray_children(jm);
-			jobmgr_remove(jm, true);
+			jobmgr_remove(jm, false);
 		}
 		
 		unsigned int unkilled_jobs = 0;
@@ -868,7 +868,7 @@ jobmgr_still_alive_with_check(jobmgr_t jm)
 
 			type = "hopefully first";
 			if( unkilled_jobs == 0 ) {
-				root_jobmgr->killed_hopefully_first_jobs = true;
+				jm->killed_hopefully_first_jobs = true;
 			}
 		} else if( !jm->killed_normal_jobs ) {
 			LIST_FOREACH( ji, &jm->jobs, sle ) {
@@ -880,11 +880,11 @@ jobmgr_still_alive_with_check(jobmgr_t jm)
 
 			type = "normal";
 			if( unkilled_jobs == 0 ) {
-				root_jobmgr->killed_normal_jobs = true;
+				jm->killed_normal_jobs = true;
 			}
 		} else if( !jm->killed_hopefully_last_jobs ) {
 			LIST_FOREACH( ji, &jm->jobs, sle ) {
-				if( !ji->hopefully_exits_last && !ji->sent_sigkill && !ji->anonymous ) {
+				if( ji->hopefully_exits_last && !ji->sent_sigkill && !ji->anonymous ) {
 					job_log(ji, LOG_DEBUG | LOG_CONSOLE, "Hopefully Last job has not yet been sent SIGKILL.");
 					unkilled_jobs++;
 				}
@@ -914,6 +914,8 @@ jobmgr_still_alive_with_check(jobmgr_t jm)
 			}
 		} else if( unkilled_jobs != 0 ) {
 			jobmgr_log(jm, LOG_NOTICE | LOG_CONSOLE, "Still have %u %s non-anonymous job%s that %s not been sent SIGKILL.", unkilled_jobs, type, unkilled_jobs > 1 ? "s" : "", unkilled_jobs > 1 ? "have" : "has");
+		} else {
+			jobmgr_do_garbage_collection(jm);
 		}
 	}
 
@@ -942,7 +944,7 @@ jobmgr_shutdown(jobmgr_t jm)
 		}
 	}
 
-	if (do_apple_internal_logging && jm->parentmgr == NULL && pid1_magic) {
+	if (jm->parentmgr == NULL && pid1_magic) {
 		jobmgr_assumes(jm, kevent_mod((uintptr_t)jm, EVFILT_TIMER, EV_ADD, NOTE_SECONDS, 5, jm));
 	}
 
@@ -950,24 +952,29 @@ jobmgr_shutdown(jobmgr_t jm)
 }
 
 void
-jobmgr_remove(jobmgr_t jm, bool skip_formalities)
+jobmgr_remove(jobmgr_t jm, bool expect_real_jobs)
 {
 	jobmgr_t jmi;
 	job_t ji;
 
-	jobmgr_log(jm, LOG_DEBUG, "Removed job manager");
-
-	if( !skip_formalities ) {
-		if (!jobmgr_assumes(jm, SLIST_EMPTY(&jm->submgrs))) {
-			while ((jmi = SLIST_FIRST(&jm->submgrs))) {
-				jobmgr_remove(jmi, false);
-			}
+	jobmgr_log(jm, LOG_DEBUG, "Removing job manager.");
+	if (!jobmgr_assumes(jm, SLIST_EMPTY(&jm->submgrs))) {
+		while ((jmi = SLIST_FIRST(&jm->submgrs))) {
+			jobmgr_remove(jmi, false);
 		}
+	}
 
-		while ((ji = LIST_FIRST(&jm->jobs))) {
-			/* We should only have anonymous jobs left */
-			job_assumes(ji, ji->anonymous);
-			job_remove(ji);
+	while( (ji = LIST_FIRST(&jm->jobs)) ) {
+		if( !expect_real_jobs && !job_assumes(ji, ji->anonymous) ) {
+			job_log(ji, LOG_WARNING | LOG_CONSOLE, "%s() called incorrectly with non-anonymous job still active. Forcing removal.", __func__);
+			job_remove(ji, true);
+		} else {
+			if( !ji->anonymous ) {
+				job_log(ji, LOG_WARNING | LOG_CONSOLE, "Job has overstayed its welcome. Forcing removal.");
+				job_remove(ji, true);
+			} else {
+				job_remove(ji, false);
+			}
 		}
 	}
 
@@ -1006,7 +1013,7 @@ jobmgr_remove(jobmgr_t jm, bool skip_formalities)
 }
 
 INTERNAL_ABI void
-job_remove(job_t j)
+job_remove(job_t j, bool force)
 {
 	struct waiting_for_removal *w4r;
 	struct calendarinterval *ci;
@@ -1020,7 +1027,7 @@ job_remove(job_t j)
 	if (unlikely(j->p)) {
 		if (j->anonymous) {
 			job_reap(j);
-		} else {
+		} else if( !force ) {
 			job_log(j, LOG_DEBUG, "Removal pended until the job exits");
 
 			if (!j->removal_pending) {
@@ -1277,7 +1284,7 @@ job_new_via_mach_init(job_t j, const char *cmd, uid_t uid, bool ond)
 
 out_bad:
 	if (jr) {
-		job_remove(jr);
+		job_remove(jr, false);
 	}
 	return NULL;
 }
@@ -2332,7 +2339,7 @@ job_mig_destructor(job_t j)
 
 	if (unlikely(j && (j != workaround_5477111) && j->unload_at_mig_return)) {
 		job_log(j, LOG_NOTICE, "Unloading PID %u at MIG return.", j->p);
-		job_remove(j);
+		job_remove(j, false);
 	}
 
 	workaround_5477111 = NULL;
@@ -2655,7 +2662,7 @@ job_dispatch(job_t j, bool kickstart)
 	 */
 	if (!job_active(j)) {
 		if (job_useless(j)) {
-			job_remove(j);
+			job_remove(j, false);
 			return NULL;
 		} else if (kickstart || job_keepalive(j)) {
 			job_log(j, LOG_DEBUG, "Starting job (kickstart = %s)", kickstart ? "true" : "false");
@@ -2921,7 +2928,7 @@ job_callback_proc(job_t j, int fflags)
 		job_reap(j);
 
 		if (j->anonymous) {
-			job_remove(j);
+			job_remove(j, false);
 			j = NULL;
 		} else {
 			j = job_dispatch(j, false);
@@ -5014,7 +5021,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 
 		LIST_FOREACH_SAFE(ji, &jm->jobs, sle, jn) {
 			if (!job_active(ji)) {
-				job_remove(ji);
+				job_remove(ji, false);
 			} else if (!ji->hopefully_exits_last) {
 				job_stop(ji);
 			}
@@ -5053,7 +5060,7 @@ jobmgr_do_garbage_collection(jobmgr_t jm)
 			retval = jm;
 		} else {
 			jobmgr_log_stray_children(jm);
-			jobmgr_remove(jm, false);
+			jobmgr_remove(jm, total_children == 0 ? false : true);
 		}
 	} else {
 		LIST_FOREACH(ji, &jm->jobs, sle) {
@@ -6128,7 +6135,7 @@ job_mig_send_signal(job_t j, mach_port_t srp, name_t targetlabel, int sig)
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
 
-		job_remove(otherj);
+		job_remove(otherj, false);
 
 		if (do_block) {
 			job_log(j, LOG_DEBUG, "Blocking MIG return of job_remove(): %s", otherj->label);
@@ -6649,7 +6656,7 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 		ji->kill_via_shmem = true;
 
 		if ((ms = machservice_new(ji, lbuf, up_cont, false)) == NULL) {
-			job_remove(ji);
+			job_remove(ji, false);
 			return BOOTSTRAP_NO_MEMORY;
 		}
 
@@ -7029,7 +7036,7 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 
 					LIST_FOREACH_SAFE(ji, &j->mgr->jobs, sle, jn) {
 						if (!ji->anonymous) {
-							job_remove(ji);
+							job_remove(ji, false);
 						}
 					}
 
@@ -7559,12 +7566,12 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 	}
 
 	if (!job_assumes(jr, jr->p)) {
-		job_remove(jr);
+		job_remove(jr, false);
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
 	if (!job_setup_machport(jr)) {
-		job_remove(jr);
+		job_remove(jr, false);
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
