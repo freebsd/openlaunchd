@@ -6,10 +6,12 @@
 
 extern bool do_apple_internal_logging;
 
+#ifndef INTERNAL_ABI
 #ifdef __i386__
 	#define INTERNAL_ABI __attribute__((regparm(3))) /* Enable register-passing for the first 3 arguments on i386. */
 #else
 	#define INTERNAL_ABI
+#endif
 #endif
 
 #ifndef DBG_LAUNCHD

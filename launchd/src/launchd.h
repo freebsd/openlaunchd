@@ -22,8 +22,8 @@
 
 #include <mach/mach.h>
 #include <mach/port.h>
-#include "liblaunch_public.h"
-#include "libbootstrap_public.h"
+#include "launch.h"
+#include "bootstrap.h"
 #include "launchd_runtime.h"
 
 struct kevent;

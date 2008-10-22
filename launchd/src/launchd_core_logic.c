@@ -81,13 +81,13 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <quarantine.h>
 #endif
 
-#include "liblaunch_public.h"
-#include "liblaunch_private.h"
-#include "liblaunch_internal.h"
-#include "libbootstrap_public.h"
-#include "libbootstrap_private.h"
-#include "libvproc_public.h"
-#include "libvproc_internal.h"
+#include "launch.h"
+#include "launch_priv.h"
+#include "launch_internal.h"
+#include "bootstrap.h"
+#include "bootstrap_priv.h"
+#include "vproc.h"
+#include "vproc_internal.h"
 
 #include "reboot2.h"
 
@@ -96,8 +96,8 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launchd_unix_ipc.h"
 #include "protocol_vproc.h"
 #include "protocol_vprocServer.h"
-#include "job_reply.h"
-#include "job_forward.h"
+#include "protocol_job_reply.h"
+#include "protocol_job_forward.h"
 
 /*
  * LAUNCHD_SAMPLE_TIMEOUT
@@ -1883,7 +1883,8 @@ job_import_integer(job_t j, const char *key, long long value)
 }
 
 void
-job_import_opaque(job_t j, const char *key, launch_data_t value)
+job_import_opaque(job_t j __attribute__((unused)),
+	const char *key, launch_data_t value __attribute__((unused)))
 {
 	switch (key[0]) {
 	case 'q':
@@ -3368,7 +3369,9 @@ job_start_child(job_t j)
 	errno = psf(NULL, file2exec, NULL, &spattr, (char *const*)argv, environ);
 	job_log_error(j, LOG_ERR, "posix_spawn(\"%s\", ...)", file2exec);
 
+#if HAVE_SANDBOX
 out_bad:
+#endif
 	_exit(EXIT_FAILURE);
 }
 

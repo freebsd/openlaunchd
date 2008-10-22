@@ -19,11 +19,11 @@
  */
 
 #include "config.h"
-#include "libbootstrap_public.h"
-#include "libbootstrap_private.h"
-
-#include "libvproc_public.h"
-#include "libvproc_private.h"
+#include "launch.h"
+#include "launch_priv.h"
+#include "bootstrap_priv.h"
+#include "vproc.h"
+#include "vproc_priv.h"
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>

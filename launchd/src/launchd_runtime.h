@@ -71,10 +71,12 @@
 
 #endif
 
+#ifndef INTERNAL_ABI
 #ifdef __i386__
 #define INTERNAL_ABI __attribute__((regparm(3)))
 #else
 #define INTERNAL_ABI
+#endif
 #endif
 
 #define	likely(x)	__builtin_expect((bool)(x), true)

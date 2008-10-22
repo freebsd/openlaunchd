@@ -23,9 +23,9 @@ subsystem job_forward 400;
 #include <mach/std_types.defs>
 #include <mach/mach_types.defs>
 #include "launchd_mig_types.defs"
-import "libvproc_public.h";
-import "libvproc_private.h";
-import "libvproc_internal.h";
+import "vproc.h";
+import "vproc_priv.h";
+import "vproc_internal.h";
 
 userprefix vproc_mig_;
 serverprefix job_mig_;
@@ -39,15 +39,15 @@ skip; /* check_in */
 skip; /* register2 */
 
 simpleroutine look_up2_forward(
-		__bs_port	: job_t;
-	replyport	__rport	: mach_port_move_send_once_t;
-		__service_name	: name_t;
-		__target_pid	: pid_t;
-		__flags		: uint64_t);
+				__bs_port				: job_t;
+replyport		__rport					: mach_port_move_send_once_t;
+				__service_name			: name_t;
+				__target_pid			: pid_t;
+				__flags					: uint64_t);
 
 skip; /* send_signal */
 
 simpleroutine parent_forward(
-                __bs_port       : job_t;
-	replyport	__rport	: mach_port_move_send_once_t);
+                __bs_port				: job_t;
+replyport		__rport					: mach_port_move_send_once_t);
 

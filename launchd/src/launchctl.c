@@ -20,12 +20,12 @@
 
 static const char *const __rcs_file_version__ = "$Revision$";
 
-#include "liblaunch_public.h"
-#include "liblaunch_private.h"
-#include "libbootstrap_public.h"
-#include "libvproc_public.h"
-#include "libvproc_private.h"
-#include "libvproc_internal.h"
+#include "launch.h"
+#include "launch_priv.h"
+#include "bootstrap.h"
+#include "vproc.h"
+#include "vproc_priv.h"
+#include "vproc_internal.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>

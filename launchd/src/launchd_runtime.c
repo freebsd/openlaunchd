@@ -64,16 +64,16 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launchd_internalServer.h"
 #include "launchd_internal.h"
 #include "notifyServer.h"
-#include "mach_excServer.h"
+#include "excServer.h"
 
 /* We shouldn't be including these */
 #include "launch.h"
 #include "launchd.h"
 #include "launchd_core_logic.h"
-#include "libvproc_public.h"
-#include "libvproc_private.h"
-#include "libvproc_internal.h"
-#include "job_reply.h"
+#include "vproc.h"
+#include "vproc_priv.h"
+#include "vproc_internal.h"
+#include "protocol_job_reply.h"
 
 static mach_port_t ipc_port_set;
 static mach_port_t demand_port_set;
@@ -901,7 +901,7 @@ launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 	} else if (notify_server_routine(Request)) {
 		return notify_server(Request, Reply);
 	} else {
-		return mach_exc_server(Request, Reply);
+		return exc_server(Request, Reply);
 	}
 }
 
@@ -1508,8 +1508,8 @@ runtime_del_weak_ref(void)
 }
 
 kern_return_t
-catch_mach_exception_raise(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
-		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt)
+catch_exception_raise(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
+		exception_type_t exception, exception_data_t code, mach_msg_type_number_t codeCnt)
 {
 	pid_t p4t = -1;
 
@@ -1525,8 +1525,8 @@ catch_mach_exception_raise(mach_port_t exception_port __attribute__((unused)), m
 }
 
 kern_return_t
-catch_mach_exception_raise_state(mach_port_t exception_port __attribute__((unused)),
-		exception_type_t exception, const mach_exception_data_t code, mach_msg_type_number_t codeCnt,
+catch_exception_raise_state(mach_port_t exception_port __attribute__((unused)),
+		exception_type_t exception, const exception_data_t code, mach_msg_type_number_t codeCnt,
 		int *flavor, const thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
 		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
 {
@@ -1540,8 +1540,8 @@ catch_mach_exception_raise_state(mach_port_t exception_port __attribute__((unuse
 }
 
 kern_return_t
-catch_mach_exception_raise_state_identity(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
-		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt,
+catch_exception_raise_state_identity(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
+		exception_type_t exception, exception_data_t code, mach_msg_type_number_t codeCnt,
 		int *flavor, thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
 		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
 {
