@@ -20,7 +20,7 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-#include <launchd_runtime.h>
+#include "launchd_runtime.h"
 #include "bootstrap.h"
 #include "launch.h"
 
@@ -33,6 +33,7 @@ extern mach_port_t inherited_bootstrap_port;
 INTERNAL_ABI void jobmgr_init(bool);
 INTERNAL_ABI jobmgr_t jobmgr_shutdown(jobmgr_t jm);
 INTERNAL_ABI void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
+void jobmgr_dispatch_all_interested(jobmgr_t jm, job_t j);
 INTERNAL_ABI jobmgr_t jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
 
 INTERNAL_ABI launch_data_t job_export_all(void);

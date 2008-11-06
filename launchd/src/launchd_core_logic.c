@@ -75,6 +75,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <glob.h>
 #include <spawn.h>
 #if HAVE_SANDBOX
+#define __APPLE_API_PRIVATE
 #include <sandbox.h>
 #endif
 #if HAVE_QUARANTINE
@@ -333,6 +334,7 @@ static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
 static void jobmgr_dequeue_next_sample(jobmgr_t jm);
 static job_t jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag);
 static job_t jobmgr_find_by_pid(jobmgr_t jm, pid_t p, bool create_anon);
+static jobmgr_t jobmgr_find_by_name(jobmgr_t jm, const char *where);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
 INTERNAL_ABI static void jobmgr_callback(void *obj, struct kevent *kev);
@@ -353,6 +355,7 @@ struct job_s {
 	LIST_ENTRY(job_s) label_hash_sle;
 	LIST_ENTRY(job_s) global_env_sle;
 	LIST_ENTRY(job_s) pending_samples_sle;
+	SLIST_ENTRY(job_s) curious_jobs_sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
 	SLIST_HEAD(, envitem) global_env;
@@ -454,7 +457,9 @@ struct job_s {
 	     	kill_via_shmem				:1,	/* man launchd.plist --> EnableTransactions */
 	     	sent_kill_via_shmem			:1,	/* We need to 'kill_via_shmem' once-and-only-once */
 			pending_sample				:1, /* This job needs to be sampled for some reason. */
-			kill_after_sample			:1; /* The job is to be killed after sampling. */
+			kill_after_sample			:1, /* The job is to be killed after sampling. */
+			reap_after_sample			:1,	/* The job exited before sample did, so we should reap it after sample is done. */
+			nosy						:1; /* The job has an OtherJobEnabled KeepAlive criterion. */
 	mode_t mask;
 	pid_t sample_pid;
 	const char label[0];
@@ -465,7 +470,7 @@ struct job_s {
 static LIST_HEAD(, job_s) label_hash[LABEL_HASH_SIZE];
 static size_t hash_label(const char *label) __attribute__((pure));
 static size_t hash_ms(const char *msstr) __attribute__((pure));
-
+static SLIST_HEAD(, job_s) s_curious_jobs;
 
 #define job_assumes(j, e)	\
 	(unlikely(!(e)) ? job_log_bug(j, __LINE__), false : true)
@@ -481,9 +486,11 @@ static bool job_set_global_on_demand(job_t j, bool val);
 static const char *job_active(job_t j);
 static void job_watch(job_t j);
 static void job_ignore(job_t j);
+static void job_reap_sample(job_t j);
 static void job_reap(job_t j);
 static bool job_useless(job_t j);
 static bool job_keepalive(job_t j);
+static void job_dispatch_curious_jobs(job_t j);
 static void job_start(job_t j);
 static void job_start_child(job_t j) __attribute__((noreturn));
 static void job_setup_attributes(job_t j);
@@ -499,9 +506,8 @@ static void job_log_pids_with_weird_uids(job_t j);
 static void job_force_sampletool(job_t j);
 #endif
 static void job_setup_exception_port(job_t j, task_t target_task);
-static void job_reparent_hack(job_t j, const char *where);
 INTERNAL_ABI static void job_callback(void *obj, struct kevent *kev);
-static void job_callback_proc(job_t j, int fflags);
+static void job_callback_proc(job_t j, struct kevent *kev);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
 static void job_log_stray_pg(job_t j);
@@ -563,7 +569,6 @@ static job_t workaround_5477111;
 /* process wide globals */
 mach_port_t inherited_bootstrap_port;
 jobmgr_t root_jobmgr;
-
 
 void
 job_ignore(job_t j)
@@ -1037,6 +1042,8 @@ job_remove(job_t j, bool force)
 			return;
 		}
 	}
+	
+	job_dispatch_curious_jobs(j);
 
 	ipc_close_all_with_job(j);
 
@@ -1536,6 +1543,7 @@ job_import(launch_data_t pload)
 		return NULL;
 	}
 
+	job_dispatch_curious_jobs(j);
 	return job_dispatch(j, false);
 }
 
@@ -1546,7 +1554,7 @@ job_import_bulk(launch_data_t pload)
 	job_t *ja;
 	size_t i, c = launch_data_array_get_count(pload);
 
-	ja = alloca(c * sizeof(job_t ));
+	ja = alloca(c * sizeof(job_t));
 
 	for (i = 0; i < c; i++) {
 		if (likely(ja[i] = jobmgr_import2(root_jobmgr, launch_data_array_get_index(pload, i)))) {
@@ -1557,6 +1565,7 @@ job_import_bulk(launch_data_t pload)
 
 	for (i = 0; i < c; i++) {
 		if (likely(ja[i])) {
+			job_dispatch_curious_jobs(ja[i]);
 			job_dispatch(ja[i], false);
 		}
 	}
@@ -1718,7 +1727,6 @@ job_import_string(job_t j, const char *key, const char *value)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADFROMHOSTS) == 0) {
 			return;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE) == 0) {
-			job_reparent_hack(j, value);
 			return;
 		}
 		break;
@@ -2181,6 +2189,14 @@ jobmgr_import2(jobmgr_t jm, launch_data_t pload)
 		argv[i] = NULL;
 	}
 
+	/* Hack to make sure the proper job manager is set the whole way through. */
+	launch_data_t session = launch_data_dict_lookup(pload, LAUNCH_JOBKEY_LIMITLOADTOSESSIONTYPE);
+	if( session ) {
+		jm = jobmgr_find_by_name(jm, launch_data_get_string(session)) ?: jm;
+	}
+	
+	jobmgr_log(jm, LOG_DEBUG, "Importing %s.", label);
+	
 	if (unlikely((j = job_find(label)) != NULL)) {
 		errno = EEXIST;
 		return NULL;
@@ -2434,14 +2450,8 @@ job_reap(job_t j)
 	}
 
 	if (unlikely(j->weird_bootstrap)) {
-		mach_msg_size_t mxmsgsz = (typeof(mxmsgsz)) sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
-
-		if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
-			mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
-		}
-
-		job_assumes(j, runtime_add_mport(j->mgr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS);
-		j->weird_bootstrap = false;
+		int64_t junk = 0;
+		job_mig_swap_integer(j, VPROC_GSK_WEIRD_BOOTSTRAP, 0, 0, &junk);
 	}
 
 	if (j->log_redirect_fd && !j->legacy_LS_job) {
@@ -2522,7 +2532,7 @@ job_reap(job_t j)
 		td_sec = td / NSEC_PER_SEC;
 		td_usec = (td % NSEC_PER_SEC) / NSEC_PER_USEC;
 
-		job_log(j, LOG_INFO, "Exited %llu.%06llu seconds after the first signal was sent", td_sec, td_usec);
+		job_log(j, LOG_NOTICE, "Exited %llu.%06llu seconds after the first signal was sent", td_sec, td_usec);
 	}
 
 	timeradd(&ru.ru_utime, &j->ru.ru_utime, &j->ru.ru_utime);
@@ -2632,12 +2642,22 @@ jobmgr_dequeue_next_sample(jobmgr_t jm)
 	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
 	snprintf(j->mgr->sample_log_file, sizeof(j->mgr->sample_log_file), SHUTDOWN_LOG_DIR "/%s-%u.sample.txt", j->label, j->p);
 	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Going to write sample to %s.", j->mgr->sample_log_file);
-
+	exception_mask_t exceptions =	EXC_MASK_BAD_ACCESS			|
+									EXC_MASK_BAD_INSTRUCTION	|
+									EXC_MASK_ARITHMETIC			|
+									EXC_MASK_CRASH				;
+	
 	if (job_assumes(j, unlink(jm->sample_log_file) != -1 || errno == ENOENT)) {
 		pid_t sp = 0;
 		char *sample_args[] = { "/usr/bin/sample", pidstr, "1", "-unsupportedShowArch", "-mayDie", "-file", j->mgr->sample_log_file, NULL };
-		if (!job_assumes(j, (errno = posix_spawnp(&sp, sample_args[0], NULL, NULL, sample_args, environ)) == 0)) {
+	#if NEEDS_MULTI_THREADED_EXEC
+		posix_spawnattr_t psattr;
+		posix_spawnattr_init(psattr);
+		posix_spawnattr_setexceptionports_np(&psattr, exceptions, MACH_PORT_NULL, EXCEPTION_DEFAULT, 0);
+		
+		if (!job_assumes(j, (errno = posix_spawnp(&sp, sample_args[0], NULL, &psattr, sample_args, environ)) == 0)) {
 			job_log(j, LOG_ERR | LOG_CONSOLE, "Sampling failed for job! Kill it! Kill it with fire!");
+			LIST_REMOVE(j, pending_samples_sle);
 			job_kill(j);
 			jobmgr_dequeue_next_sample(jm);
 		} else {
@@ -2646,6 +2666,54 @@ jobmgr_dequeue_next_sample(jobmgr_t jm)
 
 			/* Let us know when sample is done. ONESHOT is implicit if we're just interested in NOTE_EXIT. */
 			job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j) != -1);
+		}
+		
+		posix_spawnattr_destroy(&psattr);
+	#else
+		switch( (sp = vfork()) ) {
+			case 0	:
+				/* Neuter the exception port so that crashes don't hang sample, making it unreapable. */
+				task_set_exception_ports(mach_task_self(), exceptions, MACH_PORT_NULL, EXCEPTION_DEFAULT, 0);
+				execve(sample_args[0], sample_args, environ);
+				job_log(j, LOG_NOTICE | LOG_CONSOLE, "Could not exec(2): %d", errno);
+				_exit(EXIT_FAILURE);
+			case -1	:
+				job_log(j, LOG_NOTICE | LOG_CONSOLE, "vfork(2) failed: %d", errno);
+				break;
+			default	:
+				break;
+		}
+		
+		if( sp != -1 ) {
+			j->sample_pid = sp;
+			j->pending_sample = false;
+			
+			/* Let us know when sample is done. ONESHOT is implicit if we're just interested in NOTE_EXIT. */
+			job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j) != -1);
+		} else {
+			job_log(j, LOG_ERR | LOG_CONSOLE, "Sampling failed for job! Kill it! Kill it with fire!");
+			LIST_REMOVE(j, pending_samples_sle);
+			job_kill(j);
+			jobmgr_dequeue_next_sample(jm);
+		}
+	#endif
+	}
+}
+
+void
+job_dispatch_curious_jobs(job_t j)
+{	
+	job_t ji = NULL;
+	SLIST_FOREACH( ji, &s_curious_jobs, curious_jobs_sle ) {
+		struct semaphoreitem *si = NULL;
+		SLIST_FOREACH( si, &ji->semaphores, sle ) {			
+			if( si->why == OTHER_JOB_ENABLED || si->why == OTHER_JOB_DISABLED ) {
+				if( strncmp(si->what, j->label, strlen(j->label)) == 0 ) {
+					job_log(ji, LOG_NOTICE | LOG_CONSOLE, "Dispatching out of interest in \"%s\".", j->label);
+					job_assumes(ji, job_dispatch(ji, false) != NULL);
+					break;
+				}
+			}
 		}
 	}
 }
@@ -2800,20 +2868,16 @@ out:
 	free(kp);
 }
 
-static void
+void
 job_reap_sample(job_t j)
 {
 	char *contents = NULL;
 	int wstatus = 0;
 	int logfile_fd = -1;
 	
-	LIST_REMOVE(j, pending_samples_sle);
-	
 	if (!job_assumes(j, waitpid(j->sample_pid, &wstatus, 0) != -1)) {
 		goto out;
 	}
-
-	j->sampled = true;
 
 	/*
 	 * This won't work if the VFS or filesystems are sick:
@@ -2874,22 +2938,40 @@ out:
 	}
 
 	j->sample_pid = 0;
+	j->sampled = true;
+	LIST_REMOVE(j, pending_samples_sle);
+	
+	if( j->reap_after_sample ) {
+		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling complete. Reaping.");
+		struct kevent kev;
+		EV_SET(&kev, 1, 0, 0, NOTE_EXIT, 0, 0);
+		
+		/* Fake a kevent to keep our logic consistent. */
+		job_callback_proc(j, &kev);
+	}
+	
 	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Finished sampling.");
 	
 	jobmgr_dequeue_next_sample(j->mgr);
 }
 
 void
-job_callback_proc(job_t j, int fflags)
+job_callback_proc(job_t j, struct kevent *kev)
 {
 	bool program_changed = false;
+	int fflags = kev->fflags;
 	
-	if( j->sample_pid ) {
+	if( j->sample_pid == (pid_t)kev->ident ) {
 		job_assumes(j, (fflags & NOTE_EXIT) != 0);
 		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling for job done. Reaping sample...");
 		
 		job_reap_sample(j);
 		
+		return;
+	} else if( j->sample_pid && !j->reap_after_sample ) {
+		/* The job exited before our sample completed. */
+		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Job exited. Will reap after sample is complete.");
+		j->reap_after_sample = true;
 		return;
 	}
 	
@@ -2971,7 +3053,7 @@ job_callback_timer(job_t j, void *ident)
 			td -= j->exit_timeout;
 
 			job_log(j, LOG_WARNING | LOG_CONSOLE, "Did not die after sending SIGKILL %llu seconds ago...", td);
-		} else if (!j->sampled && (!j->exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < j->exit_timeout))) {
+		} else if ((!j->sampled && !j->sample_pid) && (!j->exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < j->exit_timeout))) {
 			/* This should work even if the job changes its exit_timeout midstream */
 			job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling timeout elapsed (%u seconds). Scheduling a sample...", LAUNCHD_SAMPLE_TIMEOUT);
 			if (j->exit_timeout) {
@@ -3101,7 +3183,7 @@ job_callback(void *obj, struct kevent *kev)
 
 	switch (kev->filter) {
 	case EVFILT_PROC:
-		return job_callback_proc(j, kev->fflags);
+		return job_callback_proc(j, kev);
 	case EVFILT_TIMER:
 		return job_callback_timer(j, (void *) kev->ident);
 	case EVFILT_VNODE:
@@ -4232,16 +4314,41 @@ calendarinterval_new_from_obj_dict_walk(launch_data_t obj, const char *key, void
 	if (val < 0) {
 		job_log(j, LOG_WARNING, "The interval for key \"%s\" is less than zero.", key);
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_MINUTE) == 0) {
-		tmptm->tm_min = (typeof(tmptm->tm_min)) val;
+		if( val > 59 ) {
+			job_log(j, LOG_WARNING, "The interval for key \"%s\" is not between 0 and 59 (inclusive).", key);
+			tmptm->tm_sec = -1;
+		} else {
+			tmptm->tm_min = (typeof(tmptm->tm_min)) val;
+		}
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_HOUR) == 0) {
-		tmptm->tm_hour = (typeof(tmptm->tm_hour)) val;
+		if( val > 23 ) {
+			job_log(j, LOG_WARNING, "The interval for key \"%s\" is not between 0 and 23 (inclusive).", key);
+			tmptm->tm_sec = -1;
+		} else {
+			tmptm->tm_hour = (typeof(tmptm->tm_hour)) val;
+		}
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_DAY) == 0) {
-		tmptm->tm_mday = (typeof(tmptm->tm_mday)) val;
+		if( val < 1 || val > 31 ) {
+			job_log(j, LOG_WARNING, "The interval for key \"%s\" is not between 1 and 31 (inclusive).", key);
+			tmptm->tm_sec = -1;
+		} else {
+			tmptm->tm_mday = (typeof(tmptm->tm_mday)) val;
+		}
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_WEEKDAY) == 0) {
-		tmptm->tm_wday = (typeof(tmptm->tm_wday)) val;
+		if( val > 7 ) {
+			job_log(j, LOG_WARNING, "The interval for key \"%s\" is not between 0 and 7 (inclusive).", key);
+			tmptm->tm_sec = -1;
+		} else {
+			tmptm->tm_wday = (typeof(tmptm->tm_wday)) val;
+		}
 	} else if (strcasecmp(key, LAUNCH_JOBKEY_CAL_MONTH) == 0) {
-		tmptm->tm_mon = (typeof(tmptm->tm_mon)) val;
-		tmptm->tm_mon -= 1; /* 4798263 cron compatibility */
+		if( val > 12 ) {
+			job_log(j, LOG_WARNING, "The interval for key \"%s\" is not between 0 and 12 (inclusive).", key);
+			tmptm->tm_sec = -1;
+		} else {
+			tmptm->tm_mon = (typeof(tmptm->tm_mon)) val;
+			tmptm->tm_mon -= 1; /* 4798263 cron compatibility */
+		}
 	}
 }
 
@@ -5738,6 +5845,12 @@ semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
 	}
 
 	SLIST_INSERT_HEAD(&j->semaphores, si, sle);
+	
+	if( (why == OTHER_JOB_ENABLED || why == OTHER_JOB_DISABLED) && !j->nosy ) {
+		job_log(j, LOG_DEBUG, "Job is interested in \"%s\".", what);
+		SLIST_INSERT_HEAD(&s_curious_jobs, j, curious_jobs_sle);
+		j->nosy = true;
+	}
 
 	semaphoreitem_runtime_mod_ref(si, true);
 
@@ -5780,6 +5893,14 @@ semaphoreitem_delete(job_t j, struct semaphoreitem *si)
 
 	if (si->fd != -1) {
 		job_assumes(j, runtime_close(si->fd) != -1);
+	}
+
+	job_log(j, LOG_DEBUG, "Removing semaphore item... (what = %s, why = %u)", si->what, si->why);
+	
+	/* We'll need to rethink this if it ever becomes possible to dynamically add or remove semaphores. */
+	if( (si->why == OTHER_JOB_ENABLED || si->why == OTHER_JOB_DISABLED) && j->nosy ) {
+		j->nosy = false;
+		SLIST_REMOVE(&s_curious_jobs, j, job_s, curious_jobs_sle);
 	}
 
 	free(si);
@@ -6087,6 +6208,18 @@ job_mig_create_server(job_t j, cmd_t server_cmd, uid_t server_uid, boolean_t on_
 	if (unlikely(j->deny_job_creation)) {
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
+
+#if HAVE_SANDBOX
+	const char **argv = (const char **)mach_cmd2argv(server_cmd);
+	if (unlikely(argv == NULL)) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+	if (unlikely(sandbox_check(ldc->pid, "job-creation", SANDBOX_FILTER_PATH, argv[0]) > 0)) {
+		free(argv);
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+	free(argv);
+#endif
 
 	job_log(j, LOG_DEBUG, "Server create attempt: %s", server_cmd);
 
@@ -6448,6 +6581,19 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 			job_log(j, LOG_DEBUG, "Now participating in transaction model.");
 			j->kill_via_shmem = (bool)inval;
 			job_log(j, LOG_DEBUG, "j->kill_via_shmem = %s", j->kill_via_shmem ? "true" : "false");
+		}
+	case VPROC_GSK_WEIRD_BOOTSTRAP:
+		if( job_assumes(j, j->weird_bootstrap) ) {
+			job_log(j, LOG_NOTICE, "Unsetting weird bootstrap.");
+			
+			mach_msg_size_t mxmsgsz = (typeof(mxmsgsz)) sizeof(union __RequestUnion__job_mig_protocol_vproc_subsystem);
+			
+			if (job_mig_protocol_vproc_subsystem.maxsize > mxmsgsz) {
+				mxmsgsz = job_mig_protocol_vproc_subsystem.maxsize;
+			}
+			
+			job_assumes(j, runtime_add_mport(j->mgr->jm_port, protocol_vproc_server, mxmsgsz) == KERN_SUCCESS);
+			j->weird_bootstrap = false;
 		}
 	case 0:
 		break;
@@ -6819,6 +6965,12 @@ job_mig_look_up2(job_t j, mach_port_t srp, name_t servicename, mach_port_t *serv
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
+#if HAVE_SANDBOX
+	if (unlikely(sandbox_check(ldc->pid, "mach-lookup", per_pid_lookup ? SANDBOX_FILTER_LOCAL_NAME : SANDBOX_FILTER_GLOBAL_NAME, servicename) > 0)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+#endif
+
 	if (per_pid_lookup) {
 		ms = jobmgr_lookup_service(j->mgr, servicename, false, target_pid);
 	} else {
@@ -6961,8 +7113,8 @@ out_bad:
 	return BOOTSTRAP_NO_MEMORY;
 }
 
-void
-job_reparent_hack(job_t j, const char *where)
+jobmgr_t 
+jobmgr_find_by_name(jobmgr_t jm, const char *where)
 {
 	jobmgr_t jmi, jmi2;
 
@@ -6970,18 +7122,23 @@ job_reparent_hack(job_t j, const char *where)
 
 	/* NULL is only passed for our custom API for LaunchServices. If that is the case, we do magic. */
 	if (where == NULL) {
-		if (strcasecmp(j->mgr->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
+		if (strcasecmp(jm->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 			where = VPROCMGR_SESSION_LOGINWINDOW;
 		} else {
 			where = VPROCMGR_SESSION_AQUA;
 		}
 	}
 
-	if (strcasecmp(j->mgr->name, where) == 0) {
-		return;
+	if (strcasecmp(jm->name, where) == 0) {
+		return jm;
+	}
+	
+	if( strcasecmp(where, VPROCMGR_SESSION_BACKGROUND) == 0 && !pid1_magic ) {
+		jmi = root_jobmgr;
+		goto jm_found;
 	}
 
-	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {
+	SLIST_FOREACH(jmi, &root_jobmgr->submgrs, sle) {	
 		if (unlikely(jmi->shutting_down)) {
 			continue;
 		} else if (strcasecmp(jmi->name, where) == 0) {
@@ -6996,22 +7153,10 @@ job_reparent_hack(job_t j, const char *where)
 		}
 	}
 
+	launchd_assumes(jmi != NULL);
+	
 jm_found:
-	if (job_assumes(j, jmi != NULL)) {
-		struct machservice *msi;
-
-		SLIST_FOREACH(msi, &j->machservices, sle) {
-			LIST_REMOVE(msi, name_hash_sle);
-		}
-
-		LIST_REMOVE(j, sle);
-		LIST_INSERT_HEAD(&jmi->jobs, j, sle);
-		j->mgr = jmi;
-
-		SLIST_FOREACH(msi, &j->machservices, sle) {
-			LIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(msi->name)], msi, name_hash_sle);
-		}
-	}
+	return jmi;
 }
 
 kern_return_t
@@ -7526,6 +7671,12 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
+#if HAVE_SANDBOX
+	if (unlikely(sandbox_check(ldc->pid, "job-creation", SANDBOX_FILTER_NONE) > 0)) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+#endif
+
 	if (unlikely(pid1_magic && ldc->euid && ldc->uid)) {
 		job_log(j, LOG_DEBUG, "Punting spawn to per-user-context");
 		return VPROC_ERR_TRY_PER_USER;
@@ -7540,7 +7691,13 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 		return 1;
 	}
 
-	jr = jobmgr_import2(j->mgr, input_obj);
+	jobmgr_t target_jm = jobmgr_find_by_name(j->mgr, NULL);
+	if( !jobmgr_assumes(j->mgr, target_jm != NULL) ) {
+		jobmgr_log(j->mgr, LOG_NOTICE, "%s() can't find its session!", __func__);
+		return 1;
+	}
+	
+	jr = jobmgr_import2(target_jm ?: j->mgr, input_obj);
 	
 	if (!job_assumes(j, jr != NULL)) {
 		switch (errno) {
@@ -7550,8 +7707,6 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 			return BOOTSTRAP_NO_MEMORY;
 		}
 	}
-
-	job_reparent_hack(jr, NULL);
 
 	if (pid1_magic) {
 		jr->mach_uid = ldc->uid;
@@ -7592,7 +7747,8 @@ INTERNAL_ABI void
 jobmgr_init(bool sflag)
 {
 	const char *root_session_type = pid1_magic ? VPROCMGR_SESSION_SYSTEM : VPROCMGR_SESSION_BACKGROUND;
-
+	SLIST_INIT(&s_curious_jobs);
+	
 	launchd_assert((root_jobmgr = jobmgr_new(NULL, MACH_PORT_NULL, MACH_PORT_NULL, sflag, root_session_type)) != NULL);
 }
 

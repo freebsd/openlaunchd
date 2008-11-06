@@ -156,12 +156,12 @@ main(int argc, char *const *argv)
 		} else {
 			if( !launchd_assumes((g_console = fopen(_PATH_CONSOLE, "w")) != NULL) ) {
 				g_console = stdout;
-			} else {
-				_fd(fileno(g_console));
 			}
 			
 			_fd(fileno(g_console));
 		}
+	} else {
+		g_console = stdout;
 	}
 
 	if (NULL == getenv("PATH")) {
@@ -330,8 +330,8 @@ launchd_shutdown(void)
 
 	now = runtime_get_wall_time();
 
-	char *term_who = pid1_magic ? "System shutdown" : "Per-user launchd termination";
-	runtime_syslog(LOG_NOTICE, "%s began at: %lld.%06llu", term_who, now / USEC_PER_SEC, now % USEC_PER_SEC);
+	char *term_who = pid1_magic ? "System shutdown" : "Per-user launchd termination for ";
+	runtime_syslog(LOG_NOTICE, "%s%s began at: %lld.%06llu", term_who, pid1_magic ? "" : g_username, now / USEC_PER_SEC, now % USEC_PER_SEC);
 
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }

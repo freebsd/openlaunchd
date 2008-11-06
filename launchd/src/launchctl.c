@@ -1633,9 +1633,12 @@ bootstrap_cmd(int argc, char *const argv[])
 	if (strcasecmp(session_type, "System") == 0) {
 		system_specific_bootstrap(sflag);
 	} else {
-		char *load_launchd_items[] = { "load", "-S", session_type, "-D", "all", NULL, NULL, NULL, NULL };
+		char *load_launchd_items[] = { "load", "-S", session_type, "-D", "all", NULL, NULL, NULL, NULL, NULL, NULL };
 		int the_argc = 5;
 
+		char *load_launchd_items_user[] = { "load", "-S", session_type, "-D", "user", NULL };
+		int the_argc_user = 0;
+		
 		if (is_safeboot()) {
 			load_launchd_items[4] = "system";
 		}
@@ -1650,6 +1653,17 @@ bootstrap_cmd(int argc, char *const argv[])
 			if (strcasecmp(session_type, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 				load_launchd_items[the_argc] = "/etc/mach_init_per_login_session.d";
 				the_argc += 1;
+			} else {
+				/* If we're a per-user launchd initializing our Background session,
+				 * don't forget about the user's launchd jobs that may be specified as
+				 * LimitLoadToSessionType = Background. <rdar://problem/5279345> We also
+				 * must keep in mind that we need to load the user jobs last, since the
+				 * jobs in the local sessions may be responsible for mounting the home
+				 * directory.
+				 */
+				if( getppid() != 1 ) {
+					the_argc_user = 5;
+				}
 			}
 		} else if (strcasecmp(session_type, VPROCMGR_SESSION_AQUA) == 0) {
 			load_launchd_items[5] = "/etc/mach_init_per_user.d";
@@ -1663,7 +1677,21 @@ bootstrap_cmd(int argc, char *const argv[])
 #endif
 		}
 
-		return load_and_unload_cmd(the_argc, load_launchd_items);
+		int retval = load_and_unload_cmd(the_argc, load_launchd_items);
+		if( retval == 0 && the_argc_user != 0 ) {
+			optind = 1;
+			/* Load user jobs. But first, we tell launchd to resume listening to
+			 * other clients, since this operation could potentially block if the user's
+			 * home directory is on a network volume or something.
+			 */
+			int64_t junk = 0;
+			vproc_err_t err = vproc_swap_integer(NULL, VPROC_GSK_WEIRD_BOOTSTRAP, &junk, NULL);
+			if( !err ) {
+				retval = load_and_unload_cmd(the_argc_user, load_launchd_items_user);
+			}
+		}
+		
+		return retval;
 	}
 
 	return 0;
@@ -2353,17 +2381,19 @@ limit_cmd(int argc, char *const argv[])
 	lmts[which].rlim_max = hlim;
 
 	bool maxfiles_exceeded = false;
-	if( argc > 2 ) {
-		maxfiles_exceeded = ( strncmp(argv[2], "unlimited", sizeof("unlimited")) == 0 );
-	}
-	
-	if( argc > 3 ) {
-		maxfiles_exceeded = ( maxfiles_exceeded || strncmp(argv[3], "unlimited", sizeof("unlimited")) == 0 );
-	}
-	
-	if( maxfiles_exceeded ) {
-		fprintf(stderr, "Neither the hard nor soft limit for \"maxfiles\" can be unlimited. Please use a numeric parameter for both.\n");
-		return 1;
+	if( strncmp(argv[1], "maxfiles", sizeof("maxfiles")) == 0 ) {
+		if( argc > 2 ) {
+			maxfiles_exceeded = ( strncmp(argv[2], "unlimited", sizeof("unlimited")) == 0 );
+		}
+		
+		if( argc > 3 ) {
+			maxfiles_exceeded = ( maxfiles_exceeded || strncmp(argv[3], "unlimited", sizeof("unlimited")) == 0 );
+		}
+		
+		if( maxfiles_exceeded ) {
+			fprintf(stderr, "Neither the hard nor soft limit for \"maxfiles\" can be unlimited. Please use a numeric parameter for both.\n");
+			return 1;
+		}
 	}
 	
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
