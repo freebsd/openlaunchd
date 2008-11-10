@@ -1635,9 +1635,11 @@ bootstrap_cmd(int argc, char *const argv[])
 	} else {
 		char *load_launchd_items[] = { "load", "-S", session_type, "-D", "all", NULL, NULL, NULL, NULL, NULL, NULL };
 		int the_argc = 5;
-
+		
+		/*
 		char *load_launchd_items_user[] = { "load", "-S", session_type, "-D", "user", NULL };
 		int the_argc_user = 0;
+		*/
 		
 		if (is_safeboot()) {
 			load_launchd_items[4] = "system";
@@ -1661,9 +1663,11 @@ bootstrap_cmd(int argc, char *const argv[])
 				 * jobs in the local sessions may be responsible for mounting the home
 				 * directory.
 				 */
+				/*
 				if( getppid() != 1 ) {
 					the_argc_user = 5;
 				}
+				*/
 			}
 		} else if (strcasecmp(session_type, VPROCMGR_SESSION_AQUA) == 0) {
 			load_launchd_items[5] = "/etc/mach_init_per_user.d";
@@ -1678,6 +1682,7 @@ bootstrap_cmd(int argc, char *const argv[])
 		}
 
 		int retval = load_and_unload_cmd(the_argc, load_launchd_items);
+	#if 0 /* Maybe someday. */
 		if( retval == 0 && the_argc_user != 0 ) {
 			optind = 1;
 			/* Load user jobs. But first, we tell launchd to resume listening to
@@ -1690,6 +1695,7 @@ bootstrap_cmd(int argc, char *const argv[])
 				retval = load_and_unload_cmd(the_argc_user, load_launchd_items_user);
 			}
 		}
+	#endif
 		
 		return retval;
 	}
