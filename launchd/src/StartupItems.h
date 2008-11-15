@@ -107,4 +107,9 @@ int StartupItemRun   (CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef
 void StartupItemExit (CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, Boolean aSuccess);		     
 void StartupItemSetStatus(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef anItem, CFStringRef aServiceName, Boolean aSuccess, Boolean aReplaceFlag);
 
+/*
+ * Check whether file was created before boot and has proper permissions to run.
+ */
+bool StartupItemSecurityCheck(const char *aPath);
+
 #endif /* _StartupItems_H_ */

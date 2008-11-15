@@ -27,8 +27,11 @@
 #include <sys/time.h>
 #include <stdbool.h>
 #include <launch.h>
+#include <vproc.h>
 
-#define VPROC_HAS_TRANSACTIONS 1
+#ifndef VPROC_HAS_TRANSACTIONS
+	#define VPROC_HAS_TRANSACTIONS
+#endif
 
 __BEGIN_DECLS
 
@@ -54,7 +57,8 @@ typedef enum {
 	VPROC_GSK_GLOBAL_LOG_MASK,
 	VPROC_GSK_GLOBAL_UMASK,
 	VPROC_GSK_ABANDON_PROCESS_GROUP,
-	VPROC_GSK_TRANSACTIONS_ENABLED
+	VPROC_GSK_TRANSACTIONS_ENABLED,
+	VPROC_GSK_WEIRD_BOOTSTRAP,
 } vproc_gsk_t;
 
 vproc_err_t vproc_swap_integer(vproc_t vp, vproc_gsk_t key, int64_t *inval, int64_t *outval);
@@ -68,7 +72,7 @@ typedef void (*_vprocmgr_log_drain_callback_t)(struct timeval *when, pid_t from_
 vproc_err_t _vprocmgr_log_drain(vproc_t vp, pthread_mutex_t *optional_mutex_around_callback, _vprocmgr_log_drain_callback_t func);
 
 vproc_err_t _vproc_send_signal_by_label(const char *label, int sig);
-vproc_err_t _vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name);
+vproc_err_t _vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name, mach_port_t *out_obsrvr_port);
 vproc_err_t _vproc_wait_by_label(const char *label, int *out_wstatus);
 
 void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));

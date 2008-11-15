@@ -12,9 +12,20 @@
 .Op Fl gvxdDqn
 .Op Ar action Op Ar service
 .Sh DESCRIPTION
-The 
+The
+.Nm
+utility is deprecated.  System services should instead be described by a
+.Xr launchd.plist 5 .
+See
+.Xr launchd 8
+for more details.
+The
+.Nm launchd
+utility is available on Mac OS X 10.4 and later.
+.Pp
+In earlier versions of Mac OS X, the 
 .Nm 
-utility may be used to start, stop, and restart the system services which
+utility is used to start, stop, and restart the system services which
 are described in the
 .Pa /Library/StartupItems/
 and
@@ -36,8 +47,8 @@ any items it requires, or any items that depend on it will be acted on.
 During boot 
 .Nm
 is invoked by
-.Nm rc
-(see rc(8)) and is responsible for
+.Xr launchd 8
+and is responsible for
 starting all startup items in an order that satisfies each item's 
 requirements.
 .Sh ACTIONS
@@ -80,12 +91,6 @@ is made,
 .Nm
 examines the exit status of the startup item scripts to determine the success or failure of the services provided by that script.
 .Pp
-In Darwin it is preferable to create custom startup items than to modify
-.Nm rc ,
-and at some point
-.Nm
-may entirely encompass the role of
-.Nm rc .
 .Sh FILES
 .Bl -tag -width -/System/Library/StartupItems -compact
 .It Pa /Library/StartupItems/
@@ -96,14 +101,17 @@ System-provided startup items.
 .Sh SEE ALSO 
 .\" List links in ascending order by section, alphabetically within a section.
 .\" Please do not reference files that do not exist without filing a bug report
-.Xr ConsoleMessage 8
-.Pp
+.Xr ConsoleMessage 8 ,
+.Xr launchd 8 ,
+.Xr launchd.plist 5 ,
 .Xr rc 8
 .\" .Sh BUGS              \" Document known, unremedied bugs 
 .Sh HISTORY
 The
 .Nm
-utility appeared in Darwin 1.0
-.Pp
-.Nm
+utility appeared in Darwin 1.0 and
 was extended in Darwin 6.0 to support partial startup and interprocess communication.
+.Nm
+was deprecated by
+.Xr launchd 8
+in Darwin 8.0.

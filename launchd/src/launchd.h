@@ -22,8 +22,8 @@
 
 #include <mach/mach.h>
 #include <mach/port.h>
-#include "liblaunch_public.h"
-#include "libbootstrap_public.h"
+#include "launch.h"
+#include "bootstrap.h"
 #include "launchd_runtime.h"
 
 struct kevent;
@@ -33,6 +33,7 @@ extern bool shutdown_in_progress;
 extern bool fake_shutdown_in_progress;
 extern bool network_up;
 extern bool g_force_old_kill_path;
+extern FILE *g_console;
 
 INTERNAL_ABI bool init_check_pid(pid_t);
 

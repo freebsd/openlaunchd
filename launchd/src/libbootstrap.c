@@ -19,11 +19,11 @@
  */
 
 #include "config.h"
-#include "libbootstrap_public.h"
-#include "libbootstrap_private.h"
-
-#include "libvproc_public.h"
-#include "libvproc_private.h"
+#include "launch.h"
+#include "launch_priv.h"
+#include "bootstrap_priv.h"
+#include "vproc.h"
+#include "vproc_priv.h"
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>
@@ -174,6 +174,7 @@ bootstrap_look_up2(mach_port_t bp, const name_t service_name, mach_port_t *sp, p
 	static mach_port_t prev_bp;
 	static mach_port_t prev_sp;
 	static name_t prev_name;
+	static bool privileged_server_okay;
 	audit_token_t au_tok;
 	bool per_pid_lookup = flags & BOOTSTRAP_PER_PID_SERVICE;
 	kern_return_t kr = 0;
@@ -186,7 +187,7 @@ bootstrap_look_up2(mach_port_t bp, const name_t service_name, mach_port_t *sp, p
 	}
 
 	if (prev_sp) {
-	       	if ((bp == prev_bp) && (strncmp(prev_name, service_name, sizeof(name_t)) == 0)
+       	if ((bp == prev_bp) && (strncmp(prev_name, service_name, sizeof(name_t)) == 0)
 				&& (mach_port_mod_refs(mach_task_self(), prev_sp, MACH_PORT_RIGHT_SEND, 1) == 0)) {
 			*sp = prev_sp;
 			goto out;
@@ -197,6 +198,7 @@ bootstrap_look_up2(mach_port_t bp, const name_t service_name, mach_port_t *sp, p
 	}
 
 skip_cache:
+	privileged_server_okay = false;
 	if ((kr = vproc_mig_look_up2(bp, (char *)service_name, sp, &au_tok, target_pid, flags)) != VPROC_ERR_TRY_PER_USER) {
 		goto out;
 	}
@@ -219,7 +221,7 @@ out:
 
 	pthread_mutex_unlock(&bslu2_lock);
 
-	if ((kr == 0) && (flags & BOOTSTRAP_PRIVILEGED_SERVER)) {
+	if ((kr == 0) && (flags & BOOTSTRAP_PRIVILEGED_SERVER) && !privileged_server_okay) {
 		uid_t server_euid;
 
 		/*
@@ -236,6 +238,8 @@ out:
 		if (server_euid) {
 			mach_port_deallocate(mach_task_self(), *sp);
 			kr = BOOTSTRAP_NOT_PRIVILEGED;
+		} else {
+			privileged_server_okay = true;
 		}
 
 	}

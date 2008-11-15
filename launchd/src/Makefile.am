@@ -53,7 +53,7 @@ launchctl_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit $(L
 if DO_EMBEDDED_MAGIC
 else
 SystemStarter_CFLAGS = -mdynamic-no-pic $(AM_CFLAGS)
-SystemStarter_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit
+SystemStarter_LDFLAGS = $(AM_LDFLAGS) -framework CoreFoundation -framework IOKit -framework DiskArbitration
 SystemStarter_SOURCES = StartupItems.c IPC.c SystemStarter.c
 endif
 

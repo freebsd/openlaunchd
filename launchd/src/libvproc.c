@@ -19,9 +19,9 @@
  */
 
 #include "config.h"
-#include "libvproc_public.h"
-#include "libvproc_private.h"
-#include "libvproc_internal.h"
+#include "vproc.h"
+#include "vproc_priv.h"
+#include "vproc_internal.h"
 
 #include <mach/mach.h>
 #include <mach/vm_map.h>
@@ -38,9 +38,9 @@
 #include <quarantine.h>
 #endif
 
-#include "liblaunch_public.h"
-#include "liblaunch_private.h"
-#include "liblaunch_internal.h"
+#include "launch.h"
+#include "launch_priv.h"
+#include "launch_internal.h"
 #include "launchd_ktrace.h"
 
 #include "protocol_vproc.h"
@@ -144,7 +144,11 @@ _vproc_transaction_count(void)
 size_t
 _vproc_standby_count(void)
 {
+#ifdef VPROC_STANDBY_IMPLEMENTED
 	return likely(vproc_shmem) ? vproc_shmem->vp_shmem_standby_cnt : INT32_MAX;
+#else
+	return 0;
+#endif
 }
 
 size_t
@@ -203,16 +207,21 @@ _vproc_transaction_end(void)
 vproc_standby_t
 vproc_standby_begin(vproc_t vp __attribute__((unused)))
 {
+#ifdef VPROC_STANDBY_IMPLEMENTED
 	vproc_standby_t vpsb = (vproc_standby_t)vproc_shmem_init; /* we need a "random" variable that is testable */
 
 	_vproc_standby_begin();
 
 	return vpsb;
+#else
+	return NULL;
+#endif
 }
 
 void
 _vproc_standby_begin(void)
 {
+#ifdef VPROC_STANDBY_IMPLEMENTED
 	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
 
 	if (unlikely(vproc_shmem == NULL)) {
@@ -228,22 +237,30 @@ _vproc_standby_begin(void)
 		__crashreporter_info__ = "Unbalanced: vproc_standby_begin()";
 		abort();
 	}
+#else
+	return;
+#endif
 }
 
 void
-vproc_standby_end(vproc_t vp __attribute__((unused)), vproc_standby_t vpt)
+vproc_standby_end(vproc_t vp __attribute__((unused)), vproc_standby_t vpt __attribute__((unused)))
 {
+#ifdef VPROC_STANDBY_IMPLEMENTED
 	if (unlikely(vpt != (vproc_standby_t)vproc_shmem_init)) {
 		__crashreporter_info__ = "Bogus standby handle passed to vproc_standby_end() ";
 		abort();
 	}
 
 	_vproc_standby_end();
+#else
+	return;
+#endif
 }
 
 void
 _vproc_standby_end(void)
 {
+#ifdef VPROC_STANDBY_IMPLEMENTED
 	typeof(vproc_shmem->vp_shmem_standby_cnt) newval;
 
 	if( unlikely(vproc_shmem == NULL) ) {
@@ -257,6 +274,9 @@ _vproc_standby_end(void)
 		__crashreporter_info__ = "Unbalanced: vproc_standby_end()";
 		abort();
 	}
+#else
+	return;
+#endif
 }
 
 kern_return_t
@@ -371,7 +391,15 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 		}
 	}
 
-	return _vproc_post_fork_ping();
+	/* Don't do things like setting up the exception port if we're tainted. This is primarily for
+	 * loginwindow, which setuid(2)s to the logged-in user but still runs under the system Mach
+	 * bootstrap. So we want the system launchd to spawn a crash reporter to report loginwindow
+	 * crashes, not the per-user launchd, since that session will be wiped out of there is a loginwindow
+	 * crash.
+	 *
+	 * See rdar://problem/5947376 for more details.
+	 */
+	return !issetugid() ? _vproc_post_fork_ping() : NULL;
 }
 
 
@@ -794,9 +822,20 @@ reboot2(uint64_t flags)
 }
 
 vproc_err_t
-_vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name)
+_vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name, mach_port_t *out_obsrvr_port)
 {
-	if (vproc_mig_embedded_kickstart(bootstrap_port, (char *)label, out_pid, out_port_name) == 0) {
+	mach_port_t junk = MACH_PORT_NULL;
+	mach_port_t junk2 = MACH_PORT_NULL;
+	
+	if( vproc_mig_kickstart(bootstrap_port, (char *)label, out_pid, out_port_name ?: &junk, out_obsrvr_port ?: &junk2) == 0 ) {
+		if( !out_port_name ) {
+			mach_port_mod_refs(mach_task_self(), junk, MACH_PORT_RIGHT_SEND, -1);
+		}
+		
+		if( !out_obsrvr_port ) {
+			mach_port_mod_refs(mach_task_self(), junk2, MACH_PORT_RIGHT_SEND, -1);
+		}
+		
 		return NULL;
 	}
 

@@ -20,9 +20,9 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
-#include <launchd_runtime.h>
-#include "libbootstrap_public.h"
-#include "liblaunch_public.h"
+#include "launchd_runtime.h"
+#include "bootstrap.h"
+#include "launch.h"
 
 typedef struct job_s *job_t;
 typedef struct jobmgr_s *jobmgr_t;
@@ -33,6 +33,7 @@ extern mach_port_t inherited_bootstrap_port;
 INTERNAL_ABI void jobmgr_init(bool);
 INTERNAL_ABI jobmgr_t jobmgr_shutdown(jobmgr_t jm);
 INTERNAL_ABI void jobmgr_dispatch_all_semaphores(jobmgr_t jm);
+void jobmgr_dispatch_all_interested(jobmgr_t jm, job_t j);
 INTERNAL_ABI jobmgr_t jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port);
 
 INTERNAL_ABI launch_data_t job_export_all(void);
@@ -45,7 +46,7 @@ INTERNAL_ABI bool job_is_anonymous(job_t j);
 INTERNAL_ABI launch_data_t job_export(job_t j);
 INTERNAL_ABI void job_stop(job_t j);
 INTERNAL_ABI void job_checkin(job_t j);
-INTERNAL_ABI void job_remove(job_t j);
+INTERNAL_ABI void job_remove(job_t j, bool force);
 INTERNAL_ABI job_t job_import(launch_data_t pload);
 INTERNAL_ABI launch_data_t job_import_bulk(launch_data_t pload);
 INTERNAL_ABI job_t job_mig_intran(mach_port_t mp);

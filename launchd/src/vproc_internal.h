@@ -24,9 +24,9 @@
 #include <sys/queue.h>
 #include <sys/time.h>
 #include <stdarg.h>
-#include "liblaunch_public.h"
-#include "libbootstrap_public.h"
-#include "libvproc_public.h"
+#include "launch.h"
+#include "bootstrap.h"
+#include "vproc.h"
 
 typedef char * _internal_string_t;
 typedef char * logmsg_t;

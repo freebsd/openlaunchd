@@ -20,12 +20,12 @@
 
 static const char *const __rcs_file_version__ = "$Revision$";
 
-#include "liblaunch_public.h"
-#include "liblaunch_private.h"
-#include "libbootstrap_public.h"
-#include "libvproc_public.h"
-#include "libvproc_private.h"
-#include "libvproc_internal.h"
+#include "launch.h"
+#include "launch_priv.h"
+#include "bootstrap.h"
+#include "vproc.h"
+#include "vproc_priv.h"
+#include "vproc_internal.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
@@ -43,6 +43,10 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/sysctl.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#ifndef SO_EXECPATH
+/* This is just so it's easy for me to compile launchctl without buildit. */
+	#define SO_EXECPATH 0x1085
+#endif
 #include <sys/un.h>
 #include <sys/fcntl.h>
 #include <sys/event.h>
@@ -74,6 +78,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sysexits.h>
 #include <util.h>
 #include <spawn.h>
+#include <sys/syslimits.h>
 
 extern char **environ;
 
@@ -1449,6 +1454,13 @@ system_specific_bootstrap(bool sflag)
 		assumes(fwexec(rcserver_tool, NULL) != -1);
 	}
 
+#if TARGET_OS_EMBEDDED
+	if (path_check("/etc/rc.boot")) {
+		const char *rcboot_tool[] = { "/etc/rc.boot", NULL };
+		assumes(fwexec(rcboot_tool, true) != -1);
+	}
+#endif
+
 	read_launchd_conf();
 
 	if (path_check("/var/account/acct")) {
@@ -1621,9 +1633,14 @@ bootstrap_cmd(int argc, char *const argv[])
 	if (strcasecmp(session_type, "System") == 0) {
 		system_specific_bootstrap(sflag);
 	} else {
-		char *load_launchd_items[] = { "load", "-S", session_type, "-D", "all", NULL, NULL, NULL, NULL };
+		char *load_launchd_items[] = { "load", "-S", session_type, "-D", "all", NULL, NULL, NULL, NULL, NULL, NULL };
 		int the_argc = 5;
-
+		
+		/*
+		char *load_launchd_items_user[] = { "load", "-S", session_type, "-D", "user", NULL };
+		int the_argc_user = 0;
+		*/
+		
 		if (is_safeboot()) {
 			load_launchd_items[4] = "system";
 		}
@@ -1638,6 +1655,19 @@ bootstrap_cmd(int argc, char *const argv[])
 			if (strcasecmp(session_type, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 				load_launchd_items[the_argc] = "/etc/mach_init_per_login_session.d";
 				the_argc += 1;
+			} else {
+				/* If we're a per-user launchd initializing our Background session,
+				 * don't forget about the user's launchd jobs that may be specified as
+				 * LimitLoadToSessionType = Background. <rdar://problem/5279345> We also
+				 * must keep in mind that we need to load the user jobs last, since the
+				 * jobs in the local sessions may be responsible for mounting the home
+				 * directory.
+				 */
+				/*
+				if( getppid() != 1 ) {
+					the_argc_user = 5;
+				}
+				*/
 			}
 		} else if (strcasecmp(session_type, VPROCMGR_SESSION_AQUA) == 0) {
 			load_launchd_items[5] = "/etc/mach_init_per_user.d";
@@ -1651,7 +1681,23 @@ bootstrap_cmd(int argc, char *const argv[])
 #endif
 		}
 
-		return load_and_unload_cmd(the_argc, load_launchd_items);
+		int retval = load_and_unload_cmd(the_argc, load_launchd_items);
+	#if 0 /* Maybe someday. */
+		if( retval == 0 && the_argc_user != 0 ) {
+			optind = 1;
+			/* Load user jobs. But first, we tell launchd to resume listening to
+			 * other clients, since this operation could potentially block if the user's
+			 * home directory is on a network volume or something.
+			 */
+			int64_t junk = 0;
+			vproc_err_t err = vproc_swap_integer(NULL, VPROC_GSK_WEIRD_BOOTSTRAP, &junk, NULL);
+			if( !err ) {
+				retval = load_and_unload_cmd(the_argc_user, load_launchd_items_user);
+			}
+		}
+	#endif
+		
+		return retval;
 	}
 
 	return 0;
@@ -2269,7 +2315,7 @@ str2lim(const char *buf, rlim_t *res)
 }
 
 int
-limit_cmd(int argc __attribute__((unused)), char *const argv[])
+limit_cmd(int argc, char *const argv[])
 {
 	char slimstr[100];
 	char hlimstr[100];
@@ -2340,6 +2386,22 @@ limit_cmd(int argc __attribute__((unused)), char *const argv[])
 	lmts[which].rlim_cur = slim;
 	lmts[which].rlim_max = hlim;
 
+	bool maxfiles_exceeded = false;
+	if( strncmp(argv[1], "maxfiles", sizeof("maxfiles")) == 0 ) {
+		if( argc > 2 ) {
+			maxfiles_exceeded = ( strncmp(argv[2], "unlimited", sizeof("unlimited")) == 0 );
+		}
+		
+		if( argc > 3 ) {
+			maxfiles_exceeded = ( maxfiles_exceeded || strncmp(argv[3], "unlimited", sizeof("unlimited")) == 0 );
+		}
+		
+		if( maxfiles_exceeded ) {
+			fprintf(stderr, "Neither the hard nor soft limit for \"maxfiles\" can be unlimited. Please use a numeric parameter for both.\n");
+			return 1;
+		}
+	}
+	
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	tmp = launch_data_new_opaque(lmts, lsz);
 	launch_data_dict_insert(msg, tmp, LAUNCH_KEY_SETRESOURCELIMITS);
@@ -2784,7 +2846,7 @@ do_potential_fsck(void)
 			goto out;
 		}
 #endif
-
+		fprintf(stderr, "Running fsck on the boot volume...\n");
 		if (fwexec(fsck_tool, NULL) != -1) {
 			goto out;
 		}

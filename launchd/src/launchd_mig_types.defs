@@ -36,7 +36,7 @@ type bootstrap_status_t			= integer_t;
 type bootstrap_status_array_t	= ^array [] of bootstrap_status_t;
 
 type job_t = mach_port_t
-        intran: job_t job_mig_intran(mach_port_t) 
-        outtran: mach_port_t job_mig_outtran(job_t)
-        destructor: job_mig_destructor(job_t)
-        cusertype: vproc_mig_t;
+        intran		: job_t job_mig_intran(mach_port_t) 
+        outtran		: mach_port_t job_mig_outtran(job_t)
+        destructor	: job_mig_destructor(job_t)
+        cusertype	: vproc_mig_t;

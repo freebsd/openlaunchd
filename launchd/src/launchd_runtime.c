@@ -64,16 +64,16 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "launchd_internalServer.h"
 #include "launchd_internal.h"
 #include "notifyServer.h"
-#include "mach_excServer.h"
+#include "excServer.h"
 
 /* We shouldn't be including these */
 #include "launch.h"
 #include "launchd.h"
 #include "launchd_core_logic.h"
-#include "libvproc_public.h"
-#include "libvproc_private.h"
-#include "libvproc_internal.h"
-#include "job_reply.h"
+#include "vproc.h"
+#include "vproc_priv.h"
+#include "vproc_internal.h"
+#include "protocol_job_reply.h"
 
 static mach_port_t ipc_port_set;
 static mach_port_t demand_port_set;
@@ -901,7 +901,7 @@ launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply)
 	} else if (notify_server_routine(Request)) {
 		return notify_server(Request, Reply);
 	} else {
-		return mach_exc_server(Request, Reply);
+		return exc_server(Request, Reply);
 	}
 }
 
@@ -1201,22 +1201,24 @@ runtime_setlogmask(int maskpri)
 INTERNAL_ABI void
 runtime_syslog(int pri, const char *message, ...)
 {
+	bool log_to_console = pri & LOG_CONSOLE;
+	int _pri = pri & ~LOG_CONSOLE;
+	
 	struct runtime_syslog_attr attr = {
 		"com.apple.launchd", "com.apple.launchd",
 		pid1_magic ? "System" : "Background",
-		pri, getuid(), getpid(), getpid()
+		_pri, getuid(), getpid(), getpid()
 	};
 	va_list ap;
 
 	va_start(ap, message);
-
-	runtime_vsyslog(&attr, message, ap);
+	runtime_vsyslog(&attr, log_to_console, message, ap);
 
 	va_end(ap);
 }
 
 INTERNAL_ABI void
-runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list args)
+runtime_vsyslog(struct runtime_syslog_attr *attr, bool echo_to_console, const char *message, va_list args)
 {
 	int saved_errno = errno;
 	char newmsg[10000];
@@ -1235,14 +1237,13 @@ runtime_vsyslog(struct runtime_syslog_attr *attr, const char *message, va_list a
 
 	vsnprintf(newmsg, sizeof(newmsg), message, args);
 
-	if (unlikely(low_level_debug)) {
-		fprintf(stderr, "%s %u\t%s %u\t%s\n", attr->from_name, attr->from_pid,
+	if (unlikely(low_level_debug) || echo_to_console) {
+		fprintf(g_console, "%s %u\t%s %u\t%s\n", attr->from_name, attr->from_pid,
 				attr->about_name, attr->about_pid, newmsg);
 	}
 
 	logmsg_add(attr, saved_errno, newmsg);
 }
-
 
 bool
 logmsg_add(struct runtime_syslog_attr *attr, int err_num, const char *msg)
@@ -1507,8 +1508,8 @@ runtime_del_weak_ref(void)
 }
 
 kern_return_t
-catch_mach_exception_raise(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
-		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt)
+catch_exception_raise(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
+		exception_type_t exception, exception_data_t code, mach_msg_type_number_t codeCnt)
 {
 	pid_t p4t = -1;
 
@@ -1524,8 +1525,8 @@ catch_mach_exception_raise(mach_port_t exception_port __attribute__((unused)), m
 }
 
 kern_return_t
-catch_mach_exception_raise_state(mach_port_t exception_port __attribute__((unused)),
-		exception_type_t exception, const mach_exception_data_t code, mach_msg_type_number_t codeCnt,
+catch_exception_raise_state(mach_port_t exception_port __attribute__((unused)),
+		exception_type_t exception, const exception_data_t code, mach_msg_type_number_t codeCnt,
 		int *flavor, const thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
 		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
 {
@@ -1539,8 +1540,8 @@ catch_mach_exception_raise_state(mach_port_t exception_port __attribute__((unuse
 }
 
 kern_return_t
-catch_mach_exception_raise_state_identity(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
-		exception_type_t exception, mach_exception_data_t code, mach_msg_type_number_t codeCnt,
+catch_exception_raise_state_identity(mach_port_t exception_port __attribute__((unused)), mach_port_t thread, mach_port_t task,
+		exception_type_t exception, exception_data_t code, mach_msg_type_number_t codeCnt,
 		int *flavor, thread_state_t old_state, mach_msg_type_number_t old_stateCnt,
 		thread_state_t new_state, mach_msg_type_number_t *new_stateCnt)
 {

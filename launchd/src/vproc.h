@@ -22,6 +22,11 @@
 
 #include <sys/cdefs.h>
 #include <sys/types.h>
+#include <Availability.h>
+
+#ifndef VPROC_HAS_TRANSACTIONS
+	#define VPROC_HAS_TRANSACTIONS
+#endif
 
 __BEGIN_DECLS
 
@@ -92,7 +97,7 @@ typedef struct vproc_transaction_s *vproc_transaction_t;
  * Call this API before creating data that needs to be saved via I/O later.
  */
 vproc_transaction_t
-vproc_transaction_begin(vproc_t virtual_proc);
+vproc_transaction_begin(vproc_t virtual_proc) __OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
 
 /*!
  * @function vproc_transaction_end
@@ -110,7 +115,7 @@ vproc_transaction_begin(vproc_t virtual_proc);
  * Calling this API with the same handle more than once is undefined.
  */
 void
-vproc_transaction_end(vproc_t virtual_proc, vproc_transaction_t handle);
+vproc_transaction_end(vproc_t virtual_proc, vproc_transaction_t handle) __OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
 
 /*!
  * @typedef	vproc_standby_t
@@ -132,9 +137,12 @@ typedef struct vproc_standby_s *vproc_standby_t;
  * @abstract
  * Call this API before registering notifications. For example: timers network
  * state change, or when monitoring keyboard/mouse events.
+ * 
+ * @discussion
+ * This API is undefined and is currently a no-op.
  */
 vproc_standby_t
-vproc_standby_begin(vproc_t virtual_proc);
+vproc_standby_begin(vproc_t virtual_proc) __OSX_AVAILABLE_STARTING(__MAC_NA, __IPHONE_NA);
 
 /*!
  * @function vproc_standby_end
@@ -150,9 +158,10 @@ vproc_standby_begin(vproc_t virtual_proc);
  *
  * @discussion
  * Calling this API with the same handle more than once is undefined.
+ * This API is undefined and is currently a no-op.
  */
 void
-vproc_standby_end(vproc_t virtual_proc, vproc_standby_t handle);
+vproc_standby_end(vproc_t virtual_proc, vproc_standby_t handle) __OSX_AVAILABLE_STARTING(__MAC_NA, __IPHONE_NA);
 
 #pragma GCC visibility pop
 

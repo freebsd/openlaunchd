@@ -69,11 +69,11 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sched.h>
 #include <pthread.h>
 
-#include "libbootstrap_public.h"
-#include "libvproc_public.h"
-#include "libvproc_private.h"
-#include "libvproc_internal.h"
-#include "liblaunch_public.h"
+#include "bootstrap.h"
+#include "vproc.h"
+#include "vproc_priv.h"
+#include "vproc_internal.h"
+#include "launch.h"
 
 #include "launchd_runtime.h"
 #include "launchd_core_logic.h"
@@ -107,6 +107,7 @@ bool shutdown_in_progress;
 bool fake_shutdown_in_progress;
 bool network_up;
 char g_username[128] = "__UnknownUserToLaunchd_DontPanic_NotImportant__";
+FILE *g_console = NULL;
 
 int
 main(int argc, char *const *argv)
@@ -149,6 +150,20 @@ main(int argc, char *const *argv)
 
 	launchd_runtime_init();
 
+	if( pid1_magic ) {
+		if( low_level_debug ) {
+			g_console = stdout;
+		} else {
+			if( !launchd_assumes((g_console = fopen(_PATH_CONSOLE, "w")) != NULL) ) {
+				g_console = stdout;
+			}
+			
+			_fd(fileno(g_console));
+		}
+	} else {
+		g_console = stdout;
+	}
+
 	if (NULL == getenv("PATH")) {
 		setenv("PATH", _PATH_STDPATH, 1);
 	}
@@ -168,6 +183,10 @@ main(int argc, char *const *argv)
 		}
 		
 		runtime_syslog(LOG_NOTICE, "Per-user launchd for UID %u (%s) began at: %lld.%06llu", getuid(), g_username, now / USEC_PER_SEC, now % USEC_PER_SEC);
+	}
+
+	if( pid1_magic ) {
+		runtime_syslog(LOG_NOTICE | LOG_CONSOLE, "*** launchd[1] has started up. ***");
 	}
 
 	monitor_networking_state();
@@ -274,7 +293,6 @@ pid1_magic_init(void)
 	launchd_assumes(setsid() != -1);
 	launchd_assumes(chdir("/") != -1);
 	launchd_assumes(setlogin("root") != -1);
-	launchd_assumes(mount("fdesc", "/dev", MNT_UNION, NULL) != -1);
 }
 
 
@@ -312,8 +330,8 @@ launchd_shutdown(void)
 
 	now = runtime_get_wall_time();
 
-	char *term_who = pid1_magic ? "System shutdown" : "Per-user launchd termination";
-	runtime_syslog(LOG_NOTICE, "%s began at: %lld.%06llu", term_who, now / USEC_PER_SEC, now % USEC_PER_SEC);
+	char *term_who = pid1_magic ? "System shutdown" : "Per-user launchd termination for ";
+	runtime_syslog(LOG_NOTICE, "%s%s began at: %lld.%06llu", term_who, pid1_magic ? "" : g_username, now / USEC_PER_SEC, now % USEC_PER_SEC);
 
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }

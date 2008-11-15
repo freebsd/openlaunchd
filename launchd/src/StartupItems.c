@@ -112,9 +112,9 @@ void AddItemToFailedList(StartupContext aStartupContext, CFMutableDictionaryRef 
 }
 
 /**
- * startupItemListGetMatches returns an array of items which contain the string aService in the key aKey
+ * startupItemListCopyMatches returns an array of items which contain the string aService in the key aKey
  **/
-static CFMutableArrayRef startupItemListGetMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef aService)
+static CFMutableArrayRef startupItemListCopyMatches(CFArrayRef anItemList, CFStringRef aKey, CFStringRef aService)
 {
 	CFMutableArrayRef aResult = NULL;
 
@@ -190,6 +190,7 @@ static void SpecialCasesStartupItemHandler(CFMutableDictionaryRef aConfig)
 		}
 
 		CFDictionaryReplaceValue(aConfig, type, aNewList);
+		CFRelease(aNewList);
 	}
 	if (type == kUsesKey)
 		return;
@@ -216,7 +217,7 @@ CFIndex StartupItemListCountServices(CFArrayRef anItemList)
 	return aResult;
 }
 
-static bool StartupItemSecurityCheck(const char *aPath)
+bool StartupItemSecurityCheck(const char *aPath)
 {
 	static struct timeval boot_time;
 	struct stat aStatBuf;
@@ -430,10 +431,12 @@ CFMutableArrayRef StartupItemListCreateWithMask(NSSearchPathDomainMask aMask)
 CFMutableDictionaryRef StartupItemListGetProvider(CFArrayRef anItemList, CFStringRef aService)
 {
 	CFMutableDictionaryRef aResult = NULL;
-	CFMutableArrayRef aList = startupItemListGetMatches(anItemList, kProvidesKey, aService);
+	CFMutableArrayRef aList = startupItemListCopyMatches(anItemList, kProvidesKey, aService);
 
 	if (aList && CFArrayGetCount(aList) > 0)
 		aResult = (CFMutableDictionaryRef) CFArrayGetValueAtIndex(aList, 0);
+
+	if (aList) CFRelease(aList);
 
 	return aResult;
 }
@@ -578,7 +581,7 @@ static int countDependantsPresent(CFArrayRef aWaitingList, CFArrayRef anItemList
 
 	for (anItemIndex = 0; anItemIndex < anItemCount; anItemIndex++) {
 		CFStringRef anItem = CFArrayGetValueAtIndex(anItemList, anItemIndex);
-		CFArrayRef aMatchesList = startupItemListGetMatches(aWaitingList, aKey, anItem);
+		CFArrayRef aMatchesList = startupItemListCopyMatches(aWaitingList, aKey, anItem);
 
 		if (aMatchesList) {
 			aCount = aCount + CFArrayGetCount(aMatchesList);
@@ -604,7 +607,7 @@ pendingAntecedents(CFArrayRef aWaitingList, CFDictionaryRef aStatusDict, CFArray
 	for (anAntecedentIndex = 0; anAntecedentIndex < anAntecedentCount; ++anAntecedentIndex) {
 		CFStringRef anAntecedent = CFArrayGetValueAtIndex(anAntecedentList, anAntecedentIndex);
 		CFStringRef aKey = (anAction == kActionStart) ? kProvidesKey : kUsesKey;
-		CFArrayRef aMatchesList = startupItemListGetMatches(aWaitingList, aKey, anAntecedent);
+		CFArrayRef aMatchesList = startupItemListCopyMatches(aWaitingList, aKey, anAntecedent);
 
 		if (aMatchesList) {
 			CFIndex aMatchesListCount = CFArrayGetCount(aMatchesList);
@@ -655,7 +658,7 @@ static Boolean checkForDuplicates(CFArrayRef aWaitingList, CFDictionaryRef aStat
 		 * might provide that service.
 		 */
 		else {
-			CFArrayRef aMatchesList = startupItemListGetMatches(aWaitingList, kProvidesKey, aProvides);
+			CFArrayRef aMatchesList = startupItemListCopyMatches(aWaitingList, kProvidesKey, aProvides);
 			if (aMatchesList) {
 				CFIndex aMatchesListCount = CFArrayGetCount(aMatchesList);
 				CFIndex aMatchesListIndex;
