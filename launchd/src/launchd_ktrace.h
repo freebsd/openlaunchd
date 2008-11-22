@@ -6,14 +6,6 @@
 
 extern bool do_apple_internal_logging;
 
-#ifndef INTERNAL_ABI
-#ifdef __i386__
-	#define INTERNAL_ABI __attribute__((regparm(3))) /* Enable register-passing for the first 3 arguments on i386. */
-#else
-	#define INTERNAL_ABI
-#endif
-#endif
-
 #ifndef DBG_LAUNCHD
 	#define DBG_LAUNCHD 34
 #endif
@@ -38,8 +30,8 @@ typedef enum {
 } runtime_ktrace_code_t;
 
 /* All of these log the return address as "arg4" */
-INTERNAL_ABI void runtime_ktrace1(runtime_ktrace_code_t code);
-INTERNAL_ABI void runtime_ktrace0(runtime_ktrace_code_t code);
-INTERNAL_ABI void runtime_ktrace(runtime_ktrace_code_t code, long a, long b, long c);
+void runtime_ktrace1(runtime_ktrace_code_t code);
+void runtime_ktrace0(runtime_ktrace_code_t code);
+void runtime_ktrace(runtime_ktrace_code_t code, long a, long b, long c);
 
 #endif /* __LAUNCHD_KTRACE_H__ */

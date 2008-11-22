@@ -35,16 +35,16 @@ extern bool network_up;
 extern bool g_force_old_kill_path;
 extern FILE *g_console;
 
-INTERNAL_ABI bool init_check_pid(pid_t);
+bool init_check_pid(pid_t);
 
-INTERNAL_ABI launch_data_t launchd_setstdio(int d, launch_data_t o);
-INTERNAL_ABI void launchd_SessionCreate(void);
-INTERNAL_ABI void launchd_shutdown(void);
-INTERNAL_ABI void launchd_single_user(void);
+launch_data_t launchd_setstdio(int d, launch_data_t o);
+void launchd_SessionCreate(void);
+void launchd_shutdown(void);
+void launchd_single_user(void);
 boolean_t launchd_mach_ipc_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
-INTERNAL_ABI void mach_start_shutdown(void);
+void mach_start_shutdown(void);
 
-INTERNAL_ABI int _fd(int fd);
+int _fd(int fd);
 
 #endif

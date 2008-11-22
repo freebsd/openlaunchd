@@ -71,14 +71,6 @@
 
 #endif
 
-#ifndef INTERNAL_ABI
-#ifdef __i386__
-#define INTERNAL_ABI __attribute__((regparm(3)))
-#else
-#define INTERNAL_ABI
-#endif
-#endif
-
 #define	likely(x)	__builtin_expect((bool)(x), true)
 #define	unlikely(x)	__builtin_expect((bool)(x), false)
 
@@ -100,50 +92,53 @@ struct ldcred {
 
 #define launchd_assert(e)	if (__builtin_constant_p(e)) { char __compile_time_assert__[e ? 1 : -1] __attribute__((unused)); } else if (!launchd_assumes(e)) { abort(); }
 
-INTERNAL_ABI void _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
+void _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test);
 
-typedef INTERNAL_ABI void (*kq_callback)(void *, struct kevent *);
+typedef void (*kq_callback)(void *, struct kevent *);
 typedef boolean_t (*mig_callback)(mach_msg_header_t *, mach_msg_header_t *);
-typedef INTERNAL_ABI void (*timeout_callback)(void);
+typedef void (*timeout_callback)(void);
 
 extern bool pid1_magic;
 extern bool low_level_debug;
 extern char g_username[128];
 
-INTERNAL_ABI mach_port_t runtime_get_kernel_port(void);
+mach_port_t runtime_get_kernel_port(void);
+extern boolean_t launchd_internal_demux(mach_msg_header_t *Request, mach_msg_header_t *Reply);
 
-INTERNAL_ABI void runtime_add_ref(void);
-INTERNAL_ABI void runtime_del_ref(void);
-INTERNAL_ABI void runtime_add_weak_ref(void);
-INTERNAL_ABI void runtime_del_weak_ref(void);
+void runtime_add_ref(void);
+void runtime_del_ref(void);
+void runtime_add_weak_ref(void);
+void runtime_del_weak_ref(void);
 
-INTERNAL_ABI void launchd_runtime_init(void);
-INTERNAL_ABI void launchd_runtime_init2(void);
-INTERNAL_ABI void launchd_runtime(void) __attribute__((noreturn));
+void launchd_runtime_init(void);
+void launchd_runtime_init2(void);
+void launchd_runtime(void) __attribute__((noreturn));
 
-INTERNAL_ABI void launchd_log_vm_stats(void);
+void launchd_log_vm_stats(void);
 
-INTERNAL_ABI int runtime_close(int fd);
-INTERNAL_ABI int runtime_fsync(int fd);
+int runtime_close(int fd);
+int runtime_fsync(int fd);
 
 #define RUNTIME_ADVISABLE_IDLE_TIMEOUT 30
 
-INTERNAL_ABI void runtime_set_timeout(timeout_callback to_cb, unsigned int sec);
-INTERNAL_ABI kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size);
-INTERNAL_ABI kern_return_t runtime_remove_mport(mach_port_t name);
-INTERNAL_ABI struct ldcred *runtime_get_caller_creds(void);
+void runtime_set_timeout(timeout_callback to_cb, unsigned int sec);
+kern_return_t runtime_add_mport(mach_port_t name, mig_callback demux, mach_msg_size_t msg_size);
+kern_return_t runtime_remove_mport(mach_port_t name);
+struct ldcred *runtime_get_caller_creds(void);
 
-INTERNAL_ABI const char *signal_to_C_name(unsigned int sig);
-INTERNAL_ABI const char *reboot_flags_to_C_names(unsigned int flags);
-INTERNAL_ABI const char *proc_flags_to_C_names(unsigned int flags);
+const char *signal_to_C_name(unsigned int sig);
+const char *reboot_flags_to_C_names(unsigned int flags);
+const char *proc_flags_to_C_names(unsigned int flags);
 
-INTERNAL_ABI int kevent_bulk_mod(struct kevent *kev, size_t kev_cnt);
-INTERNAL_ABI int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
+int kevent_bulk_mod(struct kevent *kev, size_t kev_cnt);
+int kevent_mod(uintptr_t ident, short filter, u_short flags, u_int fflags, intptr_t data, void *udata);
 
-INTERNAL_ABI pid_t runtime_fork(mach_port_t bsport);
+pid_t runtime_fork(mach_port_t bsport);
 
-INTERNAL_ABI kern_return_t runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mach_msg_type_number_t invalCnt);
-INTERNAL_ABI kern_return_t runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt);
+mach_msg_return_t launchd_exc_runtime_once(mach_port_t port, mach_msg_size_t rcv_msg_size, mach_msg_size_t send_msg_size, mig_reply_error_t *bufRequest, mig_reply_error_t *bufReply, mach_msg_timeout_t to);
+
+kern_return_t runtime_log_forward(uid_t forward_uid, gid_t forward_gid, vm_offset_t inval, mach_msg_type_number_t invalCnt);
+kern_return_t runtime_log_drain(mach_port_t srp, vm_offset_t *outval, mach_msg_type_number_t *outvalCnt);
 
 #define LOG_APPLEONLY 0x4141504c /* AAPL in hex */
 #define LOG_CONSOLE (1 << 31)
@@ -158,25 +153,26 @@ struct runtime_syslog_attr {
 	pid_t about_pid;
 };
 
-INTERNAL_ABI int runtime_setlogmask(int maskpri);
-INTERNAL_ABI void runtime_closelog(void);
-INTERNAL_ABI void runtime_syslog(int pri, const char *message, ...) __attribute__((format(printf, 2, 3)));
-INTERNAL_ABI void runtime_vsyslog(struct runtime_syslog_attr *attr, bool log_to_console, const char *message, va_list args) __attribute__((format(printf, 3, 0)));
-INTERNAL_ABI void runtime_log_push(void);
+int runtime_setlogmask(int maskpri);
+void runtime_closelog(void);
+void runtime_syslog(int pri, const char *message, ...) __attribute__((format(printf, 2, 3)));
+void runtime_vsyslog(struct runtime_syslog_attr *attr, bool log_to_console, const char *message, va_list args) __attribute__((format(printf, 3, 0)));
+void runtime_log_push(void);
 
-INTERNAL_ABI int64_t runtime_get_wall_time(void) __attribute__((warn_unused_result));
-INTERNAL_ABI uint64_t runtime_get_opaque_time(void) __attribute__((warn_unused_result));
-INTERNAL_ABI uint64_t runtime_get_opaque_time_of_event(void) __attribute__((pure, warn_unused_result));
-INTERNAL_ABI uint64_t runtime_opaque_time_to_nano(uint64_t o) __attribute__((const, warn_unused_result));
-INTERNAL_ABI uint64_t runtime_get_nanoseconds_since(uint64_t o) __attribute__((pure, warn_unused_result));
+int64_t runtime_get_wall_time(void) __attribute__((warn_unused_result));
+uint64_t runtime_get_opaque_time(void) __attribute__((warn_unused_result));
+uint64_t runtime_get_opaque_time_of_event(void) __attribute__((pure, warn_unused_result));
+uint64_t runtime_opaque_time_to_nano(uint64_t o) __attribute__((const, warn_unused_result));
+uint64_t runtime_get_nanoseconds_since(uint64_t o) __attribute__((pure, warn_unused_result));
 
-INTERNAL_ABI kern_return_t launchd_set_bport(mach_port_t name);
-INTERNAL_ABI kern_return_t launchd_get_bport(mach_port_t *name);
-INTERNAL_ABI kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
-INTERNAL_ABI kern_return_t launchd_mport_notify_cancel(mach_port_t name, mach_msg_id_t which);
-INTERNAL_ABI kern_return_t launchd_mport_create_recv(mach_port_t *name);
-INTERNAL_ABI kern_return_t launchd_mport_deallocate(mach_port_t name);
-INTERNAL_ABI kern_return_t launchd_mport_make_send(mach_port_t name);
-INTERNAL_ABI kern_return_t launchd_mport_close_recv(mach_port_t name);
+kern_return_t launchd_set_bport(mach_port_t name);
+kern_return_t launchd_get_bport(mach_port_t *name);
+kern_return_t launchd_mport_notify_req(mach_port_t name, mach_msg_id_t which);
+kern_return_t launchd_mport_notify_cancel(mach_port_t name, mach_msg_id_t which);
+kern_return_t launchd_mport_create_recv(mach_port_t *name);
+kern_return_t launchd_mport_deallocate(mach_port_t name);
+kern_return_t launchd_mport_make_send(mach_port_t name);
+kern_return_t launchd_mport_copy_send(mach_port_t name);
+kern_return_t launchd_mport_close_recv(mach_port_t name);
 
 #endif

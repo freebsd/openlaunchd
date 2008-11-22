@@ -64,6 +64,7 @@ __BEGIN_DECLS
 #define LAUNCH_JOBKEY_MACH_TASKSPECIALPORT				"TaskSpecialPort"
 #define LAUNCH_JOBKEY_MACH_HOSTSPECIALPORT				"HostSpecialPort"
 #define LAUNCH_JOBKEY_MACH_ENTERKERNELDEBUGGERONCLOSE	"EnterKernelDebuggerOnClose"
+#define LAUNCH_JOBKEY_MACH_DRAINMESSAGESONCRASH			"DrainMessagesOnCrash"
 
 typedef struct _launch *launch_t;
 

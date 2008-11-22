@@ -157,6 +157,22 @@ _vproc_standby_timeout(void)
 	return likely(vproc_shmem) ? vproc_shmem->vp_shmem_standby_timeout : 0;
 }
 
+bool
+_vproc_pid_is_managed(pid_t p)
+{
+	boolean_t result = false;
+	vproc_mig_pid_is_managed(bootstrap_port, p, &result);
+	
+	return result;
+}
+
+kern_return_t
+_vproc_transaction_count_for_pid(pid_t p, int32_t *count, bool *condemned)
+{
+	boolean_t _condemned = false;
+	return vproc_mig_transaction_count_for_pid(bootstrap_port, p, count, (boolean_t *)condemned ? : &_condemned);
+}
+
 void
 _vproc_transaction_try_exit(int status)
 {
@@ -356,25 +372,21 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 		return (vproc_err_t)_vprocmgr_move_subset_to_user;
 	}
 
-	if (is_bkgd || target_user) {
-		mach_port_t puc = 0, rootbs = get_root_bootstrap_port();
-
-		if (vproc_mig_lookup_per_user_context(rootbs, target_user, &puc) != 0) {
-			return (vproc_err_t)_vprocmgr_move_subset_to_user;
-		}
-
-		if (is_bkgd) {
-			task_set_bootstrap_port(mach_task_self(), puc);
-			mach_port_deallocate(mach_task_self(), bootstrap_port);
-			bootstrap_port = puc;
-		} else {
-			kr = vproc_mig_move_subset(puc, bootstrap_port, (char *)session_type);
-			mach_port_deallocate(mach_task_self(), puc);
-		}
-	} else {
-		kr = _vprocmgr_init(session_type) ? 1 : 0;
+	mach_port_t puc = 0, rootbs = get_root_bootstrap_port();
+	
+	if (vproc_mig_lookup_per_user_context(rootbs, target_user, &puc) != 0) {
+		return (vproc_err_t)_vprocmgr_move_subset_to_user;
 	}
-
+	
+	if( is_bkgd ) {		
+		task_set_bootstrap_port(mach_task_self(), puc);
+		mach_port_deallocate(mach_task_self(), bootstrap_port);
+		bootstrap_port = puc;
+	} else {
+		kr = vproc_mig_move_subset(puc, bootstrap_port, (char *)session_type);
+		mach_port_deallocate(mach_task_self(), puc);
+	}
+	
 	cached_pid = -1;
 
 	if (kr) {
@@ -402,6 +414,20 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type)
 	return !issetugid() ? _vproc_post_fork_ping() : NULL;
 }
 
+vproc_err_t 
+_vprocmgr_detach_from_console(uint32_t flags __attribute__((unused)))
+{
+	mach_port_t new_bsport = MACH_PORT_NULL;
+	if( vproc_mig_detach_from_console(bootstrap_port, &new_bsport) != KERN_SUCCESS ) {
+		return (vproc_err_t)_vprocmgr_detach_from_console;
+	}
+	
+	task_set_bootstrap_port(mach_task_self(), new_bsport);
+	mach_port_deallocate(mach_task_self(), bootstrap_port);
+	bootstrap_port = new_bsport;
+	
+	return !issetugid() ? _vproc_post_fork_ping() : NULL;
+}
 
 pid_t
 _spawn_via_launchd(const char *label, const char *const *argv, const struct spawn_via_launchd_attr *spawn_attrs, int struct_version)
@@ -822,12 +848,13 @@ reboot2(uint64_t flags)
 }
 
 vproc_err_t
-_vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name, mach_port_t *out_obsrvr_port)
+_vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name, mach_port_t *out_obsrvr_port, vproc_flags_t flags)
 {
 	mach_port_t junk = MACH_PORT_NULL;
 	mach_port_t junk2 = MACH_PORT_NULL;
 	
-	if( vproc_mig_kickstart(bootstrap_port, (char *)label, out_pid, out_port_name ?: &junk, out_obsrvr_port ?: &junk2) == 0 ) {
+	kern_return_t kr = vproc_mig_kickstart(bootstrap_port, (char *)label, out_pid, out_port_name ?: &junk, out_obsrvr_port ?: &junk2, flags);
+	if( kr == KERN_SUCCESS ) {
 		if( !out_port_name ) {
 			mach_port_mod_refs(mach_task_self(), junk, MACH_PORT_RIGHT_SEND, -1);
 		}

@@ -28,6 +28,3 @@ serverprefix x_;
 routine handle_kqueue(
 						__port	: mach_port_t;
 						__fd	: integer_t);
-
-routine handle_mport(
-						__port	: mach_port_t);

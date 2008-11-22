@@ -61,6 +61,10 @@ typedef enum {
 	VPROC_GSK_WEIRD_BOOTSTRAP,
 } vproc_gsk_t;
 
+typedef unsigned int vproc_flags_t;
+/* For _vproc_kickstart_by_label() -- instructs launchd to kickstart the job to stall before exec(2). */
+#define VPROCFLAG_STALL_JOB_EXEC	1 << 1
+
 vproc_err_t vproc_swap_integer(vproc_t vp, vproc_gsk_t key, int64_t *inval, int64_t *outval);
 vproc_err_t vproc_swap_complex(vproc_t vp, vproc_gsk_t key, launch_data_t inval, launch_data_t *outval);
 
@@ -72,7 +76,7 @@ typedef void (*_vprocmgr_log_drain_callback_t)(struct timeval *when, pid_t from_
 vproc_err_t _vprocmgr_log_drain(vproc_t vp, pthread_mutex_t *optional_mutex_around_callback, _vprocmgr_log_drain_callback_t func);
 
 vproc_err_t _vproc_send_signal_by_label(const char *label, int sig);
-vproc_err_t _vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name, mach_port_t *out_obsrvr_port);
+vproc_err_t _vproc_kickstart_by_label(const char *label, pid_t *out_pid, mach_port_t *out_port_name, mach_port_t *out_obsrvr_port, vproc_flags_t flags);
 vproc_err_t _vproc_wait_by_label(const char *label, int *out_wstatus);
 
 void _vproc_log(int pri, const char *msg, ...) __attribute__((format(printf, 2, 3)));
@@ -86,16 +90,19 @@ void _vproc_logv(int pri, int err, const char *msg, va_list ap) __attribute__((f
 #define VPROCMGR_SESSION_SYSTEM			"System"
 
 vproc_err_t _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type);
+vproc_err_t _vprocmgr_detach_from_console(vproc_flags_t flags);
 
-void _vproc_standby_begin(void) 				__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
-void _vproc_standby_end(void)					__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
-size_t _vproc_standby_count(void)				__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
-size_t _vproc_standby_timeout(void)				__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+void _vproc_standby_begin(void)																__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+void _vproc_standby_end(void)																__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+size_t _vproc_standby_count(void)															__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+size_t _vproc_standby_timeout(void)															__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
 
-void _vproc_transaction_try_exit(int status)	__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
-void _vproc_transaction_begin(void)				__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
-void _vproc_transaction_end(void)				__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
-size_t _vproc_transaction_count(void)			__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+kern_return_t _vproc_transaction_count_for_pid(pid_t p, int32_t *count, bool *condemned)	__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+bool _vproc_pid_is_managed(pid_t p)															__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+void _vproc_transaction_try_exit(int status)												__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+void _vproc_transaction_begin(void)															__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+void _vproc_transaction_end(void)															__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
+size_t _vproc_transaction_count(void)														__OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA);
 
 #pragma GCC visibility pop
 

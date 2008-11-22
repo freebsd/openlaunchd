@@ -1,6 +1,6 @@
 #include "launchd_ktrace.h"
 
-INTERNAL_ABI void
+void
 runtime_ktrace1(runtime_ktrace_code_t code)
 {
 	void *ra = __builtin_extract_return_addr(__builtin_return_address(1));
@@ -11,7 +11,7 @@ runtime_ktrace1(runtime_ktrace_code_t code)
 	}
 }
 
-INTERNAL_ABI void
+void
 runtime_ktrace0(runtime_ktrace_code_t code)
 {
 	void *ra = __builtin_extract_return_addr(__builtin_return_address(0));
@@ -22,7 +22,7 @@ runtime_ktrace0(runtime_ktrace_code_t code)
 	}
 }
 
-INTERNAL_ABI void
+void
 runtime_ktrace(runtime_ktrace_code_t code, long a, long b, long c)
 {
 	void *ra = __builtin_extract_return_addr(__builtin_return_address(0));
