@@ -2699,12 +2699,9 @@ jobmgr_dequeue_next_sample(jobmgr_t jm)
 		return;
 	}
 
-	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Going to sample job.");
-
 	char pidstr[32];
 	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
 	snprintf(j->mgr->sample_log_file, sizeof(j->mgr->sample_log_file), SHUTDOWN_LOG_DIR "/%s-%u.sample.txt", j->label, j->p);
-	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Going to write sample to %s.", j->mgr->sample_log_file);
 	
 	if (job_assumes(j, unlink(jm->sample_log_file) != -1 || errno == ENOENT)) {
 		pid_t sp = 0;
@@ -2738,33 +2735,74 @@ jobmgr_dequeue_next_sample(jobmgr_t jm)
 		
 		posix_spawnattr_destroy(&psattr);
 	#else
-		switch( (sp = vfork()) ) {
+		int execpair[2] = { 0, 0 };
+		job_assumes(j, socketpair(AF_UNIX, SOCK_STREAM, 0, execpair) != -1);
+		
+		switch( (sp = fork()) ) {
 			case 0	:
-				/* Handle sample's exceptions directly, since ReportCrash may not be able to. */
+				job_assumes(j, runtime_close(execpair[0]) != -1);
+				/* Handle sample's exceptions directly, since ReportCrash will not be able to. */
 				task_set_exception_ports(mach_task_self(), EXC_MASK_CRASH, runtime_get_kernel_port(), EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f);
+				
+				/* Wait for the parent to attach a kevent. */
+				read(_fd(execpair[1]), &sp, sizeof(sp));
 				execve(sample_args[0], sample_args, environ);
 				job_log(j, LOG_NOTICE | LOG_CONSOLE, "Could not exec(2): %d", errno);
 				_exit(EXIT_FAILURE);
 			case -1	:
-				job_log(j, LOG_NOTICE | LOG_CONSOLE, "vfork(2) failed: %d", errno);
+				job_assumes(j, runtime_close(execpair[0]) != -1);
+				job_assumes(j, runtime_close(execpair[1]) != -1);
+				execpair[0] = -1;
+				execpair[1] = -1;
+				job_log(j, LOG_NOTICE | LOG_CONSOLE, "fork(2) failed: %d", errno);
 				break;
 			default	:
+				job_assumes(j, runtime_close(execpair[1]) != -1);
+				execpair[1] = -1;
 				break;
 		}
 		
+		int r = -1;
 		if( sp != -1 ) {
-			j->sample_pid = sp;
-			
 			/* Let us know when sample is done. ONESHOT is implicit if we're just interested in NOTE_EXIT. */
-			job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j) != -1);
-		} else {
+			if( job_assumes(j, (r = kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j)) != -1) ) {
+				if( job_assumes(j, write(execpair[0], &sp, sizeof(sp)) == sizeof(sp)) ) {
+					j->sample_pid = sp;
+				} else {
+					job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_DELETE, 0, 0, NULL) != -1);
+					job_assumes(j, runtime_kill(sp, SIGKILL) != -1);
+					r = -1;
+				}
+			} else {
+				job_assumes(j, runtime_kill(sp, SIGKILL) != -1);
+			}
+			
+			int status = 0;
+			if( r == -1 ) {
+				job_assumes(j, waitpid(sp, &status, WNOHANG) != -1);
+			}
+		}
+		
+		if( execpair[0] != -1 ) {
+			job_assumes(j, runtime_close(execpair[0]) != -1);
+		}
+		
+		if( execpair[1] != -1 ) {
+			job_assumes(j, runtime_close(execpair[0]) != -1);
+		}
+		
+		if( r == -1 ) {
 			job_log(j, LOG_ERR | LOG_CONSOLE, "Sampling for job failed!");
 			STAILQ_REMOVE(&jm->pending_samples, j, job_s, pending_samples_sle);
+			j->sampled = true;
 			jobmgr_dequeue_next_sample(jm);
+		} else {
+			job_log(j, LOG_DEBUG | LOG_CONSOLE, "Sampling job (sample PID: %i, file: %s).", sp, j->mgr->sample_log_file);
 		}
 	#endif
 	} else {
 		STAILQ_REMOVE(&jm->pending_samples, j, job_s, pending_samples_sle);
+		j->sampled = true;
 	}
 	
 	j->pending_sample = false;
@@ -2960,20 +2998,19 @@ out:
 		job_kill(j);
 	}
 
+	job_log(j, LOG_DEBUG | LOG_CONSOLE, "sample[%i] finished with job.", j->sample_pid);
 	j->sample_pid = 0;
 	j->sampled = true;
 	STAILQ_REMOVE(&j->mgr->pending_samples, j, job_s, pending_samples_sle);
 	
 	if( j->reap_after_sample ) {
-		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling complete. Reaping.");
+		job_log(j, LOG_DEBUG | LOG_CONSOLE, "Reaping job now that sample is done.");
 		struct kevent kev;
 		EV_SET(&kev, 1, 0, 0, NOTE_EXIT, 0, 0);
 		
 		/* Fake a kevent to keep our logic consistent. */
 		job_callback_proc(j, &kev);
 	}
-	
-	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Finished sampling.");
 	
 	jobmgr_dequeue_next_sample(j->mgr);
 }
@@ -2986,14 +3023,13 @@ job_callback_proc(job_t j, struct kevent *kev)
 	
 	if( j->sample_pid == (pid_t)kev->ident ) {
 		job_assumes(j, (fflags & NOTE_EXIT) != 0);
-		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling for job done. Reaping sample...");
 		
 		job_reap_sample(j);
 		
 		return;
 	} else if( j->sample_pid && !j->reap_after_sample ) {
 		/* The job exited before our sample completed. */
-		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Job exited. Will reap after sample is complete.");
+		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Job has exited. Will reap after sample[%i] is complete.", j->sample_pid);
 		j->reap_after_sample = true;
 		return;
 	}
@@ -3069,6 +3105,10 @@ job_callback_timer(job_t j, void *ident)
 		 *  - once for the SIGKILL_TIMER timer, at which point we log an issue
 		 *    with the long SIGKILL
 		 */
+		
+		bool was_is_or_will_be_sampled = ( j->sampled || j->sample_pid || j->pending_sample );
+		bool should_enqueue = ( !was_is_or_will_be_sampled && do_apple_internal_logging );
+		
 		if (j->sent_sigkill) {
 			uint64_t td = runtime_get_nanoseconds_since(j->sent_signal_time);
 
@@ -3076,28 +3116,34 @@ job_callback_timer(job_t j, void *ident)
 			td -= j->exit_timeout;
 
 			job_log(j, LOG_WARNING | LOG_CONSOLE, "Did not die after sending SIGKILL %llu seconds ago...", td);
-		} else if (!(j->sampled || j->sample_pid || j->pending_sample) && (!j->exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < j->exit_timeout))) {
-			if( do_apple_internal_logging ) {
-				/* This should work even if the job changes its exit_timeout midstream */
-				job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling timeout elapsed (%u seconds). Scheduling a sample...", LAUNCHD_SAMPLE_TIMEOUT);
-				if (j->exit_timeout) {
-					unsigned int ttk = (j->exit_timeout - LAUNCHD_SAMPLE_TIMEOUT);
-					job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
-											  EV_ADD|EV_ONESHOT, NOTE_SECONDS, ttk, j) != -1);
-					job_log(j, LOG_NOTICE | LOG_CONSOLE, "Scheduled new exit timeout for %u seconds later", ttk);
-				}
-				
-				STAILQ_INSERT_TAIL(&j->mgr->pending_samples, j, pending_samples_sle);
-				j->pending_sample = true;
-				jobmgr_dequeue_next_sample(j->mgr);
+		} else if( should_enqueue && (!j->exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < j->exit_timeout)) ) {
+			/* This should work even if the job changes its exit_timeout midstream */
+			job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling timeout elapsed (%u seconds). Scheduling a sample...", LAUNCHD_SAMPLE_TIMEOUT);
+			if (j->exit_timeout) {
+				unsigned int ttk = (j->exit_timeout - LAUNCHD_SAMPLE_TIMEOUT);
+				job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
+										  EV_ADD|EV_ONESHOT, NOTE_SECONDS, ttk, j) != -1);
+				job_log(j, LOG_NOTICE | LOG_CONSOLE, "Scheduled new exit timeout for %u seconds later", ttk);
 			}
+			
+			STAILQ_INSERT_TAIL(&j->mgr->pending_samples, j, pending_samples_sle);
+			j->pending_sample = true;
+			jobmgr_dequeue_next_sample(j->mgr);
 		} else {
-			if( !(j->sampled || j->sample_pid || j->pending_sample) && do_apple_internal_logging ) {
-				job_log(j, LOG_WARNING | LOG_CONSOLE, "Exit timeout elapsed (%u seconds). Will kill after sampling.", j->exit_timeout);
-				STAILQ_INSERT_TAIL(&j->mgr->pending_samples, j, pending_samples_sle);
-				j->pending_sample = true;
-				j->kill_after_sample = true;
-				
+			if( do_apple_internal_logging && !j->sampled ) {
+				if( j->sample_pid || j->pending_sample ) {
+					char pidstr[24] = { 0 };
+					snprintf(pidstr, sizeof(pidstr), "[%i] ", j->sample_pid);
+					
+					job_log(j, LOG_DEBUG | LOG_CONSOLE, "Exit timeout elapsed (%u seconds). Will kill after sample%shas completed.", j->exit_timeout, j->sample_pid ? pidstr : " ");
+					j->kill_after_sample = true;
+				} else {
+					job_log(j, LOG_DEBUG | LOG_CONSOLE, "Exit timeout elapsed (%u seconds). Will sample and then kill.", j->exit_timeout);
+					
+					STAILQ_INSERT_TAIL(&j->mgr->pending_samples, j, pending_samples_sle);
+					j->pending_sample = true;
+				}			
+
 				jobmgr_dequeue_next_sample(j->mgr);
 			} else {
 				if (unlikely(j->debug_before_kill)) {

@@ -188,6 +188,11 @@ main(int argc, char *const *argv)
 
 	if( pid1_magic ) {
 		runtime_syslog(LOG_NOTICE | LOG_CONSOLE, "*** launchd[1] has started up. ***");
+		
+		struct stat sb;
+		if( stat("/var/db/.launchd_flat_per_user_namespace", &sb) == 0 ) {
+			runtime_syslog(LOG_NOTICE | LOG_CONSOLE, "Flat per-user Mach namespaces enabled.");
+		}
 	}
 
 	monitor_networking_state();
