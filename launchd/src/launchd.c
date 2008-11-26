@@ -44,6 +44,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/mount.h>
 #include <sys/kern_event.h>
 #include <sys/reboot.h>
+#include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -68,7 +69,6 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <spawn.h>
 #include <sched.h>
 #include <pthread.h>
-#include <sys/socket.h>
 
 #include "bootstrap.h"
 #include "vproc.h"

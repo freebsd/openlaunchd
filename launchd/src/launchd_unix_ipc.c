@@ -23,6 +23,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "config.h"
 #include "launchd_unix_ipc.h"
 
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>

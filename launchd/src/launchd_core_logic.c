@@ -51,6 +51,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/mount.h>
 #include <sys/pipe.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
