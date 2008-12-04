@@ -35,7 +35,6 @@ import "vproc_internal.h";
 type mach_port_move_send_array_t = array[] of mach_port_move_send_t
 		ctype: mach_port_array_t;
 
-
 userprefix vproc_mig_;
 serverprefix job_mig_;
 
@@ -132,12 +131,6 @@ routine swap_integer(
 				__inval				: int64_t;
 out				__outval			: int64_t);
 
-routine set_service_policy(
-				__bs_port			: job_t;
-				__target_pid		: pid_t;
-				__flags				: uint64_t;
-				__service			: name_t);
-
 routine log(
 				__bs_port			: job_t;
 				__pri				: integer_t;
@@ -175,9 +168,32 @@ routine kickstart(
 				__label				: name_t;
 out				__pid				: pid_t;
 out				__name_port			: mach_port_t;
-out				__obsrvr_port		: mach_port_make_send_t);
+out				__obsrvr_port		: mach_port_make_send_t;
+				__flags				: natural_t);
 
 routine embedded_wait(
 				__bs_port			: job_t;
 				__label				: name_t;
 out				__waitval			: integer_t);
+
+routine lookup_children(
+				__bs_port			: job_t;
+out 			__child_ports		: mach_port_move_send_array_t, dealloc;
+out				__child_names		: name_array_t, dealloc;
+out				__child_properties	: bootstrap_property_array_t, dealloc);
+
+routine detach_from_console(
+				__bs_port			: job_t;
+out				__new_bs_port		: mach_port_make_send_t);
+
+routine transaction_count_for_pid(
+				__bs_port			: job_t;
+				__pid				: pid_t;
+out				__cnt				: integer_t;
+out				__condemend			: boolean_t);
+				
+routine pid_is_managed(
+				__bs_port			: job_t;
+				__pid				: pid_t;
+out				__managed			: boolean_t);
+

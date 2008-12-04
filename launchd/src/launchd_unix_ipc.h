@@ -35,12 +35,12 @@ struct conncb {
 
 extern char *sockpath;
 
-INTERNAL_ABI void ipc_open(int fd, job_t j);
-INTERNAL_ABI void ipc_close_all_with_job(job_t j);
-INTERNAL_ABI void ipc_close(struct conncb *c);
-INTERNAL_ABI void ipc_callback(void *, struct kevent *);
-INTERNAL_ABI void ipc_revoke_fds(launch_data_t o);
-INTERNAL_ABI void ipc_close_fds(launch_data_t o);
-INTERNAL_ABI void ipc_server_init(void);
+void ipc_open(int fd, job_t j);
+void ipc_close_all_with_job(job_t j);
+void ipc_close(struct conncb *c);
+void ipc_callback(void *, struct kevent *);
+void ipc_revoke_fds(launch_data_t o);
+void ipc_close_fds(launch_data_t o);
+void ipc_server_init(void);
 
 #endif

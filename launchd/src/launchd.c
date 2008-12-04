@@ -44,6 +44,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/mount.h>
 #include <sys/kern_event.h>
 #include <sys/reboot.h>
+#include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -84,7 +85,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 
 extern char **environ;
 
-INTERNAL_ABI static void pfsystem_callback(void *, struct kevent *);
+static void pfsystem_callback(void *, struct kevent *);
 
 static kq_callback kqpfsystem_callback = pfsystem_callback;
 
@@ -187,6 +188,11 @@ main(int argc, char *const *argv)
 
 	if( pid1_magic ) {
 		runtime_syslog(LOG_NOTICE | LOG_CONSOLE, "*** launchd[1] has started up. ***");
+		
+		struct stat sb;
+		if( stat("/var/db/.launchd_flat_per_user_namespace", &sb) == 0 ) {
+			runtime_syslog(LOG_NOTICE | LOG_CONSOLE, "Flat per-user Mach namespaces enabled.");
+		}
 	}
 
 	monitor_networking_state();
@@ -296,7 +302,7 @@ pid1_magic_init(void)
 }
 
 
-INTERNAL_ABI int
+int
 _fd(int fd)
 {
 	if (fd >= 0) {
@@ -305,7 +311,7 @@ _fd(int fd)
 	return fd;
 }
 
-INTERNAL_ABI void
+void
 launchd_shutdown(void)
 {
 	int64_t now;
@@ -336,7 +342,7 @@ launchd_shutdown(void)
 	launchd_assert(jobmgr_shutdown(root_jobmgr) != NULL);
 }
 
-INTERNAL_ABI void
+void
 launchd_single_user(void)
 {
 	runtime_syslog(LOG_NOTICE, "Going to single-user mode");
@@ -350,7 +356,7 @@ launchd_single_user(void)
 	runtime_kill(-1, SIGKILL);
 }
 
-INTERNAL_ABI void
+void
 launchd_SessionCreate(void)
 {
 #if HAVE_SECURITY
@@ -443,7 +449,7 @@ monitor_networking_state(void)
 	launchd_assumes(kevent_mod(pfs, EVFILT_READ, EV_ADD, 0, 0, &kqpfsystem_callback) != -1);
 }
 
-INTERNAL_ABI void
+void
 pfsystem_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
 	bool new_networking_state;
@@ -459,7 +465,7 @@ pfsystem_callback(void *obj __attribute__((unused)), struct kevent *kev)
 	}
 }
 
-INTERNAL_ABI void
+void
 _log_launchd_bug(const char *rcs_rev, const char *path, unsigned int line, const char *test)
 {
 	int saved_errno = errno;

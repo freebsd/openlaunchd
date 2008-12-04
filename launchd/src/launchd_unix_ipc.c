@@ -23,6 +23,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "config.h"
 #include "launchd_unix_ipc.h"
 
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
@@ -62,7 +63,7 @@ static launch_data_t adjust_rlimits(launch_data_t in);
 static void ipc_readmsg2(launch_data_t data, const char *cmd, void *context);
 static void ipc_readmsg(launch_data_t msg, void *context);
 
-INTERNAL_ABI static void ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev);
+static void ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev);
 
 static kq_callback kqipc_listen_callback = ipc_listen_callback;
 
@@ -87,7 +88,7 @@ ipc_clean_up(void)
 	}
 }
 
-INTERNAL_ABI void
+void
 ipc_server_init(void)
 {
 	struct sockaddr_un sun;
@@ -177,7 +178,7 @@ out_bad:
 	}
 }
 
-INTERNAL_ABI void
+void
 ipc_open(int fd, job_t j)
 {
 	struct conncb *c = calloc(1, sizeof(struct conncb));
@@ -191,7 +192,7 @@ ipc_open(int fd, job_t j)
 	kevent_mod(fd, EVFILT_READ, EV_ADD, 0, 0, &c->kqconn_callback);
 }
 
-INTERNAL_ABI void
+void
 ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev)
 {
 	struct sockaddr_un sun;
@@ -205,7 +206,7 @@ ipc_listen_callback(void *obj __attribute__((unused)), struct kevent *kev)
 	ipc_open(cfd, NULL);
 }
 
-INTERNAL_ABI void
+void
 ipc_callback(void *obj, struct kevent *kev)
 {
 	struct conncb *c = obj;
@@ -239,7 +240,7 @@ static void set_user_env(launch_data_t obj, const char *key, void *context __att
 	setenv(key, launch_data_get_string(obj), 1);
 }
 
-INTERNAL_ABI void
+void
 ipc_close_all_with_job(job_t j)
 {
 	struct conncb *ci, *cin;
@@ -251,7 +252,7 @@ ipc_close_all_with_job(job_t j)
 	}
 }
 
-INTERNAL_ABI void
+void
 ipc_close_fds(launch_data_t o)
 {
 	size_t i;
@@ -274,7 +275,7 @@ ipc_close_fds(launch_data_t o)
 	}
 }
 
-INTERNAL_ABI void
+void
 ipc_revoke_fds(launch_data_t o)
 {
 	size_t i;
@@ -425,7 +426,7 @@ close_abi_fixup(int fd)
 	return runtime_close(fd);
 }
 
-INTERNAL_ABI void
+void
 ipc_close(struct conncb *c)
 {
 	LIST_REMOVE(c, sle);

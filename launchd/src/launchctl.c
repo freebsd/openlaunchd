@@ -26,6 +26,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "vproc.h"
 #include "vproc_priv.h"
 #include "vproc_internal.h"
+#include "bootstrap_priv.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreFoundation/CFPriv.h>
@@ -184,7 +185,10 @@ static int logupdate_cmd(int argc, char *const argv[]);
 static int umask_cmd(int argc, char *const argv[]);
 static int getrusage_cmd(int argc, char *const argv[]);
 static int bsexec_cmd(int argc, char *const argv[]);
+static int _bslist_cmd(mach_port_t bport, unsigned int depth);
 static int bslist_cmd(int argc, char *const argv[]);
+static int _bstree_cmd(mach_port_t bsport, unsigned int depth);
+static int bstree_cmd(int argc __attribute__((unused)), char * const argv[] __attribute__((unused)));
 
 static int exit_cmd(int argc, char *const argv[]) __attribute__((noreturn));
 static int help_cmd(int argc, char *const argv[]);
@@ -217,6 +221,7 @@ static const struct {
 	{ "umask",	umask_cmd,		"Change launchd's umask" },
 	{ "bsexec",	bsexec_cmd,		"Execute a process within a different Mach bootstrap subset" },
 	{ "bslist",	bslist_cmd,		"List Mach bootstrap services and optional servers" },
+	{ "bstree",	bstree_cmd,		"Show the entire Mach bootstrap tree. Requires root privileges." },
 	{ "exit",	exit_cmd,		"Exit the interactive invocation of launchctl" },
 	{ "quit",	exit_cmd,		"Quit the interactive invocation of launchctl" },
 	{ "help",	help_cmd,		"This help output" },
@@ -1398,7 +1403,7 @@ static void
 exit_at_sigterm(int sig)
 {
 	if( sig == SIGTERM ) {
-		exit(EXIT_SUCCESS);
+		_exit(EXIT_SUCCESS);
 	}
 }
 
@@ -1429,6 +1434,13 @@ system_specific_bootstrap(bool sflag)
 
 	apply_sysctls_from_file("/etc/sysctl.conf");
 
+#if TARGET_OS_EMBEDDED
+	if (path_check("/etc/rc.boot")) {
+		const char *rcboot_tool[] = { "/etc/rc.boot", NULL };
+		assumes(fwexec(rcboot_tool, NULL) != -1);
+	}
+#endif
+
 	if (path_check("/etc/rc.cdrom")) {
 		const char *rccdrom_tool[] = { _PATH_BSHELL, "/etc/rc.cdrom", "multiuser", NULL };
 		
@@ -1453,13 +1465,6 @@ system_specific_bootstrap(bool sflag)
 		const char *rcserver_tool[] = { _PATH_BSHELL, "/etc/rc.server", NULL };
 		assumes(fwexec(rcserver_tool, NULL) != -1);
 	}
-
-#if TARGET_OS_EMBEDDED
-	if (path_check("/etc/rc.boot")) {
-		const char *rcboot_tool[] = { "/etc/rc.boot", NULL };
-		assumes(fwexec(rcboot_tool, true) != -1);
-	}
-#endif
 
 	read_launchd_conf();
 
@@ -1635,11 +1640,9 @@ bootstrap_cmd(int argc, char *const argv[])
 	} else {
 		char *load_launchd_items[] = { "load", "-S", session_type, "-D", "all", NULL, NULL, NULL, NULL, NULL, NULL };
 		int the_argc = 5;
-		
-		/*
+
 		char *load_launchd_items_user[] = { "load", "-S", session_type, "-D", "user", NULL };
 		int the_argc_user = 0;
-		*/
 		
 		if (is_safeboot()) {
 			load_launchd_items[4] = "system";
@@ -1656,6 +1659,7 @@ bootstrap_cmd(int argc, char *const argv[])
 				load_launchd_items[the_argc] = "/etc/mach_init_per_login_session.d";
 				the_argc += 1;
 			} else {
+			#if 0
 				/* If we're a per-user launchd initializing our Background session,
 				 * don't forget about the user's launchd jobs that may be specified as
 				 * LimitLoadToSessionType = Background. <rdar://problem/5279345> We also
@@ -1663,15 +1667,31 @@ bootstrap_cmd(int argc, char *const argv[])
 				 * jobs in the local sessions may be responsible for mounting the home
 				 * directory.
 				 */
-				/*
 				if( getppid() != 1 ) {
+			#else
+				/* This deadlocks against mount_url when logging in with a network home
+				 * directory. For now, we'll just load user Background agents when
+				 * bootstrapping the Aqua or StandardIO sessions. This way, we can 
+				 * safely assume that the home directory is present. Yes it's a hack,
+				 * but it satisfies the user expectation in 99% of cases.
+				 */
+				if( 0 ) {
+			#endif
 					the_argc_user = 5;
 				}
-				*/
 			}
 		} else if (strcasecmp(session_type, VPROCMGR_SESSION_AQUA) == 0) {
 			load_launchd_items[5] = "/etc/mach_init_per_user.d";
 			the_argc += 1;
+			/* If we're bootstrapping the Aqua session, bootstrap the user's Background
+			 * agents.
+			 */
+			the_argc_user = 5;
+		} else if (strcasecmp(session_type, VPROCMGR_SESSION_AQUA) == 0) {
+			/* If we're bootstrapping the StandardIO session, bootstrap the user's Background
+			 * agents.
+			 */
+			the_argc_user = 5;
 		}
 
 		if (strcasecmp(session_type, VPROCMGR_SESSION_BACKGROUND) == 0) {
@@ -1682,20 +1702,17 @@ bootstrap_cmd(int argc, char *const argv[])
 		}
 
 		int retval = load_and_unload_cmd(the_argc, load_launchd_items);
-	#if 0 /* Maybe someday. */
 		if( retval == 0 && the_argc_user != 0 ) {
 			optind = 1;
-			/* Load user jobs. But first, we tell launchd to resume listening to
-			 * other clients, since this operation could potentially block if the user's
-			 * home directory is on a network volume or something.
-			 */
-			int64_t junk = 0;
-			vproc_err_t err = vproc_swap_integer(NULL, VPROC_GSK_WEIRD_BOOTSTRAP, &junk, NULL);
-			if( !err ) {
-				retval = load_and_unload_cmd(the_argc_user, load_launchd_items_user);
+			pid_t p = getpid();
+			if( sysctlbyname("vfs.generic.noremotehang", NULL, NULL, &p, sizeof(p)) == 0 ) {
+				int64_t junk = 0;
+				vproc_err_t err = vproc_swap_integer(NULL, VPROC_GSK_WEIRD_BOOTSTRAP, &junk, NULL);
+				if( !err ) {
+					retval = load_and_unload_cmd(the_argc_user, load_launchd_items_user);
+				}
 			}
 		}
-	#endif
 		
 		return retval;
 	}
@@ -2608,6 +2625,8 @@ str2bsport(const char *s)
 				return 1;
 			}
 		} while (getrootbs && last_bport != bport);
+	} else if( strcmp(s, "0") == 0 || strcmp(s, "NULL") == 0 ) {
+		bport = MACH_PORT_NULL;
 	} else {
 		int pid = atoi(s);
 
@@ -2661,35 +2680,99 @@ bsexec_cmd(int argc, char *const argv[])
 }
 
 int
-bslist_cmd(int argc, char *const argv[])
+_bslist_cmd(mach_port_t bport, unsigned int depth)
 {
 	kern_return_t result;
-	mach_port_t bport = bootstrap_port;
 	name_array_t service_names;
 	mach_msg_type_number_t service_cnt, service_active_cnt;
 	bootstrap_status_array_t service_actives;
 	unsigned int i;
-
-	if (argc == 2)
-		bport = str2bsport(argv[1]);
-
+	
 	if (bport == MACH_PORT_NULL) {
 		fprintf(stderr, "Invalid bootstrap port\n");
 		return 1;
 	}
-
+	
 	result = bootstrap_info(bport, &service_names, &service_cnt, &service_actives, &service_active_cnt);
 	if (result != BOOTSTRAP_SUCCESS) {
 		fprintf(stderr, "bootstrap_info(): %d\n", result);
 		return 1;
 	}
-
-#define bport_state(x)	(((x) == BOOTSTRAP_STATUS_ACTIVE) ? "A" : ((x) == BOOTSTRAP_STATUS_ON_DEMAND) ? "D" : "I")
-
-	for (i = 0; i < service_cnt ; i++)
-		fprintf(stdout, "%-3s%s\n", bport_state((service_actives[i])), service_names[i]);
-
+	
+	#define bport_state(x)	(((x) == BOOTSTRAP_STATUS_ACTIVE) ? "A" : ((x) == BOOTSTRAP_STATUS_ON_DEMAND) ? "D" : "I")
+	
+	for (i = 0; i < service_cnt ; i++) {
+		fprintf(stdout, "%*s%-3s%s\n", depth, "", bport_state((service_actives[i])), service_names[i]);
+	}
+	
 	return 0;
+}
+
+int
+bslist_cmd(int argc, char *const argv[])
+{
+	mach_port_t bport = bootstrap_port;
+	if( argc == 2 ) {
+		bport = str2bsport(argv[1]);
+	}
+	
+	if( bport == MACH_PORT_NULL ) {
+		fprintf(stderr, "Invalid bootstrap port\n");
+		return 1;
+	}
+	
+	return _bslist_cmd(bport, 0);
+}
+
+int
+_bstree_cmd(mach_port_t bsport, unsigned int depth)
+{
+	if( bsport == MACH_PORT_NULL ) {
+		fprintf(stderr, "No root port!\n");
+		return 1;
+	}
+	
+	mach_port_array_t child_ports = NULL;
+	name_array_t child_names = NULL;
+	bootstrap_property_array_t child_props = NULL;
+	unsigned int cnt = 0;
+	
+	kern_return_t kr = bootstrap_lookup_children(bsport, &child_ports, &child_names, &child_props, (mach_msg_type_number_t *)&cnt);
+	if( kr != BOOTSTRAP_SUCCESS && kr != BOOTSTRAP_NO_CHILDREN ) {
+		if( kr == BOOTSTRAP_NOT_PRIVILEGED ) {
+			fprintf(stderr, "You must be root to perform this operation.\n");
+		} else {
+			fprintf(stderr, "bootstrap_lookup_children(): %d\n", kr);
+		}
+
+		return 1;
+	}
+	
+	unsigned int i = 0;
+	_bslist_cmd(bsport, depth);
+	
+	for( i = 0; i < cnt; i++ ) {
+		char *type = ( child_props[i] & BOOTSTRAP_PROPERTY_PERUSER ) ? "Per-user" : "Subset";
+		fprintf(stdout, "%*s%s (%s)/\n", depth, "", child_names[i], type);
+		if( child_ports[i] != MACH_PORT_NULL ) {
+			_bstree_cmd(child_ports[i], depth + 4);
+		}
+	}
+	
+	return 0;
+}
+
+int
+bstree_cmd(int argc __attribute__((unused)), char * const argv[] __attribute__((unused)))
+{
+	if( geteuid() != 0 ) {
+		fprintf(stderr, "You must be root to perform this operation.\n");
+		return 1;
+	} else {
+		fprintf(stdout, "System/\n");
+	}
+	
+	return _bstree_cmd(str2bsport("/"), 4);
 }
 
 bool

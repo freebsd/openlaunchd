@@ -82,12 +82,6 @@ bootstrap_parent(mach_port_t bp, mach_port_t *parent_port)
 }
 
 kern_return_t
-bootstrap_set_policy(mach_port_t bp, pid_t target_pid, uint64_t flags, const char *target_service)
-{
-	return vproc_mig_set_service_policy(bp, target_pid, flags, target_service ? (char *)target_service : "");
-}
-
-kern_return_t
 bootstrap_register(mach_port_t bp, name_t service_name, mach_port_t sp)
 {
 	return bootstrap_register2(bp, service_name, sp, 0);
@@ -154,12 +148,22 @@ bootstrap_look_up_per_user(mach_port_t bp, const name_t service_name, uid_t targ
 		return kr;
 	}
 
-	kr = vproc_mig_look_up2(puc, (char *)service_name, sp, &au_tok, 0, 0);
-	mach_port_deallocate(mach_task_self(), puc);
+	if( !service_name ) {
+		*sp = puc;
+	} else {
+		kr = vproc_mig_look_up2(puc, (char *)service_name, sp, &au_tok, 0, 0);
+		mach_port_deallocate(mach_task_self(), puc);
+	}
 
 	return kr;
 }
 
+kern_return_t
+bootstrap_lookup_children(mach_port_t bp, mach_port_array_t *children, name_array_t *names, bootstrap_property_array_t *properties, mach_msg_type_number_t *n_children)
+{
+	mach_msg_type_number_t junk = 0;
+	return vproc_mig_lookup_children(bp, children, &junk, names, n_children, properties, &junk);
+}
 
 kern_return_t
 bootstrap_look_up(mach_port_t bp, const name_t service_name, mach_port_t *sp)
@@ -211,15 +215,12 @@ skip_cache:
 	mach_port_deallocate(mach_task_self(), puc);
 
 out:
-	if (!per_pid_lookup && kr == 0 && prev_sp == 0
-			&& mach_port_mod_refs(mach_task_self(), *sp, MACH_PORT_RIGHT_SEND, 1) == 0) {
+	if (!per_pid_lookup && kr == 0 && prev_sp == 0 && mach_port_mod_refs(mach_task_self(), *sp, MACH_PORT_RIGHT_SEND, 1) == 0) {
 		/* We're going to hold on to a send right as a MRU cache */
 		prev_bp = bp;
 		prev_sp = *sp;
 		strlcpy(prev_name, service_name, sizeof(name_t));
 	}
-
-	pthread_mutex_unlock(&bslu2_lock);
 
 	if ((kr == 0) && (flags & BOOTSTRAP_PRIVILEGED_SERVER) && !privileged_server_okay) {
 		uid_t server_euid;
@@ -243,7 +244,9 @@ out:
 		}
 
 	}
-
+	/* If performance becomes a problem, we should restructure this. */
+	pthread_mutex_unlock(&bslu2_lock);
+	
 	return kr;
 }
 

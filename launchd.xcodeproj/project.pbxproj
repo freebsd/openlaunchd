@@ -52,7 +52,7 @@
 /* Begin PBXBuildFile section */
 		4B9EDCA20EAFC77E00A78496 /* DiskArbitration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B9EDCA10EAFC77E00A78496 /* DiskArbitration.framework */; };
 		721FBEBC0EA7AE2F0057462B /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 721FBEBB0EA7AE2F0057462B /* Security.framework */; };
-		726055EC0EA7EC2400D65FE7 /* exc.defs in Sources */ = {isa = PBXBuildFile; fileRef = FC36291F0E9349410054F1A3 /* exc.defs */; settings = {ATTRIBUTES = (Server, ); }; };
+		726055EC0EA7EC2400D65FE7 /* mach_exc.defs in Sources */ = {isa = PBXBuildFile; fileRef = FC36291F0E9349410054F1A3 /* mach_exc.defs */; settings = {ATTRIBUTES = (Server, ); }; };
 		726056090EA7FCF200D65FE7 /* launchd_ktrace.c in Sources */ = {isa = PBXBuildFile; fileRef = 72FDB15D0EA7D7B200B2AC84 /* launchd_ktrace.c */; };
 		72FDB15F0EA7D7B200B2AC84 /* launchd_ktrace.c in Sources */ = {isa = PBXBuildFile; fileRef = 72FDB15D0EA7D7B200B2AC84 /* launchd_ktrace.c */; };
 		72FDB1C00EA7E21C00B2AC84 /* protocol_job_forward.defs in Sources */ = {isa = PBXBuildFile; fileRef = 72FDB1BF0EA7E21C00B2AC84 /* protocol_job_forward.defs */; };
@@ -298,7 +298,7 @@
 		FC36283E0E93463C0054F1A3 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = /System/Library/Frameworks/IOKit.framework; sourceTree = "<absolute>"; };
 		FC36290C0E93475F0054F1A3 /* notify.defs */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.mig; name = notify.defs; path = /usr/include/mach/notify.defs; sourceTree = "<absolute>"; };
 		FC3629160E9348390054F1A3 /* protocol_job_reply.defs */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.mig; name = protocol_job_reply.defs; path = launchd/src/protocol_job_reply.defs; sourceTree = "<group>"; };
-		FC36291F0E9349410054F1A3 /* exc.defs */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.mig; name = exc.defs; path = /usr/include/mach/exc.defs; sourceTree = "<absolute>"; };
+		FC36291F0E9349410054F1A3 /* mach_exc.defs */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.mig; name = mach_exc.defs; path = /usr/include/mach/mach_exc.defs; sourceTree = "<absolute>"; };
 		FC36292C0E934AA40054F1A3 /* libbsm.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libbsm.dylib; path = /usr/lib/libbsm.dylib; sourceTree = "<absolute>"; };
 		FC59A0540E8C884700D41150 /* launchd */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = launchd; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC59A0600E8C885100D41150 /* liblaunch.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = liblaunch.a; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -419,7 +419,7 @@
 				FC3629160E9348390054F1A3 /* protocol_job_reply.defs */,
 				FC3627DF0E9344BF0054F1A3 /* protocol_vproc.defs */,
 				FC59A0BD0E8C8A2A00D41150 /* launchd_internal.defs */,
-				FC36291F0E9349410054F1A3 /* exc.defs */,
+				FC36291F0E9349410054F1A3 /* mach_exc.defs */,
 				FC36290C0E93475F0054F1A3 /* notify.defs */,
 			);
 			name = MIG;
@@ -837,7 +837,7 @@
 				FC59A0BF0E8C8A2A00D41150 /* launchd_internal.defs in Sources */,
 				FC3627E10E9344BF0054F1A3 /* protocol_vproc.defs in Sources */,
 				FC3629170E9348390054F1A3 /* protocol_job_reply.defs in Sources */,
-				726055EC0EA7EC2400D65FE7 /* exc.defs in Sources */,
+				726055EC0EA7EC2400D65FE7 /* mach_exc.defs in Sources */,
 				FC36290D0E93475F0054F1A3 /* notify.defs in Sources */,
 				FC59A0C50E8C8A4700D41150 /* launchd.c in Sources */,
 				FC59A0BA0E8C8A1F00D41150 /* launchd_runtime.c in Sources */,
@@ -998,6 +998,7 @@
 				INSTALL_PATH = /sbin;
 				PREBINDING = NO;
 				PRODUCT_NAME = launchd;
+				STRIP_STYLE = debugging;
 				ZERO_LINK = NO;
 			};
 			name = Release;
@@ -1014,6 +1015,7 @@
 				COPY_PHASE_STRIP = YES;
 				CURRENT_PROJECT_VERSION = "$(RC_ProjectSourceVersion)";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				INSTALLHDRS_SCRIPT_PHASE = YES;
 				INSTALL_PATH = /usr/local/lib/system;
 				OTHER_CFLAGS = (
 					"-D__MigTypeCheck=1",
@@ -1039,6 +1041,7 @@
 				INSTALL_PATH = /bin;
 				PREBINDING = NO;
 				PRODUCT_NAME = launchctl;
+				STRIP_STYLE = debugging;
 				ZERO_LINK = NO;
 			};
 			name = Release;
@@ -1075,6 +1078,7 @@
 				INSTALL_PATH = /sbin;
 				PREBINDING = NO;
 				PRODUCT_NAME = SystemStarter;
+				STRIP_STYLE = debugging;
 				ZERO_LINK = NO;
 			};
 			name = Release;
@@ -1089,6 +1093,7 @@
 				INSTALL_PATH = /usr/libexec;
 				PREBINDING = NO;
 				PRODUCT_NAME = launchproxy;
+				STRIP_STYLE = debugging;
 				ZERO_LINK = NO;
 			};
 			name = Release;
@@ -1103,6 +1108,7 @@
 				INSTALL_PATH = /bin;
 				PREBINDING = NO;
 				PRODUCT_NAME = wait4path;
+				STRIP_STYLE = debugging;
 				ZERO_LINK = NO;
 			};
 			name = Release;

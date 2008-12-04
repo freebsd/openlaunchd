@@ -51,6 +51,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include <sys/mount.h>
 #include <sys/pipe.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -99,6 +100,7 @@ static const char *const __rcs_file_version__ = "$Revision$";
 #include "protocol_vprocServer.h"
 #include "protocol_job_reply.h"
 #include "protocol_job_forward.h"
+#include "mach_excServer.h"
 
 /*
  * LAUNCHD_SAMPLE_TIMEOUT
@@ -148,12 +150,22 @@ struct machservice {
 	SLIST_ENTRY(machservice) special_port_sle;
 	LIST_ENTRY(machservice) name_hash_sle;
 	LIST_ENTRY(machservice) port_hash_sle;
-	job_t			job;
+	job_t				job;
 	unsigned int		gen_num;
 	mach_port_name_t	port;
-	unsigned int		isActive:1, reset:1, recv:1, hide:1,
-				kUNCServer:1, per_user_hack:1, debug_on_close:1, per_pid:1,
-				delete_on_destruction:1, special_port_num:23;
+	unsigned int		isActive				:1,
+						reset					:1,
+						recv					:1,
+						hide					:1,
+						kUNCServer				:1,
+						per_user_hack			:1,
+						debug_on_close			:1,
+						per_pid					:1,
+						delete_on_destruction	:1,
+						drain_one				:1,
+						drain_all				:1,
+						special_port_num		:22;
+	
 	const char		name[0];
 };
 
@@ -178,6 +190,7 @@ static bool machservice_hidden(struct machservice *);
 static bool machservice_active(struct machservice *);
 static const char *machservice_name(struct machservice *);
 static bootstrap_status_t machservice_status(struct machservice *);
+void machservice_drain_port(struct machservice *);
 
 struct socketgroup {
 	SLIST_ENTRY(socketgroup) sle;
@@ -285,6 +298,7 @@ static void semaphoreitem_runtime_mod_ref(struct semaphoreitem *si, bool add);
 
 #define ACTIVE_JOB_HASH_SIZE	32
 #define ACTIVE_JOB_HASH(x)	(IS_POWER_OF_TWO(ACTIVE_JOB_HASH_SIZE) ? (x & (ACTIVE_JOB_HASH_SIZE - 1)) : (x % ACTIVE_JOB_HASH_SIZE))
+
 #define MACHSERVICE_HASH_SIZE	37
 
 struct jobmgr_s {
@@ -295,7 +309,7 @@ struct jobmgr_s {
 	LIST_HEAD(, job_s) active_jobs[ACTIVE_JOB_HASH_SIZE];
 	LIST_HEAD(, machservice) ms_hash[MACHSERVICE_HASH_SIZE];
 	LIST_HEAD(, job_s) global_env_jobs;
-	LIST_HEAD(, job_s) pending_samples;
+	STAILQ_HEAD(, job_s) pending_samples;
 	mach_port_t jm_port;
 	mach_port_t req_port;
 	jobmgr_t parentmgr;
@@ -310,7 +324,7 @@ struct jobmgr_s {
 					killed_hopefully_first_jobs		:1,
 					killed_normal_jobs				:1,
 					killed_hopefully_last_jobs		:1,
-					__junk							:25;
+					created_via_subset				:1;
 	char sample_log_file[PATH_MAX];
 	union {
 		const char name[0];
@@ -333,11 +347,12 @@ static void jobmgr_remove(jobmgr_t jm, bool expect_real_jobs);
 static void jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack);
 static void jobmgr_dequeue_next_sample(jobmgr_t jm);
 static job_t jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag);
+static job_t jobmgr_find_by_pid_deep(jobmgr_t jm, pid_t p);
 static job_t jobmgr_find_by_pid(jobmgr_t jm, pid_t p, bool create_anon);
 static jobmgr_t jobmgr_find_by_name(jobmgr_t jm, const char *where);
 static job_t job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid);
 static void job_export_all2(jobmgr_t jm, launch_data_t where);
-INTERNAL_ABI static void jobmgr_callback(void *obj, struct kevent *kev);
+static void jobmgr_callback(void *obj, struct kevent *kev);
 static void jobmgr_setup_env_from_other_jobs(jobmgr_t jm);
 static void jobmgr_export_env_from_other_jobs(jobmgr_t jm, launch_data_t dict);
 static struct machservice *jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t target_pid);
@@ -354,7 +369,7 @@ struct job_s {
 	LIST_ENTRY(job_s) pid_hash_sle;
 	LIST_ENTRY(job_s) label_hash_sle;
 	LIST_ENTRY(job_s) global_env_sle;
-	LIST_ENTRY(job_s) pending_samples_sle;
+	STAILQ_ENTRY(job_s) pending_samples_sle;
 	SLIST_ENTRY(job_s) curious_jobs_sle;
 	SLIST_HEAD(, socketgroup) sockets;
 	SLIST_HEAD(, calendarinterval) cal_intervals;
@@ -459,7 +474,9 @@ struct job_s {
 			pending_sample				:1, /* This job needs to be sampled for some reason. */
 			kill_after_sample			:1, /* The job is to be killed after sampling. */
 			reap_after_sample			:1,	/* The job exited before sample did, so we should reap it after sample is done. */
-			nosy						:1; /* The job has an OtherJobEnabled KeepAlive criterion. */
+			nosy						:1, /* The job has an OtherJobEnabled KeepAlive criterion. */
+			crashed						:1, /* The job is the default Mach exception handler, and it crashed. */
+			reaped						:1; /* We've received NOTE_EXIT for the job. */
 	mode_t mask;
 	pid_t sample_pid;
 	const char label[0];
@@ -502,11 +519,8 @@ static void job_enable_audit_for_user(job_t j, uid_t u, char *name);
 #endif
 static void job_postfork_test_user(job_t j);
 static void job_log_pids_with_weird_uids(job_t j);
-#if 0
-static void job_force_sampletool(job_t j);
-#endif
 static void job_setup_exception_port(job_t j, task_t target_task);
-INTERNAL_ABI static void job_callback(void *obj, struct kevent *kev);
+static void job_callback(void *obj, struct kevent *kev);
 static void job_callback_proc(job_t j, struct kevent *kev);
 static void job_callback_timer(job_t j, void *ident);
 static void job_callback_read(job_t j, int ident);
@@ -549,7 +563,6 @@ static bool cronemu_min(struct tm *wtm, int min);
 
 /* miscellaneous file local functions */
 static size_t get_kern_max_proc(void);
-static void ensure_root_bkgd_setup(void);
 static int dir_has_files(job_t j, const char *path);
 static char **mach_cmd2argv(const char *string);
 static size_t our_strhash(const char *s) __attribute__((pure));
@@ -563,7 +576,6 @@ static size_t total_anon_children;
 static mach_port_t the_exception_server;
 static bool did_first_per_user_launchd_BootCache_hack;
 #define JOB_BOOTCACHE_HACK_CHECK(j)	(unlikely(j->per_user && !did_first_per_user_launchd_BootCache_hack && (j->mach_uid >= 500) && (j->mach_uid != (uid_t)-2)))
-static jobmgr_t background_jobmgr;
 static job_t workaround_5477111;
 
 /* process wide globals */
@@ -631,7 +643,7 @@ job_watch(job_t j)
 	}
 }
 
-INTERNAL_ABI void
+void
 job_stop(job_t j)
 {
 	char extralog[100];
@@ -696,7 +708,7 @@ job_stop(job_t j)
 	}
 }
 
-INTERNAL_ABI launch_data_t
+launch_data_t
 job_export(job_t j)
 {
 	launch_data_t tmp, tmp2, tmp3, r = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
@@ -846,7 +858,7 @@ jobmgr_log_active_jobs(jobmgr_t jm)
 
 }
 
-INTERNAL_ABI static void
+static void
 jobmgr_still_alive_with_check(jobmgr_t jm)
 {
 	jobmgr_log(jm, LOG_NOTICE | LOG_CONSOLE, "Still alive with %lu/%lu (normal/anonymous) children", total_children, total_anon_children);
@@ -927,7 +939,7 @@ jobmgr_still_alive_with_check(jobmgr_t jm)
 	runtime_closelog(); /* hack to flush logs */
 }
 
-INTERNAL_ABI jobmgr_t
+jobmgr_t
 jobmgr_shutdown(jobmgr_t jm)
 {
 	jobmgr_t jmi, jmn;
@@ -991,10 +1003,6 @@ jobmgr_remove(jobmgr_t jm, bool expect_real_jobs)
 		jobmgr_assumes(jm, launchd_mport_close_recv(jm->jm_port) == KERN_SUCCESS);
 	}
 
-	if (jm == background_jobmgr) {
-		background_jobmgr = NULL;
-	}
-
 	if (jm->parentmgr) {
 		runtime_del_weak_ref();
 		SLIST_REMOVE(&jm->parentmgr->submgrs, jm, jobmgr_s, sle);
@@ -1017,7 +1025,7 @@ jobmgr_remove(jobmgr_t jm, bool expect_real_jobs)
 	free(jm);
 }
 
-INTERNAL_ABI void
+void
 job_remove(job_t j, bool force)
 {
 	struct waiting_for_removal *w4r;
@@ -1028,7 +1036,7 @@ job_remove(job_t j, bool force)
 	struct limititem *li;
 	struct mspolicy *msp;
 	struct envitem *ei;
-
+	
 	if (unlikely(j->p)) {
 		if (j->anonymous) {
 			job_reap(j);
@@ -1534,7 +1542,7 @@ out_bad:
 	return NULL;
 }
 
-INTERNAL_ABI job_t 
+job_t 
 job_import(launch_data_t pload)
 {
 	job_t j = jobmgr_import2(root_jobmgr, pload);
@@ -1547,7 +1555,7 @@ job_import(launch_data_t pload)
 	return job_dispatch(j, false);
 }
 
-INTERNAL_ABI launch_data_t
+launch_data_t
 job_import_bulk(launch_data_t pload)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_ARRAY);
@@ -2246,7 +2254,7 @@ jobmgr_label_test(jobmgr_t jm, const char *str)
 	return true;
 }
 
-INTERNAL_ABI job_t 
+job_t 
 job_find(const char *label)
 {
 	job_t ji;
@@ -2263,6 +2271,27 @@ job_find(const char *label)
 
 	errno = ESRCH;
 	return NULL;
+}
+
+/* Should try and consolidate with job_mig_intran2() and jobmgr_find_by_pid(). */
+job_t
+jobmgr_find_by_pid_deep(jobmgr_t jm, pid_t p)
+{
+	job_t ji = NULL;
+	LIST_FOREACH( ji, &jm->active_jobs[ACTIVE_JOB_HASH(p)], pid_hash_sle ) {
+		if (ji->p == p && !ji->anonymous) {
+			return ji;
+		}
+	}
+
+	jobmgr_t jmi = NULL;
+	SLIST_FOREACH( jmi, &jm->submgrs, sle ) {
+		if( (ji = jobmgr_find_by_pid_deep(jmi, p)) ) {
+			break;
+		}
+	}
+
+	return ji;
 }
 
 job_t
@@ -2306,7 +2335,7 @@ job_mig_intran2(jobmgr_t jm, mach_port_t mport, pid_t upid)
 	return NULL;
 }
 
-INTERNAL_ABI job_t 
+job_t 
 job_mig_intran(mach_port_t p)
 {
 	struct ldcred *ldc = runtime_get_caller_creds();
@@ -2331,7 +2360,7 @@ job_mig_intran(mach_port_t p)
 	return jr;
 }
 
-INTERNAL_ABI job_t
+job_t
 job_find_by_service_port(mach_port_t p)
 {
 	struct machservice *ms;
@@ -2345,7 +2374,7 @@ job_find_by_service_port(mach_port_t p)
 	return NULL;
 }
 
-INTERNAL_ABI void
+void
 job_mig_destructor(job_t j)
 {
 	/*
@@ -2383,7 +2412,7 @@ job_export_all2(jobmgr_t jm, launch_data_t where)
 	}
 }
 
-INTERNAL_ABI launch_data_t
+launch_data_t
 job_export_all(void)
 {
 	launch_data_t resp = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
@@ -2526,6 +2555,12 @@ job_reap(job_t j)
 		j->wait_reply_port = MACH_PORT_NULL;
 	}
 
+	if( j->pending_sample ) {
+		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Job exited before we could sample it.");
+		STAILQ_REMOVE(&j->mgr->pending_samples, j, job_s, pending_samples_sle);
+		j->pending_sample = false;
+	}
+
 	if (j->sent_signal_time) {
 		uint64_t td_sec, td_usec, td = runtime_get_nanoseconds_since(j->sent_signal_time);
 
@@ -2561,10 +2596,39 @@ job_reap(job_t j)
 		if (SIGKILL == s || SIGTERM == s) {
 			job_log(j, LOG_NOTICE, "Exited: %s", strsignal(s));
 		} else {
-			job_log(j, LOG_WARNING, "Exited abnormally: %s", strsignal(s));
+			switch( s ) {
+				/* Signals which indicate a crash. */
+				case SIGILL		:
+				case SIGABRT	:
+				case SIGFPE		:
+				case SIGBUS		:
+				case SIGSEGV	:
+				case SIGSYS		:
+				/* If the kernel has posted NOTE_EXIT and the signal sent to the process was
+				 * SIGTRAP, assume that it's a crash.
+				 */
+				case SIGTRAP	:
+					j->crashed = true;
+					job_log(j, LOG_WARNING, "Job appears to have crashed: %s", strsignal(s));
+					break;
+				default			:
+					job_log(j, LOG_WARNING, "Exited abnormally: %s", strsignal(s));
+					break;
+			}
 		}
 	}
 
+	j->reaped = true;
+	
+	struct machservice *msi = NULL;
+	if( j->crashed ) {
+		SLIST_FOREACH( msi, &j->machservices, sle ) {
+			if( !msi->isActive && (msi->drain_one || msi->drain_all) ) {
+				machservice_drain_port(msi);
+			}
+		}
+	}
+	
 	if (j->hopefully_exits_first) {
 		j->mgr->hopefully_first_cnt--;
 	} else if (!j->anonymous && !j->hopefully_exits_last) {
@@ -2612,13 +2676,13 @@ jobmgr_dispatch_all(jobmgr_t jm, bool newmounthack)
 void 
 jobmgr_dequeue_next_sample(jobmgr_t jm)
 {
-	if( LIST_EMPTY(&jm->pending_samples) ) {
+	if( STAILQ_EMPTY(&jm->pending_samples) ) {
 		jobmgr_log(jm, LOG_DEBUG | LOG_CONSOLE, "Sample queue is empty.");
 		return;
 	}
 	
 	/* Dequeue the next in line. */
-	job_t j = LIST_FIRST(&jm->pending_samples);
+	job_t j = STAILQ_FIRST(&jm->pending_samples);
 	if( j->sample_pid ) {
 		job_log(j, LOG_DEBUG | LOG_CONSOLE, "Sampling is in progress. Not dequeuing next job.");
 		return;
@@ -2636,33 +2700,35 @@ jobmgr_dequeue_next_sample(jobmgr_t jm)
 		return;
 	}
 
-	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Going to sample job.");
-
 	char pidstr[32];
 	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
 	snprintf(j->mgr->sample_log_file, sizeof(j->mgr->sample_log_file), SHUTDOWN_LOG_DIR "/%s-%u.sample.txt", j->label, j->p);
-	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Going to write sample to %s.", j->mgr->sample_log_file);
-	exception_mask_t exceptions =	EXC_MASK_BAD_ACCESS			|
-									EXC_MASK_BAD_INSTRUCTION	|
-									EXC_MASK_ARITHMETIC			|
-									EXC_MASK_CRASH				;
 	
 	if (job_assumes(j, unlink(jm->sample_log_file) != -1 || errno == ENOENT)) {
 		pid_t sp = 0;
 		char *sample_args[] = { "/usr/bin/sample", pidstr, "1", "-unsupportedShowArch", "-mayDie", "-file", j->mgr->sample_log_file, NULL };
+		thread_state_flavor_t f = 0;
+	#if defined (__ppc__) || defined(__ppc64__)
+		f = PPC_THREAD_STATE64;
+	#elif defined(__i386__) || defined(__x86_64__)
+		f = x86_THREAD_STATE;
+	#elif defined(__arm__)
+		f = ARM_THREAD_STATE;
+	#else
+		#error "unknown architecture"
+	#endif
+		
 	#if NEEDS_MULTI_THREADED_EXEC
 		posix_spawnattr_t psattr;
 		posix_spawnattr_init(psattr);
-		posix_spawnattr_setexceptionports_np(&psattr, exceptions, MACH_PORT_NULL, EXCEPTION_DEFAULT, 0);
+		posix_spawnattr_setexceptionports_np(&psattr, EXC_MASK_CRASH, runtime_get_kernel_port(), EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES , f);
 		
 		if (!job_assumes(j, (errno = posix_spawnp(&sp, sample_args[0], NULL, &psattr, sample_args, environ)) == 0)) {
-			job_log(j, LOG_ERR | LOG_CONSOLE, "Sampling failed for job! Kill it! Kill it with fire!");
-			LIST_REMOVE(j, pending_samples_sle);
-			job_kill(j);
+			job_log(j, LOG_ERR | LOG_CONSOLE, "Sampling for job failed!");
+			STAILQ_REMOVE(&jm->pending_samples, j, job_s, pending_samples_sle);
 			jobmgr_dequeue_next_sample(jm);
 		} else {
 			j->sample_pid = sp;
-			j->pending_sample = false;
 
 			/* Let us know when sample is done. ONESHOT is implicit if we're just interested in NOTE_EXIT. */
 			job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j) != -1);
@@ -2670,34 +2736,77 @@ jobmgr_dequeue_next_sample(jobmgr_t jm)
 		
 		posix_spawnattr_destroy(&psattr);
 	#else
-		switch( (sp = vfork()) ) {
+		int execpair[2] = { 0, 0 };
+		job_assumes(j, socketpair(AF_UNIX, SOCK_STREAM, 0, execpair) != -1);
+		
+		switch( (sp = fork()) ) {
 			case 0	:
-				/* Neuter the exception port so that crashes don't hang sample, making it unreapable. */
-				task_set_exception_ports(mach_task_self(), exceptions, MACH_PORT_NULL, EXCEPTION_DEFAULT, 0);
+				job_assumes(j, runtime_close(execpair[0]) != -1);
+				/* Handle sample's exceptions directly, since ReportCrash will not be able to. */
+				task_set_exception_ports(mach_task_self(), EXC_MASK_CRASH, runtime_get_kernel_port(), EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f);
+				
+				/* Wait for the parent to attach a kevent. */
+				read(_fd(execpair[1]), &sp, sizeof(sp));
 				execve(sample_args[0], sample_args, environ);
 				job_log(j, LOG_NOTICE | LOG_CONSOLE, "Could not exec(2): %d", errno);
 				_exit(EXIT_FAILURE);
 			case -1	:
-				job_log(j, LOG_NOTICE | LOG_CONSOLE, "vfork(2) failed: %d", errno);
+				job_assumes(j, runtime_close(execpair[0]) != -1);
+				job_assumes(j, runtime_close(execpair[1]) != -1);
+				execpair[0] = -1;
+				execpair[1] = -1;
+				job_log(j, LOG_NOTICE | LOG_CONSOLE, "fork(2) failed: %d", errno);
 				break;
 			default	:
+				job_assumes(j, runtime_close(execpair[1]) != -1);
+				execpair[1] = -1;
 				break;
 		}
 		
+		int r = -1;
 		if( sp != -1 ) {
-			j->sample_pid = sp;
-			j->pending_sample = false;
-			
 			/* Let us know when sample is done. ONESHOT is implicit if we're just interested in NOTE_EXIT. */
-			job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j) != -1);
-		} else {
-			job_log(j, LOG_ERR | LOG_CONSOLE, "Sampling failed for job! Kill it! Kill it with fire!");
-			LIST_REMOVE(j, pending_samples_sle);
-			job_kill(j);
+			if( job_assumes(j, (r = kevent_mod(sp, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, j)) != -1) ) {
+				if( job_assumes(j, write(execpair[0], &sp, sizeof(sp)) == sizeof(sp)) ) {
+					j->sample_pid = sp;
+				} else {
+					job_assumes(j, kevent_mod(sp, EVFILT_PROC, EV_DELETE, 0, 0, NULL) != -1);
+					job_assumes(j, runtime_kill(sp, SIGKILL) != -1);
+					r = -1;
+				}
+			} else {
+				job_assumes(j, runtime_kill(sp, SIGKILL) != -1);
+			}
+			
+			int status = 0;
+			if( r == -1 ) {
+				job_assumes(j, waitpid(sp, &status, WNOHANG) != -1);
+			}
+		}
+		
+		if( execpair[0] != -1 ) {
+			job_assumes(j, runtime_close(execpair[0]) != -1);
+		}
+		
+		if( execpair[1] != -1 ) {
+			job_assumes(j, runtime_close(execpair[0]) != -1);
+		}
+		
+		if( r == -1 ) {
+			job_log(j, LOG_ERR | LOG_CONSOLE, "Sampling for job failed!");
+			STAILQ_REMOVE(&jm->pending_samples, j, job_s, pending_samples_sle);
+			j->sampled = true;
 			jobmgr_dequeue_next_sample(jm);
+		} else {
+			job_log(j, LOG_DEBUG | LOG_CONSOLE, "Sampling job (sample PID: %i, file: %s).", sp, j->mgr->sample_log_file);
 		}
 	#endif
+	} else {
+		STAILQ_REMOVE(&jm->pending_samples, j, job_s, pending_samples_sle);
+		j->sampled = true;
 	}
+	
+	j->pending_sample = false;
 }
 
 void
@@ -2718,7 +2827,7 @@ job_dispatch_curious_jobs(job_t j)
 	}
 }
 
-INTERNAL_ABI job_t
+job_t
 job_dispatch(job_t j, bool kickstart)
 {
 	/*
@@ -2871,62 +2980,15 @@ out:
 void
 job_reap_sample(job_t j)
 {
-	char *contents = NULL;
 	int wstatus = 0;
-	int logfile_fd = -1;
 	
 	if (!job_assumes(j, waitpid(j->sample_pid, &wstatus, 0) != -1)) {
 		goto out;
 	}
 
-	/*
-	 * This won't work if the VFS or filesystems are sick:
-	 * sync();
-	 */
-
-	if (!job_assumes(j, WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0)) {
-		goto out;
-	}
-
-	/* Echo our sample file contents to the console. */
-	if (!job_assumes(j, (logfile_fd = open(root_jobmgr->sample_log_file, O_RDONLY|O_NOCTTY)) != -1)) {
-		job_log(j, LOG_NOTICE | LOG_CONSOLE, "No sample present at %s.", j->mgr->sample_log_file);
-		goto out;
-	}
-
-	struct stat sb;
-	if (!job_assumes(j, fstat(logfile_fd, &sb) != -1)) {
-		goto out;
-	}
-
-	if (sizeof(size_t) == 4 && !job_assumes(j, !(sb.st_size & 0xffffffff00000000llu))) {
-		goto out;
-	}
-
-	size_t contents_sz = (size_t)sb.st_size;
-	contents = (char *)malloc(contents_sz);
-
-	if (!job_assumes(j, contents != NULL)) {
-		goto out;
-	}
-
-	if (!job_assumes(j, read(logfile_fd, contents, contents_sz) == (ssize_t)contents_sz)) {
-		goto out;
-	}
-
-	/* Special case here. We don't want any formatting, just the sample contents. */
-	job_assumes(j, write(fileno(g_console), contents, contents_sz) == (ssize_t)contents_sz);
-
-out:
-	if (contents) {
-		free(contents);
-	}
-
-	if (logfile_fd != -1) {
-		job_assumes(j, runtime_fsync(logfile_fd) != -1);
-		job_assumes(j, runtime_close(logfile_fd) != -1);
-	}
+	job_assumes(j, WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0);
 	
+out:
 	if( j->kill_after_sample ) {
 		if (unlikely(j->debug_before_kill)) {
 			job_log(j, LOG_NOTICE, "Exit timeout elapsed. Entering the kernel debugger");
@@ -2937,20 +2999,19 @@ out:
 		job_kill(j);
 	}
 
+	job_log(j, LOG_DEBUG | LOG_CONSOLE, "sample[%i] finished with job.", j->sample_pid);
 	j->sample_pid = 0;
 	j->sampled = true;
-	LIST_REMOVE(j, pending_samples_sle);
+	STAILQ_REMOVE(&j->mgr->pending_samples, j, job_s, pending_samples_sle);
 	
 	if( j->reap_after_sample ) {
-		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling complete. Reaping.");
+		job_log(j, LOG_DEBUG | LOG_CONSOLE, "Reaping job now that sample is done.");
 		struct kevent kev;
 		EV_SET(&kev, 1, 0, 0, NOTE_EXIT, 0, 0);
 		
 		/* Fake a kevent to keep our logic consistent. */
 		job_callback_proc(j, &kev);
 	}
-	
-	job_log(j, LOG_DEBUG | LOG_CONSOLE, "Finished sampling.");
 	
 	jobmgr_dequeue_next_sample(j->mgr);
 }
@@ -2963,14 +3024,13 @@ job_callback_proc(job_t j, struct kevent *kev)
 	
 	if( j->sample_pid == (pid_t)kev->ident ) {
 		job_assumes(j, (fflags & NOTE_EXIT) != 0);
-		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling for job done. Reaping sample...");
 		
 		job_reap_sample(j);
 		
 		return;
 	} else if( j->sample_pid && !j->reap_after_sample ) {
 		/* The job exited before our sample completed. */
-		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Job exited. Will reap after sample is complete.");
+		job_log(j, LOG_NOTICE | LOG_CONSOLE, "Job has exited. Will reap after sample[%i] is complete.", j->sample_pid);
 		j->reap_after_sample = true;
 		return;
 	}
@@ -3046,6 +3106,10 @@ job_callback_timer(job_t j, void *ident)
 		 *  - once for the SIGKILL_TIMER timer, at which point we log an issue
 		 *    with the long SIGKILL
 		 */
+		
+		bool was_is_or_will_be_sampled = ( j->sampled || j->sample_pid || j->pending_sample );
+		bool should_enqueue = ( !was_is_or_will_be_sampled && do_apple_internal_logging );
+		
 		if (j->sent_sigkill) {
 			uint64_t td = runtime_get_nanoseconds_since(j->sent_signal_time);
 
@@ -3053,24 +3117,35 @@ job_callback_timer(job_t j, void *ident)
 			td -= j->exit_timeout;
 
 			job_log(j, LOG_WARNING | LOG_CONSOLE, "Did not die after sending SIGKILL %llu seconds ago...", td);
-		} else if ((!j->sampled && !j->sample_pid) && (!j->exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < j->exit_timeout))) {
+		} else if( should_enqueue && (!j->exit_timeout || (LAUNCHD_SAMPLE_TIMEOUT < j->exit_timeout)) ) {
 			/* This should work even if the job changes its exit_timeout midstream */
 			job_log(j, LOG_NOTICE | LOG_CONSOLE, "Sampling timeout elapsed (%u seconds). Scheduling a sample...", LAUNCHD_SAMPLE_TIMEOUT);
 			if (j->exit_timeout) {
 				unsigned int ttk = (j->exit_timeout - LAUNCHD_SAMPLE_TIMEOUT);
 				job_assumes(j, kevent_mod((uintptr_t)&j->exit_timeout, EVFILT_TIMER,
-							EV_ADD|EV_ONESHOT, NOTE_SECONDS, ttk, j) != -1);
+										  EV_ADD|EV_ONESHOT, NOTE_SECONDS, ttk, j) != -1);
 				job_log(j, LOG_NOTICE | LOG_CONSOLE, "Scheduled new exit timeout for %u seconds later", ttk);
 			}
 			
-			LIST_INSERT_HEAD(&j->mgr->pending_samples, j, pending_samples_sle);
+			STAILQ_INSERT_TAIL(&j->mgr->pending_samples, j, pending_samples_sle);
+			j->pending_sample = true;
 			jobmgr_dequeue_next_sample(j->mgr);
 		} else {
-			if( !j->sampled ) {
-				job_log(j, LOG_WARNING | LOG_CONSOLE, "Exit timeout elapsed (%u seconds). Will kill after sampling.", j->exit_timeout);
-				LIST_INSERT_HEAD(&j->mgr->pending_samples, j, pending_samples_sle);
+			if( do_apple_internal_logging && !j->sampled ) {
+				if( j->sample_pid || j->pending_sample ) {
+					char pidstr[24] = { 0 };
+					snprintf(pidstr, sizeof(pidstr), "[%i] ", j->sample_pid);
+					
+					job_log(j, LOG_DEBUG | LOG_CONSOLE, "Exit timeout elapsed (%u seconds). Will kill after sample%shas completed.", j->exit_timeout, j->sample_pid ? pidstr : " ");
+					j->kill_after_sample = true;
+				} else {
+					job_log(j, LOG_DEBUG | LOG_CONSOLE, "Exit timeout elapsed (%u seconds). Will sample and then kill.", j->exit_timeout);
+					
+					STAILQ_INSERT_TAIL(&j->mgr->pending_samples, j, pending_samples_sle);
+					j->pending_sample = true;
+				}			
+
 				jobmgr_dequeue_next_sample(j->mgr);
-				j->kill_after_sample = true;
 			} else {
 				if (unlikely(j->debug_before_kill)) {
 					job_log(j, LOG_NOTICE, "Exit timeout elapsed. Entering the kernel debugger");
@@ -3113,7 +3188,7 @@ jobmgr_reap_bulk(jobmgr_t jm, struct kevent *kev)
 	}
 }
 
-INTERNAL_ABI void
+void
 jobmgr_callback(void *obj, struct kevent *kev)
 {
 	jobmgr_t jm = obj;
@@ -3174,7 +3249,7 @@ jobmgr_callback(void *obj, struct kevent *kev)
 	}
 }
 
-INTERNAL_ABI void
+void
 job_callback(void *obj, struct kevent *kev)
 {
 	job_t j = obj;
@@ -3244,8 +3319,6 @@ job_start(job_t j)
 		sipc = (!SLIST_EMPTY(&j->sockets) || !SLIST_EMPTY(&j->machservices));
 	}
 
-	j->checkedin = false;
-
 	if (sipc) {
 		job_assumes(j, socketpair(AF_UNIX, SOCK_STREAM, 0, spair) != -1);
 	}
@@ -3257,7 +3330,7 @@ job_start(job_t j)
 		job_assumes(j, fcntl(j->log_redirect_fd, F_SETFL, O_NONBLOCK) != -1);
 		job_assumes(j, kevent_mod(j->log_redirect_fd, EVFILT_READ, EV_ADD, 0, 0, j) != -1);
 	}
-
+	
 	switch (c = runtime_fork(j->weird_bootstrap ? j->j_port : j->mgr->jm_port)) {
 	case -1:
 		job_log_error(j, LOG_ERR, "fork() failed, will try again in one second");
@@ -3299,6 +3372,8 @@ job_start(job_t j)
 		job_log(j, LOG_DEBUG, "Started as PID: %u", c);
 
 		j->start_pending = false;
+		j->reaped = false;
+		j->crashed = false;
 
 		runtime_add_ref();
 		total_children++;
@@ -4063,7 +4138,7 @@ job_log_error(job_t j, int pri, const char *msg, ...)
 	va_end(ap);
 }
 
-INTERNAL_ABI void
+void
 job_log(job_t j, int pri, const char *msg, ...)
 {
 	va_list ap;
@@ -4938,10 +5013,16 @@ machservice_new(job_t j, const char *name, mach_port_t *serviceport, bool pid_lo
 	}
 
 	SLIST_INSERT_HEAD(&j->machservices, ms, sle);
-	LIST_INSERT_HEAD(&j->mgr->ms_hash[hash_ms(ms->name)], ms, name_hash_sle);
+	
+	jobmgr_t jm_to_insert = j->mgr;
+	if( g_flat_mach_namespace ) {
+		jm_to_insert = j->mgr->created_via_subset ? j->mgr : root_jobmgr;
+	}
+	
+	LIST_INSERT_HEAD(&jm_to_insert->ms_hash[hash_ms(ms->name)], ms, name_hash_sle);	
 	LIST_INSERT_HEAD(&port_hash[HASH_PORT(ms->port)], ms, port_hash_sle);
 
-	job_log(j, LOG_INFO, "Mach service added: %s", name);
+	job_log(j, LOG_DEBUG, "Mach service added%s: %s", j->mgr->created_via_subset ? " to private namespace" : "", name);
 
 	return ms;
 out_bad2:
@@ -4994,12 +5075,10 @@ job_setup_exception_port(job_t j, task_t target_task)
 #endif
 
 	if (likely(target_task)) {
-		job_assumes(j, task_set_exception_ports(target_task, EXC_MASK_CRASH, exc_port,
-					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+		job_assumes(j, task_set_exception_ports(target_task, EXC_MASK_CRASH, exc_port, EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
 	} else if (pid1_magic && the_exception_server) {
 		mach_port_t mhp = mach_host_self();
-		job_assumes(j, host_set_exception_ports(mhp, EXC_MASK_CRASH, the_exception_server,
-					EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
+		job_assumes(j, host_set_exception_ports(mhp, EXC_MASK_CRASH, the_exception_server, EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES, f) == KERN_SUCCESS);
 		job_assumes(j, launchd_mport_deallocate(mhp) == KERN_SUCCESS);
 	}
 }
@@ -5066,6 +5145,16 @@ machservice_setup_options(launch_data_t obj, const char *key, void *context)
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_MACH_KUNCSERVER) == 0) {
 			ms->kUNCServer = b;
 			job_assumes(ms->job, host_set_UNDServer(mhp, ms->port) == KERN_SUCCESS);
+		}
+		break;
+	case LAUNCH_DATA_STRING:
+		if( strcasecmp(key, LAUNCH_JOBKEY_MACH_DRAINMESSAGESONCRASH) == 0 ) {
+			const char *option = launch_data_get_string(obj);
+			if( strcasecmp(option, "One") == 0 ) {
+				ms->drain_one = true;
+			} else if( strcasecmp(option, "All") == 0 ) {
+				ms->drain_all = true;
+			}
 		}
 		break;
 	case LAUNCH_DATA_DICTIONARY:
@@ -5408,6 +5497,7 @@ jobmgr_new(jobmgr_t jm, mach_port_t requestorport, mach_port_t transfer_port, bo
 	jmr->killed_hopefully_first_jobs	= false;
 	jmr->killed_normal_jobs 			= false;
 	jmr->killed_hopefully_last_jobs 	= false;
+	STAILQ_INIT(&jmr->pending_samples);
 
 	jobmgr_log(jmr, LOG_DEBUG, "Created job manager%s%s", jm ? " with parent: " : ".", jm ? jm->name : "");
 
@@ -5453,7 +5543,7 @@ jobmgr_init_session(jobmgr_t jm, const char *session_type, bool sflag)
 	return bootstrapper;
 }
 
-INTERNAL_ABI jobmgr_t
+jobmgr_t
 jobmgr_delete_anything_with_port(jobmgr_t jm, mach_port_t port)
 {
 	struct machservice *ms, *next_ms;
@@ -5504,7 +5594,6 @@ jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t ta
 
 	if (target_pid) {
 		//jobmgr_assumes(jm, !check_parent);
-
 		if (unlikely((target_j = jobmgr_find_by_pid(jm, target_pid, false)) == NULL)) {
 			return NULL;
 		}
@@ -5517,8 +5606,9 @@ jobmgr_lookup_service(jobmgr_t jm, const char *name, bool check_parent, pid_t ta
 
 		return NULL;
 	}
-
-	LIST_FOREACH(ms, &jm->ms_hash[hash_ms(name)], name_hash_sle) {
+	
+	jobmgr_t jm_to_search = ( g_flat_mach_namespace && !jm->created_via_subset ) ? root_jobmgr : jm;
+	LIST_FOREACH(ms, &jm_to_search->ms_hash[hash_ms(name)], name_hash_sle) {
 		if (!ms->per_pid && strcmp(name, ms->name) == 0) {
 			return ms;
 		}
@@ -5562,6 +5652,54 @@ machservice_name(struct machservice *ms)
 }
 
 void
+machservice_drain_port(struct machservice *ms)
+{
+	if (!job_assumes(ms->job, ms->job->crashed == true)) {
+		return;
+	}
+	
+	if( ms->drain_one == false && ms->drain_all == false ) {
+		return;
+	}
+	
+	job_log(ms->job, LOG_NOTICE, "Draining %s...", ms->name);
+	
+	char req_buff[sizeof(union __RequestUnion__catch_mach_exc_subsystem) * 2];
+	char rep_buff[sizeof(union __ReplyUnion__catch_mach_exc_subsystem)];
+	mig_reply_error_t *req_hdr = (mig_reply_error_t *)&req_buff;
+	mig_reply_error_t *rep_hdr = (mig_reply_error_t *)&rep_buff;
+
+	mach_msg_return_t mr = ~MACH_MSG_SUCCESS;
+	
+	do {
+		/* This should be a direct check on the Mach service to see if it's an exception-handling
+		 * port, and it will break things if ReportCrash or SafetyNet start advertising other
+		 * Mach services. But for now, it should be okay.
+		 */
+		if( ms->job->alt_exc_handler || ms->job->internal_exc_handler ) {
+			mr = launchd_exc_runtime_once(ms->port, sizeof(req_buff), sizeof(rep_buff), req_hdr, rep_hdr, 0);
+		} else {
+			mach_msg_options_t options =	MACH_RCV_MSG		|
+											MACH_RCV_TIMEOUT	;
+
+			mr = mach_msg((mach_msg_header_t *)req_hdr, options, 0, sizeof(req_buff), ms->port, 0, MACH_PORT_NULL);
+			switch( mr ) {
+				case MACH_MSG_SUCCESS	:
+					mach_msg_destroy((mach_msg_header_t *)req_hdr);
+					break;
+				case MACH_RCV_TIMED_OUT	:
+					break;
+				case MACH_RCV_TOO_LARGE	:
+					runtime_syslog(LOG_WARNING, "Tried to receive message that was larger than %lu bytes", sizeof(req_buff));
+					break;
+				default					:
+					break;
+			}
+		}
+	} while( ms->drain_all && mr != MACH_RCV_TIMED_OUT );
+}
+
+void
 machservice_delete(job_t j, struct machservice *ms, bool port_died)
 {
 	if (unlikely(ms->debug_on_close)) {
@@ -5570,6 +5708,7 @@ machservice_delete(job_t j, struct machservice *ms, bool port_died)
 	}
 
 	if (ms->recv && job_assumes(j, !machservice_active(ms))) {
+		job_log(j, LOG_NOTICE, "Closing receive right for %s", ms->name);
 		job_assumes(j, launchd_mport_close_recv(ms->port) == KERN_SUCCESS);
 	}
 
@@ -5579,7 +5718,7 @@ machservice_delete(job_t j, struct machservice *ms, bool port_died)
 		the_exception_server = 0;
 	}
 
-	job_log(j, LOG_INFO, "Mach service deleted%s: %s", port_died ? " (port died)" : "", ms->name);
+	job_log(j, LOG_NOTICE, "Mach service deleted%s: %s", port_died ? " (port died)" : "", ms->name);
 
 	if (ms->special_port_num) {
 		SLIST_REMOVE(&special_ports, ms, machservice, special_port_sle);
@@ -5660,13 +5799,13 @@ mach_cmd2argv(const char *string)
 	return argv_ret;
 }
 
-INTERNAL_ABI void
+void
 job_checkin(job_t j)
 {
 	j->checkedin = true;
 }
 
-INTERNAL_ABI bool
+bool
 job_ack_port_destruction(mach_port_t p)
 {
 	struct machservice *ms;
@@ -5684,8 +5823,37 @@ job_ack_port_destruction(mach_port_t p)
 
 	j = ms->job;
 
-	job_log(j, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
-
+	jobmgr_log(root_jobmgr, LOG_DEBUG, "Receive right returned to us: %s", ms->name);
+	
+	/* Without being the exception handler, NOTE_EXIT is our only way to tell if the job 
+	 * crashed, and we can't rely on NOTE_EXIT always being processed after all the job's
+	 * receive rights have been returned.
+	 *
+	 * So when we get receive rights back, check to see if the job has been reaped yet. If
+	 * not, then we add this service to a list of services to be drained on crash if it's 
+	 * requested that behavior. So, for a job with N receive rights all requesting that they
+	 * be drained on crash, we can safely handle the following sequence of events.
+	 * 
+	 * ReceiveRight0Returned
+	 * ReceiveRight1Returned
+	 * ReceiveRight2Returned
+	 * NOTE_EXIT (reap, get exit status)
+	 * ReceiveRight3Returned
+	 * .
+	 * .
+	 * .
+	 * ReceiveRight(N - 1)Returned
+	 */
+	
+	if( ms->drain_one || ms->drain_all ) {
+		if( j->crashed && j->reaped ) {
+			job_log(j, LOG_DEBUG, "Job has crashed. Draining port...");
+			machservice_drain_port(ms);
+		} else if( !(j->crashed || j->reaped) ) {
+			job_log(j, LOG_DEBUG, "Job's exit status is still unknown. Deferring drain.");
+		}
+	}
+	
 	ms->isActive = false;
 
 	if (ms->delete_on_destruction) {
@@ -5693,7 +5861,7 @@ job_ack_port_destruction(mach_port_t p)
 	} else if (ms->reset) {
 		machservice_resetport(j, ms);
 	}
-
+	
 	job_dispatch(j, false);
 
 	root_jobmgr = jobmgr_do_garbage_collection(root_jobmgr);
@@ -5701,7 +5869,7 @@ job_ack_port_destruction(mach_port_t p)
 	return true;
 }
 
-INTERNAL_ABI void
+void
 job_ack_no_senders(job_t j)
 {
 	j->priv_port_has_senders = false;
@@ -5713,115 +5881,6 @@ job_ack_no_senders(job_t j)
 
 	job_dispatch(j, false);
 }
-
-#if 0
-void
-job_force_sampletool(job_t j)
-{
-	struct stat sb;
-	char logfile[PATH_MAX];
-	char pidstr[100];
-	char *sample_args[] = { "sample", pidstr, "1", "-unsupportedShowArch", "-mayDie", "-file", logfile, NULL };
-	char *contents = NULL;
-	size_t contents_sz;
-	int logfile_fd = -1;
-	int console_fd = -1;
-	int wstatus;
-	pid_t sp;
-
-	if (j->sampled || j->per_user) {
-		return;
-	}
-
-	j->sampled = true;
-
-	if (!job_assumes(j, do_apple_internal_logging)) {
-		return;
-	}
-
-	if (!job_assumes(j, mkdir(SHUTDOWN_LOG_DIR, S_IRWXU) != -1 || errno == EEXIST)) {
-		return;
-	}
-
-	snprintf(pidstr, sizeof(pidstr), "%u", j->p);
-	snprintf(logfile, sizeof(logfile), SHUTDOWN_LOG_DIR "/%s-%u.sample.txt", j->label, j->p);
-
-	if (!job_assumes(j, unlink(logfile) != -1 || errno == ENOENT)) {
-		goto out;
-	}
-
-	/*
-	 * This will stall launchd for as long as the 'sample' tool runs.
-	 *
-	 * We didn't give the 'sample' tool a bootstrap port, so it therefore
-	 * can't deadlock against launchd.
-	 */
-	if (!job_assumes(j, (errno = posix_spawnp(&sp, sample_args[0], NULL, NULL, sample_args, environ)) == 0)) {
-		goto out;
-	}
-
-	job_log(j, LOG_DEBUG, "Waiting for 'sample' to finish.");
-
-	if (!job_assumes(j, waitpid(sp, &wstatus, 0) != -1)) {
-		goto out;
-	}
-
-	/*
-	 * This won't work if the VFS or filesystems are sick:
-	 * sync();
-	 */
-
-	if (!job_assumes(j, WIFEXITED(wstatus) && WEXITSTATUS(wstatus) == 0)) {
-		goto out;
-	}
-
-	if (!job_assumes(j, (logfile_fd = open(logfile, O_RDONLY|O_NOCTTY)) != -1)) {
-		goto out;
-	}
-
-	if (!job_assumes(j, (console_fd = open(_PATH_CONSOLE, O_WRONLY|O_APPEND|O_NOCTTY)) != -1)) {
-		goto out;
-	}
-
-	if (!job_assumes(j, fstat(logfile_fd, &sb) != -1)) {
-		goto out;
-	}
-
-	if (sizeof (size_t) == 4 && !job_assumes(j, !(sb.st_size & 0xffffffff00000000llu))) {
-		goto out;
-	}
-
-	contents_sz = (size_t) sb.st_size;
-
-	contents = malloc(contents_sz);
-
-	if (!job_assumes(j, contents != NULL)) {
-		goto out;
-	}
-
-	if (!job_assumes(j, read(logfile_fd, contents, contents_sz) == (ssize_t) contents_sz)) {
-		goto out;
-	}
-
-	job_assumes(j, write(console_fd, contents, contents_sz) == (ssize_t) contents_sz);
-
-out:
-	if (contents) {
-		free(contents);
-	}
-
-	if (logfile_fd != -1) {
-		job_assumes(j, runtime_fsync(logfile_fd) != -1);
-		job_assumes(j, runtime_close(logfile_fd) != -1);
-	}
-
-	if (console_fd != -1) {
-		job_assumes(j, runtime_close(console_fd) != -1);
-	}
-
-	job_log(j, LOG_DEBUG, "Finished sampling.");
-}
-#endif
 
 bool
 semaphoreitem_new(job_t j, semaphore_reason_t why, const char *what)
@@ -5960,7 +6019,7 @@ semaphoreitem_setup(launch_data_t obj, const char *key, void *context)
 	}
 }
 
-INTERNAL_ABI void
+void
 jobmgr_dispatch_all_semaphores(jobmgr_t jm)
 {
 	jobmgr_t jmi, jmn;
@@ -6418,7 +6477,7 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 
 	if (invalCnt) switch (inkey) {
 	case VPROC_GSK_ENVIRONMENT:
-		job_assumes(j, false);
+		
 		break;
 	case 0:
 		break;
@@ -6724,21 +6783,6 @@ job_mig_log(job_t j, int pri, int err, logmsg_t msg)
 	return 0;
 }
 
-void
-ensure_root_bkgd_setup(void)
-{
-	if (likely(background_jobmgr) || !pid1_magic) {
-		return;
-	}
-
-	if (!jobmgr_assumes(root_jobmgr, (background_jobmgr = jobmgr_new(root_jobmgr, mach_task_self(), MACH_PORT_NULL, false, VPROCMGR_SESSION_BACKGROUND)) != NULL)) {
-		return;
-	}
-
-	background_jobmgr->req_port = 0;
-	jobmgr_assumes(root_jobmgr, launchd_mport_make_send(background_jobmgr->jm_port) == KERN_SUCCESS);
-}
-
 kern_return_t
 job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 {
@@ -6761,14 +6805,6 @@ job_mig_lookup_per_user_context(job_t j, uid_t which_user, mach_port_t *up_cont)
 	}
 
 	*up_cont = MACH_PORT_NULL;
-
-	if (which_user == 0) {
-		ensure_root_bkgd_setup();
-
-		*up_cont = background_jobmgr->jm_port;
-
-		return 0;
-	}
 
 	LIST_FOREACH(ji, &root_jobmgr->jobs, sle) {
 		if (!ji->per_user) {
@@ -6844,7 +6880,7 @@ job_mig_check_in2(job_t j, name_t servicename, mach_port_t *serviceportp, uint64
 		if (unlikely((ms = machservice_new(j, servicename, serviceportp, per_pid_service)) == NULL)) {
 			return BOOTSTRAP_NO_MEMORY;
 		}
-
+		
 		/* Treat this like a legacy job. */
 		if( !j->legacy_mach_job ) {
 			ms->isActive = true;
@@ -6870,6 +6906,7 @@ job_mig_check_in2(job_t j, name_t servicename, mach_port_t *serviceportp, uint64
 			job_log(j, LOG_WARNING, "Check-in of Mach service failed. Already active: %s", servicename);
 			return BOOTSTRAP_SERVICE_ACTIVE;
 		}
+		
 	}
 
 	machservice_request_notifications(ms);
@@ -7051,21 +7088,19 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 	name_array_t service_names = NULL;
 	bootstrap_status_array_t service_actives = NULL;
 	unsigned int cnt = 0, cnt2 = 0;
-	struct machservice *ms;
 	jobmgr_t jm;
-	job_t ji;
 
 	if (!launchd_assumes(j != NULL)) {
 		return BOOTSTRAP_NO_MEMORY;
 	}
 
-	jm = j->mgr;
+	jm = g_flat_mach_namespace ? root_jobmgr : j->mgr;
 
-	LIST_FOREACH(ji, &jm->jobs, sle) {
-		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			if (!ms->per_pid) {
-				cnt++;
-			}
+	unsigned int i = 0;
+	struct machservice *msi = NULL;
+	for( i = 0; i < MACHSERVICE_HASH_SIZE; i++ ) {
+		LIST_FOREACH( msi, &jm->ms_hash[i], name_hash_sle ) {
+			cnt += !msi->per_pid ? 1 : 0;
 		}
 	}
 
@@ -7083,11 +7118,11 @@ job_mig_info(job_t j, name_array_t *servicenamesp, unsigned int *servicenames_cn
 		goto out_bad;
 	}
 
-	LIST_FOREACH(ji, &jm->jobs, sle) {
-		SLIST_FOREACH(ms, &ji->machservices, sle) {
-			if (!ms->per_pid) {
-				strlcpy(service_names[cnt2], machservice_name(ms), sizeof(service_names[0]));
-				service_actives[cnt2] = machservice_status(ms);
+	for( i = 0; i < MACHSERVICE_HASH_SIZE; i++ ) {
+		LIST_FOREACH( msi, &jm->ms_hash[i], name_hash_sle ) {
+			if( !msi->per_pid ) {
+				strlcpy(service_names[cnt2], machservice_name(msi), sizeof(service_names[0]));
+				service_actives[cnt2] = machservice_status(msi);
 				cnt2++;
 			}
 		}
@@ -7113,12 +7148,192 @@ out_bad:
 	return BOOTSTRAP_NO_MEMORY;
 }
 
+kern_return_t
+job_mig_lookup_children(job_t j,	mach_port_array_t *child_ports,					mach_msg_type_number_t *child_ports_cnt, 
+									name_array_t *child_names,						mach_msg_type_number_t *child_names_cnt, 
+									bootstrap_property_array_t *child_properties,	mach_msg_type_number_t *child_properties_cnt)
+{
+	kern_return_t kr = BOOTSTRAP_NO_MEMORY;
+	if( !launchd_assumes(j != NULL) ) {
+		return BOOTSTRAP_NO_MEMORY;
+	}
+	
+	struct ldcred *ldc = runtime_get_caller_creds();
+	
+	/* Only allow root processes to look up children, even if we're in the per-user laucnhd.
+	 * Otherwise, this could be used to cross sessions, which counts as a security vulnerability
+	 * in a non-flat namespace.
+	 */
+	if( ldc->euid != 0 ) {
+		job_log(j, LOG_WARNING, "Attempt to look up children of bootstrap by unprivileged job.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+	
+	unsigned int cnt = 0;
+	
+	jobmgr_t jmr = j->mgr;
+	jobmgr_t jmi = NULL;
+	SLIST_FOREACH( jmi, &jmr->submgrs, sle ) {
+		cnt += g_flat_mach_namespace ? ( jmi->created_via_subset ? 1 : 0 ) : 1;
+	}
+	
+	/* Find our per-user launchds if we're PID 1. */
+	job_t ji = NULL;
+	if( pid1_magic ) {
+		LIST_FOREACH( ji, &jmr->jobs, sle ) {
+			cnt += ji->per_user ? 1 : 0;
+		}
+	}
+	
+	if( cnt == 0 ) {
+		return BOOTSTRAP_NO_CHILDREN;
+	}
+	
+	mach_port_array_t _child_ports = NULL;
+	mig_allocate((vm_address_t *)&_child_ports, cnt * sizeof(_child_ports[0]));
+	if( !job_assumes(j, _child_ports != NULL) ) {
+		kr = BOOTSTRAP_NO_MEMORY;
+		goto out_bad;
+	}
+	
+	name_array_t _child_names = NULL;
+	mig_allocate((vm_address_t *)&_child_names, cnt * sizeof(_child_names[0]));
+	if( !job_assumes(j, _child_names != NULL) ) {
+		kr = BOOTSTRAP_NO_MEMORY;
+		goto out_bad;
+	}
+	
+	bootstrap_property_array_t _child_properties = NULL;
+	mig_allocate((vm_address_t *)&_child_properties, cnt * sizeof(_child_properties[0]));
+	if( !job_assumes(j, _child_properties != NULL) ) {
+		kr = BOOTSTRAP_NO_MEMORY;
+		goto out_bad;
+	}
+	
+	unsigned int cnt2 = 0;
+	SLIST_FOREACH( jmi, &jmr->submgrs, sle ) {
+		if( (g_flat_mach_namespace && jmi->created_via_subset) || !g_flat_mach_namespace ) {
+			if( jobmgr_assumes(jmi, launchd_mport_make_send(jmi->jm_port)) == KERN_SUCCESS ) {
+				_child_ports[cnt2] = jmi->jm_port;
+			} else {
+				_child_ports[cnt2] = MACH_PORT_NULL;
+			}
+			
+			strlcpy(_child_names[cnt2], jmi->name, sizeof(_child_names[0]));
+			_child_properties[cnt2] |= BOOTSTRAP_PROPERTY_SUBSET;
+			
+			cnt2++;
+		}
+	}
+	
+	if( pid1_magic ) {
+		LIST_FOREACH( ji, &jmr->jobs, sle ) {
+			if( ji->per_user ) {
+				if( job_assumes(ji, SLIST_FIRST(&ji->machservices)->per_user_hack == true) ) {
+					mach_port_t port = machservice_port(SLIST_FIRST(&ji->machservices));
+					
+					if( job_assumes(ji, launchd_mport_copy_send(port)) == KERN_SUCCESS ) {
+						_child_ports[cnt2] = port;
+					} else {
+						_child_ports[cnt2] = MACH_PORT_NULL;
+					}
+				} else {
+					_child_ports[cnt2] = MACH_PORT_NULL;
+				}
+				
+				strlcpy(_child_names[cnt2], ji->label, sizeof(_child_names[0]));
+				_child_properties[cnt2] |= BOOTSTRAP_PROPERTY_PERUSER;
+				
+				cnt2++;
+			}
+		}
+	}
+	
+	*child_names_cnt = cnt;
+	*child_ports_cnt = cnt;
+	*child_properties_cnt = cnt;
+	
+	*child_names = _child_names;
+	*child_ports = _child_ports;
+	*child_properties = _child_properties;
+	
+	unsigned int i = 0;
+	for( i = 0; i < cnt; i++ ) {
+		job_log(j, LOG_DEBUG, "child_names[%u] = %s", i, (char *)_child_names[i]);
+	}
+	
+	return BOOTSTRAP_SUCCESS;
+out_bad:
+	if( _child_ports ) {
+		mig_deallocate((vm_address_t)_child_ports, cnt * sizeof(_child_ports[0]));
+	}
+	
+	if( _child_names ) {
+		mig_deallocate((vm_address_t)_child_names, cnt * sizeof(_child_ports[0]));
+	}
+	
+	if( _child_properties ) {
+		mig_deallocate((vm_address_t)_child_properties, cnt * sizeof(_child_properties[0]));
+	}
+	
+	return kr;
+}
+
+kern_return_t
+job_mig_transaction_count_for_pid(job_t j, pid_t p, int32_t *cnt, boolean_t *condemned)
+{
+	kern_return_t kr = KERN_FAILURE;
+	struct ldcred *ldc = runtime_get_caller_creds();
+	if( (ldc->euid != geteuid()) && (ldc->euid != 0) ) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+	
+	job_t j_for_pid = jobmgr_find_by_pid_deep(j->mgr, p);
+	if( j_for_pid ) {
+		if( j_for_pid->kill_via_shmem ) {
+			if( j_for_pid->shmem ) {
+				*cnt = j_for_pid->shmem->vp_shmem_transaction_cnt;
+				*condemned = j_for_pid->shmem->vp_shmem_flags & VPROC_SHMEM_EXITING;
+				*cnt += *condemned ? 1 : 0;
+			} else {
+				*cnt = 0;
+				*condemned = false;
+			}
+			
+			kr = BOOTSTRAP_SUCCESS;
+		} else {
+			kr = BOOTSTRAP_NO_MEMORY;
+		}
+	} else {
+		kr = BOOTSTRAP_UNKNOWN_SERVICE;
+	}
+	
+	return kr;
+}
+
+kern_return_t
+job_mig_pid_is_managed(job_t j __attribute__((unused)), pid_t p, boolean_t *managed)
+{
+	struct ldcred *ldc = runtime_get_caller_creds();
+	if( (ldc->euid != geteuid()) && (ldc->euid != 0) ) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+	
+	/* This is so loginwindow doesn't try to quit GUI apps that have been launched
+	 * directly by launchd as agents.
+	 */
+	job_t j_for_pid = jobmgr_find_by_pid_deep(root_jobmgr, p);
+	if( j_for_pid && !j_for_pid->anonymous && !j_for_pid->legacy_LS_job ) {
+		*managed = true;
+	}
+	
+	return BOOTSTRAP_SUCCESS;
+}
+
 jobmgr_t 
 jobmgr_find_by_name(jobmgr_t jm, const char *where)
 {
 	jobmgr_t jmi, jmi2;
-
-	ensure_root_bkgd_setup();
 
 	/* NULL is only passed for our custom API for LaunchServices. If that is the case, we do magic. */
 	if (where == NULL) {
@@ -7178,50 +7393,9 @@ job_mig_move_subset(job_t j, mach_port_t target_subset, name_t session_type)
 		job_t j2;
 
 		if (j->mgr->session_initialized) {
-			if (ldc->uid == 0 && pid1_magic) {
-				if (strcmp(j->mgr->name, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
-					job_t ji, jn;
-
-					LIST_FOREACH_SAFE(ji, &j->mgr->jobs, sle, jn) {
-						if (!ji->anonymous) {
-							job_remove(ji, false);
-						}
-					}
-
-					ensure_root_bkgd_setup();
-
-					SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
-					j->mgr->parentmgr = background_jobmgr;
-					SLIST_INSERT_HEAD(&j->mgr->parentmgr->submgrs, j->mgr, sle);
-
-					/*
-					 * We really should wait for all the jobs to die before proceeding. See 5351245 for more info.
-					 *
-					 * We have hacked around this in job_find() by ignoring jobs that are pending removal.
-					 */
-
-				} else if (strcmp(j->mgr->name, VPROCMGR_SESSION_AQUA) == 0) {
-					job_log(j, LOG_DEBUG, "Tried to move the Aqua session.");
-					return 0;
-				} else if (strcmp(j->mgr->name, VPROCMGR_SESSION_BACKGROUND) == 0) {
-					job_log(j, LOG_DEBUG, "Tried to move the background session.");
-					return 0;
-				} else {
-					job_log(j, LOG_ERR, "Tried to initialize an already setup session!");
-					kr = BOOTSTRAP_NOT_PRIVILEGED;
-					goto out;
-				}
-			} else {
-				job_log(j, LOG_ERR, "Tried to initialize an already setup session!");
-				kr = BOOTSTRAP_NOT_PRIVILEGED;
-				goto out;
-			}
-		} else if (ldc->uid == 0 && pid1_magic && strcmp(session_type, VPROCMGR_SESSION_STANDARDIO) == 0) {
-			ensure_root_bkgd_setup();
-
-			SLIST_REMOVE(&j->mgr->parentmgr->submgrs, j->mgr, jobmgr_s, sle);
-			j->mgr->parentmgr = background_jobmgr;
-			SLIST_INSERT_HEAD(&j->mgr->parentmgr->submgrs, j->mgr, sle);
+			job_log(j, LOG_ERR, "Tried to initialize an already setup session!");
+			kr = BOOTSTRAP_NOT_PRIVILEGED;
+			goto out;
 		} else if (strcmp(session_type, VPROCMGR_SESSION_LOGINWINDOW) == 0) {
 			jobmgr_t jmi;
 
@@ -7329,6 +7503,55 @@ out:
 	}
 
 	return kr;
+}
+
+kern_return_t
+job_mig_detach_from_console(job_t j, mach_port_t *new_bsport)
+{
+	if( j->mgr == root_jobmgr ) {
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+	
+	if( !j->anonymous ) {
+		job_log(j, LOG_NOTICE, "Non-anonymous job tried to move to Background session. Please set LimitLoadToSessionType in the launchd property list to \"Background\" instead.");
+		return BOOTSTRAP_NOT_PRIVILEGED;
+	}
+	
+	job_log(j, LOG_NOTICE, "Detaching from console session.");
+	
+	/* Remove the job from it's current job manager. */
+	LIST_REMOVE(j, sle);
+	LIST_REMOVE(j, pid_hash_sle);
+
+	job_t ji = NULL, jit = NULL;
+	LIST_FOREACH_SAFE( ji, &j->mgr->global_env_jobs, global_env_sle, jit ) {
+		if( ji == j ) {
+			LIST_REMOVE(ji, global_env_sle);
+			break;
+		}
+	}
+	
+	/* Put the job into the background job manager. */
+	LIST_INSERT_HEAD(&root_jobmgr->jobs, j, sle);
+	LIST_INSERT_HEAD(&root_jobmgr->active_jobs[ACTIVE_JOB_HASH(j->p)], j, pid_hash_sle);
+	
+	if( ji ) {
+		LIST_INSERT_HEAD(&root_jobmgr->global_env_jobs, j, global_env_sle);
+	}
+	
+	/* Move our Mach services over. */
+	if( !g_flat_mach_namespace && !SLIST_EMPTY(&j->machservices) ) {
+		struct machservice *msi = NULL, *msit = NULL;
+		SLIST_FOREACH_SAFE( msi, &j->machservices, sle, msit ) {
+			LIST_REMOVE(msi, name_hash_sle);
+			LIST_INSERT_HEAD(&root_jobmgr->ms_hash[hash_ms(msi->name)], msi, name_hash_sle);
+		}
+	}
+	
+	j->mgr = root_jobmgr;
+	*new_bsport = root_jobmgr->jm_port;
+	
+	return KERN_SUCCESS;
 }
 
 kern_return_t
@@ -7501,6 +7724,9 @@ job_mig_subset(job_t j, mach_port_t requestorport, mach_port_t *subsetportp)
 	}
 
 	*subsetportp = jmr->jm_port;
+	jmr->created_via_subset = true;
+	
+	job_log(j, LOG_NOTICE, "Job created a subset named \"%s\"", jmr->name);
 	return BOOTSTRAP_SUCCESS;
 }
 
@@ -7523,7 +7749,7 @@ job_mig_embedded_wait(job_t j, name_t targetlabel, integer_t *waitstatus)
 }
 
 kern_return_t
-job_mig_kickstart(job_t j, name_t targetlabel, pid_t *out_pid, mach_port_t *out_name_port, mach_port_t *obsrvr_port)
+job_mig_kickstart(job_t j, name_t targetlabel, pid_t *out_pid, mach_port_t *out_name_port, mach_port_t *obsrvr_port, unsigned int flags)
 {
 	struct ldcred *ldc = runtime_get_caller_creds();
 	job_t otherj;
@@ -7546,6 +7772,11 @@ job_mig_kickstart(job_t j, name_t targetlabel, pid_t *out_pid, mach_port_t *out_
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
 
+	if( otherj->p && (flags & VPROCFLAG_STALL_JOB_EXEC) ) {
+		return BOOTSTRAP_SERVICE_ACTIVE;
+	}
+
+	otherj->stall_before_exec = ( flags & VPROCFLAG_STALL_JOB_EXEC );
 	otherj = job_dispatch(otherj, true);
 
 	if (!job_assumes(j, otherj && otherj->p)) {
@@ -7593,65 +7824,6 @@ job_mig_uncork_fork(job_t j)
 
 	job_uncork_fork(j);
 	j->stall_before_exec = false;
-	return 0;
-}
-
-kern_return_t
-job_mig_set_service_policy(job_t j, pid_t target_pid, uint64_t flags, name_t target_service)
-{
-	struct ldcred *ldc = runtime_get_caller_creds();
-	job_t target_j = NULL;
-
-	if (!launchd_assumes(j != NULL)) {
-		return BOOTSTRAP_NO_MEMORY;
-	}
-
-	target_j = jobmgr_find_by_pid(j->mgr, target_pid, true);
-
-	if (ldc->euid && (ldc->euid != getuid())) {		
-		int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, target_pid };
-		struct kinfo_proc kp;
-		size_t len = sizeof(kp);
-
-		job_assumes(j, sysctl(mib, 4, &kp, &len, NULL, 0) != -1);
-		job_assumes(j, len == sizeof(kp));
-
-		uid_t kp_euid = kp.kp_eproc.e_ucred.cr_uid;
-		uid_t kp_uid = kp.kp_eproc.e_pcred.p_ruid;
-
-		if( ldc->euid == kp_euid ) {
-			job_log(j, LOG_WARNING, "Working around rdar://problem/5982485 and allowing job to set policy for PID %u. We should discuss having %s run under a per-user launchd.", target_pid, target_j->label);
-		} else {
-			job_log(j, LOG_ERR, "Denied Mach service policy update requested by UID/EUID %u/%u against PID %u with UID/EUID %u/%u due to mismatched credentials.", ldc->uid, ldc->euid, target_pid, kp_uid, kp_euid);
-
-			return BOOTSTRAP_NOT_PRIVILEGED;
-		}
-	}
-
-	if (unlikely(!SLIST_EMPTY(&j->mspolicies))) {
-		job_log(j, LOG_WARNING, "Jobs that have policies assigned to them may not set policies.");
-		return BOOTSTRAP_NOT_PRIVILEGED;
-	}
-
-	if (unlikely(target_j == NULL)) {
-		if (job_assumes(j, errno == ESRCH)) {
-			job_log(j, LOG_ERR, "Could not find PID %u while trying to set Mach bootstrap service policy: %s", target_pid, target_service);
-		}
-		return BOOTSTRAP_NO_MEMORY;
-	}
-
-	job_log(j, LOG_DEBUG, "Setting policy on job \"%s\" for Mach service: %s", target_j->label, target_service);
-	if (target_service[0]) {
-		bool r = mspolicy_new(target_j, target_service, flags & BOOTSTRAP_ALLOW_LOOKUP, flags & BOOTSTRAP_PER_PID_SERVICE, false);
-
-		if (unlikely(!r) && job_assumes(j, errno == EEXIST)) {
-			job_log(j, LOG_ERR, "Tried to update a known policy on PID %u: %s", target_pid, target_service);
-		}
-	} else {
-		target_j->deny_unknown_mslookups = !(flags & BOOTSTRAP_ALLOW_LOOKUP);
-		target_j->deny_job_creation = flags & BOOTSTRAP_DENY_JOB_CREATION;
-	}
-
 	return 0;
 }
 
@@ -7743,7 +7915,7 @@ job_mig_spawn(job_t j, vm_offset_t indata, mach_msg_type_number_t indataCnt, pid
 	return BOOTSTRAP_SUCCESS;
 }
 
-INTERNAL_ABI void
+void
 jobmgr_init(bool sflag)
 {
 	const char *root_session_type = pid1_magic ? VPROCMGR_SESSION_SYSTEM : VPROCMGR_SESSION_BACKGROUND;
