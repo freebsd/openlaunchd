@@ -1,5 +1,5 @@
 # $FreeBSD$
 
-PROG=wait4path
+PROG=launchproxy
 
 .include "../launchd.prog.mk"
