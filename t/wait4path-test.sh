@@ -2,17 +2,27 @@
 
 describe "wait4path"
 
-COMMAND=./wait4path/wait4path
-USAGE="usage: ${COMMAND} <object on mount point>"
-
-runit() {
-    ${COMMAND} 2>&1 $@
-}
-
-validate_usage() {
-    test "$1" = "$USAGE"
-}
-
 it_shows_usage_by_default() {
-    validate_usage "$(runit)"
+    test "$(runit)" = "usage: ${COMMAND} <object on mount point>"
 }
+
+it_exits_for_existing_paths() {
+    output=$(runit wait4path)
+    assert_success $?
+    assert_empty $output
+}
+it_exits_for_existing_mounts() {
+    output=$(runit /)
+    assert_success $?
+    assert_empty $output
+}
+
+it_should_wait_for_mount() {
+    # mkdir /tmp/foo && mdmfs -s 32m md /tmp/foo
+    true
+}
+
+################################################################################
+
+COMMAND=./wait4path/wait4path
+source "t/assertions.sh"
