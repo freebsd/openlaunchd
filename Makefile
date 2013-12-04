@@ -2,12 +2,13 @@
 
 MAINTAINER=tyler@freebsd.org
 
-SUBDIR=wait4path \
+SUBDIR=liblaunch \
+	   wait4path \
 	   launchproxy \
 	   launchctl
 
 
-test: wait4path launchproxy
+test: liblaunch wait4path launchproxy
 	@./support/roundup ./t/*.sh
 
 .include <bsd.subdir.mk>
