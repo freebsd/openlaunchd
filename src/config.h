@@ -1,7 +1,14 @@
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
 
+#ifdef __APPLE__
+/*
+ * TargetConditionals.h contains Autoconfiguration of TARGET_ conditionals for
+ * Mac OS X and iPhone. Unless we're on an __APPLE__ based system, we don't
+ * really have any requirement for these macros
+ */
 #include <TargetConditionals.h>
+#endif
 
 #if __has_include(<quarantine.h>)
 #define HAVE_QUARANTINE 1

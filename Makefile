@@ -7,7 +7,7 @@ SUBDIR=wait4path \
 	   launchctl
 
 
-test: wait4path
+test: wait4path launchproxy
 	@./support/roundup ./t/*.sh
 
 .include <bsd.subdir.mk>

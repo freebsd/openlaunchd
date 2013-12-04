@@ -38,7 +38,15 @@
 
 #if !TARGET_OS_EMBEDDED
 #include <bsm/audit.h>
+#if __APPLE__
+/*
+ * None of the functions or enums declared in bsm/audit_session.h are used in
+ * launchproxy. It does not in fact exist in any shape inside of OpenBSM <http://www.trustedbsd.org/openbsm.html>
+ *
+ * <https://gist.github.com/philips/6880b6bfbcb33c3b3653>
+ */
 #include <bsm/audit_session.h>
+#endif
 #endif // !TARGET_OS_EMBEDDED
 
 #include "launch.h"
