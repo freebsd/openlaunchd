@@ -51,6 +51,16 @@
 
 #include "launch.h"
 
+#ifndef __APPLE__
+/*
+ * Since launchd is core to Apple operating systems, they've got a
+ * system-specified syslog(3) facility defined *just* for launchd. Non-Apple
+ * OSes lack this system defined facility, but have local use facilities
+ * available
+ */
+#define	LOG_LAUNCHD	(23<<3)
+#endif
+
 static int kq = 0;
 
 static void find_fds(launch_data_t o, const char *key __attribute__((unused)), void *context __attribute__((unused)))
