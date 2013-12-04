@@ -21,7 +21,9 @@
 #ifndef __LAUNCH_H__
 #define __LAUNCH_H__
 
+#ifdef __APPLE__
 #include <mach/mach.h>
+#endif
 #include <sys/cdefs.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -181,7 +183,9 @@ typedef enum {
 	LAUNCH_DATA_STRING,
 	LAUNCH_DATA_OPAQUE,
 	LAUNCH_DATA_ERRNO,
+#ifdef __APPLE__
 	LAUNCH_DATA_MACHPORT,
+#endif
 } launch_data_type_t;
 
 __ld_allocator
@@ -237,9 +241,19 @@ __ld_allocator
 launch_data_t
 launch_data_new_fd(int);
 
+#ifdef __APPLE__
 __ld_allocator
 launch_data_t
 launch_data_new_machport(mach_port_t);
+
+ __ld_setter
+bool
+launch_data_set_machport(launch_data_t, mach_port_t);
+
+__ld_getter
+mach_port_t
+launch_data_get_machport(const launch_data_t);
+#endif
 
 __ld_allocator
 launch_data_t
@@ -267,10 +281,6 @@ launch_data_set_fd(launch_data_t, int);
 
  __ld_setter
 bool
-launch_data_set_machport(launch_data_t, mach_port_t);
-
- __ld_setter
-bool
 launch_data_set_integer(launch_data_t, long long);
 
  __ld_setter
@@ -292,10 +302,6 @@ launch_data_set_opaque(launch_data_t, const void *, size_t);
 __ld_getter
 int	
 launch_data_get_fd(const launch_data_t);
-
-__ld_getter
-mach_port_t
-launch_data_get_machport(const launch_data_t);
 
 __ld_getter
 long long
