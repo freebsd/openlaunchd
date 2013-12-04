@@ -24,7 +24,9 @@
 #include "launch_internal.h"
 #include "ktrace.h"
 
+#ifdef __APPLE__
 #include <mach/mach.h>
+#endif
 #include <libkern/OSByteOrder.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -507,13 +509,6 @@ launch_data_set_fd(launch_data_t d, int fd)
 }
 
 bool
-launch_data_set_machport(launch_data_t d, mach_port_t p)
-{
-	d->mp = p;
-	return true;
-}
-
-bool
 launch_data_set_integer(launch_data_t d, long long n)
 {
 	d->number = n;
@@ -573,12 +568,6 @@ launch_data_get_fd(launch_data_t d)
 	return d->fd;
 }
 
-mach_port_t
-launch_data_get_machport(launch_data_t d)
-{
-	return d->mp;
-}
-
 long long
 launch_data_get_integer(launch_data_t d)
 {
@@ -624,6 +613,21 @@ launchd_getfd(launch_t l)
 {
 	return (l->which == LAUNCHD_USE_CHECKIN_FD) ? l->cifd : l->fd;
 }
+
+#ifdef __APPLE__
+bool
+launch_data_set_machport(launch_data_t d, mach_port_t p)
+{
+	d->mp = p;
+	return true;
+}
+
+mach_port_t
+launch_data_get_machport(launch_data_t d)
+{
+	return d->mp;
+}
+#endif
 
 launch_t
 launchd_fdopen(int fd, int cifd)
@@ -846,8 +850,10 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		break;
 	case LAUNCH_DATA_ERRNO:
 		r->err = big2wire(r->err);
+#ifdef __APPLE__
 	case LAUNCH_DATA_MACHPORT:
 		break;
+#endif
 	default:
 		errno = EINVAL;
 		return NULL;

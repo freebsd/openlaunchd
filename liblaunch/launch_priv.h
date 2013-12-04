@@ -21,7 +21,9 @@
 #ifndef __LAUNCH_PRIVATE_H__
 #define __LAUNCH_PRIVATE_H__
 
+#ifdef __APPLE__
 #include <mach/mach.h>
+#endif
 #include <sys/types.h>
 #include <launch.h>
 #include <unistd.h>
