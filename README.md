@@ -1,4 +1,4 @@
-# launchd for FreeBSD
+# Open Launchd
 
 Mac OS X 10.4 Tiger introduced a new program called `launchd`. The daemon
 replaced `SystemStarter` (MacOS legacy) and older `rc.d` (BSD legacy) startup
