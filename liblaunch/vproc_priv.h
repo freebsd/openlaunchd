@@ -21,17 +21,26 @@
 #ifndef __VPROC_PRIVATE_H__
 #define __VPROC_PRIVATE_H__
 
+#ifdef __APPLE__
 #include <Availability.h>
+#else
+#include "shims/Availability.h"
+#endif
+
 #include <sys/types.h>
 #include <sys/cdefs.h>
 #include <sys/syslog.h>
 #include <sys/time.h>
 #include <stdbool.h>
-#include <launch.h>
-#include <vproc.h>
+#include "launch.h"
+#include "vproc.h"
 #include <uuid/uuid.h>
+
+#ifdef __APPLE__
+/* NOTE: bootstrap is an Apple OS Mach port initiator */
 #include <servers/bootstrap.h>
 #include <dispatch/dispatch.h>
+#endif
 
 #ifndef VPROC_HAS_TRANSACTIONS
 #define VPROC_HAS_TRANSACTIONS 1

@@ -995,8 +995,10 @@ helper_recv_wait(mach_port_t p, int status)
 	return (errno = mach_port_set_context(mach_task_self(), p, ctx));
 }
 
+#ifdef __APPLE__
+/* It would appear that launch_wait is never referenced anywhere in launchd */
 int
-launch_wait(mach_port_t port)
+launch_wait(mach_port_t port) __attribute__(("deprecated"))
 {
 	int status = -1;
 	errno = mach_msg_server_once(launchd_helper_server, vprocmgr_helper_maxmsgsz, port, 0);
@@ -1013,7 +1015,7 @@ launch_wait(mach_port_t port)
 
 	return status;
 }
-
+#endif
 launch_data_t
 launch_socket_service_check_in(void)
 {

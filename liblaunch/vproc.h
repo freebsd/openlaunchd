@@ -23,7 +23,11 @@
 
 #include <sys/cdefs.h>
 #include <sys/types.h>
+#ifdef __APPLE__
 #include <Availability.h>
+#else
+#include "shims/Availability.h"
+#endif
 
 #ifndef VPROC_HAS_TRANSACTIONS
 	#define VPROC_HAS_TRANSACTIONS

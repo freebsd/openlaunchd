@@ -25,10 +25,11 @@
 #include <mach/mach.h>
 #endif
 #include <sys/types.h>
-#include <launch.h>
 #include <unistd.h>
 #include <paths.h>
 #include <uuid/uuid.h>
+
+#include "launch.h"
 
 #pragma GCC visibility push(default)
 
@@ -140,8 +141,13 @@ struct spawn_via_launchd_attr {
 	const char *spawn_chdir;
  	const char * const * spawn_env;
  	const mode_t *spawn_umask;
+#ifdef __APPLE__
+    /* XXX: It's unclear to me at this point how important a mach port
+     * reference might be within the context of this data structure */
  	mach_port_t *spawn_observer_port;
+    /* NOTE: cpu_type_t is defined by osfmk/mach/machine.h */
  	const cpu_type_t *spawn_binpref;
+#endif
 	size_t spawn_binpref_cnt;
 	void * spawn_quarantine;
 	const char *spawn_seatbelt_profile;
@@ -153,15 +159,20 @@ pid_t
 _spawn_via_launchd(const char *label, const char * const *argv,
 	const struct spawn_via_launchd_attr *spawn_attrs, int struct_version);
 
+#ifdef __APPLE__
+/* It would appear that launch_wait is never referenced anywhere in launchd */
 int
-launch_wait(mach_port_t port);
+launch_wait(mach_port_t port) __attribute__(("deprecated"));
+#endif
 
+#ifdef __APPLE__
 /* The mpm_*() APIs no longer do anything. */
 kern_return_t
 mpm_wait(mach_port_t ajob, int *wstatus);
 
 kern_return_t
 mpm_uncork_fork(mach_port_t ajob);
+#endif
 
 launch_data_t
 launch_socket_service_check_in(void);

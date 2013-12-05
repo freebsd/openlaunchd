@@ -2,19 +2,19 @@
  * Copyright (c) 2007-2012 Apple Inc. All rights reserved.
  *
  * @APPLE_APACHE_LICENSE_HEADER_START@
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
@@ -42,16 +42,16 @@ struct launch_globals_s {
 	pthread_mutex_t lc_mtx;
 	launch_t l;
 	launch_data_t async_resp;
-	
+
 	launch_t in_flight_msg_recv_client;
-	
+
 	int64_t s_am_embedded_god;
-	
+
 	// libvproc.c
 	dispatch_queue_t _vproc_gone2zero_queue;
 	_vproc_transaction_callout _vproc_gone2zero_callout;
 	void *_vproc_gone2zero_ctx;
-	
+
 	dispatch_once_t _vproc_transaction_once;
 	uint64_t _vproc_transaction_enabled;
 	dispatch_queue_t _vproc_transaction_queue;
