@@ -21,20 +21,28 @@
 #ifndef __VPROC_INTERNAL_H__
 #define __VPROC_INTERNAL_H__
 
+#ifdef __APPLE__
 #include <mach/mach.h>
+#endif
 #include <sys/queue.h>
 #include <sys/time.h>
 #include <stdarg.h>
 #include <sys/syscall.h>
 #include <bsm/audit.h>
 #include "launch.h"
+#ifdef __APPLE__
 #include "bootstrap_priv.h"
+#endif
 #include "vproc.h"
 
 typedef char * _internal_string_t;
 typedef char * logmsg_t;
 typedef pid_t * pid_array_t;
+#ifdef __APPLE__
 typedef mach_port_t vproc_mig_t;
+#else
+#warning "PORT: vproc_mig_t ifdef'd out, used in job_types.defs"
+#endif
 
 #if defined(job_MSG_COUNT) || defined (xpc_domain_MSG_COUNT)
 /* HACK */
@@ -63,11 +71,15 @@ vproc_err_t _vproc_post_fork_ping(void);
 #define SPAWN_HAS_UMASK 0x0004
 #define SPAWN_WANTS_WAIT4DEBUGGER 0x0008
 
+#ifdef __APPLE__
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright, launch_data_t *outval,
 		mach_port_array_t *ports, mach_msg_type_number_t *portCnt);
 
 kern_return_t _vprocmgr_getsocket(name_t);
+#else
+#warning "PORT: _vproc_grab_subset() What is this for?"
+#endif
 
 struct logmsg_s {
 	union {
@@ -102,6 +114,7 @@ struct logmsg_s {
 };
 
 
+#ifdef __APPLE__
 vproc_err_t _vprocmgr_log_forward(mach_port_t mp, void *data, size_t len);
 
 kern_return_t
@@ -113,6 +126,9 @@ bootstrap_info(mach_port_t bp,
 			   bootstrap_status_array_t *service_active,
 			   mach_msg_type_number_t *service_activeCnt,
 			   uint64_t flags);
+#else
+#warning "PORT: bootstrap_info(): is this only for bootstrap servics?"
+#endif
 
 #pragma GCC visibility pop
 

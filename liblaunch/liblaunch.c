@@ -26,8 +26,10 @@
 
 #ifdef __APPLE__
 #include <mach/mach.h>
-#endif
 #include <libkern/OSByteOrder.h>
+#else
+#warning "PORT: OSByteOrder.h provides byte ordering macros which need to be implemented"
+#endif
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/fcntl.h>
@@ -87,7 +89,9 @@ struct _launch_data {
 	};
 };
 
+#ifdef __APPLE__
 #include "bootstrap.h"
+#endif
 #include "vproc.h"
 #include "vproc_priv.h"
 #include "vproc_internal.h"
@@ -196,7 +200,9 @@ static int _fd(int fd);
 static void launch_client_init(void);
 static void launch_msg_getmsgs(launch_data_t m, void *context);
 static launch_data_t launch_msg_internal(launch_data_t d);
+#ifdef __APPLE__
 static void launch_mach_checkin_service(launch_data_t obj, const char *key, void *context);
+#endif
 
 void
 _launch_init_globals(launch_globals_t globals)
@@ -1010,6 +1016,7 @@ launch_msg_getmsgs(launch_data_t m, void *context)
 	}
 }
 
+#ifdef __APPLE__
 void
 launch_mach_checkin_service(launch_data_t obj, const char *key, void *context __attribute__((unused)))
 {
@@ -1024,6 +1031,7 @@ launch_mach_checkin_service(launch_data_t obj, const char *key, void *context __
 	if (result == BOOTSTRAP_SUCCESS)
 		launch_data_set_machport(obj, p);
 }
+#endif
 
 launch_data_t
 launch_msg(launch_data_t d)
@@ -1040,13 +1048,19 @@ launch_msg(launch_data_t d)
 		mps = launch_data_dict_lookup(r, LAUNCH_JOBKEY_MACHSERVICES);
 		if (mps == NULL)
 			return r;
+#ifdef __APPLE__
 		launch_data_dict_iterate(mps, launch_mach_checkin_service, NULL);
+#else
+#warning "PORT: launch_data_dict_iterate inside of launch_msg()"
+#endif
 	}
 
 	return r;
 }
 
+#ifdef __APPLE__
 extern kern_return_t vproc_mig_set_security_session(mach_port_t, uuid_t, mach_port_t);
+#endif
 
 static inline bool
 uuid_data_is_null(launch_data_t d)
@@ -1167,7 +1181,7 @@ launch_msg_internal(launch_data_t d)
 	}
 
 out:
-#if !TARGET_OS_EMBEDDED
+#if !TARGET_OS_EMBEDDED && __APPLE__
 	if (!uuid_is_null(uuid) && resp && jobs_that_need_sessions > 0) {
 		mach_port_t session_port = _audit_session_self();
 		launch_data_type_t resp_type = launch_data_get_type(resp);
@@ -1202,6 +1216,8 @@ out:
 
 		mach_port_deallocate(mach_task_self(), session_port);
 	}
+#else
+#warning "PORT: launch_msg_internal() temporarily skipping over some handling"
 #endif
 
 	pthread_mutex_unlock(&globals->lc_mtx);
@@ -1379,6 +1395,7 @@ launch_data_new_fd(int fd)
 	return r;
 }
 
+#ifdef __APPLE__
 launch_data_t
 launch_data_new_machport(mach_port_t p)
 {
@@ -1389,6 +1406,7 @@ launch_data_new_machport(mach_port_t p)
 
 	return r;
 }
+#endif
 
 launch_data_t
 launch_data_new_integer(long long n)

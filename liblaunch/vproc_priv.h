@@ -39,8 +39,10 @@
 #ifdef __APPLE__
 /* NOTE: bootstrap is an Apple OS Mach port initiator */
 #include <servers/bootstrap.h>
-#include <dispatch/dispatch.h>
 #endif
+
+/* Pull in libdispatch for Grand Central Dispatch */
+#include <dispatch/dispatch.h>
 
 #ifndef VPROC_HAS_TRANSACTIONS
 #define VPROC_HAS_TRANSACTIONS 1
@@ -139,11 +141,13 @@ __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_3_0)
 vproc_err_t
 _vproc_send_signal_by_label(const char *label, int sig);
 
+#ifdef __APPLE__
 __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_3_0)
 vproc_err_t
 _vproc_kickstart_by_label(const char *label, pid_t *out_pid,
 	mach_port_t *out_port_name, mach_port_t *out_obsrvr_port,
 	vproc_flags_t flags);
+#endif
 
 /* _vprocmgr_log_drain() is specific to syslogd. It is not for general use. */
 typedef void (*_vprocmgr_log_drain_callback_t)(struct timeval *when, pid_t 
@@ -194,9 +198,11 @@ __OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA)
 size_t
 _vproc_standby_timeout(void);
 
+#ifdef __APPLE__
 __OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA)
 kern_return_t
 _vproc_transaction_count_for_pid(pid_t p, int32_t *count, bool *condemned);
+#endif
 
 __OSX_AVAILABLE_STARTING(__MAC_10_6, __IPHONE_NA)
 bool

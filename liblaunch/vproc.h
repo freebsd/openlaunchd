@@ -23,6 +23,7 @@
 
 #include <sys/cdefs.h>
 #include <sys/types.h>
+#include <stdarg.h>
 #ifdef __APPLE__
 #include <Availability.h>
 #else
