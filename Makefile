@@ -2,7 +2,8 @@
 
 MAINTAINER=tyler@freebsd.org
 
-SUBDIR=liblaunch \
+SUBDIR=liblaunch/test \
+	   liblaunch \
 	   wait4path \
 	   launchproxy \
 	   launchctl
