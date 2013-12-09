@@ -22,9 +22,13 @@
 #include "launch.h"
 #include "launch_priv.h"
 #include "launch_internal.h"
-#include "ktrace.h"
 
 #ifdef __APPLE__
+/* NOTE: ktrace.h appears to enable Apple OS specific kernel tracing. Until
+ * this functionality can be verified further, there's no sense pulling it into
+ * the non-Apple builds
+ */
+#include "ktrace.h"
 #include <mach/mach.h>
 #include <libkern/OSByteOrder.h>
 #else
