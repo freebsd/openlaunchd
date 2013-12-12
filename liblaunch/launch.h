@@ -31,6 +31,7 @@
 #include <mach/mach.h>
 #endif
 #include <sys/cdefs.h>
+#include <sys/types.h>
 #include <stddef.h>
 #include <stdbool.h>
 
@@ -178,6 +179,30 @@ __BEGIN_DECLS
  * LAUNCH_CHECK_IN message type.
  */
 typedef struct _launch_data *launch_data_t;
+struct _launch_data {
+	uint64_t type;
+	union {
+		struct {
+			union {
+				launch_data_t *_array;
+				char *string;
+				void *opaque;
+				int64_t __junk;
+			};
+			union {
+				uint64_t _array_cnt;
+				uint64_t string_len;
+				uint64_t opaque_size;
+			};
+		};
+		int64_t fd;
+		uint64_t  mp;
+		uint64_t err;
+		int64_t number;
+		uint64_t boolean; /* We'd use 'bool' but this struct needs to be used under Rosetta, and sizeof(bool) is different between PowerPC and Intel */
+		double float_num;
+	};
+};
 
 typedef enum {
 	LAUNCH_DATA_DICTIONARY = 1,

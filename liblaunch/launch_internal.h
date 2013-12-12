@@ -34,6 +34,24 @@
 #endif
 #endif
 
+enum {
+	LAUNCHD_USE_CHECKIN_FD,
+	LAUNCHD_USE_OTHER_FD,
+};
+struct _launch {
+	void	*sendbuf;
+	int	*sendfds;
+	void	*recvbuf;
+	int	*recvfds;
+	size_t	sendlen;
+	size_t	sendfdcnt;
+	size_t	recvlen;
+	size_t	recvfdcnt;
+	int which;
+	int cifd;
+	int	fd;
+};
+
 typedef struct _launch *launch_t;
 
 struct launch_globals_s {

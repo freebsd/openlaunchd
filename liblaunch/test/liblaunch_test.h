@@ -15,18 +15,28 @@
  *
  */
 
-#include "liblaunch_test.h"
+#ifndef _LIBLAUNCH_TEST_H_
+#define _LIBLAUNCH_TEST_H_
 
-int main(void) {
-    const UnitTest tests[] = {
-        unit_test(test_host2wire_64),
-        unit_test(test_host2wire_32),
-        unit_test(test_host2wire_16),
-        unit_test(test_host2wire_8),
-        unit_test(test_launch_data_get_errno_null),
-        unit_test(test_launch_data_get_errno),
-        unit_test(test_launch_data_get_fd_null),
-    };
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <setjmp.h>
+#include <cmocka.h>
 
-    return run_tests(tests);
-}
+#include "launch.h"
+#include "byteswap.h"
+#include <netinet/in.h>
+
+/* byteswap.h */
+void test_host2wire_64(void**);
+void test_host2wire_32(void**);
+void test_host2wire_16(void**);
+void test_host2wire_8(void**);
+
+/* getters.c */
+void test_launch_data_get_errno_null(void**);
+void test_launch_data_get_errno(void**);
+void test_launch_data_get_fd_null(void**);
+
+#endif

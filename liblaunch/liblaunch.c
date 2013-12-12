@@ -70,30 +70,6 @@
 	(__DARWIN_ALIGN32(sizeof(struct cmsghdr)) + (l))
 #endif
 
-struct _launch_data {
-	uint64_t type;
-	union {
-		struct {
-			union {
-				launch_data_t *_array;
-				char *string;
-				void *opaque;
-				int64_t __junk;
-			};
-			union {
-				uint64_t _array_cnt;
-				uint64_t string_len;
-				uint64_t opaque_size;
-			};
-		};
-		int64_t fd;
-		uint64_t  mp;
-		uint64_t err;
-		int64_t number;
-		uint64_t boolean; /* We'd use 'bool' but this struct needs to be used under Rosetta, and sizeof(bool) is different between PowerPC and Intel */
-		double float_num;
-	};
-};
 
 #ifdef __APPLE__
 #include "bootstrap.h"
@@ -109,24 +85,6 @@ struct launch_msg_header {
 };
 
 #define LAUNCH_MSG_HEADER_MAGIC 0xD2FEA02366B39A41ull
-
-enum {
-	LAUNCHD_USE_CHECKIN_FD,
-	LAUNCHD_USE_OTHER_FD,
-};
-struct _launch {
-	void	*sendbuf;
-	int	*sendfds;
-	void	*recvbuf;
-	int	*recvfds;
-	size_t	sendlen;
-	size_t	sendfdcnt;
-	size_t	recvlen;
-	size_t	recvfdcnt;
-	int which;
-	int cifd;
-	int	fd;
-};
 
 static launch_data_t launch_data_array_pop_first(launch_data_t where);
 static int _fd(int fd);
@@ -495,76 +453,13 @@ launch_data_set_opaque(launch_data_t d, const void *o, size_t os)
 	return false;
 }
 
-int
-launch_data_get_errno(launch_data_t d)
-{
-	return d->err;
-}
 
-int
-launch_data_get_fd(launch_data_t d)
-{
-	return d->fd;
-}
-
-long long
-launch_data_get_integer(launch_data_t d)
-{
-	return d->number;
-}
-
-bool
-launch_data_get_bool(launch_data_t d)
-{
-	return d->boolean;
-}
-
-double
-launch_data_get_real(launch_data_t d)
-{
-	return d->float_num;
-}
-
-const char *
-launch_data_get_string(launch_data_t d)
-{
-	if (LAUNCH_DATA_STRING != d->type)
-		return NULL;
-	return d->string;
-}
-
-void *
-launch_data_get_opaque(launch_data_t d)
-{
-	if (LAUNCH_DATA_OPAQUE != d->type)
-		return NULL;
-	return d->opaque;
-}
-
-size_t
-launch_data_get_opaque_size(launch_data_t d)
-{
-	return d->opaque_size;
-}
-
-int
-launchd_getfd(launch_t l)
-{
-	return (l->which == LAUNCHD_USE_CHECKIN_FD) ? l->cifd : l->fd;
-}
-
-#ifdef __APPLE__
+#if HAS_MACH
 bool
 launch_data_set_machport(launch_data_t d, mach_port_t p)
 {
 	d->mp = p;
 	return true;
-}
-
-mach_port_t
-launch_data_get_machport(launch_data_t d)
-{
-	return d->mp;
 }
 #endif
 
