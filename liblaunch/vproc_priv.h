@@ -141,7 +141,7 @@ __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_3_0)
 vproc_err_t
 _vproc_send_signal_by_label(const char *label, int sig);
 
-#ifdef __APPLE__
+#if HAS_MACH
 __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_3_0)
 vproc_err_t
 _vproc_kickstart_by_label(const char *label, pid_t *out_pid,

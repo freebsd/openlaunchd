@@ -21,7 +21,7 @@
 #ifndef __VPROC_INTERNAL_H__
 #define __VPROC_INTERNAL_H__
 
-#ifdef __APPLE__
+#ifdef HAS_MACH
 #include <mach/mach.h>
 #endif
 #include <sys/queue.h>
@@ -38,7 +38,7 @@
 typedef char * _internal_string_t;
 typedef char * logmsg_t;
 typedef pid_t * pid_array_t;
-#ifdef __APPLE__
+#if HAS_MACH
 typedef mach_port_t vproc_mig_t;
 #else
 #warning "PORT: vproc_mig_t ifdef'd out, used in job_types.defs"

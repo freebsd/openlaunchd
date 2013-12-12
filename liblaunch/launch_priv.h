@@ -21,7 +21,7 @@
 #ifndef __LAUNCH_PRIVATE_H__
 #define __LAUNCH_PRIVATE_H__
 
-#ifdef __APPLE__
+#if HAS_MACH
 #include <mach/mach.h>
 #endif
 #include <sys/types.h>
@@ -141,7 +141,7 @@ struct spawn_via_launchd_attr {
 	const char *spawn_chdir;
  	const char * const * spawn_env;
  	const mode_t *spawn_umask;
-#ifdef __APPLE__
+#if HAS_MACH
     /* XXX: It's unclear to me at this point how important a mach port
      * reference might be within the context of this data structure */
  	mach_port_t *spawn_observer_port;
@@ -159,7 +159,7 @@ pid_t
 _spawn_via_launchd(const char *label, const char * const *argv,
 	const struct spawn_via_launchd_attr *spawn_attrs, int struct_version);
 
-#ifdef __APPLE__
+#if HAS_MACH
 /* It would appear that launch_wait is never referenced anywhere in launchd */
 int
 launch_wait(mach_port_t port) __attribute__(("deprecated"));

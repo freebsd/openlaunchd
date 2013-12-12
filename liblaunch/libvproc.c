@@ -995,7 +995,7 @@ helper_recv_wait(mach_port_t p, int status)
 	return (errno = mach_port_set_context(mach_task_self(), p, ctx));
 }
 
-#ifdef __APPLE__
+#if HAS_MACH
 /* It would appear that launch_wait is never referenced anywhere in launchd */
 int
 launch_wait(mach_port_t port) __attribute__(("deprecated"))

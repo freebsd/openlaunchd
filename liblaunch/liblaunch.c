@@ -29,6 +29,9 @@
  * the non-Apple builds
  */
 #include "ktrace.h"
+#endif
+
+#if HAS_MACH
 #include <mach/mach.h>
 #endif
 #include <sys/types.h>
@@ -130,7 +133,7 @@ static int _fd(int fd);
 static void launch_client_init(void);
 static void launch_msg_getmsgs(launch_data_t m, void *context);
 static launch_data_t launch_msg_internal(launch_data_t d);
-#ifdef __APPLE__
+#if HAS_MACH
 static void launch_mach_checkin_service(launch_data_t obj, const char *key, void *context);
 #endif
 
@@ -786,7 +789,7 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		break;
 	case LAUNCH_DATA_ERRNO:
 		r->err = big2wire(r->err);
-#ifdef __APPLE__
+#if HAS_MACH
 	case LAUNCH_DATA_MACHPORT:
 		break;
 #endif
@@ -946,7 +949,7 @@ launch_msg_getmsgs(launch_data_t m, void *context)
 	}
 }
 
-#ifdef __APPLE__
+#if HAS_MACH
 void
 launch_mach_checkin_service(launch_data_t obj, const char *key, void *context __attribute__((unused)))
 {
@@ -978,7 +981,7 @@ launch_msg(launch_data_t d)
 		mps = launch_data_dict_lookup(r, LAUNCH_JOBKEY_MACHSERVICES);
 		if (mps == NULL)
 			return r;
-#ifdef __APPLE__
+#if HAS_MACH
 		launch_data_dict_iterate(mps, launch_mach_checkin_service, NULL);
 #else
 #warning "PORT: launch_data_dict_iterate inside of launch_msg()"
@@ -988,7 +991,7 @@ launch_msg(launch_data_t d)
 	return r;
 }
 
-#ifdef __APPLE__
+#if HAS_MACH
 extern kern_return_t vproc_mig_set_security_session(mach_port_t, uuid_t, mach_port_t);
 #endif
 
@@ -1325,7 +1328,7 @@ launch_data_new_fd(int fd)
 	return r;
 }
 
-#ifdef __APPLE__
+#if HAS_MOCH
 launch_data_t
 launch_data_new_machport(mach_port_t p)
 {

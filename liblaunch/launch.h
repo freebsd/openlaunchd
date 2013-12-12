@@ -22,6 +22,12 @@
 #define __LAUNCH_H__
 
 #ifdef __APPLE__
+#define HAS_MACH true
+#else
+#define HAS_MACH false
+#endif
+
+#if HAS_MACH
 #include <mach/mach.h>
 #endif
 #include <sys/cdefs.h>
@@ -183,7 +189,7 @@ typedef enum {
 	LAUNCH_DATA_STRING,
 	LAUNCH_DATA_OPAQUE,
 	LAUNCH_DATA_ERRNO,
-#ifdef __APPLE__
+#if HAS_MACH
 	LAUNCH_DATA_MACHPORT,
 #endif
 } launch_data_type_t;
@@ -241,7 +247,7 @@ __ld_allocator
 launch_data_t
 launch_data_new_fd(int);
 
-#ifdef __APPLE__
+#if HAS_MACH
 __ld_allocator
 launch_data_t
 launch_data_new_machport(mach_port_t);
