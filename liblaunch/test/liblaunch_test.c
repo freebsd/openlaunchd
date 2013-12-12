@@ -4,36 +4,43 @@
 #include <setjmp.h>
 #include <cmocka.h>
 
-static void setup(void **state) {
-    int *answer = malloc(sizeof(int));
+#include "byteswap.h"
+#include <netinet/in.h>
 
-    assert_non_null(answer);
-    *answer = 42;
+/* Verify that we can convert a 64-bit integer to network order */
+static void host2wire_test_64(void **state) {
+    uint64_t host_int = 1024;
+    uint64_t wire_int = host2wire(host_int);
+    /* Nothing to test here on a big-endian system, and we can't verify because
+     * htonll() doesn't exist */
+};
 
-    *state = answer;
-}
+/* Test we can convert a 32-bit integer to network order */
+static void host2wire_test_32(void **state) {
+    uint32_t host_int = 1024;
+    uint32_t wire_int = htonl(host_int);
+    assert_true(wire_int == host2wire(host_int));
+};
 
-static void teardown(void **state) {
-    free(*state);
-}
+/* Test we can convert a 16-bit integer to network order */
+static void host2wire_test_16(void **state) {
+    uint16_t host_int = 32;
+    uint16_t wire_int = htons(host_int);
+    assert_true(wire_int == host2wire(host_int));
+};
 
-/* A test case that does nothing and succeeds. */
-static void null_test_success(void **state) {
-    (void) state;
-}
-
-/* A test case that does check if an int is equal. */
-static void int_test_success(void **state) {
-    int *answer = *state;
-
-    assert_int_equal(*answer, 42);
-}
-
+/* Test we can (not) convert a single byte integer */
+static void host2wire_test_8(void **state) {
+    uint8_t host_int = 8;
+    assert_true(host_int == host2wire(host_int));
+};
 
 int main(void) {
     const UnitTest tests[] = {
-        unit_test(null_test_success),
-        unit_test_setup_teardown(int_test_success, setup, teardown),
+        unit_test(host2wire_test_64),
+        unit_test(host2wire_test_32),
+        unit_test(host2wire_test_16),
+        unit_test(host2wire_test_8),
     };
 
     return run_tests(tests);

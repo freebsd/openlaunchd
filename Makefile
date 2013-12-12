@@ -9,7 +9,7 @@ SUBDIR=liblaunch/test \
 	   launchctl
 
 
-test: liblaunch wait4path launchproxy
+test: liblaunch/test wait4path #liblaunch launchproxy
 	@./support/roundup ./t/*.sh
 
 .include <bsd.subdir.mk>

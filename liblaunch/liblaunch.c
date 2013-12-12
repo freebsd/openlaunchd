@@ -30,9 +30,6 @@
  */
 #include "ktrace.h"
 #include <mach/mach.h>
-#include <libkern/OSByteOrder.h>
-#else
-#warning "PORT: OSByteOrder.h provides byte ordering macros which need to be implemented"
 #endif
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -51,6 +48,8 @@
 #include <uuid/uuid.h>
 #include <sys/syscall.h>
 #include <dlfcn.h>
+
+#include "byteswap.h"
 
 #ifdef __LP64__
 /* workaround: 5723161 */
@@ -99,79 +98,6 @@ struct _launch_data {
 #include "vproc.h"
 #include "vproc_priv.h"
 #include "vproc_internal.h"
-
-/* __OSBogusByteSwap__() must not really exist in the symbol namespace
- * in order for the following to generate an error at build time.
- */
-extern void __OSBogusByteSwap__(void);
-
-#define host2wire(x)				\
-	({ typeof (x) _X, _x = (x);		\
-	 switch (sizeof(_x)) {			\
-	 case 8:				\
-	 	_X = OSSwapHostToLittleInt64(_x);	\
-	 	break;				\
-	 case 4:				\
-	 	_X = OSSwapHostToLittleInt32(_x);	\
-	 	break;				\
-	 case 2:				\
-	 	_X = OSSwapHostToLittleInt16(_x);	\
-	 	break;				\
-	 case 1:				\
-	 	_X = _x;			\
-		break;				\
-	 default:				\
-	 	__OSBogusByteSwap__();		\
-		break;				\
-	 }					\
-	 _X;					\
-	 })
-
-
-#define big2wire(x)				\
-	({ typeof (x) _X, _x = (x);		\
-	 switch (sizeof(_x)) {			\
-	 case 8:				\
-	 	_X = OSSwapLittleToHostInt64(_x);	\
-	 	break;				\
-	 case 4:				\
-	 	_X = OSSwapLittleToHostInt32(_x);	\
-	 	break;				\
-	 case 2:				\
-	 	_X = OSSwapLittleToHostInt16(_x);	\
-	 	break;				\
-	 case 1:				\
-	 	_X = _x;			\
-		break;				\
-	 default:				\
-	 	__OSBogusByteSwap__();		\
-		break;				\
-	 }					\
-	 _X;					\
-	 })
-
-union _launch_double_u {
-	uint64_t iv;
-	double dv;
-};
-
-#define host2wire_f(x) ({ \
-	typeof(x) _F, _f = (x); \
-	union _launch_double_u s; \
-	s.dv = _f; \
-	s.iv = host2wire(s.iv); \
-	_F = s.dv; \
-	_F; \
-})
-
-#define big2wire_f(x) ({ \
-	typeof(x) _F, _f = (x); \
-	union _launch_double_u s; \
-	s.dv = _f; \
-	s.iv = big2wire(s.iv); \
-	_F = s.dv; \
-	_F; \
-})
 
 
 struct launch_msg_header {
