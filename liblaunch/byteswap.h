@@ -72,6 +72,7 @@ extern void __OSBogusByteSwap__(void);
 	 _X;					\
 	 })
 
+/* XXX: This seems misnamed */
 #define big2wire(x)				\
 	({ typeof (x) _X, _x = (x);		\
 	 switch (sizeof(_x)) {			\
