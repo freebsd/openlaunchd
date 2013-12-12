@@ -2,19 +2,19 @@
  * Copyright (c) 2005-2012 Apple Inc. All rights reserved.
  *
  * @APPLE_APACHE_LICENSE_HEADER_START@
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
@@ -145,7 +145,7 @@ launch_client_init(void)
 	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 
-	/* The rules are as follows. 
+	/* The rules are as follows.
 	 * - All users (including root) talk to their per-user launchd's by default.
 	 * - If we have been invoked under sudo, talk to the system launchd.
 	 * - If we're the root user and the __USE_SYSTEM_LAUNCHD environment variable is set, then
@@ -190,7 +190,7 @@ launch_client_init(void)
 			goto out_bad;
 		}
 	}
-	
+
 	if (!(globals->l = launchd_fdopen(lfd, cifd))) {
 		goto out_bad;
 	}
@@ -1056,7 +1056,7 @@ out:
 int
 launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
 {
-	struct cmsghdr *cm = alloca(4096); 
+	struct cmsghdr *cm = alloca(4096);
 	launch_data_t rmsg = NULL;
 	size_t data_offset, fd_offset;
 	struct msghdr mh;
