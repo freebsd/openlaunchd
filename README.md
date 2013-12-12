@@ -23,6 +23,8 @@ process management for user and system level processes** on FreeBSD systems.
 
  * `#openlaunchd` on the [Freenode](http://freenode.net) is where development
    discussion can occur.
+ * [open launchd](https://groups.google.com/forum/#!forum/openlaunchd) mailing
+   list
  * The main project [home page](https://wiki.freebsd.org/launchd) can be found
    on the FreeBSD [project wiki](https://wiki.freebsd.org/).
  * `rwatson@` runs [fxr.watson.org](http://fxr.watson.org/) which can be very
