@@ -39,6 +39,9 @@ launch_data_get_fd(launch_data_t d)
 long long
 launch_data_get_integer(launch_data_t d)
 {
+    if (NULL == d) {
+        return 0;
+    }
 	return d->number;
 }
 

@@ -38,5 +38,8 @@ void test_host2wire_8(void**);
 void test_launch_data_get_errno_null(void**);
 void test_launch_data_get_errno(void**);
 void test_launch_data_get_fd_null(void**);
+void test_launch_data_get_integer_null(void**);
+void test_launch_data_get_integer(void**);
+void test_launch_data_get_bool(void**);
 
 #endif

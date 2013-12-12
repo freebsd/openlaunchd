@@ -26,6 +26,9 @@ int main(void) {
         unit_test(test_launch_data_get_errno_null),
         unit_test(test_launch_data_get_errno),
         unit_test(test_launch_data_get_fd_null),
+        unit_test(test_launch_data_get_integer_null),
+        unit_test(test_launch_data_get_integer),
+        unit_test(test_launch_data_get_bool),
     };
 
     return run_tests(tests);

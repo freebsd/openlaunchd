@@ -21,22 +21,41 @@
  * TEST: launch_data_get_errno
  *****************************************************/
 void test_launch_data_get_errno_null(void **state) {
-    launch_data_t data = NULL;
-    assert_int_equal(0, launch_data_get_errno(data));
+    launch_data_t d = NULL;
+    assert_int_equal(0, launch_data_get_errno(d));
 };
 
 void test_launch_data_get_errno(void **state) {
-    struct _launch_data data;
-    data.err = 4;
-    int received = launch_data_get_errno(&data);
-    assert_int_equal(4, launch_data_get_errno(&data));
+    struct _launch_data d;
+    d.err = 4;
+    assert_int_equal(4, launch_data_get_errno(&d));
 }
 /*****************************************************/
 
 /* TEST: launch_data_get_fd
  *****************************************************/
 void test_launch_data_get_fd_null(void **state) {
-    launch_data_t data = NULL;
-    assert_int_equal(0, launch_data_get_fd(data));
+    launch_data_t d = NULL;
+    assert_int_equal(0, launch_data_get_fd(d));
+};
+
+/* TEST: launch_data_get_integer
+ *****************************************************/
+void test_launch_data_get_integer_null(void **state) {
+    launch_data_t d = NULL;
+    assert_true(0 == launch_data_get_integer(d));
+}
+
+void test_launch_data_get_integer(void **state) {
+    struct _launch_data d;
+    d.number = 7;
+    assert_true(7 == launch_data_get_integer(&d));
+};
+/*****************************************************/
+
+
+/* TEST: launch_data_get_bool
+ *****************************************************/
+void test_launch_data_get_bool(void **state) {
 };
 /*****************************************************/
