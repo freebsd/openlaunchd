@@ -34,6 +34,7 @@
 #if HAS_MACH
 #include <mach/mach.h>
 #endif
+#include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/fcntl.h>
@@ -630,10 +631,10 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		return NULL;
 	*data_offset += sizeof(struct _launch_data);
 
-	switch (big2wire(r->type)) {
+	switch (wire2host(r->type)) {
 	case LAUNCH_DATA_DICTIONARY:
 	case LAUNCH_DATA_ARRAY:
-		tmpcnt = big2wire(r->_array_cnt);
+		tmpcnt = wire2host(r->_array_cnt);
 		if ((data_size - *data_offset) < (tmpcnt * sizeof(uint64_t))) {
 			errno = EAGAIN;
 			return NULL;
@@ -648,7 +649,7 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		r->_array_cnt = tmpcnt;
 		break;
 	case LAUNCH_DATA_STRING:
-		tmpcnt = big2wire(r->string_len);
+		tmpcnt = wire2host(r->string_len);
 		if ((data_size - *data_offset) < (tmpcnt + 1)) {
 			errno = EAGAIN;
 			return NULL;
@@ -658,7 +659,7 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		*data_offset += ROUND_TO_64BIT_WORD_SIZE(tmpcnt + 1);
 		break;
 	case LAUNCH_DATA_OPAQUE:
-		tmpcnt = big2wire(r->opaque_size);
+		tmpcnt = wire2host(r->opaque_size);
 		if ((data_size - *data_offset) < tmpcnt) {
 			errno = EAGAIN;
 			return NULL;
@@ -674,16 +675,16 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		}
 		break;
 	case LAUNCH_DATA_INTEGER:
-		r->number = big2wire(r->number);
+		r->number = wire2host(r->number);
 		break;
 	case LAUNCH_DATA_REAL:
-		r->float_num = big2wire_f(r->float_num);
+		r->float_num = wire2host_f(r->float_num);
 		break;
 	case LAUNCH_DATA_BOOL:
-		r->boolean = big2wire(r->boolean);
+		r->boolean = wire2host(r->boolean);
 		break;
 	case LAUNCH_DATA_ERRNO:
-		r->err = big2wire(r->err);
+		r->err = wire2host(r->err);
 #if HAS_MACH
 	case LAUNCH_DATA_MACHPORT:
 		break;
@@ -694,7 +695,7 @@ launch_data_unpack(void *data, size_t data_size, int *fds, size_t fd_cnt, size_t
 		break;
 	}
 
-	r->type = big2wire(r->type);
+	r->type = wire2host(r->type);
 
 	return r;
 }
@@ -1108,9 +1109,9 @@ launchd_msg_recv(launch_t lh, void (*cb)(launch_data_t, void *), void *context)
 		if (lh->recvlen < sizeof(struct launch_msg_header))
 			goto need_more_data;
 
-		tmplen = big2wire(lmhp->len);
+		tmplen = wire2host(lmhp->len);
 
-		if (big2wire(lmhp->magic) != LAUNCH_MSG_HEADER_MAGIC || tmplen <= sizeof(struct launch_msg_header)) {
+		if (wire2host(lmhp->magic) != LAUNCH_MSG_HEADER_MAGIC || tmplen <= sizeof(struct launch_msg_header)) {
 			errno = EBADRPC;
 			goto out_bad;
 		}

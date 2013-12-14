@@ -21,7 +21,7 @@
 #ifndef __VPROC_INTERNAL_H__
 #define __VPROC_INTERNAL_H__
 
-#ifdef HAS_MACH
+#if HAS_MACH
 #include <mach/mach.h>
 #endif
 #include <sys/queue.h>

@@ -56,6 +56,14 @@ void test_launch_data_get_integer(void **state) {
 
 /* TEST: launch_data_get_bool
  *****************************************************/
-void test_launch_data_get_bool(void **state) {
+void test_launch_data_get_bool_default(void **state) {
+    struct _launch_data d;
+    assert_true(launch_data_get_bool(&d));
+};
+
+void test_launch_data_get_bool_false(void **state) {
+    struct _launch_data d;
+    d.boolean = false;
+    assert_false(launch_data_get_bool(&d));
 };
 /*****************************************************/

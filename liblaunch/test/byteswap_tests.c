@@ -43,5 +43,32 @@ void test_host2wire_8(void **state) {
     uint8_t host_int = 8;
     assert_true(host_int == host2wire(host_int));
 };
-
 /*****************************************************/
+
+#include <stdio.h>
+/*
+ * TEST: wire2host
+ *****************************************************/
+void test_wire2host_64(void **s) {
+    uint64_t wire_int = htobe64(1024);
+    uint64_t host_int = 1024;
+    assert_true(host_int == wire2host(wire_int));
+};
+
+void test_wire2host_32(void **s) {
+    uint32_t wire_int = htonl(32);
+    uint32_t host_int = 32;
+    assert_true(host_int == wire2host(wire_int));
+};
+
+void test_wire2host_16(void **s) {
+    uint16_t wire_int = htons(32);
+    uint16_t host_int = 32;
+    assert_true(host_int == wire2host(wire_int));
+};
+
+void test_wire2host_8(void **s) {
+    uint8_t host_int = 8;
+    assert_true(host_int = wire2host(host_int));
+};
+ /****************************************************/

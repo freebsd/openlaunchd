@@ -72,28 +72,28 @@ extern void __OSBogusByteSwap__(void);
 	 _X;					\
 	 })
 
-/* XXX: This seems misnamed */
-#define big2wire(x)				\
+#define wire2host(x)				\
 	({ typeof (x) _X, _x = (x);		\
 	 switch (sizeof(_x)) {			\
 	 case 8:				\
-	 	_X = OSSwapLittleToHostInt64(_x);	\
+	 	_X = be64toh(_x); \
 	 	break;				\
 	 case 4:				\
-	 	_X = OSSwapLittleToHostInt32(_x);	\
+        _X = be32toh(_x); \
 	 	break;				\
 	 case 2:				\
-	 	_X = OSSwapLittleToHostInt16(_x);	\
+	 	_X = be16toh(_x); \
 	 	break;				\
 	 case 1:				\
 	 	_X = _x;			\
 		break;				\
 	 default:				\
-	 	__OSBogusByteSwap__();		\
+	 	_X = _x; \
 		break;				\
 	 }					\
 	 _X;					\
 	 })
+
 
 union _launch_double_u {
 	uint64_t iv;
@@ -109,11 +109,11 @@ union _launch_double_u {
 	_F; \
 })
 
-#define big2wire_f(x) ({ \
+#define wire2host_f(x) ({ \
 	typeof(x) _F, _f = (x); \
 	union _launch_double_u s; \
 	s.dv = _f; \
-	s.iv = big2wire(s.iv); \
+	s.iv = wire2host(s.iv); \
 	_F = s.dv; \
 	_F; \
 })

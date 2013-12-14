@@ -23,12 +23,17 @@ int main(void) {
         unit_test(test_host2wire_32),
         unit_test(test_host2wire_16),
         unit_test(test_host2wire_8),
+        unit_test(test_wire2host_64),
+        unit_test(test_wire2host_32),
+        unit_test(test_wire2host_16),
+        unit_test(test_wire2host_8),
         unit_test(test_launch_data_get_errno_null),
         unit_test(test_launch_data_get_errno),
         unit_test(test_launch_data_get_fd_null),
         unit_test(test_launch_data_get_integer_null),
         unit_test(test_launch_data_get_integer),
-        unit_test(test_launch_data_get_bool),
+        unit_test(test_launch_data_get_bool_default),
+        unit_test(test_launch_data_get_bool_false),
     };
 
     return run_tests(tests);

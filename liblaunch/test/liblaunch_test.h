@@ -34,12 +34,18 @@ void test_host2wire_32(void**);
 void test_host2wire_16(void**);
 void test_host2wire_8(void**);
 
+void test_wire2host_64(void**);
+void test_wire2host_32(void**);
+void test_wire2host_16(void**);
+void test_wire2host_8(void**);
+
 /* getters.c */
 void test_launch_data_get_errno_null(void**);
 void test_launch_data_get_errno(void**);
 void test_launch_data_get_fd_null(void**);
 void test_launch_data_get_integer_null(void**);
 void test_launch_data_get_integer(void**);
-void test_launch_data_get_bool(void**);
+void test_launch_data_get_bool_default(void**);
+void test_launch_data_get_bool_false(void**);
 
 #endif
