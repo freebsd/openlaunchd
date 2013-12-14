@@ -10,6 +10,10 @@ SUBDIR=liblaunch/test \
 
 
 test: liblaunch/test wait4path #liblaunch launchproxy
+	@for d in `find . -iname "*_test"`; do \
+		echo "> Running $$d" && ./$$d ; \
+	done
+
 	@./support/roundup ./t/*.sh
 
 .include <bsd.subdir.mk>
