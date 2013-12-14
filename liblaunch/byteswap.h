@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 R. Tyler Croy, All rights reserved.
+ * Copyright (c) 2013 Apple, Inc., R. Tyler Croy, All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,36 +15,7 @@
  * 
  */
 
-#ifdef __APPLE__
-#include <libkern/OSByteOrder.h>
-
-/* __OSBogusByteSwap__() must not really exist in the symbol namespace
- * in order for the following to generate an error at build time.
- */
-extern void __OSBogusByteSwap__(void);
-
-#define host2wire(x)				\
-	({ typeof (x) _X, _x = (x);		\
-	 switch (sizeof(_x)) {			\
-	 case 8:				\
-	 	_X = OSSwapHostToLittleInt64(_x);	\
-	 	break;				\
-	 case 4:				\
-	 	_X = OSSwapHostToLittleInt32(_x);	\
-	 	break;				\
-	 case 2:				\
-	 	_X = OSSwapHostToLittleInt16(_x);	\
-	 	break;				\
-	 case 1:				\
-	 	_X = _x;			\
-		break;				\
-	 default:				\
-	 	__OSBogusByteSwap__();		\
-		break;				\
-	 }					\
-	 _X;					\
-	 })
-#elif __FreeBSD__
+#ifdef __FreeBSD__
 #include <sys/endian.h>
 #else
 #include <endian.h>
