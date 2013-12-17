@@ -6,7 +6,11 @@ MAN=
 DPADD= ${LIBLAUNCH}
 LDADD= ${LIBLAUNCH}
 
-SRCS=liblaunch_test.c cmocka.c launch_getters.c getter_tests.c byteswap_tests.c
-CFLAGS+=-I../../support/cmocka/include -I../ -I/usr/local/include
+SRCS=liblaunch_test.c cmocka.c launch_getters.c liblaunch.c getter_tests.c byteswap_tests.c
+CFLAGS+=-DUNIT_TEST \
+		-I../../support/cmocka/include \
+		-I../ \
+		-I../../src \
+		-I/usr/local/include
 
 .include "../../launchd.prog.mk"

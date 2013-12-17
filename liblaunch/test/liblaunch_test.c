@@ -15,7 +15,21 @@
  *
  */
 
+#include <stdio.h>
 #include "liblaunch_test.h"
+
+
+#include "launch_priv.h"
+#include "launch_internal.h"
+/* Verify _launch_init_globals() properly sets up a given launch_globals_t */
+void test_launch_init_globals(void **s) {
+    struct launch_globals_s data;
+    void *prev_ptr = data.lc_mtx;
+    fprintf(stderr, "data.lc_mtx = %p deref: %p \n", data.lc_mtx, prev_ptr);
+    _launch_init_globals(&data);
+    fprintf(stderr, "data.lc_mtx = %p deref: %p\n", data.lc_mtx, prev_ptr);
+    assert_false(data.lc_mtx == prev_ptr);
+};
 
 int main(void) {
     const UnitTest tests[] = {
@@ -34,6 +48,7 @@ int main(void) {
         unit_test(test_launch_data_get_integer),
         unit_test(test_launch_data_get_bool_default),
         unit_test(test_launch_data_get_bool_false),
+        unit_test(test_launch_init_globals),
     };
 
     return run_tests(tests);

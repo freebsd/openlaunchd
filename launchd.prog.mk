@@ -1,7 +1,7 @@
 # $FreeBSD$
 
 
-CFLAGS+=-Werror -g -I${PWD}/../src \
+CFLAGS+=-g -I${PWD}/../src \
 		-I${PWD}/../liblaunch \
 		-I/usr/local/include
 

@@ -101,6 +101,7 @@ _launch_init_globals(launch_globals_t globals)
 {
 	pthread_once_t once = PTHREAD_ONCE_INIT;
 	globals->lc_once = once;
+    /* XXX: Not checking return value of pthread_mutex_init */
 	pthread_mutex_init(&globals->lc_mtx, NULL);
 }
 
@@ -123,6 +124,7 @@ _launch_globals_impl(void)
 }
 #endif
 
+#ifndef UNIT_TEST
 void
 launch_client_init(void)
 {
@@ -130,7 +132,12 @@ launch_client_init(void)
 	char *where = getenv(LAUNCHD_SOCKET_ENV);
 	char *_launchd_fd = getenv(LAUNCHD_TRUSTED_FD_ENV);
 	int dfd, lfd = -1, cifd = -1;
-	name_t spath;
+#ifdef __APPLE__
+    name_t spath;
+#else
+#warning "PORT: Figure out how to handle this path from bootstrap
+    void *spath;
+#endif
 
 	if (_launchd_fd) {
 		cifd = strtol(_launchd_fd, NULL, 10);
@@ -1318,3 +1325,5 @@ create_and_switch_to_per_session_launchd(const char *login __attribute__((unused
 
 	return 1;
 }
+
+#endif /* UNIT_TEST */

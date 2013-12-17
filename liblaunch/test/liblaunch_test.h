@@ -48,4 +48,7 @@ void test_launch_data_get_integer(void**);
 void test_launch_data_get_bool_default(void**);
 void test_launch_data_get_bool_false(void**);
 
+/* liblaunch.c */
+void test_launch_init_globals(void**);
+
 #endif
