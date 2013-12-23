@@ -10,7 +10,8 @@ SRCS=liblaunch_test.c cmocka.c launch_getters.c liblaunch.c getter_tests.c bytes
 CFLAGS+=-DUNIT_TEST \
 		-I../../support/cmocka/include \
 		-I../ \
-		-I../../src \
-		-I/usr/local/include
+		-I../../launchd \
+		-I/usr/local/include \
+		-DDEBUG
 
 .include "../../launchd.prog.mk"
