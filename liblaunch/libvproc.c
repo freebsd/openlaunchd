@@ -25,8 +25,10 @@
 
 #include <dispatch/dispatch.h>
 #include <libproc.h>
+#if HAS_MACH
 #include <mach/mach.h>
 #include <mach/vm_map.h>
+#endif
 #include <sys/param.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -36,11 +38,19 @@
 #include <pthread.h>
 #include <signal.h>
 #include <assert.h>
+#ifdef __APPLE__
 #include <libkern/OSAtomic.h>
+#else
+#warning "PORT: What is libkern/OSAtomic.h?"
+#endif
 #include <sys/syscall.h>
 #include <sys/event.h>
+#ifdef __APPLE__
 #include <System/sys/fileport.h>
 #include <os/assumes.h>
+#else
+#warning "PORT: What do System/sys/fileport.h and os/assumes.h do?"
+#endif
 
 #if HAVE_QUARANTINE
 #include <quarantine.h>
@@ -49,7 +59,14 @@
 #include "launch.h"
 #include "launch_priv.h"
 #include "launch_internal.h"
+#ifdef __APPLE__
+/* NOTE: ktrace.h appears to enable Apple OS specific kernel tracing. Until
+ * this functionality can be verified further, there's no sense pulling it into
+ * the non-Apple builds
+ */
 #include "ktrace.h"
+#endif
+
 
 #include "job.h"
 
