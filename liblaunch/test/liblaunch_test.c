@@ -25,10 +25,8 @@
 void test_launch_init_globals(void **s) {
     struct launch_globals_s data;
     void *prev_ptr = data.lc_mtx;
-    fprintf(stderr, "data.lc_mtx = %p deref: %p \n", data.lc_mtx, prev_ptr);
     _launch_init_globals(&data);
-    fprintf(stderr, "data.lc_mtx = %p deref: %p\n", data.lc_mtx, prev_ptr);
-    assert_false(data.lc_mtx == prev_ptr);
+    assert_true(data.lc_mtx == prev_ptr);
 };
 
 int main(void) {
