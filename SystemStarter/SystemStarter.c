@@ -275,9 +275,9 @@ system_starter(Action anAction, const char *aService_cstr)
 		sleep(1);
 
 	/**
-         * Get a list of Startup Items which are in /Local and /System.
-         * We can't search /Network yet because the network isn't up.
-         **/
+	 * Get a list of Startup Items which are in /Local and /System.
+	 * We can't search /Network yet because the network isn't up.
+	 **/
 	aMask = NSSystemDomainMask | NSLocalDomainMask;
 
 	aStartupContext->aWaitingList = StartupItemListCreateWithMask(aMask);
@@ -301,8 +301,8 @@ system_starter(Action anAction, const char *aService_cstr)
 	aStartupContext->aServicesCount = StartupItemListCountServices(aStartupContext->aWaitingList);
 
 	/**
-         * Do the run loop
-         **/
+	 * Do the run loop
+	 **/
 	while (1) {
 		CFMutableDictionaryRef anItem = StartupItemListGetNext(aStartupContext->aWaitingList, aStartupContext->aStatusDict, anAction);
 
@@ -349,8 +349,8 @@ system_starter(Action anAction, const char *aService_cstr)
 	}
 
 	/**
-         * Good-bye.
-         **/
+	 * Good-bye.
+	 **/
 	displayErrorMessages(aStartupContext, anAction);
 
 	/* clean up  */

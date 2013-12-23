@@ -475,9 +475,9 @@ static void appendDependents(CFMutableArrayRef aDependents, CFArrayRef anItemLis
 		CFArrayAppendValue(aDependents, aParentItem);
 
 	/**
-         * Recursively append any children of the parent item for kStartAction and kStopAction.
-         * Do nothing for other actions.
-         **/
+	 * Recursively append any children of the parent item for kStartAction and kStopAction.
+	 * Do nothing for other actions.
+	 **/
 	switch (anAction) {
 	case kActionStart:
 		anInnerKey = kProvidesKey;
@@ -726,8 +726,8 @@ CFMutableDictionaryRef StartupItemListGetNext(CFArrayRef aWaitingList, CFDiction
 		return NULL;
 
 	/**
-         * Iterate through the items in aWaitingList and look for an optimally ready item.
-         **/
+	 * Iterate through the items in aWaitingList and look for an optimally ready item.
+	 **/
 	for (aWaitingIndex = 0; aWaitingIndex < aWaitingCount; aWaitingIndex++) {
 		CFMutableDictionaryRef anItem = (CFMutableDictionaryRef) CFArrayGetValueAtIndex(aWaitingList, aWaitingIndex);
 		CFArrayRef anAntecedentList;
@@ -767,8 +767,8 @@ CFMutableDictionaryRef StartupItemListGetNext(CFArrayRef aWaitingList, CFDiction
 			syslog(LOG_DEBUG, "No antecedents");
 
 			/**
-	                 * Filter out the items which have unsatisfied antecedents.
-	                 **/
+			 * Filter out the items which have unsatisfied antecedents.
+			 **/
 		if (anAntecedentList &&
 		    ((anAction == kActionStart) ?
 		     countUnmetRequirements(aStatusDict, anAntecedentList) :
@@ -776,9 +776,9 @@ CFMutableDictionaryRef StartupItemListGetNext(CFArrayRef aWaitingList, CFDiction
 			continue;
 
 			/**
-	                 * anItem has all hard dependancies met; check for soft dependancies.
-	                 * We'll favor the item with the fewest unmet soft dependancies here.
-	                 **/
+			 * anItem has all hard dependancies met; check for soft dependancies.
+			 * We'll favor the item with the fewest unmet soft dependancies here.
+			 **/
 		anAntecedentList = CFDictionaryGetValue(anItem, ((anAction == kActionStart) ? kUsesKey : kProvidesKey));
 
 		if (anAntecedentList)
@@ -938,8 +938,8 @@ int StartupItemRun(CFMutableDictionaryRef aStatusDict, CFMutableDictionaryRef an
 		snprintf(anExecutable, sizeof(anExecutable), "%s%s", aBundlePath, tmp);
 
 		/**
-	         * Run the bundle
-	         **/
+		 * Run the bundle
+		 **/
 
 		if (access(anExecutable, X_OK)) {
 			/*

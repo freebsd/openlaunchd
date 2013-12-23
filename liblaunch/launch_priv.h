@@ -139,14 +139,14 @@ struct spawn_via_launchd_attr {
 	uint64_t spawn_flags;
 	const char *spawn_path;
 	const char *spawn_chdir;
- 	const char * const * spawn_env;
- 	const mode_t *spawn_umask;
+	const char * const * spawn_env;
+	const mode_t *spawn_umask;
 #if HAS_MACH
     /* XXX: It's unclear to me at this point how important a mach port
      * reference might be within the context of this data structure */
- 	mach_port_t *spawn_observer_port;
+	mach_port_t *spawn_observer_port;
     /* NOTE: cpu_type_t is defined by osfmk/mach/machine.h */
- 	const cpu_type_t *spawn_binpref;
+	const cpu_type_t *spawn_binpref;
 #endif
 	size_t spawn_binpref_cnt;
 	void * spawn_quarantine;

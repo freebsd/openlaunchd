@@ -75,7 +75,7 @@ CFMutableArrayRef StartupItemListCreateDependentsList (CFMutableArrayRef anItemL
  * not ready to run if the specified dependencies are not satisfied yet.
  */
 CFMutableDictionaryRef StartupItemListGetNext (CFArrayRef      aWaitingList,
-                                               CFDictionaryRef aStatusDict ,
+					       CFDictionaryRef aStatusDict ,
 					       Action          anAction    );
 
 CFMutableDictionaryRef StartupItemWithPID (CFArrayRef anItemList, pid_t aPID);

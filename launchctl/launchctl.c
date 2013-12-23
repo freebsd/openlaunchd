@@ -2,19 +2,19 @@
  * Copyright (c) 2005-2011 Apple Inc. All rights reserved.
  *
  * @APPLE_APACHE_LICENSE_HEADER_START@
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
@@ -505,7 +505,7 @@ read_launchd_conf(void)
 
 static CFPropertyListRef
 CFPropertyListCreateFromFile(CFURLRef plistURL)
-{	
+{
 	CFReadStreamRef plistReadStream = CFReadStreamCreateWithFile(NULL, plistURL);
 
 	CFErrorRef streamErr = NULL;
@@ -710,7 +710,7 @@ read_jetsam_defaults_from_cache(void) {
 	if (!cache) {
 		return NULL;
 	}
-        
+
 	CFPropertyListRef cachefiles = CFDictionaryGetValue(cache, CFSTR(XPC_PLIST_CACHE_KEY));
 	if (!cachefiles) {
 		return NULL;
@@ -721,7 +721,7 @@ read_jetsam_defaults_from_cache(void) {
 	if (!keys) {
 		return NULL;
 	}
-        
+
 	CFDictionaryGetKeysAndValues(cachefiles, keys, NULL);
 	for (i = 0; i < count; i++) {
 		CFStringRef key = (CFStringRef)keys[i];
@@ -731,12 +731,12 @@ read_jetsam_defaults_from_cache(void) {
 			continue;
 		}
 
-		if (CFStringCompareWithOptions(key, CFSTR(JETSAM_PROP_DIR "/" JETSAM_PROP_PREFIX), 
+		if (CFStringCompareWithOptions(key, CFSTR(JETSAM_PROP_DIR "/" JETSAM_PROP_PREFIX),
 			CFRangeMake(0, JETSAM_PROP_DIR_LENGTH + JETSAM_PROP_PREFIX_LENGTH + 1), 0)) {
 			continue;
 		}
-	
-		if (CFStringCompareWithOptions(key, CFSTR(JETSAM_PROP_SUFFIX), 
+
+		if (CFStringCompareWithOptions(key, CFSTR(JETSAM_PROP_SUFFIX),
 			CFRangeMake(key_length - JETSAM_PROP_SUFFIX_LENGTH, JETSAM_PROP_SUFFIX_LENGTH), 0)) {
 			continue;
 		}
@@ -759,19 +759,19 @@ read_jetsam_defaults_from_file(void) {
 	dirp = opendir(JETSAM_PROP_DIR);
 	while ((dp = readdir(dirp)) != NULL) {
 		char *fullpath;
-    
+
 		if (dp->d_namlen <= (JETSAM_PROP_PREFIX_LENGTH + JETSAM_PROP_SUFFIX_LENGTH)) {
 			continue;
 		}
-	
+
 		if (strncmp(dp->d_name, JETSAM_PROP_PREFIX, JETSAM_PROP_PREFIX_LENGTH)) {
 			continue;
 		}
-	
+
 		if (strncmp(dp->d_name + dp->d_namlen - JETSAM_PROP_SUFFIX_LENGTH, JETSAM_PROP_SUFFIX, JETSAM_PROP_SUFFIX_LENGTH)) {
 			continue;
 		}
-	
+
 		if (-1 != asprintf(&fullpath, "%s/%s", JETSAM_PROP_DIR, dp->d_name)) {
 			defaults = (CFDictionaryRef)CreateMyPropertyListFromFile(fullpath);
 			free(fullpath);
@@ -783,8 +783,8 @@ read_jetsam_defaults_from_file(void) {
 	if (dirp) {
 		closedir(dirp);
 	}
-        
-	return defaults;    
+
+	return defaults;
 }
 
 static bool
@@ -792,68 +792,68 @@ submit_cached_defaults(void) {
 	launch_data_t msg, resp;
 	const void **keys = NULL;
 	int i;
-    
+
 	if (_launchctl_jetsam_defaults_cached == NULL) {
-        return false;
+	return false;
 	}
 
 	/* The dictionary to transmit */
 	CFMutableDictionaryRef payload_dict = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-    
+
 	/* Add a key to indicate that this is a special job */
 	CFBooleanRef ID = kCFBooleanTrue;
 	CFDictionaryAddValue(payload_dict, CFSTR(LAUNCH_JOBKEY_DEFAULTS), ID);
-  
- 	CFMutableDictionaryRef defaults_dict = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-	
+
+	CFMutableDictionaryRef defaults_dict = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+
 	CFDictionaryAddValue(payload_dict, CFSTR(LAUNCHD_JOB_DEFAULTS), defaults_dict);
-    
+
 	/* Compile appropriate launchd dictionary... */
 	CFIndex count = CFDictionaryGetCount(_launchctl_jetsam_defaults_cached);
 	keys = (const void **)malloc(sizeof(void *) * count);
 	if (!keys) {
 		goto exit;
 	}
-    
+
 	CFDictionaryGetKeysAndValues(_launchctl_jetsam_defaults_cached, keys, NULL);
-    
+
 	for (i = 0; i < count; i++) {
 		CFStringRef label = (CFStringRef)keys[i];
-        
+
 		/* Get the defaults for the job */
 		CFDictionaryRef job_defaults_dict = CFDictionaryGetValue(_launchctl_jetsam_defaults_cached, label);
 		if (!(job_defaults_dict && CFTypeCheck(job_defaults_dict, CFDictionary))) {
 			continue;
 		}
-        
+
 		/* Create a new dictionary to represent the job */
 		CFMutableDictionaryRef job_dict = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-		
+
 		/* Add the defaults */
 		CFDictionaryAddValue(job_dict, CFSTR(LAUNCH_JOBKEY_JETSAMPROPERTIES), job_defaults_dict);
-        
+
 		/* Finally, add the result to the main dictionary */
 		CFDictionaryAddValue(defaults_dict, label, job_dict);
-        
+
 		/* Cleanup */
 		CFRelease(job_dict);
 	}
-    
+
 	/* Send the payload */
 	launch_data_t ldp = CF2launch_data(payload_dict);
-    
+
 	msg = launch_data_alloc(LAUNCH_DATA_DICTIONARY);
 	launch_data_dict_insert(msg, ldp, LAUNCH_KEY_SUBMITJOB);
 
 	resp = launch_msg(msg);
-	launch_data_free(msg);   
+	launch_data_free(msg);
 
 	launch_data_free(resp);
 
 exit:
 	CFRelease(defaults_dict);
 	CFRelease(payload_dict);
-    	
+
 	free(keys);
 
 	return true;
@@ -864,9 +864,9 @@ read_jetsam_defaults(void)
 {
 	/* Current supported version */
 	const int v = 3;
-    
+
 	CFDictionaryRef jetsam_defaults = NULL;
-    
+
 	if (require_jobs_from_cache()) {
 		jetsam_defaults = read_jetsam_defaults_from_cache();
 	} else {
@@ -883,7 +883,7 @@ read_jetsam_defaults(void)
 	if (!(defaults_vers && CFTypeCheck(defaults_vers, CFNumber))) {
 		return false;
 	}
-	
+
 	CFNumberRef supported_vers = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &v);
 	if (!(kCFCompareEqualTo == CFNumberCompare(defaults_vers, supported_vers, NULL ))) {
 		return false;
@@ -904,7 +904,7 @@ read_jetsam_defaults(void)
 	}
 
 	submit_cached_defaults();
-	
+
 	return true;
 }
 
@@ -1057,7 +1057,7 @@ readfile(const char *what, struct load_unload_state *lus)
 		goto out_bad;
 	}
 
-	if ((launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_PROGRAM) == NULL) && 
+	if ((launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_PROGRAM) == NULL) &&
 		(launch_data_dict_lookup(thejob, LAUNCH_JOBKEY_PROGRAMARGUMENTS) == NULL)) {
 		launchctl_log(LOG_ERR, "%s: neither a Program nor a ProgramArguments key was specified: %s", getprogname(), what);
 		goto out_bad;
@@ -1852,7 +1852,7 @@ WriteMyPropertyListToFile(CFPropertyListRef plist, const char *posixfile)
 }
 
 static inline Boolean
-_is_launch_data_t(launch_data_t obj) 
+_is_launch_data_t(launch_data_t obj)
 {
 	Boolean result = true;
 
@@ -1893,10 +1893,10 @@ CFTypeCreateFromLaunchData(launch_data_t obj)
 
 	switch (launch_data_get_type(obj)) {
 	case LAUNCH_DATA_STRING: {
-		const char *str = launch_data_get_string(obj);			
+		const char *str = launch_data_get_string(obj);
 		cfObj = CFStringCreateWithCString(NULL, str, kCFStringEncodingUTF8);
 		break;
-	}			
+	}
 	case LAUNCH_DATA_INTEGER: {
 		long long integer = launch_data_get_integer(obj);
 		cfObj = CFNumberCreate(NULL, kCFNumberLongLongType, &integer);
@@ -1941,7 +1941,7 @@ CFTypeCreateFromLaunchData(launch_data_t obj)
 static CFArrayRef
 CFArrayCreateFromLaunchArray(launch_data_t arr)
 {
-	CFArrayRef result = NULL;	
+	CFArrayRef result = NULL;
 	CFMutableArrayRef mutResult = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
 
 	if (launch_data_get_type(arr) == LAUNCH_DATA_ARRAY) {
@@ -1979,7 +1979,7 @@ CFDictionaryCreateFromLaunchDictionary(launch_data_t dict)
 		launch_data_dict_iterate(dict, (void (*)(launch_data_t, const char *, void *))_launch_data_iterate, mutResult);
 
 		result = CFDictionaryCreateCopy(NULL, mutResult);
-		CFRelease(mutResult);	
+		CFRelease(mutResult);
 	}
 
 	return result;
@@ -2337,7 +2337,7 @@ system_specific_bootstrap(bool sflag)
 	if (path_check("/etc/rc.cdrom")) {
 		const char *rccdrom_tool[] = { _PATH_BSHELL, "/etc/rc.cdrom", "multiuser", NULL };
 
-		/* The bootstrapper should always be killable during install-time. This 
+		/* The bootstrapper should always be killable during install-time. This
 		 * is a special case for /etc/rc.cdrom, which runs a process and never
 		 * exits.
 		 *
@@ -2447,7 +2447,7 @@ system_specific_bootstrap(bool sflag)
 	/* Only start auditing if not "Disabled" in auditd plist. */
 	if ((lda = read_plist_file(AUDITD_PLIST_FILE, false, false)) != NULL && ((ldb = launch_data_dict_lookup(lda, LAUNCH_JOBKEY_DISABLED)) == NULL || job_disabled_logic(ldb) == false)) {
 		(void)os_assumes_zero(audit_quick_start());
-		launch_data_free(lda);	
+		launch_data_free(lda);
 	}
 #else
 	if (path_check("/etc/security/rc.audit")) {
@@ -2551,7 +2551,7 @@ bootstrap_cmd(int argc, char *const argv[])
 		system_specific_bootstrap(sflag);
 	} else {
 		char *load_launchd_items[] = {
-			"load", 
+			"load",
 			"-S",
 			session,
 			"-D",
@@ -2712,9 +2712,9 @@ load_and_unload_cmd(int argc, char *const argv[])
 
 #if READ_JETSAM_DEFAULTS
 	if (!read_jetsam_defaults()) {
-		launchctl_log(LOG_NOTICE, "Failed to read jetsam defaults; no process limits applied");	    
+		launchctl_log(LOG_NOTICE, "Failed to read jetsam defaults; no process limits applied");
 	}
-#endif  
+#endif
 
 	/* Only one pass! */
 	lus.pass1 = launch_data_alloc(LAUNCH_DATA_ARRAY);
@@ -3000,7 +3000,7 @@ list_cmd(int argc, char *const argv[])
 	int r = 0;
 
 	bool plist_output = false;
-	char *label = NULL;	
+	char *label = NULL;
 	if (argc > 3) {
 		launchctl_log(LOG_ERR, "usage: %s list [-x] [label]", getprogname());
 		return 1;
@@ -3547,7 +3547,7 @@ getrusage_cmd(int argc, char *const argv[])
 	} else {
 		launchctl_log(LOG_ERR, "%s %s returned unknown response", getprogname(), argv[0]);
 		r = 1;
-	} 
+	}
 
 	launch_data_free(resp);
 
@@ -4062,7 +4062,7 @@ out:
 	init_data_protection();
 #endif
 
-	/* 
+	/*
 	 * Once this is fixed:
 	 *
 	 * <rdar://problem/3948774> Mount flag updates should be possible with NULL as the forth argument to mount()
@@ -4477,7 +4477,7 @@ preheat_page_cache_hack(void)
 			continue;
 		}
 
-		if (fstat(fd, &sb) != -1) { 
+		if (fstat(fd, &sb) != -1) {
 			if ((sb.st_size < 10*1024*1024) && (junkbuf = malloc((size_t)sb.st_size)) != NULL) {
 				ssize_t n = read(fd, junkbuf, (size_t)sb.st_size);
 				if (posix_assumes_zero(n) != -1 && n != (ssize_t)sb.st_size) {

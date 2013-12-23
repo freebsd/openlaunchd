@@ -686,7 +686,7 @@ struct job_s {
 		// The job has Jetsam limits in place.
 		jetsam_properties:1,
 		// The job's Jetsam memory limits should only be applied in the background
- 		jetsam_memory_limit_background:1,
+		jetsam_memory_limit_background:1,
 		/* This job was created as the result of a look up of a service provided
 		 * by a MultipleInstance job.
 		 */
@@ -2316,12 +2316,12 @@ job_apply_defaults(job_t j) {
 
 	if (((sb_prefix_end = strchr(j->label, ':')) != NULL) &&
 	    ((sb_suffix_start = strchr(sb_prefix_end + 1, '[')) != NULL)) {
- 		/*
- 		 * Workaround 'UIKitApplication:com.apple.foo[bar]' convention for the processes
- 		 * we're interested in. To be removed when <rdar://problem/13066361> is addressed.
- 		 */
+		/*
+		 * Workaround 'UIKitApplication:com.apple.foo[bar]' convention for the processes
+		 * we're interested in. To be removed when <rdar://problem/13066361> is addressed.
+		 */
 		snprintf(true_job_label, sb_suffix_start - sb_prefix_end, "%s", sb_prefix_end + 1);
- 		label = true_job_label;
+		label = true_job_label;
 	} else {
 		/* Just test the standard label */
 		label = j->label;
@@ -4636,8 +4636,8 @@ job_start_child(job_t j)
 	 * be given priority.
 	 */
 	(void)job_assumes_zero(j, posix_spawnattr_setjetsam(&spattr,
-	        POSIX_SPAWN_JETSAM_USE_EFFECTIVE_PRIORITY | (j->jetsam_memory_limit_background ? POSIX_SPAWN_JETSAM_HIWATER_BACKGROUND : 0), 
-	        j->jetsam_priority, j->jetsam_memlimit));
+		POSIX_SPAWN_JETSAM_USE_EFFECTIVE_PRIORITY | (j->jetsam_memory_limit_background ? POSIX_SPAWN_JETSAM_HIWATER_BACKGROUND : 0), 
+		j->jetsam_priority, j->jetsam_memlimit));
 #endif
 
 	mach_port_array_t sports = NULL;
@@ -4905,16 +4905,16 @@ job_getgrnam(job_t j, const char *name)
     struct group *gr = NULL;
 
     if (pid1_magic && j->mgr == root_jobmgr) {
-        si_search_module_set_flags("ds", 1);
-        gL1CacheEnabled = false;
+	si_search_module_set_flags("ds", 1);
+	gL1CacheEnabled = false;
 
-        gr = getgrnam(name);
+	gr = getgrnam(name);
 
-        si_search_module_set_flags("ds", 0);
+	si_search_module_set_flags("ds", 0);
     }
 
     if (gr == NULL) {
-        gr = getgrnam(name);
+	gr = getgrnam(name);
     }
 
     return gr;
@@ -8125,7 +8125,7 @@ job_mig_swap_complex(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey,
 		if (ldc->euid && ldc->euid != getuid()) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
- 	}
+	}
 
 	if (unlikely(inkey && outkey && !job_assumes(j, inkey == outkey))) {
 		return 1;
@@ -8247,7 +8247,7 @@ job_mig_swap_integer(job_t j, vproc_gsk_t inkey, vproc_gsk_t outkey, int64_t inv
 		if (ldc->euid && ldc->euid != getuid()) {
 			return BOOTSTRAP_NOT_PRIVILEGED;
 		}
- 	}
+	}
 
 	if (unlikely(inkey && outkey && !job_assumes(j, inkey == outkey))) {
 		return 1;
@@ -9752,7 +9752,7 @@ job_mig_init_session(job_t j, name_t session_type, mach_port_t asport)
 		}
 	} else if (strcmp(session_type, VPROCMGR_SESSION_AQUA) == 0) {
 		(void)job_assumes_zero(j, runtime_remove_mport(j->mgr->jm_port));
- 	}
+	}
 
 	jobmgr_log(j->mgr, LOG_DEBUG, "Initializing as %s", session_type);
 	strcpy(j->mgr->name_init, session_type);
@@ -10331,8 +10331,8 @@ xpc_domain_load_services(job_t j, vm_offset_t services_buff, mach_msg_type_numbe
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 
- 	job_t rootj = jobmgr_find_by_pid(root_jobmgr, j->p, false);
- 	if (!(rootj && rootj->xpc_bootstrapper)) {
+	job_t rootj = jobmgr_find_by_pid(root_jobmgr, j->p, false);
+	if (!(rootj && rootj->xpc_bootstrapper)) {
 		job_log(j, LOG_ERR, "Attempt to load services into XPC domain by unprivileged job.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}
@@ -10454,8 +10454,8 @@ xpc_domain_add_services(job_t j, vm_offset_t services_buff, mach_msg_type_number
 		return BOOTSTRAP_UNKNOWN_SERVICE;
 	}
 
- 	job_t rootj = jobmgr_find_by_pid(root_jobmgr, j->p, false);
- 	if (!(rootj && rootj->xpc_bootstrapper)) {
+	job_t rootj = jobmgr_find_by_pid(root_jobmgr, j->p, false);
+	if (!(rootj && rootj->xpc_bootstrapper)) {
 		job_log(j, LOG_ERR, "Attempt to add service to XPC domain by unprivileged job.");
 		return BOOTSTRAP_NOT_PRIVILEGED;
 	}

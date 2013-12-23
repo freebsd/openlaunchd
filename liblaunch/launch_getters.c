@@ -22,7 +22,7 @@ int
 launch_data_get_errno(launch_data_t d)
 {
     if (NULL == d) {
-        return 0;
+	return 0;
     }
 	return d->err;
 }
@@ -31,7 +31,7 @@ int
 launch_data_get_fd(launch_data_t d)
 {
     if (NULL == d) {
-        return 0;
+	return 0;
     }
 	return d->fd;
 }
@@ -40,7 +40,7 @@ long long
 launch_data_get_integer(launch_data_t d)
 {
     if (NULL == d) {
-        return 0;
+	return 0;
     }
 	return d->number;
 }

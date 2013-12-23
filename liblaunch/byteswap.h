@@ -25,19 +25,19 @@
 	({ typeof (x) _X, _x = (x);		\
 	 switch (sizeof(_x)) {			\
 	 case 8:				\
-	 	_X = htobe64(_x); \
-	 	break;				\
+		_X = htobe64(_x); \
+		break;				\
 	 case 4:				\
-	 	_X = htobe32(_x); \
-	 	break;				\
+		_X = htobe32(_x); \
+		break;				\
 	 case 2:				\
-	 	_X = htobe16(_x); \
-	 	break;				\
+		_X = htobe16(_x); \
+		break;				\
 	 case 1:				\
-	 	_X = _x; \
+		_X = _x; \
 		break;				\
 	 default:				\
-	 	_X = x; \
+		_X = x; \
 		break;				\
 	 }					\
 	 _X;					\
@@ -47,19 +47,19 @@
 	({ typeof (x) _X, _x = (x);		\
 	 switch (sizeof(_x)) {			\
 	 case 8:				\
-	 	_X = be64toh(_x); \
-	 	break;				\
+		_X = be64toh(_x); \
+		break;				\
 	 case 4:				\
-        _X = be32toh(_x); \
-	 	break;				\
+	_X = be32toh(_x); \
+		break;				\
 	 case 2:				\
-	 	_X = be16toh(_x); \
-	 	break;				\
+		_X = be16toh(_x); \
+		break;				\
 	 case 1:				\
-	 	_X = _x;			\
+		_X = _x;			\
 		break;				\
 	 default:				\
-	 	_X = _x; \
+		_X = _x; \
 		break;				\
 	 }					\
 	 _X;					\
