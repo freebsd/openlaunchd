@@ -18,6 +18,12 @@
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
+
+/*
+ * Only Apple OSes contain `bootstrap`
+ */
+#ifdef __APPLE__
+
 #include "config.h"
 #include "launch.h"
 #include "launch_priv.h"
@@ -301,3 +307,4 @@ bootstrap_strerror(kern_return_t r)
 		return mach_error_string(r);
 	}
 }
+#endif
