@@ -1,4 +1,0 @@
-#include "launchd.xcconfig"
-
-INSTALL_PATH = /bin
-PRODUCT_NAME = launchctl
