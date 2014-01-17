@@ -19,12 +19,16 @@ FreeBSD users, the current motivator of this project is to enable **modern
 process management for user and system level processes** on FreeBSD systems.
 
 
-## Resources
+## Getting involved:
 
  * `#openlaunchd` on the [Freenode](http://freenode.net) is where development
    discussion can occur.
  * [open launchd](https://groups.google.com/forum/#!forum/openlaunchd) mailing
    list
+
+
+### Helpful links
+
  * The main project [home page](https://wiki.freebsd.org/launchd) can be found
    on the FreeBSD [project wiki](https://wiki.freebsd.org/).
  * `rwatson@` runs [fxr.watson.org](http://fxr.watson.org/) which can be very
