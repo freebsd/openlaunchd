@@ -2,19 +2,19 @@
  * Copyright (c) 1999-2012 Apple Inc. All rights reserved.
  *
  * @APPLE_APACHE_LICENSE_HEADER_START@
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
+ *
  * @APPLE_APACHE_LICENSE_HEADER_END@
  */
 
@@ -113,7 +113,7 @@ vprocmgr_lookup_vproc(const char *label)
 vproc_t
 vproc_retain(vproc_t vp)
 {
-	int32_t orig = OSAtomicAdd32(1, &vp->refcount) - 1;	
+	int32_t orig = OSAtomicAdd32(1, &vp->refcount) - 1;
 	if (orig <= 0) {
 		_vproc_set_crash_log_message("Under-retain / over-release of vproc_t.");
 		abort();
@@ -287,7 +287,7 @@ size_t
 _vproc_standby_count(void)
 {
 	return 0;
-} 
+}
 
 size_t
 _vproc_standby_timeout(void)
@@ -390,7 +390,7 @@ vproc_standby_end(vproc_t vp __unused, vproc_standby_t vpt __unused)
 #pragma mark Miscellaneous SPI
 kern_return_t
 _vproc_grab_subset(mach_port_t bp, mach_port_t *reqport, mach_port_t *rcvright,
-	launch_data_t *outval, mach_port_array_t *ports, 
+	launch_data_t *outval, mach_port_array_t *ports,
 	mach_msg_type_number_t *portCnt)
 {
 	mach_msg_type_number_t outdata_cnt;
@@ -451,7 +451,7 @@ _vprocmgr_move_subset_to_user(uid_t target_user, const char *session_type, uint6
 		return (vproc_err_t)_vprocmgr_move_subset_to_user;
 	}
 
-	if (is_bkgd) {		
+	if (is_bkgd) {
 		task_set_bootstrap_port(mach_task_self(), puc);
 		mach_port_deallocate(mach_task_self(), bootstrap_port);
 		bootstrap_port = puc;
@@ -487,7 +487,7 @@ _vprocmgr_switch_to_session(const char *target_session, vproc_flags_t flags __at
 	return !issetugid() ? _vproc_post_fork_ping() : NULL;
 }
 
-vproc_err_t 
+vproc_err_t
 _vprocmgr_detach_from_console(vproc_flags_t flags __attribute__((unused)))
 {
 	return _vprocmgr_switch_to_session(VPROCMGR_SESSION_BACKGROUND, 0);
@@ -661,7 +661,7 @@ _spawn_via_launchd(const char *label, const char *const *argv, const struct spaw
 	indata = (vm_offset_t)buf;
 
 	if (struct_version == 3) {
-		kr = vproc_mig_spawn2(bootstrap_port, indata, indata_cnt, _audit_session_self(), &p, &obsvr_port); 
+		kr = vproc_mig_spawn2(bootstrap_port, indata, indata_cnt, _audit_session_self(), &p, &obsvr_port);
 	} else {
 		_vproc_set_crash_log_message("Bogus version passed to _spawn_via_launchd(). For this release, the only valid version is 3.");
 	}
@@ -929,7 +929,7 @@ reboot2(uint64_t flags)
 }
 
 vproc_err_t
-_vproc_kickstart_by_label(const char *label, pid_t *out_pid, 
+_vproc_kickstart_by_label(const char *label, pid_t *out_pid,
 	mach_port_t *out_port_name __unused, mach_port_t *out_obsrvr_port __unused,
 	vproc_flags_t flags)
 {
