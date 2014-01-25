@@ -74,10 +74,10 @@
 
 #ifdef __APPLE__
 #include "bootstrap.h"
-#endif
 #include "vproc.h"
 #include "vproc_priv.h"
 #include "vproc_internal.h"
+#endif
 
 
 struct launch_msg_header {
@@ -87,7 +87,8 @@ struct launch_msg_header {
 
 #define LAUNCH_MSG_HEADER_MAGIC 0xD2FEA02366B39A41ull
 
-static launch_data_t launch_data_array_pop_first(launch_data_t where);
+/* launch_data_array_pop_first is located in launch_data.c */
+launch_data_t launch_data_array_pop_first(launch_data_t where);
 /* _fd is used in both liblaunch.c and inside of launch_data.c */
 int _fd(int fd);
 static void launch_client_init(void);
@@ -176,6 +177,7 @@ launch_client_init(void)
 	if (where && where[0] != '\0') {
 		strncpy(sun.sun_path, where, sizeof(sun.sun_path));
 	} else {
+#ifdef __APPLE__
 		if (_vprocmgr_getsocket(spath) == 0) {
 			if ((getenv("SUDO_COMMAND") || getenv("__USE_SYSTEM_LAUNCHD")) && geteuid() == 0) {
 				/* Talk to the system launchd. */
@@ -189,6 +191,10 @@ launch_client_init(void)
 				strncpy(sun.sun_path, spath, min_len);
 			}
 		}
+#else
+		fprintf(stderr, "Reaching dead branch for this platform in liblaunch.c\n");
+		abort();
+#endif
 	}
 
 	launch_globals_t globals = _launch_globals();
@@ -895,6 +901,10 @@ launch_data_new_opaque(const void *o, size_t os)
 	return r;
 }
 
+#ifdef __APPLE__
+/*
+ * This is not likely necessary anywhere but Apple OSes right now
+ */
 void
 load_launchd_jobs_at_loginwindow_prompt(int flags __attribute__((unused)), ...)
 {
@@ -911,5 +921,6 @@ create_and_switch_to_per_session_launchd(const char *login __attribute__((unused
 
 	return 1;
 }
+#endif
 
 #endif /* UNIT_TEST */
