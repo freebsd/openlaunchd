@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Open Launchd by rtyler</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>Open Launchd</h1>
+        <p>Porting launchd to open source unixes</p>
+
+        <p class="view"><a href="https://github.com/rtyler/openlaunchd">View the Project on GitHub <small>rtyler/openlaunchd</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/rtyler/openlaunchd/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/rtyler/openlaunchd/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/rtyler/openlaunchd">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>
+<a name="open-launchd" class="anchor" href="#open-launchd"><span class="octicon octicon-link"></span></a>Open Launchd</h1>
+
+<p>Mac OS X 10.4 Tiger introduced a new program called <code>launchd</code>. The daemon
+replaced <code>SystemStarter</code> (MacOS legacy) and older <code>rc.d</code> (BSD legacy) startup
+processes and job management functionality.</p>
+
+<p>Launchd can be split into two logical pieces, "process 1", i.e. the root
+launchd which controls system startup and system daemons and "user launchd"
+which allows invividual users to manage their own processes/jobs.</p>
+
+<h2>
+<a name="why" class="anchor" href="#why"><span class="octicon octicon-link"></span></a>Why?</h2>
+
+<p>The primary goal of this project is to port <code>launchd</code> in its entirety over to
+FreeBSD, hopefully making it usable by other BSD or Linux systems along the
+way. That said, the primary motivator for the original porting work in 2005 was
+to improve boot time. While improved boot time would be of tangible benefit to
+FreeBSD users, the current motivator of this project is to enable <strong>modern
+process management for user and system level processes</strong> on FreeBSD systems.</p>
+
+<h2>
+<a name="getting-involved" class="anchor" href="#getting-involved"><span class="octicon octicon-link"></span></a>Getting involved:</h2>
+
+<ul>
+<li>
+<code>#openlaunchd</code> on the <a href="http://freenode.net">Freenode</a> is where development
+discussion can occur.</li>
+<li>
+<a href="https://groups.google.com/forum/#!forum/openlaunchd">open launchd</a> mailing
+list</li>
+</ul><h3>
+<a name="helpful-links" class="anchor" href="#helpful-links"><span class="octicon octicon-link"></span></a>Helpful links</h3>
+
+<ul>
+<li>The main project <a href="https://wiki.freebsd.org/launchd">home page</a> can be found
+on the FreeBSD <a href="https://wiki.freebsd.org/">project wiki</a>.</li>
+<li>
+<code>rwatson@</code> runs <a href="http://fxr.watson.org/">fxr.watson.org</a> which can be very
+useful for cross-referencing Apple system headers and code, with FreeBSD system
+headers and code</li>
+</ul>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/rtyler">rtyler</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
