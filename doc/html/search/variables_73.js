@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['s_5fam_5fembedded_5fgod',['s_am_embedded_god',['../structlaunch__globals__s.html#a27c06130b2fd77136d88b2c9fb17b251',1,'launch_globals_s']]],
+  ['sendbuf',['sendbuf',['../struct__launch.html#aabab9d0c288624b482c6fd875fac69a0',1,'_launch']]],
+  ['sender_5fgid',['sender_gid',['../structlogmsg__s.html#a40fa37a1819b8fda349ee91b1487cb24',1,'logmsg_s']]],
+  ['sender_5fuid',['sender_uid',['../structlogmsg__s.html#ad9a73cfe910d81f5f1ac3f58a9254a00',1,'logmsg_s']]],
+  ['sendfdcnt',['sendfdcnt',['../struct__launch.html#adcae3771674efbedd56efcbf257ecbcf',1,'_launch']]],
+  ['sendfds',['sendfds',['../struct__launch.html#adc26195b28bd183c14258c0eab79ac89',1,'_launch']]],
+  ['sendlen',['sendlen',['../struct__launch.html#a0a16f7abb52f4bb08497c5691ba53c6c',1,'_launch']]],
+  ['session_5fname',['session_name',['../structlaunchd__syslog__attr.html#aaa8cccf5c979e4802cc3e21316affed8',1,'launchd_syslog_attr::session_name()'],['../structlogmsg__s.html#a0c9b0b0cd0f8dafb2ac0c64f9ab796d7',1,'logmsg_s::session_name()']]],
+  ['session_5fname_5foffset',['session_name_offset',['../structlogmsg__s.html#a504afd630df3d85bff3ac86a742644b1',1,'logmsg_s']]],
+  ['session_5ftype',['session_type',['../structload__unload__state.html#aaf030e13400a332cc61978543a062bc5',1,'load_unload_state']]],
+  ['sigign_5fset',['sigign_set',['../runtime_8c.html#ae3e2d953fea6701c9acb677409504b66',1,'runtime.c']]],
+  ['sockpath',['sockpath',['../ipc_8h.html#ac2f3b14e509ec02f7a4feb316de439ed',1,'ipc.h']]],
+  ['spawn_5fbinpref_5fcnt',['spawn_binpref_cnt',['../structspawn__via__launchd__attr.html#ab5ae87c6eb7f24d8d86c7f71a1025124',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fchdir',['spawn_chdir',['../structspawn__via__launchd__attr.html#a926e78565deb62ed4930be9d37da3fdc',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fenv',['spawn_env',['../structspawn__via__launchd__attr.html#ae5910dbd8c7e7e29574bd94ecf534353',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fflags',['spawn_flags',['../structspawn__via__launchd__attr.html#abc10f883975a7c7d063077fbee03506f',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fpath',['spawn_path',['../structspawn__via__launchd__attr.html#ae77e040e56cf9e17268d451c0c49e967',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fquarantine',['spawn_quarantine',['../structspawn__via__launchd__attr.html#af1a474717ff48b011047f317b8eb41ec',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fseatbelt_5fflags',['spawn_seatbelt_flags',['../structspawn__via__launchd__attr.html#ad1921427283f8c8ff60c2326ee26e8bc',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fseatbelt_5fprofile',['spawn_seatbelt_profile',['../structspawn__via__launchd__attr.html#a9e875cdc121b59b75ada5cd41bd10ecc',1,'spawn_via_launchd_attr']]],
+  ['spawn_5fumask',['spawn_umask',['../structspawn__via__launchd__attr.html#a7f2919998daa5af0e36fa84738e80bfe',1,'spawn_via_launchd_attr']]],
+  ['string',['string',['../struct__launch__data.html#aee3d98f873f522d0faf0d6ad0b6068e3',1,'_launch_data']]],
+  ['string_5flen',['string_len',['../struct__launch__data.html#a9bd6ee4cb5f14a23059ac6104f890501',1,'_launch_data']]],
+  ['sys',['sys',['../structexternalevent__iter__ctx.html#af99b4a632e3233377e75bd640a3a1fdb',1,'externalevent_iter_ctx']]]
+];
