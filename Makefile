@@ -17,4 +17,7 @@ test: liblaunch/test wait4path liblaunch launchd
 
 	@./support/roundup ./t/*.sh
 
+docs:
+	doxygen launchd.doxy
+
 .include <bsd.subdir.mk>
