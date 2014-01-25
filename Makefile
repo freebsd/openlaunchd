@@ -6,10 +6,11 @@ SUBDIR=liblaunch/test \
 	   liblaunch \
 	   wait4path \
 	   launchproxy \
-	   launchctl
+	   launchctl \
+	   launchd
 
 
-test: liblaunch/test wait4path liblaunch #launchproxy
+test: liblaunch/test wait4path liblaunch launchd
 	@for d in `find . -iname "*_test"`; do \
 		echo "> Running $$d" && ./$$d ; \
 	done
