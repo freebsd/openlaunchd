@@ -21,10 +21,17 @@
 #ifndef __LAUNCHD_H__
 #define __LAUNCHD_H__
 
+#if HAS_MACH
 #include <mach/mach.h>
 #include <mach/port.h>
+#endif
+
 #include "launch.h"
+
+#ifdef __APPLE__
 #include "bootstrap.h"
+#endif
+
 #include "runtime.h"
 
 struct kevent;

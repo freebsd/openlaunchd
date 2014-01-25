@@ -21,8 +21,17 @@
 #ifndef __LAUNCHD_RUNTIME_H__
 #define __LAUNCHD_RUNTIME_H__
 
+#ifdef __APPLE__
+/* XPC is an IPC mechanism for Apple OSes that works with Grand Central
+ * Dispatch. See here for more details:
+ * <https://developer.apple.com/library/mac/documentation/macosx/conceptual/bpsystemstartup/chapters/CreatingXPCServices.html>
+ */
 #include <xpc/xpc.h>
+#endif
+
+#if HAS_MACH
 #include <mach/mach.h>
+#endif
 #include <sys/types.h>
 #include <bsm/libbsm.h>
 #include <stdbool.h>
@@ -31,7 +40,9 @@
 #include <syslog.h>
 
 #include "kill2.h"
+#ifdef __APPLE__
 #include "ktrace.h"
+#endif
 #include "log.h"
 
 #define	likely(x)	__builtin_expect((bool)(x), true)

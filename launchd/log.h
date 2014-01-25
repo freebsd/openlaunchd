@@ -1,12 +1,19 @@
 #ifndef __LAUNCHD_LOG_H__
 #define __LAUNCHD_LOG_H__
 
+#if HAS_MACH
 #include <mach/mach.h>
+#endif
+
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/queue.h>
 #include <sys/fcntl.h>
+#ifdef __APPLE__
 #include <malloc/malloc.h>
+#else
+#warning "PORT: What is malloc/malloc.h?"
+#endif
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>

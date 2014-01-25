@@ -22,6 +22,7 @@
 #include "helper.h"
 
 #include <TargetConditionals.h>
+#if HAS_MACH
 #include <mach/mach.h>
 #include <mach/mach_error.h>
 #include <mach/boolean.h>
@@ -34,6 +35,7 @@
 #include <mach/mach_host.h>
 #include <mach/exception.h>
 #include <mach/host_reboot.h>
+#endif
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/event.h>
