@@ -1,6 +1,10 @@
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
 
+#ifndef __has_include
+#define __has_include(n) 0
+#endif
+
 #ifdef __APPLE__
 /*
  * TargetConditionals.h contains Autoconfiguration of TARGET_ conditionals for
