@@ -10,7 +10,7 @@ SUBDIR=liblaunch/test \
 	   launchd
 
 
-test: liblaunch/test wait4path liblaunch launchd
+test: liblaunch/test wait4path liblaunch
 	@for d in `find . -iname "*_test"`; do \
 		echo "> Running $$d" && ./$$d ; \
 	done
