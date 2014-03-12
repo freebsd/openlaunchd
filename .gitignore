@@ -1,4 +1,7 @@
 *.o
+*.a
+*.po
 *.swp
 *.swo
 doc/
+
