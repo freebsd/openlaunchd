@@ -6,4 +6,4 @@ MAN=launchproxy.8
 DPADD= ${LIBLAUNCH}
 LDADD= ${LIBLAUNCH}
 
-.include "../launchd.prog.mk"
+.include <../launchd.mk>

@@ -19,4 +19,4 @@ CFLAGS+=-DUNIT_TEST \
 		-I/usr/local/include \
 		-DDEBUG
 
-.include "../../launchd.prog.mk"
+.include <../../launchd.mk>
