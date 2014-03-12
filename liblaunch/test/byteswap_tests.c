@@ -21,8 +21,10 @@
  * TEST: host2wire
  *****************************************************/
 void test_host2wire_64(void **state) {
+	/*
     uint64_t host_int = 1024;
     uint64_t wire_int = host2wire(host_int);
+	*/
     /* Nothing to test here on a big-endian system, and we can't verify because
      * htonll() doesn't exist */
 };

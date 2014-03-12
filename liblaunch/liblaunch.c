@@ -91,9 +91,9 @@ struct launch_msg_header {
 launch_data_t launch_data_array_pop_first(launch_data_t where);
 /* _fd is used in both liblaunch.c and inside of launch_data.c */
 int _fd(int fd);
-static void launch_client_init(void);
-static void launch_msg_getmsgs(launch_data_t m, void *context);
-static launch_data_t launch_msg_internal(launch_data_t d);
+void launch_client_init(void);
+void launch_msg_getmsgs(launch_data_t m, void *context);
+launch_data_t launch_msg_internal(launch_data_t d);
 #if HAS_MACH
 static void launch_mach_checkin_service(launch_data_t obj, const char *key, void *context);
 #endif
@@ -150,8 +150,7 @@ launch_client_init(void)
 #ifdef __APPLE__
     name_t spath;
 #else
-#warning "PORT: Figure out how to handle this path from bootstrap
-    void *spath;
+#pragma message "PORT: Figure out how to handle spath from bootstrap"
 #endif
 
 	if (_launchd_fd) {
@@ -487,7 +486,7 @@ launch_msg(launch_data_t d)
 #if HAS_MACH
 		launch_data_dict_iterate(mps, launch_mach_checkin_service, NULL);
 #else
-#warning "PORT: launch_data_dict_iterate inside of launch_msg()"
+#pragma message "PORT: launch_data_dict_iterate inside of launch_msg()"
 #endif
 	}
 
@@ -653,7 +652,7 @@ out:
 		mach_port_deallocate(mach_task_self(), session_port);
 	}
 #else
-#warning "PORT: launch_msg_internal() temporarily skipping over some handling"
+#pragma message "PORT: launch_msg_internal() temporarily skipping over some handling"
 #endif
 
 	pthread_mutex_unlock(&globals->lc_mtx);
