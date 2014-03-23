@@ -11,8 +11,6 @@
 #include <sys/fcntl.h>
 #ifdef __APPLE__
 #include <malloc/malloc.h>
-#else
-#warning "PORT: What is malloc/malloc.h?"
 #endif
 #include <unistd.h>
 #include <pthread.h>
