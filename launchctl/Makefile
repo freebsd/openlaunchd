@@ -2,4 +2,4 @@
 
 PROG=launchctl
 
-.include "../launchd.prog.mk"
+.include "../launchd.mk"
