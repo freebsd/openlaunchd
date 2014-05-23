@@ -740,7 +740,8 @@ struct job_s {
 		implicit_reap:1,
 		system_app :1,
 		joins_gui_session :1,
-		low_priority_background_io :1;
+		low_priority_background_io :1,
+		legacy_timers :1;
 
 	const char label[0];
 };
@@ -2470,6 +2471,13 @@ job_import_bool(job_t j, const char *key, bool value)
 			found_key = true;
 		} else if (strcasecmp(key, LAUNCH_JOBKEY_LOWPRIORITYBACKGROUNDIO) == 0) {
 			j->low_priority_background_io = true;
+			found_key = true;
+		} else if (strcasecmp(key, LAUNCH_JOBKEY_LEGACYTIMERS) == 0) {
+#if !TARGET_OS_EMBEDDED
+			j->legacy_timers = value;
+#else // !TARGET_OS_EMBEDDED
+			job_log(j, LOG_ERR, "This key is not supported on this platform: %s", key);
+#endif // !TARGET_OS_EMBEDDED
 			found_key = true;
 		}
 		break;
@@ -4677,8 +4685,10 @@ job_start_child(job_t j)
 		.task_throughput_qos_tier = THROUGHPUT_QOS_LAUNCH_DEFAULT_TIER,
 	};
 
-	kr = task_policy_set(mach_task_self(), TASK_BASE_QOS_POLICY, (task_policy_t)&qosinfo, TASK_QOS_POLICY_COUNT);
-	(void)job_assumes_zero_p(j, kr);
+	if (!j->legacy_timers) {
+		kr = task_policy_set(mach_task_self(), TASK_BASE_QOS_POLICY, (task_policy_t)&qosinfo, TASK_QOS_POLICY_COUNT);
+		(void)job_assumes_zero_p(j, kr);
+	}
 #endif
 
 #if HAVE_RESPONSIBILITY

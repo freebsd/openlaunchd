@@ -361,6 +361,13 @@ none. Interactive jobs are critical to maintaining a responsive user experience,
 and this key should only be used if an app's ability to be responsive depends
 on it, and cannot be made Adaptive.
 .El
+.It Sy LegacyTimers <boolean>
+This optional key controls the behavior of timers created by the job. By default
+on OS X Mavericks version 10.9 and later, timers created by launchd jobs are
+coalesced. Batching the firing of timers with similar deadlines improves the
+overall energy efficiency of the system. If this key is set to true, timers
+created by the job will opt into less efficient but more precise behavior and
+not be coalesced with other timers.
 .It Sy AbandonProcessGroup <boolean>
 When a job dies,
 .Nm launchd
